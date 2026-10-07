@@ -92,6 +92,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.glasslauncher.dream.AerialActivity
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.Type
 import dev.glasslauncher.widgets.IdleState
@@ -282,7 +283,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                             .graphicsLayer {
                                 val shelfPx = ShelfHeight.toPx()
                                 translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else shelfPx)
-                                alpha = idle.chromeAlpha * (1f - backdrop.wallpaperBlur.value * 3f).coerceIn(0f, 1f)
+                                alpha = idle.chromeAlpha * (1f - backdrop.wallpaperBlur.value * 8f).coerceIn(0f, 1f)
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
                     ) {
@@ -362,9 +363,8 @@ private fun WallpaperLayer(state: BackdropState, palette: Palette) {
     Canvas(Modifier.fillMaxSize()) {
         val b = state.backdrop ?: return@Canvas
         val dst = IntSize(size.width.toInt(), size.height.toInt())
-        val blur = state.wallpaperBlur.value
-        if (blur < 0.999f) drawImage(b.sharp, dstSize = dst, filterQuality = FilterQuality.Low)
-        if (blur > 0.001f) drawImage(b.blurred, dstSize = dst, alpha = blur, filterQuality = FilterQuality.Low)
+        val level = (state.wallpaperBlur.value * b.ladder.lastIndex).roundToInt().coerceIn(0, b.ladder.lastIndex)
+        drawImage(b.ladder[level], dstSize = dst, filterQuality = FilterQuality.Low)
     }
 }
 

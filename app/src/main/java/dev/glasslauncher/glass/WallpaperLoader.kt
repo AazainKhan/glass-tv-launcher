@@ -26,6 +26,11 @@ class Backdrop(
     val sharp: ImageBitmap,
     /** Blurred wallpaper for full-screen drawing. */
     val blurred: ImageBitmap,
+    /**
+     * Opaque wallpaper copies from sharp to fully blurred. Animating the blur steps through these, so
+     * every frame is a single opaque full-screen draw instead of a two-image cross-fade.
+     */
+    val ladder: List<ImageBitmap>,
     /** Same blur as a software bitmap, for the glass BitmapShader. */
     val blurredSoftware: ImageBitmap,
     /** True when the wallpaper is light enough that content should use dark text. */
@@ -47,6 +52,11 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         }
         val blurred = Blur.backdrop(source, BLUR_W, BLUR_H, radius = 5)
         val isLight = Blur.luminance(blurred) > 0.62f
+        val steps = listOf(
+            Triple(640, 360, 1), Triple(448, 252, 2), Triple(320, 180, 3), Triple(240, 135, 4),
+        ).mapIndexed { i, (w, h, r) ->
+            Blur.backdrop(source, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight); it.setHasAlpha(false) }
+        }
         // The screen-bottom scrim is baked in and the bitmaps are marked opaque, so drawing the wallpaper
         // is a single non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
         bakeScrim(source, isLight)
@@ -56,7 +66,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         blurred.setHasAlpha(false)
         val sharp = source.copy(Bitmap.Config.HARDWARE, false)?.also { source.recycle() } ?: source
         val blurredGpu = blurredScreen.copy(Bitmap.Config.HARDWARE, false)?.also { blurredScreen.recycle() } ?: blurredScreen
-        Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), blurred.asImageBitmap(), isLight)
+        val ladder = listOf(sharp) + steps.map { b -> b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b } + blurredGpu
+        Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, blurred.asImageBitmap(), isLight)
     }
 
     private fun bakeScrim(bitmap: Bitmap, light: Boolean) {

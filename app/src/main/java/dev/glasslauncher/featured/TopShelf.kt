@@ -109,13 +109,13 @@ fun TopShelf(cfg: LauncherConfig, modifier: Modifier = Modifier, paused: Boolean
                             modifier = Modifier.height(68.dp).fillMaxWidth(0.85f),
                         )
                     } else {
-                        Text(item.title, style = Type.display.copy(shadow = Type.shadow), color = palette.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(item.title, style = Type.display, color = palette.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     item.subtitle?.let {
-                        Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = palette.secondary, maxLines = 1, modifier = Modifier.padding(top = 10.dp))
+                        Text(it, style = Type.secondary, color = palette.secondary, maxLines = 1, modifier = Modifier.padding(top = 10.dp))
                     }
                     item.description?.let {
-                        Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = palette.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                        Text(it, style = Type.secondary, color = palette.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                     }
                     if (feed.items.size > 1) PageDots(count = feed.items.size.coerceAtMost(12), active = index.coerceAtMost(11))
                 }
