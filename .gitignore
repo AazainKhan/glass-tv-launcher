@@ -11,3 +11,6 @@ node_modules/
 docs/research/decompiled/
 tools/.venv/
 tools/ADBKeyboard.apk
+reports/
+app/src/test/screenshots/**/*_actual.png
+app/src/test/screenshots/**/*_compare.png

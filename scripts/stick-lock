@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Advisory lock so parallel sessions don't send input to the same device at once.
+#   scripts/stick-lock take "<who>" [minutes=30]   claim the device (renew by taking again)
+#   scripts/stick-lock release ["<who>"]
+#   scripts/stick-lock status
+# Input scripts (key, clip, tv-type, perf-run, dev-mode) refuse while another owner holds it.
+# Export TV_OWNER="<who>" in your session so your own scripts pass.
+set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
+mkdir -p "$TV_LOCK_DIR"; f="$TV_LOCK_DIR/$ANDROID_SERIAL.lock"
+case "${1:-status}" in
+  take)
+    who="${2:?usage: scripts/stick-lock take <who> [minutes]}"; mins="${3:-30}"
+    owner="$(lock_owner)"
+    if [ -n "$owner" ] && [ "$owner" != "$who" ]; then echo "held by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)" >&2; exit 3; fi
+    echo "$(( $(date +%s) + mins * 60 )) $who" > "$f"
+    echo "$ANDROID_SERIAL locked by \"$who\" for $mins min (export TV_OWNER=\"$who\")" ;;
+  release)
+    owner="$(lock_owner)"
+    if [ -n "$owner" ] && [ -n "${2:-}" ] && [ "$owner" != "$2" ]; then echo "held by \"$owner\", not \"$2\"" >&2; exit 3; fi
+    rm -f "$f"; echo "released $ANDROID_SERIAL" ;;
+  status)
+    owner="$(lock_owner)"
+    if [ -n "$owner" ]; then echo "$ANDROID_SERIAL: locked by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)"; else echo "$ANDROID_SERIAL: free"; fi ;;
+  *) sed -n '2,7p' "$0"; exit 2 ;;
+esac

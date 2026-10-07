@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# An Android TV emulator for functional/focus work in parallel with the real stick.
+#
+#   scripts/emulator start [--window]   boot GlassTV_API31 headless (or with a window)
+#   scripts/emulator install [debug|release]   build-free install of the last built APK, set as Home
+#   scripts/emulator env                 print the exports that point scripts at the emulator
+#   scripts/emulator stop
+#
+# Isolation: it listens on ports outside adb's auto-scan range and is attached only to a separate
+# adb server (port 5038), so the default adb (and any other session using the stick) never sees a
+# second device. In a shell: eval "$(scripts/emulator env)", then scripts/key, scripts/shot,
+# scripts/tv … all act on the emulator. Not for looks or performance (different GPU, API 31):
+# use the stick for those.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SDK="$(grep sdk.dir "$ROOT/local.properties" | cut -d= -f2)"
+AVD=GlassTV_API31
+CONSOLE=5600; ADBPORT=5601; SERVER=5038
+EADB=(env ANDROID_ADB_SERVER_PORT=$SERVER adb -s "emulator-$CONSOLE")
+
+case "${1:-}" in
+  start)
+    if "${EADB[@]}" get-state >/dev/null 2>&1; then echo "already running"; exit 0; fi
+    window=(-no-window); [ "${2:-}" = --window ] && window=()
+    mkdir -p "$ROOT/build"
+    # The emulator registers with the adb server named in its own environment: keep it off the default one.
+    # The emulator announces itself to adb (server port and discovery files under $HOME). Give it its
+    # own server port and HOME so the default adb server, and any session on the stick, never sees it.
+    EHOME="$HOME/.cache/glass-tv/emulator-home"; mkdir -p "$EHOME"
+    AVDDIR="$HOME/.android/avd"; HOME="$EHOME" ANDROID_AVD_HOME="$AVDDIR" ANDROID_SDK_ROOT="$SDK" ANDROID_ADB_SERVER_PORT=$SERVER \
+      nohup "$SDK/emulator/emulator" -avd "$AVD" -ports "$CONSOLE,$ADBPORT" "${window[@]}" \
+      -no-snapshot-save -no-boot-anim -gpu host -memory 2048 >"$ROOT/build/emulator.log" 2>&1 &
+    for _ in $(seq 1 120); do
+      [ "$("${EADB[@]}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break
+      sleep 2
+    done
+    "${EADB[@]}" shell settings put global window_animation_scale 0.5 >/dev/null
+    echo "emulator up: eval \"\$(scripts/emulator env)\"" ;;
+  install)
+    variant="${2:-debug}"
+    apk="$ROOT/app/build/outputs/apk/$variant/app-$variant.apk"
+    [ -f "$apk" ] || { echo "no $apk; build it first (./gradlew :app:assembleDebug or assembleRelease)" >&2; exit 1; }
+    "${EADB[@]}" install -r "$apk" >/dev/null
+    "${EADB[@]}" shell pm disable-user --user 0 com.google.android.tvlauncher >/dev/null 2>&1 || true
+    "${EADB[@]}" shell cmd package set-home-activity dev.glasslauncher/.MainActivity >/dev/null
+    "${EADB[@]}" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity >/dev/null
+    echo "installed $variant on the emulator" ;;
+  env)
+    echo "export ANDROID_ADB_SERVER_PORT=$SERVER ANDROID_SERIAL=emulator-$CONSOLE" ;;
+  stop)
+    "${EADB[@]}" emu kill >/dev/null 2>&1 || "${EADB[@]}" shell reboot -p >/dev/null 2>&1 || true
+    ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
+    echo "stopped" ;;
+  *) sed -n '2,14p' "$0"; exit 2 ;;
+esac

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Reports filed from the live view (Report button) and by scripts/watch-crashes.
+#   scripts/reports              list open reports, newest first (with their notes)
+#   scripts/reports show <id>    print a report and its file paths (look at still.png / last-6s.mp4)
+#   scripts/reports done <id> ["what was done"]   close it (moves to reports/done/, appends the note)
+#   scripts/reports strip <id>   frame strip of its clip -> <report>/strip.png (12 frames, 0.5 s apart)
+# <id> can be any unique part of the folder name.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+INBOX="$ROOT/reports/inbox"; DONE="$ROOT/reports/done"
+mkdir -p "$INBOX" "$DONE"
+find_one() {
+  local m; m=$(ls -1 "$INBOX" | grep -F -- "$1" || true)
+  [ "$(printf '%s\n' "$m" | grep -c .)" = 1 ] || { echo "no single open report matches '$1'" >&2; exit 1; }
+  echo "$INBOX/$m"
+}
+case "${1:-list}" in
+  list)
+    n=0
+    for d in $(ls -1r "$INBOX"); do
+      n=$((n + 1)); printf '%s  %s\n' "$d" "$(head -1 "$INBOX/$d/report.md" | sed 's/^# //')"
+    done
+    [ "$n" -gt 0 ] || echo "no open reports" ;;
+  show)
+    d=$(find_one "${2:?id}"); cat "$d/report.md"; echo; ls -1 "$d" | sed "s|^|$d/|" ;;
+  done)
+    d=$(find_one "${2:?id}")
+    [ -z "${3:-}" ] || printf '\n## Resolved %s\n\n%s\n' "$(date '+%Y-%m-%d %H:%M')" "$3" >> "$d/report.md"
+    mv "$d" "$DONE/"; echo "closed $(basename "$d")" ;;
+  strip)
+    d=$(find_one "${2:?id}"); [ -f "$d/last-6s.mp4" ] || { echo "no clip in $d" >&2; exit 1; }
+    ffmpeg -loglevel error -y -i "$d/last-6s.mp4" -vf "fps=2,scale=480:-1,tile=4x3:padding=4" -frames:v 1 "$d/strip.png"
+    echo "$d/strip.png" ;;
+  *) sed -n '2,7p' "$0"; exit 2 ;;
+esac

@@ -3,6 +3,7 @@
 #   scripts/shot [out.png] [width]     default /tmp/tv.png, 960 px wide (0 = native 1920)
 # Pulls the raw framebuffer and encodes on the Mac: ~1 s, vs ~2 s for `screencap -p`.
 set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
 OUT="${1:-/tmp/tv.png}"; W="${2:-960}"
 adb shell 'dumpsys power 2>/dev/null | grep -c "mWakefulness=Awake" >/dev/null || { input keyevent KEYCODE_WAKEUP; sleep 1; }'
 RAW="$(mktemp)"; trap 'rm -f "$RAW"' EXIT

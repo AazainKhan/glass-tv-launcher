@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Blocks commits that change UI code or screenshot baselines while the JVM checks fail, so
+# baselines can't drift silently. Skip once with: git commit --no-verify
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+git diff --cached --name-only | grep -qE '^(app/src/(main|test)/|app/build.gradle.kts|gradle/libs.versions.toml)' || exit 0
+echo "pre-commit: UI changed, running scripts/shots all…" >&2
+if ! scripts/shots all >&2; then
+  echo "pre-commit: UI checks failed. Fix them, or run scripts/shots record if the change is intended." >&2
+  exit 1
+fi

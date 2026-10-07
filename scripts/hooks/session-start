@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Claude Code SessionStart hook: tell the agent about open visual-bug reports and who holds the
+# stick, so reports filed from the live view don't sit unread.
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
+cd "$ROOT" 2>/dev/null || exit 0
+reports="$(scripts/reports list 2>/dev/null | grep -v '^no open reports' | head -15)"
+lock="$(scripts/stick-lock status 2>/dev/null)"
+[ -z "$reports" ] && [ -z "$lock" ] && exit 0
+ctx=""
+[ -n "$reports" ] && ctx+="Open reports from the user's live view or crash watcher (scripts/reports show <id>; close with scripts/reports done <id> \"what you did\"):
+$reports
+"
+[ -n "$lock" ] && ctx+="Device: $lock (scripts/stick-lock take \"<you>\" before sending input; other sessions may be using it)."
+python3 -c 'import json,sys; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}))' "$ctx"

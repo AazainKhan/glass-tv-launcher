@@ -6,8 +6,10 @@
 # The original values are saved on the device (/data/local/tmp/dev-mode.saved), so `off`
 # restores them even from another shell or after a reboot.
 set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
 SAVED=/data/local/tmp/dev-mode.saved
 
+[ "${1:-status}" = status ] || require_device_access
 case "${1:-status}" in
   on)
     adb shell "[ -f $SAVED ] || echo \"\$(settings get global stay_on_while_plugged_in) \$(settings get system screen_off_timeout) \$(settings get secure sleep_timeout)\" > $SAVED"

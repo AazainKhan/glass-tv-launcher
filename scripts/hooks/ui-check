@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Claude Code Stop hook: when UI code changed since the last check, run the JVM screenshot and
+# focus checks (scripts/shots all, ~30 s) and, if they fail, block the stop with the failures so
+# the agent fixes them or re-records intended changes. Silent when nothing UI-related changed.
+# Each change set is checked once: a failure blocks one time, never in a loop.
+set -uo pipefail
+input="$(cat)"
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
+cd "$ROOT" || exit 0
+case "$input" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0 ;; esac
+
+paths=(app/src/main app/src/test app/build.gradle.kts gradle/libs.versions.toml)
+state="$(git rev-parse --git-dir)/glass-ui-check.state"
+fp="$( { git rev-parse HEAD; git diff HEAD -- "${paths[@]}"; git ls-files -o --exclude-standard -- "${paths[@]}" | xargs -I{} shasum {} 2>/dev/null; } | shasum | cut -c1-16)"
+# Nothing changed relative to HEAD in UI paths: HEAD was checked by the pre-commit hook.
+if git diff --quiet HEAD -- "${paths[@]}" && [ -z "$(git ls-files -o --exclude-standard -- "${paths[@]}")" ]; then exit 0; fi
+[ -f "$state" ] && [ "$(cut -d' ' -f1 "$state")" = "$fp" ] && exit 0
+
+out="$(gtimeout 300 scripts/shots all 2>&1)"; rc=$?
+if [ $rc -eq 0 ]; then echo "$fp pass" > "$state"; exit 0; fi
+echo "$fp fail" > "$state"
+summary="$(printf '%s\n' "$out" | sed -n '/FAILED:/,$p' | head -25)"
+[ -n "$summary" ] || summary="$(printf '%s\n' "$out" | tail -15)"
+python3 - "$summary" <<'PY'
+import json, sys
+print(json.dumps({"decision": "block", "reason":
+    "UI checks failed after your changes (scripts/shots all):\n" + sys.argv[1] +
+    "\n\nFix the regression, or if the visual change is intended run `scripts/shots record` and look at the new "
+    "baselines in app/src/test/screenshots/ before finishing. Diffs: app/build/outputs/roborazzi/*_compare.png; "
+    "focus graph: app/build/focus-graph/home.md. (This check won't block again for the same changes.)"}))
+PY

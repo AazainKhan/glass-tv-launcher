@@ -64,6 +64,18 @@ android {
     }
 }
 
+// Every @Preview under dev.glasslauncher.preview (debug source set) becomes a screenshot test.
+roborazzi {
+    // Preview baselines live with the other screenshots (HomeShots pass explicit paths).
+    outputDir.set(file("src/test/screenshots/previews"))
+    @OptIn(com.github.takahirom.roborazzi.ExperimentalRoborazziApi::class)
+    generateComposePreviewRobolectricTests {
+        enable = true
+        packages = listOf("dev.glasslauncher.preview")
+        robolectricConfig = mapOf("sdk" to "[35]", "qualifiers" to "\"w960dp-h540dp-land-television-xhdpi\"")
+    }
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)
@@ -91,5 +103,7 @@ dependencies {
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(libs.preview.scanner)
+    testImplementation(libs.roborazzi.preview.scanner.support)
     debugImplementation(libs.compose.ui.test.manifest)
 }

@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.semantics.getOrNull
 import androidx.test.core.app.ActivityScenario
 import dev.glasslauncher.MainActivity
 import androidx.compose.ui.test.hasTestTag
@@ -43,12 +44,22 @@ fun ComposeTestRule.stableImage(): Bitmap {
     val bitmap = onRoot().captureToImage().asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(bitmap)
     val paint = Paint().apply { color = android.graphics.Color.MAGENTA }
-    for (tag in volatileTags) {
-        for (node in onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes()) {
+    // Any text that reads as a time of day ("5:42", "17:05", "5:42 a.m.") is a clock, tagged or not.
+    val timeText = androidx.compose.ui.test.SemanticsMatcher("shows a time") { n ->
+        n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text).orEmpty()
+            .any { Regex("""^\d{1,2}:\d{2}( ?[ap]\.?m\.?)?$""", RegexOption.IGNORE_CASE).matches(it.text.trim()) }
+    }
+    val volatileNodes = volatileTags.flatMap { onAllNodes(hasTestTag(it), useUnmergedTree = true).fetchSemanticsNodes() } +
+        onAllNodes(timeText, useUnmergedTree = true).fetchSemanticsNodes()
+    run {
+        for (node in volatileNodes) {
             val r = node.boundsInRoot
-            // Fixed-width box anchored at the node's right edge (the pill grows leftwards with the time
-            // text), padded for the blurred text shadow, so the mask itself doesn't move between runs.
-            canvas.drawRect(r.right - 320f, r.top - 24, r.right + 24, r.bottom + 24, paint)
+            // A box at least 320 px wide from whichever edge is anchored (the pill grows leftwards, the
+            // Control Center clock rightwards), padded for text shadow, so the mask doesn't move between runs.
+            val grid = 64f  // snap edges so a few px of text-width change never moves the mask itself
+            val l = kotlin.math.floor((minOf(r.left, r.right - 320f) - 24) / grid) * grid
+            val rt = kotlin.math.ceil((maxOf(r.right, r.left + 320f) + 24) / grid) * grid
+            canvas.drawRect(l, kotlin.math.floor((r.top - 24) / grid) * grid, rt, kotlin.math.ceil((r.bottom + 24) / grid) * grid, paint)
         }
     }
     return bitmap

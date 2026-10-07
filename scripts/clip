@@ -9,6 +9,8 @@
 # CLIP_FPS (default 30) starting at the first key press, 6 per row, labelled with ms.
 # screenrecord uses the stick's encoder: judge how motion looks, never benchmark from a clip.
 set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
+require_device_access
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="${1:?usage: scripts/clip <name> <keys...>}"; shift
 [ $# -gt 0 ] || { echo "usage: scripts/clip <name> <keys...>" >&2; exit 2; }

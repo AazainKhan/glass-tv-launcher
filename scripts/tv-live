@@ -5,13 +5,23 @@
 
 Defaults to the stick's native 1080p at 20 Mbit/s. "Lossless still" swaps in a PNG straight from the
 framebuffer (no video compression) for judging edges and blending; "1:1" shows it unscaled.
+/gallery shows what's being built, refreshing itself: Home screen renders and failing diffs, component
+previews, motion strips and device clips, the focus graph, and open reports.
 Open http://localhost:8765 (in the Claude desktop browser pane: preview "tv-live").
 The device's screen recorder (H.264) is transcoded by ffmpeg to MJPEG, so any <img> can show it.
 Arrow keys / Enter / Backspace (Back) / H (Home) / M (Menu) / Space (Play) drive the remote.
+"Report" saves what you're looking at for the agents: a lossless still, the last ~6 s as video,
+the focused element and your note, in reports/inbox/<time>-<note>/ (see scripts/reports).
+App crashes and ANRs are reported there automatically (scripts/watch-crashes runs alongside).
 Recording uses the stick's encoder, so close the tab before benchmarking.
 """
 import argparse
+import collections
+import json
 import os
+import re
+import sys
+import tempfile
 import shutil
 import subprocess
 import threading
@@ -21,8 +31,21 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEY = os.path.join(ROOT, "scripts", "key")
+REPORTS = os.path.join(ROOT, "reports", "inbox")
+CLIP_SECONDS = 6
 KEYS = {"up", "down", "left", "right", "select", "back", "home", "menu", "play", "rew", "ff"}
 
+
+
+def default_serial():
+    """Same rule as scripts/lib/device.sh: ANDROID_SERIAL, else the first non-emulator device."""
+    if os.environ.get("ANDROID_SERIAL"):
+        return
+    rows = [l.split() for l in subprocess.run(["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]]
+    devices = [r[0] for r in rows if len(r) == 2 and r[1] == "device"]
+    real = [d for d in devices if not d.startswith("emulator-")]
+    if real or devices:
+        os.environ["ANDROID_SERIAL"] = (real or devices)[0]
 
 class Stream:
     """One shared device recording, started while at least one viewer is connected."""
@@ -30,6 +53,7 @@ class Stream:
     def __init__(self, size, bitrate):
         self.size, self.bitrate = size, bitrate
         self.frame, self.seq = None, 0
+        self.recent = collections.deque()  # (monotonic time, jpeg) for the last CLIP_SECONDS
         self.cond = threading.Condition()
         self.viewers = 0
         self.thread = None
@@ -46,8 +70,12 @@ class Stream:
             self.viewers -= 1
 
     def publish(self, jpeg):
+        now = time.monotonic()
         with self.cond:
             self.frame, self.seq = jpeg, self.seq + 1
+            self.recent.append((now, jpeg))
+            while self.recent and now - self.recent[0][0] > CLIP_SECONDS:
+                self.recent.popleft()
             self.cond.notify_all()
 
     def next(self, after, timeout=5):
@@ -105,6 +133,130 @@ class Stream:
             time.sleep(0.2)
 
 
+def sh(cmd):
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip()
+
+
+def make_report(stream, note):
+    """Saves what the viewer is looking at, plus context, for an agent to pick up."""
+    slug = re.sub(r"[^a-z0-9]+", "-", note.lower()).strip("-")[:48] or "report"
+    folder = os.path.join(REPORTS, time.strftime("%Y%m%d-%H%M%S") + "-" + slug)
+    os.makedirs(folder)
+    with open(os.path.join(folder, "still.png"), "wb") as f:
+        f.write(subprocess.run(["adb", "exec-out", "screencap", "-p"], capture_output=True).stdout)
+    with stream.cond:
+        frames = list(stream.recent)
+    if frames:
+        # Re-time the buffered JPEGs with their real arrival gaps (the recorder is variable-rate).
+        with tempfile.TemporaryDirectory() as tmp:
+            lines = ["ffconcat version 1.0"]
+            for i, (t, jpeg) in enumerate(frames):
+                name = os.path.join(tmp, f"{i:04d}.jpg")
+                with open(name, "wb") as f:
+                    f.write(jpeg)
+                # The recorder only emits changed frames: hold the last one until the report moment.
+                nxt = frames[i + 1][0] if i + 1 < len(frames) else max(time.monotonic(), t + 1 / 30)
+                lines += [f"file '{name}'", f"duration {max(nxt - t, 0.001):.4f}"]
+            lst = os.path.join(tmp, "list.txt")
+            with open(lst, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+                            "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-crf", "18",
+                            os.path.join(folder, "last-6s.mp4")], capture_output=True)
+    xml = sh("adb shell 'uiautomator dump /sdcard/report.xml >/dev/null 2>&1; cat /sdcard/report.xml'")
+    node = re.search(r'<node[^>]*focused="true"[^>]*>', xml)
+    focused = " ".join(f'{k}="{v}"' for k, v in re.findall(r'(resource-id|content-desc|text|bounds)="([^"]*)"', node.group(0)) if v) if node else ""
+    context = {
+        "note": note,
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "foreground": sh("adb shell dumpsys window | grep -m1 mCurrentFocus | sed 's/.* u0 //; s/}//'"),
+        "focused": focused or "(none: nothing focused, or a non-accessible app)",
+        "installed": sh("adb shell dumpsys package dev.glasslauncher | grep -m1 lastUpdateTime | sed 's/.*=//'"),
+        "git": sh(f"git -C '{ROOT}' log -1 --format='%h %s'") + (" (+uncommitted changes)" if sh(f"git -C '{ROOT}' status --porcelain") else ""),
+    }
+    with open(os.path.join(folder, "report.md"), "w") as f:
+        f.write(f"# {note or 'Report'}\n\n")
+        for k, v in context.items():
+            if k != "note":
+                f.write(f"- **{k}:** {v}\n")
+        f.write("\nFiles: `still.png` (lossless), `last-6s.mp4` (what was on screen before reporting).\n")
+    return os.path.relpath(folder, ROOT)
+
+
+GALLERY_SOURCES = {
+    # section -> list of (glob relative to ROOT, kind)
+    "Screens": [("app/build/outputs/roborazzi/*_compare.png", "diff"), ("app/src/test/screenshots/*.png", "image")],
+    "Components": [("app/src/test/screenshots/previews/*.png", "image")],
+    "Motion": [("app/build/strips/*.png", "image"), ("build/clips/*.png", "image"), ("build/clips/*.mp4", "video")],
+    "Focus": [("app/build/focus-graph/*.md", "text")],
+    "Reports": [("reports/inbox/*/still.png", "image"), ("reports/inbox/*/last-6s.mp4", "video"), ("reports/inbox/*/report.md", "text")],
+}
+SERVABLE = ("app/build/", "app/src/test/screenshots/", "build/clips/", "reports/")
+
+
+def gallery_listing():
+    import glob
+    out = {}
+    for section, sources in GALLERY_SOURCES.items():
+        items = []
+        for pattern, kind in sources:
+            for f in glob.glob(os.path.join(ROOT, pattern)):
+                rel = os.path.relpath(f, ROOT)
+                item = {"path": rel, "kind": kind, "mtime": os.path.getmtime(f), "name": os.path.basename(f)}
+                if section == "Reports":
+                    item["name"] = os.path.basename(os.path.dirname(f)) + " · " + item["name"]
+                if kind == "text":
+                    with open(f, errors="replace") as fh:
+                        item["text"] = fh.read()[:20000]
+                items.append(item)
+        out[section] = sorted(items, key=lambda i: -i["mtime"])
+    return out
+
+
+GALLERY = """<!doctype html><html><head><meta charset="utf-8"><title>TV Gallery</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:dark;--bg:#0b0b0f;--fg:#e8e8ee;--card:#17181e;--muted:#8a8c99;--accent:#4f7cff;--bad:#ff5a5f;--new:#36d399}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px -apple-system,system-ui,sans-serif}
+header{position:sticky;top:0;background:var(--bg);display:flex;gap:6px;align-items:center;padding:10px 16px;border-bottom:1px solid #222;flex-wrap:wrap;z-index:2}
+header a,header button{color:var(--fg);background:var(--card);border:0;border-radius:8px;padding:8px 12px;text-decoration:none;font:inherit;cursor:pointer}
+header button.on{background:var(--accent)}#updated{margin-left:auto;color:var(--muted);font-size:12px}
+main{padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:14px}
+.card{background:var(--card);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.card img,.card video{width:100%;display:block;background:#000;cursor:zoom-in}
+.card .cap{padding:8px 10px;font-size:12px;color:var(--muted);display:flex;gap:8px;justify-content:space-between;word-break:break-all}
+.card.diff{outline:2px solid var(--bad)}.card.fresh{outline:2px solid var(--new)}
+.card pre{margin:0;padding:10px;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace;max-height:520px;overflow:auto}
+.wide{grid-column:1/-1}.empty{color:var(--muted);padding:24px}
+#zoom{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center;z-index:5;cursor:zoom-out}
+#zoom img{max-width:98vw;max-height:98vh}
+</style></head><body>
+<header><a href="/">← Live</a><span id="tabs"></span><span id="updated"></span></header>
+<main id="grid"></main><div id="zoom"><img alt=""></div>
+<script>
+let data={},tab=(location.hash||'#Screens').slice(1),sig='';
+const grid=document.getElementById('grid'),tabs=document.getElementById('tabs'),zoom=document.getElementById('zoom');
+zoom.onclick=()=>zoom.style.display='none';
+function ago(t){const s=Math.round(Date.now()/1000-t);return s<60?s+'s ago':s<3600?Math.round(s/60)+'m ago':Math.round(s/3600)+'h ago'}
+function esc(t){return t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function render(){
+  tabs.innerHTML=Object.keys(data).map(k=>{const n=data[k].length,d=data[k].filter(i=>i.kind==='diff').length;
+    return `<button class="${k===tab?'on':''}" data-t="${k}">${k} ${n?'('+n+')':''}${d?' ⚠'+d:''}</button>`}).join(' ');
+  tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;location.hash=tab;render()});
+  const items=data[tab]||[];
+  if(!items.length){grid.innerHTML='<div class="empty">Nothing here yet. It fills in as scripts/shots, strips, clips and reports run.</div>';return}
+  grid.innerHTML=items.map(i=>{const fresh=Date.now()/1000-i.mtime<120,url='/files/'+i.path+'?'+i.mtime;
+    const body=i.kind==='text'?`<pre>${esc(i.text)}</pre>`:i.kind==='video'?`<video src="${url}" controls muted loop playsinline></video>`:`<img src="${url}" loading="lazy" alt="">`;
+    return `<div class="card ${i.kind==='diff'?'diff':''} ${fresh?'fresh':''} ${i.kind==='text'?'wide':''}">${body}<div class="cap"><span>${esc(i.name)}</span><span>${ago(i.mtime)}</span></div></div>`}).join('');
+  grid.querySelectorAll('img').forEach(im=>im.onclick=()=>{zoom.querySelector('img').src=im.src;zoom.style.display='flex'});
+}
+async function poll(){try{const j=await (await fetch('/api/gallery')).json();const s=JSON.stringify(Object.values(j).map(a=>a.map(i=>i.path+i.mtime)));
+  if(s!==sig){sig=s;data=j;render()}document.getElementById('updated').textContent='updated '+new Date().toLocaleTimeString()}catch(e){}
+  setTimeout(poll,3000)}
+poll();
+</script></body></html>"""
+
+
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>TV Live</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
@@ -115,12 +267,15 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>TV Live</title
 #wrap{width:100%;max-width:1920px;overflow:auto;border-radius:8px}
 #wrap.native #screen{width:1920px;max-width:none;aspect-ratio:auto;border-radius:0}
 button.on{background:var(--accent)}
+.report{width:100%;max-width:900px;flex-wrap:nowrap}
+textarea{flex:1;min-width:0;background:var(--btn);color:var(--fg);border:0;border-radius:10px;padding:10px 12px;font:inherit;resize:vertical}
 .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:center}
 .pad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:4px}
 button{background:var(--btn);color:var(--fg);border:0;border-radius:10px;font-size:15px;cursor:pointer;min-width:48px;height:48px;padding:0 12px}
 button:hover{background:var(--btn2)}button:active{background:var(--accent)}
 .ok{border-radius:50%}small{opacity:.6}#status{min-width:140px;text-align:center}
 </style></head><body>
+<div class="row" style="width:100%;max-width:1920px;justify-content:flex-start"><a href="/gallery" style="color:var(--fg)">Gallery: screens, previews, motion, focus, reports →</a></div>
 <div id="wrap"><img id="screen" src="/stream" tabindex="0" alt="TV screen"></div>
 <div class="row">
  <div class="pad">
@@ -135,12 +290,21 @@ button:hover{background:var(--btn2)}button:active{background:var(--accent)}
  </div>
  <div id="status"><small>click the screen, then use arrows · Enter · ⌫ Back · H · M</small></div>
 </div>
+<div class="row report">
+ <textarea id="note" rows="2" placeholder="What looks wrong? (e.g. tray border doesn't blend with the fill)"></textarea>
+ <button id="report">Report</button>
+</div>
 <script>
 const status=document.getElementById('status');
 let press=function(k){fetch('/key?k='+k,{method:'POST'}).then(r=>{status.textContent=r.ok?k:'error: '+k})}
 document.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>press(b.dataset.k));
 const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'select',Backspace:'back',Escape:'back',h:'home',m:'menu',' ':'play'};
-document.addEventListener('keydown',e=>{const k=map[e.key];if(k){e.preventDefault();press(k)}});
+document.addEventListener('keydown',e=>{if(e.target.tagName==='TEXTAREA')return;const k=map[e.key];if(k){e.preventDefault();press(k)}});
+const note=document.getElementById('note'),reportBtn=document.getElementById('report');
+reportBtn.onclick=()=>{reportBtn.disabled=true;status.textContent='saving report…';
+  fetch('/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:note.value})})
+   .then(r=>r.json()).then(j=>{status.textContent='saved '+j.path;note.value=''})
+   .catch(()=>{status.textContent='report failed'}).finally(()=>{reportBtn.disabled=false})};
 const img=document.getElementById('screen');
 let still=false;
 img.onerror=()=>{if(!still)setTimeout(()=>{img.src='/stream?'+Date.now()},1000)};
@@ -161,7 +325,9 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)))
     ap.add_argument("--size", default="1920x1080")
     ap.add_argument("--bitrate", type=int, default=20, help="Mbit/s")
+    ap.add_argument("--no-watch", action="store_true", help="don't run scripts/watch-crashes alongside")
     args = ap.parse_args()
+    default_serial()
     for tool in ("adb", "ffmpeg"):
         if not shutil.which(tool):
             raise SystemExit(f"tv-live needs {tool} on PATH")
@@ -198,6 +364,35 @@ def main():
                     pass
                 finally:
                     stream.detach()
+            elif path == "/gallery":
+                body = GALLERY.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(body)
+            elif path == "/api/gallery":
+                body = json.dumps(gallery_listing()).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+            elif path.startswith("/files/"):
+                rel = os.path.normpath(path[len("/files/"):])
+                full = os.path.realpath(os.path.join(ROOT, rel))
+                if not full.startswith(os.path.realpath(ROOT) + os.sep) or not rel.startswith(SERVABLE) or not os.path.isfile(full):
+                    self.send_error(404)
+                    return
+                ctype = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".md": "text/plain; charset=utf-8"}.get(
+                    os.path.splitext(full)[1], "application/octet-stream")
+                with open(full, "rb") as fh:
+                    body = fh.read()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "max-age=3600")
+                self.end_headers()
+                self.wfile.write(body)
             elif path == "/still.png":
                 png = subprocess.run(["adb", "exec-out", "screencap", "-p"], capture_output=True).stdout
                 self.send_response(200 if png else 503)
@@ -216,14 +411,26 @@ def main():
 
         def do_POST(self):
             u = urlparse(self.path)
+            if u.path == "/report":
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
+                note = (json.loads(body or b"{}").get("note") or "").strip()
+                out = json.dumps({"path": make_report(stream, note)}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(out)
+                return
             k = parse_qs(u.query).get("k", [""])[0]
             if u.path == "/key" and k in KEYS:
-                ok = subprocess.run([KEY, k], capture_output=True).returncode == 0
+                # The human at the live view always gets through, even if an agent holds the lock.
+                ok = subprocess.run([KEY, k], capture_output=True, env={**os.environ, "TV_FORCE": "1"}).returncode == 0
                 self.send_response(204 if ok else 500)
                 self.end_headers()
             else:
                 self.send_error(400)
 
+    if not args.no_watch:
+        subprocess.Popen([os.path.join(ROOT, "scripts", "watch-crashes")], stdout=sys.stderr)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"tv-live on http://localhost:{args.port}", flush=True)
     server.serve_forever()

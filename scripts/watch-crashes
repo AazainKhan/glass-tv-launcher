@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Watches the TV for crashes and ANRs and files each one as a report.
+
+    scripts/watch-crashes [--all]      default: only dev.glasslauncher; --all: every app
+
+Each hit becomes reports/inbox/<time>-crash-<pkg>/ (or -anr-) with the stack trace / ANR
+traces, recent logcat and a screenshot, plus a macOS notification. tv-live starts this
+automatically; run it on its own during long device sessions.
+"""
+import os
+import re
+import select
+import subprocess
+import sys
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPORTS = os.path.join(ROOT, "reports", "inbox")
+PKG = None if "--all" in sys.argv else "dev.glasslauncher"
+
+
+
+def default_serial():
+    """Same rule as scripts/lib/device.sh: ANDROID_SERIAL, else the first non-emulator device."""
+    if os.environ.get("ANDROID_SERIAL"):
+        return
+    rows = [l.split() for l in subprocess.run(["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]]
+    devices = [r[0] for r in rows if len(r) == 2 and r[1] == "device"]
+    real = [d for d in devices if not d.startswith("emulator-")]
+    if real or devices:
+        os.environ["ANDROID_SERIAL"] = (real or devices)[0]
+
+def adb(*args):
+    return subprocess.run(["adb", *args], capture_output=True, text=True, errors="replace").stdout
+
+
+def file_report(kind, pkg, detail):
+    folder = os.path.join(REPORTS, time.strftime("%Y%m%d-%H%M%S") + f"-{kind}-{pkg}")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "still.png"), "wb") as f:
+        f.write(subprocess.run(["adb", "exec-out", "screencap", "-p"], capture_output=True).stdout)
+    with open(os.path.join(folder, "logcat.txt"), "w") as f:
+        f.write(adb("logcat", "-d", "-t", "400", "-v", "threadtime"))
+    if kind == "anr":
+        detail += "\n\n" + adb("shell", "cat /data/anr/traces.txt 2>/dev/null | head -200")
+    with open(os.path.join(folder, "report.md"), "w") as f:
+        f.write(f"# {kind.upper()} in {pkg}\n\n- **time:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n```\n{detail.strip()}\n```\n\n"
+                "Files: `still.png` (screen right after), `logcat.txt` (last 400 lines).\n")
+    subprocess.run(["osascript", "-e", f'display notification "{kind.upper()} in {pkg}" with title "Fire TV"'],
+                   capture_output=True)
+    print(f"watch-crashes: {kind} in {pkg} -> {os.path.relpath(folder, ROOT)}", flush=True)
+
+
+def watch():
+    # crash buffer: "FATAL EXCEPTION" blocks of E/AndroidRuntime lines; events buffer: am_anr lines.
+    proc = subprocess.Popen(["adb", "logcat", "-b", "crash", "-b", "events", "-T", "1", "-v", "brief"],
+                            stdout=subprocess.PIPE, text=True, errors="replace", bufsize=1)
+    block, last = [], {}
+
+    def flush():
+        text = "".join(block)
+        m = re.search(r"Process: ([\w.:]+)", text)
+        pkg = m.group(1).split(":")[0] if m else "unknown"
+        if PKG is None or pkg == PKG:
+            file_report("crash", pkg, text)
+        block.clear()
+
+    while True:
+        ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+        if not ready:  # a quiet second ends a crash block
+            if block:
+                flush()
+            if proc.poll() is not None:
+                return proc.returncode
+            continue
+        line = proc.stdout.readline()
+        if not line:
+            return proc.wait()
+        if "FATAL EXCEPTION" in line:
+            if block:
+                flush()
+            block.append(line)
+            continue
+        if block:
+            if line.startswith("E/AndroidRuntime") and len(block) < 80:
+                block.append(line)
+                continue
+            flush()
+        m = re.search(r"am_anr.*?,\s*([\w.]+)\s*,", line)
+        if m and (PKG is None or m.group(1) == PKG):
+            pkg = m.group(1)
+            if time.time() - last.get(pkg, 0) > 30:  # one report per ANR episode
+                last[pkg] = time.time()
+                time.sleep(2)  # let the system write traces
+                file_report("anr", pkg, line)
+
+
+if __name__ == "__main__":
+    default_serial()
+    print(f"watch-crashes: watching {PKG or 'all apps'}", flush=True)
+    while True:  # survive adb reconnects
+        watch()
+        time.sleep(3)

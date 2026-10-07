@@ -18,6 +18,8 @@
 # keyboard) is restored afterwards. ADBKeyBoard (github.com/senzhk/ADBKeyBoard) is installed on
 # first use.
 set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
+require_device_access
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IME=com.android.adbkeyboard/.AdbIME
 CLEAR=1; SUBMIT=""; SELECT=0; STAY=0

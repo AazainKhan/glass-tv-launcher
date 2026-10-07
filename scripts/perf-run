@@ -5,6 +5,8 @@
 # pacing). Prints one JSON line: frames, janky %, p50/p90/p95/p99 ms, PSS MB, idle CPU %.
 # Don't record video or run agent-device snapshots during a run: both cost GPU/CPU.
 set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
+require_device_access
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${PERF_PKG:-dev.glasslauncher}"
 ROUNDS=3; COMPILE=1

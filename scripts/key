@@ -13,6 +13,8 @@
 #
 # Keys: up down left right select back home menu play rew ff
 set -euo pipefail
+source "$(dirname "$0")/lib/device.sh"
+require_device_access
 DEV='$D'   # resolved on the device: the input node named "Fire TV Remote" (override with KEY_DEVICE)
 GAP="${KEY_GAP_MS:-120}"
 
@@ -24,32 +26,43 @@ code() {
     *) echo "unknown key: $1" >&2; exit 2 ;;
   esac
 }
+keycode() {
+  case "$1" in
+    up) echo DPAD_UP ;; down) echo DPAD_DOWN ;; left) echo DPAD_LEFT ;; right) echo DPAD_RIGHT ;;
+    select|ok|center|enter) echo DPAD_CENTER ;; back) echo BACK ;; home) echo HOME ;; menu) echo MENU ;;
+    play|playpause) echo MEDIA_PLAY_PAUSE ;; rew) echo MEDIA_REWIND ;; ff) echo MEDIA_FAST_FORWARD ;;
+  esac
+}
 ms() { awk "BEGIN{printf \"%.3f\", $1/1000}"; }
 
 [ $# -gt 0 ] || { sed -n '2,11p' "$0"; exit 2; }
-cmds=""
+cmds=""; alt=""   # alt: the same sequence via `input keyevent`, for devices without the remote (emulator)
 for arg in "$@"; do
   case "$arg" in
-    wait:*) cmds+="sleep $(ms "${arg#wait:}");" ;;
+    wait:*) cmds+="sleep $(ms "${arg#wait:}");"; alt+="sleep $(ms "${arg#wait:}");" ;;
     settle|settle:*)
       q="${arg#settle}"; q="${q#:}"; q="${q:-300}"
       # Poll the foreground app's frame counter every 50 ms until it holds still for $q ms. Times are
       # centiseconds from /proc/uptime: the stick's shell does 32-bit arithmetic, so no ns clocks.
       # Something drawing every frame (video backdrop) never settles; give up after 3 s and say so.
-      cmds+="P=\$(dumpsys window 2>/dev/null | sed -n 's/.*mCurrentFocus=.* \([a-zA-Z0-9_.]*\)\/.*/\1/p' | head -1);"
-      cmds+="cs(){ read u _ </proc/uptime; echo \${u%.*}\${u#*.}; };"
-      cmds+="t0=\$(cs); last=-1; still=\$t0; r=settled;"
-      cmds+="while :; do n=\$(dumpsys gfxinfo \$P | sed -n 's/.*Total frames rendered: //p'); now=\$(cs);"
-      cmds+="[ \"\$n\" = \"\$last\" ] || { last=\$n; still=\$now; };"
-      cmds+="[ \$(( (now-still)*10 )) -ge $q ] && break; [ \$(( (now-t0)*10 )) -ge 3000 ] && { r=busy; break; }; sleep 0.05; done;"
-      cmds+="echo \$r \$(( (still-t0)*10 ))ms;" ;;
+      s="P=\$(dumpsys window 2>/dev/null | sed -n 's/.*mCurrentFocus=.* \([a-zA-Z0-9_.]*\)\/.*/\1/p' | head -1);"
+      s+="cs(){ read u _ </proc/uptime; echo \${u%.*}\${u#*.}; };"
+      s+="t0=\$(cs); last=-1; still=\$t0; r=settled;"
+      s+="while :; do n=\$(dumpsys gfxinfo \$P | sed -n 's/.*Total frames rendered: //p'); now=\$(cs);"
+      s+="[ \"\$n\" = \"\$last\" ] || { last=\$n; still=\$now; };"
+      s+="[ \$(( (now-still)*10 )) -ge $q ] && break; [ \$(( (now-t0)*10 )) -ge 3000 ] && { r=busy; break; }; sleep 0.05; done;"
+      s+="echo \$r \$(( (still-t0)*10 ))ms;"
+      cmds+="$s"; alt+="$s" ;;
     hold:*:*)
       rest="${arg#hold:}"; c=$(code "${rest#*:}")
-      cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sleep $(ms "${rest%%:*}");sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");" ;;
+      cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sleep $(ms "${rest%%:*}");sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");"
+      alt+="input keyevent --longpress KEYCODE_$(keycode "${rest#*:}");" ;;
     *)
       c=$(code "$arg")
-      cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");" ;;
+      cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");"
+      alt+="input keyevent KEYCODE_$(keycode "$arg");" ;;
   esac
 done
 find_dev="D=${KEY_DEVICE:-\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4} /name:.*Fire TV Remote/{print d; exit}')};"
-adb ${ANDROID_SERIAL:+-s "$ANDROID_SERIAL"} shell "$find_dev$cmds"
+# Without a Fire TV remote input node (emulators), fall back to `input keyevent` (~0.9 s a press).
+adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds else $alt fi"
