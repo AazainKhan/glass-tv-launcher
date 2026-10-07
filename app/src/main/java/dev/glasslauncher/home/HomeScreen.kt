@@ -172,7 +172,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         delay(SHELF_FOLLOW_MS)
         shelfApp = lastDockFocused?.removePrefix("app:")
     }
-    val featuredCfg = remember(cfg.featured, shelfApp) { dev.glasslauncher.featured.AppSources.effective(cfg.featured, shelfApp) }
+    val appsWithRows by produceState(emptySet<String>(), layout.loaded) { value = dev.glasslauncher.featured.TvRows.packagesWithRows(context) }
+    val featuredCfg = remember(cfg.featured, shelfApp, appsWithRows) { dev.glasslauncher.featured.AppSources.effective(cfg.featured, shelfApp, appsWithRows) }
     LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
     val feed = featuredState.feed?.takeIf { featuredCfg != null && it.items.isNotEmpty() }

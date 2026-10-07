@@ -73,9 +73,10 @@ fun StatusPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 modifier = Modifier
+                    // Glass stays put under the focus fill (a swapped-in glass node can draw before it's positioned).
+                    .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
                     .then(
-                        if (focused) Modifier.background(palette.focusFill, Shapes.pill)
-                        else Modifier.glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light)),
+                        if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                     )
                     .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
             ) {

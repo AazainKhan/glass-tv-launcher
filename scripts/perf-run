@@ -32,7 +32,8 @@ for _ in $(seq 1 "$ROUNDS"); do for k in "${KEYS[@]}"; do seq_args+=("$k" wait:1
 KEY_GAP_MS=120 "$ROOT/scripts/key" "${seq_args[@]}" settle >/dev/null
 
 gfx="$(adb shell dumpsys gfxinfo "$PKG")"
-pss_kb="$(adb shell dumpsys meminfo "$PKG" | tr -d '\r' | awk '/TOTAL PSS:/{print $3; exit}')"
+# By pid: once Glass is a system app, `dumpsys meminfo <package>` no longer matches its process.
+pss_kb="$(adb shell "dumpsys meminfo \$(pidof $PKG)" | tr -d '\r' | awk '/TOTAL PSS:/{print $3; exit}')"
 # Idle CPU: utime+stime ticks (100/s) over 5 quiet seconds. toybox top's %CPU is unreliable here.
 cpu="$(adb shell "p=\$(pidof $PKG); a=\$(awk '{print \$14+\$15}' /proc/\$p/stat); sleep 5; b=\$(awk '{print \$14+\$15}' /proc/\$p/stat); echo \$((b-a))" | tr -d "\r" | awk '{printf "%.1f", $1/5}')"
 num() { echo "$gfx" | sed -n "s/.*$1: *\([0-9.]*\).*/\1/p" | head -1; }

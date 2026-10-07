@@ -29,6 +29,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         // not on the first bake's critical path.
         scope.launch(Dispatchers.Default) { runCatching { wallpapers.prewarm() } }
         scope.launch(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
+        scope.launch(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
     }
 
     val http: OkHttpClient by lazy {

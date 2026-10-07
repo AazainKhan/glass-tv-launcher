@@ -429,9 +429,10 @@ private fun FolderView(
                     textAlign = TextAlign.Center,
                     color = if (focused) palette.onFocusFill else palette.primary,
                     modifier = Modifier
+                        // Glass stays put under the focus fill (a swapped-in glass node can draw before it's positioned).
+                        .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
                         .then(
-                            if (focused) Modifier.background(palette.focusFill, Shapes.pill)
-                            else Modifier.glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light)),
+                            if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                         )
                         .padding(horizontal = 24.dp, vertical = 8.dp),
                 )

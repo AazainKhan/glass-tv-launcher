@@ -90,6 +90,9 @@ private sealed interface Page {
     data object About : Page
     data object Accessibility : Page
     data object RemoteButtons : Page
+    data object RootTools : Page
+    data object Freezer : Page
+    data object RootLog : Page
     data class ButtonAction(val id: String) : Page
     data class ButtonApp(val id: String) : Page
 }
@@ -149,6 +152,9 @@ fun SettingsPanel(
                 Page.About -> AboutPage(f)
                 Page.Accessibility -> AccessibilityPage(model, cfg, f)
                 Page.RemoteButtons -> RemoteButtonsPage(cfg, f, ::push)
+                Page.RootTools -> RootToolsPage(f, ::push)
+                Page.Freezer -> FreezerPage(f)
+                Page.RootLog -> RootLogPage(f)
                 is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
                 is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); pop() }
                 is Page.Wallpapers -> Unit
@@ -197,6 +203,9 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Accessibility", { push(Page.Accessibility) }, chevron = true)
     MenuRow("Home Button", { push(Page.HomeButton) }, chevron = true)
     MenuRow("Remote Buttons", { push(Page.RemoteButtons) }, chevron = true)
+    // Only on rooted devices (su present and granted).
+    val rooted by androidx.compose.runtime.produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
+    if (rooted) MenuRow("Root", { push(Page.RootTools) }, chevron = true)
     MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
     MenuRow("Backup & Restore", { push(Page.Backup) }, chevron = true)
     MenuRow("About", { push(Page.About) }, chevron = true)
@@ -214,6 +223,8 @@ private fun sourceName(id: FeaturedSourceId) = when (id) {
     FeaturedSourceId.Tmdb -> "TMDB"
     FeaturedSourceId.YouTube -> "YouTube"
     FeaturedSourceId.Plex -> "Plex"
+    FeaturedSourceId.ContinueWatching -> "Continue Watching"
+    FeaturedSourceId.TvApp -> "App's Own Row"
 }
 
 @Composable
@@ -319,7 +330,8 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         Hint("The shelf shows the focused top-row app's content: Stremio, YouTube and Plex from their own catalogs; Netflix, Prime Video, Disney+, Apple TV, Max and Hulu from TMDB. Other apps, or services not set up below, show the default source.")
     }
     SectionLabel("Default Source")
-    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off }.forEach { id ->
+    val tvRows = dev.glasslauncher.featured.TvRows.available(LocalContext.current)
+    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
         MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, value = if (fc.source == id) "✓" else null)
     }
     if (fc.mode == FeaturedMode.FocusedApp) {
@@ -371,7 +383,8 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
             else MenuRow("Sign Out", { setFeatured { it.copy(plexToken = "") } }, value = "Signed in")
             Hint("Shows your On Deck items from the first Plex server that answers.")
         }
-        FeaturedSourceId.Off -> Unit
+        FeaturedSourceId.ContinueWatching -> Hint("What you were watching in any app, from the rows apps publish to the TV (Watch Next and their own Continue Watching rows).")
+        FeaturedSourceId.Off, FeaturedSourceId.TvApp -> Unit
     }
     MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
 }
@@ -706,3 +719,78 @@ private fun actionName(action: RemoteAction, pm: android.content.pm.PackageManag
     RemoteAction.Nothing -> "Do Nothing"
     RemoteAction.Default -> "Default"
 }
+
+
+@Composable
+private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val rf = dev.glasslauncher.system.RootFeatures
+    var tick by remember { mutableStateOf(0) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var freed by remember { mutableStateOf<Int?>(null) }
+    val system = remember(tick) { rf.systemAppState(context) }
+    val takeover = remember(tick) { rf.homeTakeoverOn(context) }
+    val fast = remember(tick) { rf.fast(context) }
+    val memory by androidx.compose.runtime.produceState<Boolean?>(null, tick) { value = rf.memoryTuningOn() }
+    fun act(what: String, block: suspend () -> Unit) {
+        if (busy != null) return
+        busy = what
+        scope.launch { block(); busy = null; tick++ }
+    }
+    PanelTitle("Root")
+    Hint("Root changes are reversible and logged. Some need a restart.")
+    SectionLabel("System")
+    MenuRow("System App", {
+        act("system") { if (system == dev.glasslauncher.system.RootFeatures.SystemApp.Off || system == dev.glasslauncher.system.RootFeatures.SystemApp.Removing) rf.installSystemApp(context) else rf.removeSystemApp(context) }
+    }, f, value = when (system) {
+        dev.glasslauncher.system.RootFeatures.SystemApp.On -> "On"
+        dev.glasslauncher.system.RootFeatures.SystemApp.Pending -> "On after restart"
+        dev.glasslauncher.system.RootFeatures.SystemApp.Removing -> "Off after restart"
+        dev.glasslauncher.system.RootFeatures.SystemApp.Off -> "Off"
+    })
+    Hint("Runs Glass as a privileged system app: it can read other apps' TV rows (Continue Watching) and is harder for the system to stop.")
+    ToggleRow("Home Takeover", takeover, { on -> act("home") { rf.setHomeTakeover(context, on) } })
+    Hint("Turns off Fire TV's own launcher and makes Glass the Home screen. Off brings Fire TV's back.")
+    SectionLabel("Performance")
+    MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null)
+    MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null)
+    Hint("Fast turns off system window animations, so switching apps is instant (Glass keeps its own motion), and holds the GPU and CPU at higher minimum clocks, which runs the stick warmer.")
+    ToggleRow("Memory Tuning", memory == true, { on -> act("memory") { rf.setMemoryTuning(context, on) } })
+    Hint("Keeps more apps ready to resume: 1.2 GB compressed swap, and up to 12 background apps instead of 4. Takes effect after a restart.")
+    MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" })
+    MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true)
+    SectionLabel("Device")
+    MenuRow("Restart Now", { act("restart") { rf.restart(context) } })
+    MenuRow("Root Log", { push(Page.RootLog) }, chevron = true)
+}
+
+@Composable
+private fun ColumnScope.FreezerPage(f: Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val rf = dev.glasslauncher.system.RootFeatures
+    var tick by remember { mutableStateOf(0) }
+    val frozen by androidx.compose.runtime.produceState<Set<String>?>(null, tick) { value = rf.frozen() }
+    PanelTitle("App Freezer")
+    Hint("Turned-off apps stop running and disappear until turned back on. Nothing is uninstalled.")
+    rf.freezable.forEachIndexed { i, app ->
+        val off = frozen?.contains(app.pkg) == true
+        MenuRow(app.label, { scope.launch { rf.setFrozen(context, app.pkg, !off); tick++ } }, if (i == 0) f else Modifier, value = when {
+            frozen == null -> "…"
+            off -> "Off"
+            else -> "On"
+        })
+        Hint(app.note)
+    }
+}
+
+@Composable
+private fun ColumnScope.RootLogPage(f: Modifier) {
+    val context = LocalContext.current
+    val lines = remember { dev.glasslauncher.system.Root.readLog(context) }
+    PanelTitle("Root Log")
+    if (lines.isEmpty()) MenuRow("Nothing yet", {}, f)
+    lines.forEachIndexed { i, line -> MenuRow(line, {}, if (i == 0) f else Modifier) }
+}
+

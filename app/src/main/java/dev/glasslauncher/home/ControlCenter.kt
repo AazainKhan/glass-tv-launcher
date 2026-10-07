@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
@@ -92,6 +94,10 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val textIndex = textSteps.indexOfFirst { it.first >= cfg.textScale - 0.01f }.coerceAtLeast(0)
     val dark = cfg.theme != ThemeMode.Light
     val airPlay = dev.glasslauncher.system.AirPlay.rememberState(active)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val rooted by produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
+    var fast by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(dev.glasslauncher.system.RootFeatures.fast(context)) }
+    var freed by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<Int?>(null) }
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
@@ -159,6 +165,21 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                 }
                 Round(R.drawable.ic_apps, "App Switcher") { closeAll(); open(Overlay.AppSwitcher) }
             }
+            // Root only (Settings › Root has the details): Performance is a toggle, white while Fast is on;
+            // Free Memory ends background apps and says how much it freed.
+            if (rooted) Row(horizontalArrangement = Arrangement.spacedBy(RoundGap)) {
+                Round(R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast) {
+                    val next = !fast
+                    fast = next
+                    scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) }
+                }
+                Round(R.drawable.ic_cleaning_services, freed?.let { "Free Memory, $it MB freed" } ?: "Free Memory") {
+                    scope.launch { freed = dev.glasslauncher.system.RootFeatures.freeMemory(context) }
+                }
+            }
+            freed?.let {
+                Text("$it MB freed", style = Type.caption, color = palette.secondary, modifier = Modifier.padding(start = 4.dp))
+            }
         }
     }
 }
@@ -204,8 +225,8 @@ private fun PillContent(
 }
 
 @Composable
-private fun Round(@DrawableRes icon: Int, label: String, onClick: () -> Unit) {
-    CcTile(label, null, CircleShape, Pill, Pill, onClick = onClick) { fg ->
+private fun Round(@DrawableRes icon: Int, label: String, on: Boolean = false, onClick: () -> Unit) {
+    CcTile(label, null, CircleShape, Pill, Pill, onClick = onClick, on = on) { fg ->
         Glyph(icon, fg, Modifier.size(23.dp))
     }
 }
@@ -219,6 +240,7 @@ private fun CcTile(
     height: Dp,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    on: Boolean = false,
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -230,13 +252,19 @@ private fun CcTile(
         shadow = false,
         modifier = modifier.size(width, height),
     ) { focused ->
-        val fg = if (focused) palette.onFocusFill else palette.primary
+        // A toggle that's on sits white with a blue glyph, like tvOS's Control Center toggles.
+        val fg = if (focused) palette.onFocusFill else if (on) Blue else palette.primary
         Box(
             Modifier
                 .fillMaxSize()
+                // The glass stays put and the focus or "on" fill draws over it: swapping modifiers made a
+                // fresh glass node on every focus change, which could draw a frame before knowing where it
+                // was (a tile that had just lost focus showed up see-through).
+                .glass(LocalBackdrop.current, shape, GlassStyle.control(palette.light))
                 .then(
                     if (focused) Modifier.background(palette.focusFill, shape)
-                    else Modifier.glass(LocalBackdrop.current, shape, GlassStyle.control(palette.light)),
+                    else if (on) Modifier.background(Color.White, shape)
+                    else Modifier,
                 ),
             contentAlignment = Alignment.Center,
         ) { content(fg) }

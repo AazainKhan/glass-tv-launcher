@@ -14,7 +14,11 @@ key() { "$ROOT/scripts/key" "$@" >/dev/null; }
 home() { adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -n "$PKG/.MainActivity" >/dev/null; }
 
 adb shell "su -c 'cmd package compile --reset $PKG'" >/dev/null
-adb shell "su -c 'rm -f /data/misc/profiles/cur/0/$PKG/primary.prof'"
+# Empty the profile rather than delete it: ART only writes to a profile file that already exists
+# (installd makes it at install time), so a deleted one stays missing until the next reinstall.
+UID_="$(adb shell dumpsys package "$PKG" | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -1 | tr -d '\r')"
+CUR="/data/misc/profiles/cur/0/$PKG/primary.prof"
+adb shell "su -c ': > $CUR && chown $UID_:$UID_ $CUR && chmod 600 $CUR'"
 for r in $(seq "$ROUNDS"); do
   adb shell am force-stop "$PKG"; home; sleep 6           # cold start, first bake
   key right right right left left left                     # along the dock

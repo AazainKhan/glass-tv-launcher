@@ -31,15 +31,18 @@ object AppSources {
         FeaturedSourceId.Tmdb -> cfg.tmdbKey.isNotBlank()
         FeaturedSourceId.YouTube -> cfg.youtubeKey.isNotBlank()
         FeaturedSourceId.Plex -> cfg.plexToken.isNotBlank()
+        FeaturedSourceId.ContinueWatching, FeaturedSourceId.TvApp -> true
     }
 
     /** True when [pkg] has a source of its own that's set up. */
     fun hasOwn(pkg: String, cfg: FeaturedConfig): Boolean = bySource[pkg]?.invoke(cfg)?.let(::usable) == true
 
     /** What the shelf shows, given the mode and the focused top-row app; null means the shelf is off. */
-    fun effective(cfg: FeaturedConfig, focusedPkg: String?): FeaturedConfig? {
+    fun effective(cfg: FeaturedConfig, focusedPkg: String?, appsWithRows: Set<String> = emptySet()): FeaturedConfig? {
         if (cfg.mode == FeaturedMode.Off || cfg.source == FeaturedSourceId.Off) return null
         if (cfg.mode == FeaturedMode.FocusedApp && focusedPkg != null) {
+            // The app's own TV rows come first, as on tvOS (needs Glass as a system app).
+            if (focusedPkg in appsWithRows) return cfg.copy(source = FeaturedSourceId.TvApp, appPackage = focusedPkg)
             bySource[focusedPkg]?.invoke(cfg)?.takeIf(::usable)?.let { return it }
         }
         return cfg

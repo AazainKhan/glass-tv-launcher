@@ -6,6 +6,7 @@ import android.net.Uri
 import dev.glasslauncher.data.FeaturedConfig
 import dev.glasslauncher.data.FeaturedSourceId
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -58,6 +59,7 @@ object Sources {
         FeaturedSourceId.Tmdb -> Tmdb
         FeaturedSourceId.YouTube -> YouTube
         FeaturedSourceId.Plex -> Plex
+        FeaturedSourceId.ContinueWatching, FeaturedSourceId.TvApp -> null // TvRows, which needs a Context
     }
 
     val stremioCatalogs = listOf(
@@ -77,6 +79,35 @@ object Sources {
         "max" to "Max",
         "hulu" to "Hulu",
     )
+}
+
+/**
+ * TV rows carry portrait posters; for titles with an IMDb id in their link (Stremio's rows), Cinemeta
+ * has the landscape background, the logo and the details the shelf shows. Others are left as they are.
+ */
+private val cinemetaCache = java.util.concurrent.ConcurrentHashMap<String, JsonObject>()
+
+suspend fun FeaturedFeed.withCinemeta(http: OkHttpClient): FeaturedFeed = withContext(Dispatchers.IO) {
+    val imdb = Regex("(movie|series)/(tt\\d+)")
+    // In parallel, and remembered: a shelf of a dozen titles otherwise took ~10 s to appear.
+    copy(items = kotlinx.coroutines.coroutineScope { items.map { item -> async { enrich(item, imdb, http) } }.map { it.await() } })
+}
+
+private fun enrich(item: FeaturedItem, imdb: Regex, http: OkHttpClient): FeaturedItem {
+    val m = item.link?.let { imdb.find(it) } ?: return item
+    // Stremio's rows sometimes label series as movies, so try the other type too.
+    val types = listOf(m.groupValues[1], if (m.groupValues[1] == "movie") "series" else "movie")
+    val o = cinemetaCache[m.groupValues[2]] ?: types.firstNotNullOfOrNull { t ->
+        runCatching { http.getJson("https://v3-cinemeta.strem.io/meta/$t/${m.groupValues[2]}.json").jsonObject["meta"] as? JsonObject }.getOrNull()
+    }?.also { cinemetaCache[m.groupValues[2]] = it } ?: return item
+    return runCatching {
+        item.copy(
+            image = o["background"].str() ?: item.image,
+            logo = o["logo"].str() ?: item.logo,
+            subtitle = item.subtitle ?: listOfNotNull(o["releaseInfo"].str(), o["imdbRating"].str()?.let { "IMDb $it" }).joinToString("  ·  ").ifEmpty { null },
+            description = item.description ?: o["description"].str(),
+        )
+    }.getOrDefault(item)
 }
 
 object Stremio : FeaturedSource {
@@ -254,7 +285,13 @@ object Plex : FeaturedSource {
 fun FeaturedItem.open(context: Context): Boolean {
     val pm = context.packageManager
     val installed = packages.filter { pm.getLaunchIntentForPackage(it) != null || pm.getLeanbackLaunchIntentForPackage(it) != null }
-    link?.let { uri ->
+    // TV rows hand over full intents ("intent:…#Intent;…;end").
+    link?.takeIf { it.startsWith("intent:") }?.let { uri ->
+        runCatching { Intent.parseUri(uri, Intent.URI_INTENT_SCHEME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrNull()?.let { intent ->
+            if (runCatching { context.startActivity(intent) }.isSuccess) return true
+        }
+    }
+    link?.takeIf { !it.startsWith("intent:") }?.let { uri ->
         val view = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         for (pkg in installed) {
             val targeted = Intent(view).setPackage(pkg)
