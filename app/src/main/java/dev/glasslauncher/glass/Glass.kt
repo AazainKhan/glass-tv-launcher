@@ -88,6 +88,12 @@ class BackdropState {
     var reduceTransparency by mutableStateOf(false)
     /** Light appearance: overlay snapshots get the same text-safe range as baked glass. */
     var light = false
+    /** The screen with the dock's soft blur, taken when an overlay opens (shown behind Control Center). */
+    var overlaySoft by mutableStateOf<ImageBitmap?>(null)
+    /** Home as it was when Control Center opened; drawn instead of Home while Control Center is up. */
+    var overlaySharp by mutableStateOf<ImageBitmap?>(null)
+    /** Home is fully covered (Control Center's backdrop): skip drawing it. */
+    var homeHidden by mutableStateOf(false)
 }
 
 val LocalBackdrop = staticCompositionLocalOf { BackdropState() }

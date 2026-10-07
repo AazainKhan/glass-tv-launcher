@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -108,7 +109,23 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
 
     // Grows out of the status pill (top right) and shrinks back into it, over the undimmed Home.
     val enter = rememberOverlayEnter()
+    // Everything behind Control Center goes out of focus (the dock's soft blur of the screen). It fades
+    // from a snapshot of Home taken as it opened to the blur, with Home itself not drawn meanwhile: two
+    // cheap images instead of Home plus a blur over it (that made the open and close 80% janky).
+    val state = LocalBackdrop.current
+    val sharp = state.overlaySharp
+    val soft = state.overlaySoft
+    androidx.compose.runtime.DisposableEffect(sharp) {
+        if (sharp != null && soft != null) state.homeHidden = true
+        onDispose { state.homeHidden = false; if (state.overlaySharp === sharp) state.overlaySharp = null }
+    }
     Box(Modifier.fillMaxSize()) {
+        if (soft != null) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val dst = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())
+            val e = enter.value
+            if (sharp != null && e < 1f) drawImage(sharp, dstSize = dst)
+            drawImage(soft, dstSize = dst, alpha = e, filterQuality = androidx.compose.ui.graphics.FilterQuality.Low)
+        }
         Column(
             verticalArrangement = Arrangement.spacedBy(Gap),
             modifier = Modifier
@@ -128,10 +145,12 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(end = 4.dp, bottom = 16.dp),
+                // Wider than the tile column: it grows to the left on one line rather than wrapping.
+                modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End, unbounded = true).padding(end = 4.dp, bottom = 16.dp),
             ) {
                 cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor, headerStyle) }
-                Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, modifier = Modifier.testTag("cc-clock"))
+                Text(dev.glasslauncher.widgets.rememberDate(), style = headerStyle, color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-date"))
+                Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.

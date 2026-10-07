@@ -25,6 +25,10 @@ Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination G
 - Netflix (and other DRM apps) set FLAG_SECURE: screenshots and `scripts/clip` show black. Use YouTube, Stremio or TizenTube to judge app open/close.
 - AirPlay comes from PhairPlay (`scripts/phairplay install`): upstream at a pinned commit plus `tools/phairplay/glass-control.patch` (signature-guarded control receiver, state broadcasts, player brought forward on a session). Same debug key as Glass, which is what grants `com.phairplay.permission.CONTROL`. Idle cost: 0% CPU, ~44 MB PSS in its own process. Control Center shows the AirPlay pill only when it's installed.
 
+## Device end-to-end tests
+
+`scripts/e2e` (pytest in `e2e/`, see its README): 43 tests over every main flow on the real stick, real remote presses, state from the accessibility tree. Run it after changes to navigation, overlays, Control Center, Settings, app launching or Fire OS integration. `uiautomator dump` refuses while something animates (move mode's wiggle), so those checks read the screen instead.
+
 ## Dev loop: see it, check it, measure it
 
 Work cheapest-first. Most UI work never needs the device.

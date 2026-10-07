@@ -115,7 +115,11 @@ object RootFeatures {
 
     /** Sysfs clocks reset at boot, so a Fast profile is re-applied when Glass starts. */
     suspend fun reapplyAtStart(context: Context) {
-        if (fast(context) && Root.available()) Root.run(profileScript(true))
+        if (!Root.available()) return
+        // Fire OS turns its Home-key black flash (SystemUI KeyFeedbackUI) back on at every boot; it ran
+        // over Glass's app-close animation. Found by e2e/test_device_setup.py after a restart.
+        Root.run("[ \"$(getprop persist.perfanimation.enabled)\" = false ] || setprop persist.perfanimation.enabled false")
+        if (fast(context)) Root.run(profileScript(true))
     }
 
     private fun profileScript(fast: Boolean): String {

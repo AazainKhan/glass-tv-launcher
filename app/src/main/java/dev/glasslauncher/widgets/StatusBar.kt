@@ -82,6 +82,7 @@ fun StatusPill(
             ) {
                 val text = if (focused) palette.onFocusFill else palette.primary
                 cfg.weather?.let { WeatherLabel(it, text) }
+                Text(rememberDate(), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f), color = text, modifier = Modifier.testTag("date"))
                 Text(rememberClock(cfg.clock24h), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"), color = text, modifier = Modifier.testTag("clock"))
                 Box(
                     Modifier
@@ -115,6 +116,22 @@ fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
     }
     return text
 }
+
+/** Today's date, short ("Tue, Oct 7"). Checked once a minute, like the clock, so it turns over at midnight. */
+@Composable
+fun rememberDate(): String {
+    // US English abbreviations ("Wed, Oct 7"); en_CA adds periods ("Wed., Oct. 7").
+    fun today() = SimpleDateFormat(DATE_PATTERN, Locale.US).format(Date())
+    val text by produceState(today()) {
+        while (true) {
+            value = today()
+            delay(60_000L - System.currentTimeMillis() % 60_000L + 20)
+        }
+    }
+    return text
+}
+
+private const val DATE_PATTERN = "EEE, MMM d"
 
 // AM/PM as "AM"/"PM" whatever the locale's markers are (en_CA writes "p.m.").
 private fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).apply {

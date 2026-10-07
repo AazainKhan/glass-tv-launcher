@@ -65,17 +65,35 @@ sealed interface Overlay {
     ) : Overlay
 }
 
+/** Two blurs of the screen from one capture: frosted (overlay glass) and soft (dock-like, behind Control Center). */
+class OverlayShots(val frosted: ImageBitmap?, val soft: ImageBitmap?, val sharp: ImageBitmap? = null)
+
+/** [keepSharp]: also return the capture itself (Control Center fades from it to the blur, over a hidden Home). */
+suspend fun captureOverlay(layer: GraphicsLayer, light: Boolean, keepSharp: Boolean = false): OverlayShots = runCatching {
+    val shotImage = layer.toImageBitmap()
+    val shot = shotImage.asAndroidBitmap()
+    withContext(Dispatchers.Default) {
+        val copy = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+        // The dock's clear blur (480×270, small radius): the screen stays recognisable, just out of focus.
+        val soft = Blur.backdrop(copy, WallpaperLoader.CLEAR_W, WallpaperLoader.CLEAR_H, radius = 3, saturation = 1.15f)
+        val softGpu = if (soft.getPixel(soft.width / 2, soft.height / 2) ushr 24 == 0) null
+            else (soft.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap()
+        OverlayShots(blurFrosted(copy, light), softGpu, if (keepSharp && softGpu != null) shotImage else null)
+    }
+}.getOrDefault(OverlayShots(null, null))
+
 /** Captures what's on screen, blurs it once, and returns it as the backdrop for overlay glass. */
 suspend fun captureBlurred(layer: GraphicsLayer, light: Boolean? = null): ImageBitmap? = runCatching {
     val shot = layer.toImageBitmap().asAndroidBitmap()
-    withContext(Dispatchers.Default) {
-        val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+    withContext(Dispatchers.Default) { blurFrosted(shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false), light) }
+}.getOrNull()
+
+private fun blurFrosted(soft: android.graphics.Bitmap, light: Boolean?): ImageBitmap? {
         val blurred = Blur.backdrop(soft, WallpaperLoader.BLUR_W, WallpaperLoader.BLUR_H, radius = 6).also { soft.recycle() }
         // A capture taken before the first real frame is blank; returning null falls back to the wallpaper blur.
-        if (blurred.getPixel(blurred.width / 2, blurred.height / 2) ushr 24 == 0) null
+        return if (blurred.getPixel(blurred.width / 2, blurred.height / 2) ushr 24 == 0) null
         else (blurred.also { if (light != null) Blur.legible(it, light) }.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred).asImageBitmap()
-    }
-}.getOrNull()
+}
 
 /**
  * The active overlay keeps D-pad focus inside it; overlays stacked underneath refuse focus entirely,

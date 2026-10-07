@@ -39,21 +39,26 @@ object AmazonStore {
      */
     private fun watchForHome(context: Context) {
         watcher?.destroy()
+        // Every Home press logs wm_new_intent (pressed in Amazon's launcher) or wm_set_resumed_activity on
+        // it (pressed in an app opened from the store). Epoch times keep out anything logged before.
+        val started = System.currentTimeMillis() / 1000.0
         val p = runCatching {
-            ProcessBuilder("su", "-c", "logcat -T 1 -b main -b events -v brief ActivityTaskManager:I wm_new_intent:I '*:S'").redirectErrorStream(true).start()
+            ProcessBuilder("su", "-c", "logcat -T 1 -b events -v epoch wm_new_intent:I wm_set_resumed_activity:I '*:S'").redirectErrorStream(true).start()
         }.getOrNull() ?: return
         watcher = p
-        val started = android.os.SystemClock.uptimeMillis()
         Thread {
             runCatching {
                 p.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
                         if (!isOpen(context)) break
-                        // Home from an app: a HOME start. Home while on Amazon's Home screen (the store is
-                        // part of it): a new intent to that activity. The store's own start doesn't count.
-                        if (android.os.SystemClock.uptimeMillis() - started < 1_500) continue
-                        val home = ("START u0" in line && "android.intent.category.HOME" in line) ||
-                            ("wm_new_intent" in line && STOCK in line && "android.intent.action.MAIN" in line)
+                        val at = line.trim().substringBefore(' ').toDoubleOrNull() ?: continue
+                        if (at < started) continue
+                        // The store's own opening can log a new intent in its first second (not always);
+                        // after that, every one is a Home press.
+                        if (at - started < 1.2) continue
+                        val home = ("wm_new_intent" in line && STOCK in line && "android.intent.action.MAIN" in line) ||
+                            // Home pressed in an app opened from the store brings Amazon's launcher back.
+                            ("wm_set_resumed_activity" in line && STOCK in line && "resumeTopActivityInnerLocked" in line)
                         if (home) {
                             kotlinx.coroutines.runBlocking { close(context, bringHome = true) }
                             break

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Device end-to-end suite (e2e/, pytest): drives the real stick with remote presses and checks what's on
+# screen through the accessibility tree. Takes the stick lock for the run.
+#   scripts/e2e                      everything except the perf gate
+#   scripts/e2e --build              build and install a release first
+#   scripts/e2e -m "not slow"        quick pass (no app launches)
+#   scripts/e2e -m perf              just the perf gate
+#   scripts/e2e -k control_center    one area
+# Failures leave a screenshot and the accessibility tree in build/e2e/.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export ANDROID_SERIAL="${ANDROID_SERIAL:-FIRETV_SERIAL_00}"
+export TV_SERIAL="${TV_SERIAL:-$ANDROID_SERIAL}" TV_OWNER="${TV_OWNER:-glass-e2e}"
+"$ROOT/scripts/stick-lock" take "$TV_OWNER" >/dev/null
+trap '"$ROOT/scripts/stick-lock" release "$TV_OWNER" >/dev/null 2>&1 || true' EXIT
+if [ "${1:-}" = --build ]; then shift; "$ROOT/scripts/build" release >/dev/null; sleep 8; fi
+args=("$@")
+case " ${args[*]:-} " in *" -m "*) ;; *) args+=(-m "not perf") ;; esac
+cd "$ROOT/e2e"
+python3 -m pytest "${args[@]}"

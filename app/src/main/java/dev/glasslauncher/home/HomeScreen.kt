@@ -237,7 +237,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     fun open(overlay: Overlay) {
         scope.launch {
-            if (overlays.isEmpty()) backdrop.overlay = captureBlurred(layer, backdrop.light)
+            if (overlays.isEmpty()) captureOverlay(layer, backdrop.light, keepSharp = overlay == Overlay.ControlCenter).let {
+                backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft; backdrop.overlaySharp = it.sharp
+            }
             overlays.add(overlay)
         }
     }
@@ -245,7 +247,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val exiting = remember { mutableStateListOf<Overlay>() }
     fun dismiss(overlay: Overlay) {
         exiting.add(overlay)
-        scope.launch { delay(Motion.OVERLAY_MS + 40L); exiting.remove(overlay) }
+        scope.launch {
+            delay(Motion.OVERLAY_MS + 40L)
+            exiting.remove(overlay)
+            // Nothing open any more: let go of the screen captures (two full-screen images were held
+            // after Control Center closed: perf-gate PSS 131 MB, over budget).
+            if (overlays.isEmpty() && exiting.isEmpty()) {
+                backdrop.overlay = null; backdrop.overlaySoft = null; backdrop.overlaySharp = null
+            }
+        }
     }
     fun closeTop() { overlays.removeLastOrNull()?.let(::dismiss) }
     /** Closes everything; only the top overlay is visible, so only it animates out. */
@@ -408,7 +418,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(backdrop.backdrop) {
         if (overlays.isNotEmpty()) {
             withFrameNanos { }
-            backdrop.overlay = captureBlurred(layer, backdrop.light)
+            captureOverlay(layer, backdrop.light).let { backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft }
         }
     }
     LaunchedEffect(Unit) {
@@ -438,14 +448,21 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
     }
 
-    BackHandler {
+    var backDownOnHome by remember { mutableStateOf(false) }
+    /** Back on Home itself (no overlay): leave full screen, or go back to the top row. */
+    fun homeBack() {
         when {
-            moving != null -> moving = null
-            overlays.isNotEmpty() -> closeTop()
             expanded -> setExpanded(false)
             listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 -> scope.launch {
                 runCatching { scrollToTop() }; focusKey(firstKey())
             }
+        }
+    }
+    BackHandler {
+        when {
+            moving != null -> moving = null
+            overlays.isNotEmpty() -> closeTop()
+            else -> homeBack()
         }
     }
 
@@ -477,10 +494,18 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         AndroidKeyEvent.KEYCODE_DPAD_UP -> { KeyDirection.dx = 0; KeyDirection.dy = -1 }
                         AndroidKeyEvent.KEYCODE_DPAD_DOWN -> { KeyDirection.dx = 0; KeyDirection.dy = 1 }
                     }
-                    if (overlays.isNotEmpty()) return@onPreviewKeyEvent false
+                    if (overlays.isNotEmpty()) { backDownOnHome = false; return@onPreviewKeyEvent false }
                     val key = moving
                     if (key != null) {
                         if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, layout, model, metrics.columns) { moving = null }
+                        return@onPreviewKeyEvent true
+                    }
+                    // Compose treats Back as "leave the focus group" first, so from the grid the first press
+                    // only dropped focus and a second one went back up (found by e2e/test_home.py).
+                    // Only a Back that went down on Home: the key-up of a Back that closed a menu isn't one.
+                    if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK) {
+                        if (e.action == AndroidKeyEvent.ACTION_DOWN) backDownOnHome = e.repeatCount == 0 || backDownOnHome
+                        if (e.action == AndroidKeyEvent.ACTION_UP && backDownOnHome) { backDownOnHome = false; homeBack() }
                         return@onPreviewKeyEvent true
                     }
                     if (e.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
@@ -506,7 +531,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     .graphicsLayer {
                         translationX = idle.shift.x; translationY = idle.shift.y
                         // Hidden while an app open/close covers it completely: one less full screen to draw.
-                        alpha = if (transition.coverAlpha.value >= 1f && transition.cover != null) 0f else reveal.value
+                        alpha = if ((transition.coverAlpha.value >= 1f && transition.cover != null) || backdrop.homeHidden) 0f else reveal.value
                         val settle = 1.04f - 0.04f * homeSettle.value
                         scaleX = settle; scaleY = settle
                     }
@@ -600,7 +625,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 androidx.compose.runtime.key(System.identityHashCode(overlay)) {
                     val leaving = overlay in exiting && overlay !in overlays
                     val top = !leaving && overlay === overlays.lastOrNull()
-                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (top || leaving || overlay is Overlay.FolderOpen) 1f else 0f }) {
+                    // Tagged for the device tests (e2e/): which overlays are up, and which one is on top.
+                    val tag = (if (leaving) "overlay-leaving:" else if (top) "overlay-top:" else "overlay:") + (overlay::class.simpleName ?: "Overlay")
+                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (top || leaving || overlay is Overlay.FolderOpen) 1f else 0f }) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
                             OverlayContent(
                                 overlay = overlay,

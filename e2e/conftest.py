@@ -1,0 +1,83 @@
+"""Fixtures for the device suite. Run through scripts/e2e, which takes the stick lock."""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+
+import pytest
+
+from pages import AppMenu, ControlCenter, Home, Settings
+from tv import PKG, ROOT, TV
+
+ARTIFACTS = ROOT / "build" / "e2e"
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "root: needs Magisk root on the device")
+    config.addinivalue_line("markers", "slow: launches other apps or restarts things")
+    config.addinivalue_line("markers", "perf: frame-time measurements (scripts/perf-gate)")
+
+
+@pytest.fixture(scope="session")
+def tv() -> TV:
+    serial = os.environ.get("ANDROID_SERIAL", "FIRETV_SERIAL_00")
+    owner = os.environ.get("TV_OWNER", "glass-e2e")
+    t = TV(serial, owner)
+    assert "device" in t.adb("get-state"), f"{serial} isn't connected"
+    t.sh("input keyevent KEYCODE_WAKEUP")
+    return t
+
+
+@pytest.fixture(scope="session")
+def rooted(tv: TV) -> bool:
+    return "uid=0" in tv.su("id")
+
+
+@pytest.fixture
+def home(tv: TV) -> Home:
+    """Every test starts on Home, at the top, with nothing open, and is checked for crashes after."""
+    marker = tv.now_marker()
+    pid = tv.glass_pid()
+    h = Home(tv)
+    h.reset()
+    yield h
+    crashes = tv.crashes_since(marker)
+    assert not crashes, "Glass crashed or stopped responding:\n" + "\n".join(crashes)
+    # A silent restart (process replaced without a crash line) also counts.
+    now = tv.glass_pid()
+    assert now, "Glass isn't running after the test"
+    if pid and now != pid:
+        restarted = tv.adb("logcat", "-b", "events", "-d", "-T", marker)
+        assert "installPackageLI" in restarted or not re.search(rf"am_(proc_died|kill).*{PKG}", restarted), \
+            f"Glass's process was replaced during the test ({pid} → {now})"
+
+
+@pytest.fixture
+def cc(tv: TV) -> ControlCenter:
+    return ControlCenter(tv)
+
+
+@pytest.fixture
+def settings(tv: TV) -> Settings:
+    return Settings(tv)
+
+
+@pytest.fixture
+def menu(tv: TV) -> AppMenu:
+    return AppMenu(tv)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call" and rep.failed and "tv" in item.funcargs:
+        t: TV = item.funcargs["tv"]
+        name = re.sub(r"[^\w.-]+", "_", item.nodeid)
+        try:
+            t.screenshot(ARTIFACTS / f"{name}.png")
+            (ARTIFACTS / f"{name}.tree.txt").write_text("\n".join(repr(n) for n in t.tree().nodes() if n.rid or n.desc or n.text))
+        except Exception:
+            pass
