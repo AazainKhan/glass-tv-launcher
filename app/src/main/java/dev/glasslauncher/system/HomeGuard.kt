@@ -78,9 +78,12 @@ object HomeSetup {
 
     private fun guardComponent(context: Context) = ComponentName(context, HomeGuardService::class.java)
 
-    fun isGuardEnabled(context: Context): Boolean =
+    fun isGuardEnabled(context: Context): Boolean = isServiceEnabled(context, guardComponent(context))
+    fun isRemoteKeysEnabled(context: Context): Boolean = isServiceEnabled(context, ComponentName(context, RemoteKeysService::class.java))
+
+    private fun isServiceEnabled(context: Context, component: ComponentName): Boolean =
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-            ?.split(':')?.any { ComponentName.unflattenFromString(it) == guardComponent(context) } == true
+            ?.split(':')?.any { ComponentName.unflattenFromString(it) == component } == true
 
     /** Turns the accessibility service on or off directly; needs WRITE_SECURE_SETTINGS. */
     fun setGuardEnabled(context: Context, enabled: Boolean): Boolean = runCatching {

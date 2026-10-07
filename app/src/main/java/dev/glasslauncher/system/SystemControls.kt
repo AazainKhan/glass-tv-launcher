@@ -46,6 +46,12 @@ object SystemControls {
     fun openBluetooth(context: Context): Boolean =
         open(context, Settings.ACTION_BLUETOOTH_SETTINGS) || open(context, "com.amazon.device.settings.action.CONTROLLERS")
 
+    /** Fire TV's own Settings app (the one from the stock home screen), else Android's. */
+    fun openSystemSettings(context: Context): Boolean =
+        context.packageManager.getLaunchIntentForPackage("com.amazon.tv.settings.v2")?.let { intent ->
+            runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true }.getOrDefault(false)
+        } == true || open(context, Settings.ACTION_SETTINGS)
+
     fun openGameControllers(context: Context): Boolean =
         open(context, "com.amazon.device.settings.action.GAMEPADS") || openBluetooth(context)
 }

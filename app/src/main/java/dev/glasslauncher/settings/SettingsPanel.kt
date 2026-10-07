@@ -54,6 +54,8 @@ import dev.glasslauncher.home.Overlay
 import dev.glasslauncher.home.PanelTitle
 import dev.glasslauncher.system.Backup
 import dev.glasslauncher.system.HomeSetup
+import dev.glasslauncher.system.RemoteAction
+import dev.glasslauncher.system.RemoteButtons
 import dev.glasslauncher.system.Release
 import dev.glasslauncher.system.Updater
 import dev.glasslauncher.ui.Hint
@@ -85,6 +87,9 @@ private sealed interface Page {
     data object Backup : Page
     data object About : Page
     data object Accessibility : Page
+    data object RemoteButtons : Page
+    data class ButtonAction(val id: String) : Page
+    data class ButtonApp(val id: String) : Page
 }
 
 @Composable
@@ -122,6 +127,9 @@ fun SettingsPanel(
                 Page.Backup -> BackupPage(model, f)
                 Page.About -> AboutPage(f)
                 Page.Accessibility -> AccessibilityPage(model, cfg, f)
+                Page.RemoteButtons -> RemoteButtonsPage(cfg, f, ::push)
+                is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
+                is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); pop() }
                 is Page.Wallpapers -> Unit
             }
         }
@@ -167,6 +175,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Widgets", { push(Page.Widgets) }, chevron = true)
     MenuRow("Accessibility", { push(Page.Accessibility) }, chevron = true)
     MenuRow("Home Button", { push(Page.HomeButton) }, chevron = true)
+    MenuRow("Remote Buttons", { push(Page.RemoteButtons) }, chevron = true)
     MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
     MenuRow("Backup & Restore", { push(Page.Backup) }, chevron = true)
     MenuRow("About", { push(Page.About) }, chevron = true)
@@ -589,4 +598,60 @@ private fun ColumnScope.AccessibilityPage(model: HomeModel, cfg: LauncherConfig,
     Hint("Makes glass panels solid for easier reading. Also used when the system's high-contrast text is on.")
     ToggleRow("Navigation Sounds", cfg.sounds, { v -> model.edit { it.copy(sounds = v) } })
     Hint("Plays the system focus and click sounds, if they're enabled in the TV's settings.")
+}
+
+@Composable
+private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    val active = remember { RemoteButtons.takeoverActive() }
+    val apps = remember { context.packageManager }
+    PanelTitle("Remote Buttons")
+    RemoteButtons.all.forEachIndexed { i, b ->
+        MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, if (i == 0) f else Modifier, value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
+    }
+    if (!active) {
+        Hint("Fire TV keeps these buttons to itself. On a rooted TV, run this once from a computer, then restart the TV: ${RemoteButtons.INSTALL_COMMAND}")
+    } else if (!HomeSetup.isRemoteKeysEnabled(context)) {
+        Hint("Turn on Glass Launcher Remote Buttons in the TV's Accessibility settings.")
+    }
+    Hint("Home, Back, Settings, volume, mute, power, Alexa and the TV button keep working as usual.")
+}
+
+@Composable
+private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, id: String, f: Modifier, push: (Page) -> Unit, done: () -> Unit) {
+    val button = RemoteButtons.all.first { it.id == id }
+    val current = RemoteButtons.action(button, cfg.remoteButtons)
+    val apps = LocalContext.current.packageManager
+    fun set(action: RemoteAction) {
+        model.edit { it.copy(remoteButtons = it.remoteButtons + (id to action.key)) }
+        done()
+    }
+    PanelTitle(button.label)
+    val options = listOf(button.default, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
+    options.forEachIndexed { i, a ->
+        val label = if (a == button.default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
+        MenuRow(label, { set(a) }, if (i == 0) f else Modifier, value = if (a == current) "✓" else null)
+    }
+    MenuRow("Open Another App…", { push(Page.ButtonApp(id)) }, chevron = true,
+        value = (current as? RemoteAction.OpenApp)?.takeIf { it != button.default }?.let { actionName(it, apps) })
+}
+
+@Composable
+private fun ColumnScope.ButtonAppPage(model: HomeModel, layout: HomeLayout, id: String, f: Modifier, done: () -> Unit) {
+    PanelTitle("Choose App")
+    layout.installed.sortedBy { it.label.lowercase() }.forEachIndexed { i, app ->
+        MenuRow(app.label, {
+            model.edit { it.copy(remoteButtons = it.remoteButtons + (id to RemoteAction.OpenApp(app.packageName).key)) }
+            done()
+        }, if (i == 0) f else Modifier)
+    }
+}
+
+private fun actionName(action: RemoteAction, pm: android.content.pm.PackageManager): String = when (action) {
+    is RemoteAction.OpenApp -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(action.pkg, 0)).toString() }.getOrDefault(action.pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() })
+    RemoteAction.ControlCenter -> "Control Center"
+    RemoteAction.AppSwitcher -> "App Switcher"
+    RemoteAction.Home -> "Home"
+    RemoteAction.Nothing -> "Do Nothing"
+    RemoteAction.Default -> "Default"
 }

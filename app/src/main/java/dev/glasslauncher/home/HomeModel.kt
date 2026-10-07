@@ -41,6 +41,7 @@ data class HomeLayout(
 )
 
 const val DOCK_SIZE = 6
+const val RECENT_LIMIT = 12
 const val COLUMNS = 6
 
 class HomeModel(application: Application) : AndroidViewModel(application) {
@@ -78,7 +79,12 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             ).toBundle()
         } else null
         try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
-        if (app.packageName !in config.value.seenApps) edit { it.copy(seenApps = it.seenApps + app.packageName) }
+        noteLaunched(app.packageName)
+    }
+
+    /** Remembers the launch for the app switcher and clears the new-app dot. */
+    fun noteLaunched(pkg: String) = edit {
+        it.copy(seenApps = it.seenApps + pkg, recentApps = (listOf(pkg) + (it.recentApps - pkg)).take(RECENT_LIMIT))
     }
 
     /** New since the launcher last looked, and not opened yet: shows the blue dot. */

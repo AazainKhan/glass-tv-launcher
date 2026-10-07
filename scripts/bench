@@ -5,6 +5,8 @@
 #   scripts/bench startup      only the startup ones (class filter by method name prefix)
 #   scripts/bench profile      regenerate the Baseline Profile (app/src/release/generated/…)
 # Needs Magisk root for the adb Shell user (Fire OS 8 is below API 33), and the stick free.
+# KNOWN ISSUE: androidx.benchmark 1.5.0 detects root with `su root id`, which Magisk's su answers with
+# nothing (it hangs under the test runner), so `profile` and the profiled runs hang at startup.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"; require_device_access
@@ -12,6 +14,12 @@ cd "$ROOT"
 if [ -z "${JAVA_HOME:-}" ] || ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -qE 'version "(17|21)'; then
   JAVA_HOME="$(/usr/libexec/java_home -v 21)"; export JAVA_HOME
 fi
+# Macrobenchmark force-stops the app every iteration, killing Glass's key-filtering accessibility
+# service; while it's down the system can stall remote presses. Switch services off for the run.
+a11y="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
+restore_a11y() { [ "$a11y" = null ] || [ -z "$a11y" ] && return; adb shell settings put secure enabled_accessibility_services "$a11y"; adb shell settings put secure accessibility_enabled 1; }
+trap restore_a11y EXIT
+adb shell settings delete secure enabled_accessibility_services >/dev/null
 if [ "${1:-}" = profile ]; then
   ./gradlew :app:generateBaselineProfile --console=plain -q
   find app/src -path '*generated/baselineProfiles*' -type f -exec wc -l {} +

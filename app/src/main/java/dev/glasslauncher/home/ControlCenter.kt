@@ -67,8 +67,9 @@ private val Blue = Color(0xFF0A84FF)
 
 /**
  * SYS-01, laid out like tvOS 27 Control Center: the time over a right-hand column of glass tiles.
- * A large Settings tile (white when focused, focused first), two-line pills for Wi-Fi, Bluetooth,
- * Text Size and Game Controllers, then round buttons for Light/Dark and the screen saver. Glass tiles
+ * A large Settings tile for the TV's own settings (white when focused, focused first), two-line pills
+ * for Wi-Fi, Bluetooth, the launcher's settings and Text Size, then round buttons for game
+ * controllers, Light/Dark, the screen saver and the app switcher. Glass tiles
  * take their tint from the content behind them; a pill's icon sits in a white disc while it's on.
  */
 @Composable
@@ -101,7 +102,8 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
         ) {
             Text(clock, style = Type.heading.copy(fontWeight = FontWeight.Medium), color = palette.primary.copy(alpha = 0.9f), modifier = Modifier.padding(start = 4.dp, bottom = 16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
-                CcTile("Settings", null, RoundedCornerShape(26.dp), BigWidth, Big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
+                // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
+                CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), BigWidth, Big, modifier = Modifier.focusRequester(first), onClick = { system { SystemControls.openSystemSettings(context) } }) { fg ->
                     BigIcon(R.drawable.ic_settings, "Settings", fg)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(Gap)) {
@@ -115,20 +117,22 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
+                CcTile("Launcher Settings", null, Shapes.pill, PillWidth, Pill, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
+                    PillContent(R.drawable.ic_tune, "Launcher", "Settings", fg, on = false, accent = fg)
+                }
                 CcTile("Text Size", textSteps[textIndex].second, Shapes.pill, PillWidth, Pill, onClick = {
                     model.edit { it.copy(textScale = textSteps[(textIndex + 1) % textSteps.size].first) }
                 }) { fg -> PillContent(R.drawable.ic_format_size, "Text Size", textSteps[textIndex].second, fg, on = false, accent = fg) }
-                CcTile("Game Controllers", null, Shapes.pill, PillWidth, Pill, onClick = { system { SystemControls.openGameControllers(context) } }) { fg ->
-                    PillContent(R.drawable.ic_sports_esports, "Controllers", null, fg, on = false, accent = fg)
-                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(RoundGap)) {
+                Round(R.drawable.ic_sports_esports, "Game Controllers") { system { SystemControls.openGameControllers(context) } }
                 Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Appearance, Dark" else "Appearance, Light") {
                     model.edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) }
                 }
                 Round(R.drawable.ic_landscape, "Screen Saver") {
                     closeAll(); context.startActivity(Intent(context, AerialActivity::class.java))
                 }
+                Round(R.drawable.ic_apps, "App Switcher") { closeAll(); open(Overlay.AppSwitcher) }
             }
         }
     }

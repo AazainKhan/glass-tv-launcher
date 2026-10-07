@@ -121,6 +121,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+enum class HomeRequest { Home, ControlCenter, AppSwitcher }
+
+private const val SLIDE_MS = 9_000L
+
 const val SETTINGS_TILE_KEY = "glass:settings"
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -135,7 +139,7 @@ private object NoAutoScroll : BringIntoViewSpec {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
+fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val context = LocalContext.current
     val graph = context.app
     val view = LocalView.current
@@ -169,6 +173,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     var focusedRow by remember { mutableIntStateOf(1) }
     val expand = remember { Animatable(0f) }
     var expanded by remember { mutableStateOf(false) }
+    var pillFocused by remember { mutableStateOf(false) }
+    var homeFocused by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val layer = rememberGraphicsLayer()
     val requesters = remember { HashMap<String, FocusRequester>() }
@@ -177,11 +183,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     val idle = rememberIdleState(cfg.idleFadeMinutes)
 
     val sceneUrl = if (cfg.background == BackgroundMode.Featured) hero?.image else null
+    // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
+    val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
     LaunchedEffect(sceneUrl, wallpaper, cfg.background) {
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
-        if (expanded) delay(220) // let quick left/right browsing settle before re-baking the glass
-        val next = sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it) }.getOrNull() } ?: graph.wallpapers.load(wallpaper)
-        backdrop.swap(next, animate = backdrop.backdrop != null && !prefs.reduceMotion)
+        val ready = prebaked[0]?.takeIf { it.first == sceneUrl }?.second
+        prebaked[0] = null
+        if (ready == null && expanded) delay(220) // let quick left/right browsing settle before re-baking the glass
+        val next = ready ?: sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it) }.getOrNull() } ?: graph.wallpapers.load(wallpaper)
+        // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement.
+        backdrop.swap(next, animate = backdrop.backdrop != null)
     }
 
     // Loading state: Home stays hidden until its first backdrop is baked and the app list is in, then
@@ -274,12 +285,18 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
             open(Overlay.Tips)
         }
     }
-    // The top shelf advances on its own while Home is at rest, as on tvOS.
-    LaunchedEffect(feed, expanded, overlays.isEmpty(), idle.idle, prefs.reduceMotion, cfg.background) {
-        if (feed == null || expanded || overlays.isNotEmpty() || idle.idle || prefs.reduceMotion || cfg.background != BackgroundMode.Featured) return@LaunchedEffect
-        while (true) {
-            delay(12_000)
-            heroIndex = (heroIndex + 1) % feed.items.size
+    // The top shelf advances on its own, to the right, at rest and in full screen, as on tvOS. Any
+    // browsing restarts the timer (heroIndex is a key). In full screen focus follows, so the row glides.
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background) {
+        if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || cfg.background != BackgroundMode.Featured) return@LaunchedEffect
+        delay(SLIDE_MS)
+        val next = (heroIndex + 1) % feed.items.size
+        val url = feed.items[next].image
+        if (url != null) runCatching { graph.wallpapers.fromUrl(url) }.getOrNull()?.let { prebaked[0] = url to it }
+        heroIndex = next
+        if (expanded) {
+            withFrameNanos { }
+            runCatching { cardRequester.requestFocus() }
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -319,12 +336,23 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         }
     }
     LaunchedEffect(Unit) {
-        homePresses.collect {
-            overlays.clear()
+        homePresses.collect { request ->
             moving = null
-            setExpanded(false)
-            scrollToTop()
-            focusKey(firstKey())
+            when (request) {
+                HomeRequest.Home -> {
+                    overlays.clear()
+                    setExpanded(false)
+                    scrollToTop()
+                    focusKey(firstKey())
+                }
+                // From remote buttons: pressing the same button again closes it.
+                HomeRequest.ControlCenter, HomeRequest.AppSwitcher -> {
+                    val target = if (request == HomeRequest.ControlCenter) Overlay.ControlCenter else Overlay.AppSwitcher
+                    val reopen = overlays.lastOrNull() != target
+                    overlays.clear()
+                    if (reopen) open(target)
+                }
+            }
         }
     }
 
@@ -375,6 +403,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                         e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { open(Overlay.ControlCenter); true }
                         // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null -> { setExpanded(true); true }
+                        // Down always leaves full screen, wherever focus is (even mid-transition); from the
+                        // status pill it goes back down to the titles instead.
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded -> when {
+                            pillFocused -> { runCatching { cardRequester.requestFocus() }; true }
+                            // Focus already back on Home (a stale state): just let Down move as usual.
+                            homeFocused -> { setExpanded(false); false }
+                            else -> { setExpanded(false); true }
+                        }
                         else -> false
                     }
                 },
@@ -436,7 +472,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                                 alpha = 1f - expand.value * 0.999f
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             }
-                            .focusProperties { canFocus = !expanded },
+                            .focusProperties { canFocus = !expanded }
+                            // Focus on the tray or grid means full screen is over, however it got there.
+                            .onFocusChanged { homeFocused = it.hasFocus; if (it.hasFocus && expanded) setExpanded(false) },
                     )
                 }
 
@@ -458,7 +496,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                 idle = idle,
                 focusable = expanded || feed == null,
                 onSelect = { open(Overlay.ControlCenter) },
-                modifier = Modifier.align(Alignment.TopEnd),
+                modifier = Modifier.align(Alignment.TopEnd).onFocusChanged { pillFocused = it.hasFocus },
                 // Control Center draws its own clock in this corner.
                 fade = { if (overlays.lastOrNull() == Overlay.ControlCenter) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },
             )

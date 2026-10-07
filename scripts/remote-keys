@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Lets Glass Launcher map the Fire TV remote's app buttons and Recent Apps (Settings ›
+# Remote Buttons). Fire OS consumes those inside the system, so this Magisk module overlays the
+# remote's key layout with spare gamepad codes that reach Glass's accessibility service:
+#   APP_1..APP_4 -> BUTTON_9..BUTTON_12, RECENTS -> BUTTON_13
+# (Settings is caught by Fire's key policy by scan code, so remapping it does nothing.)
+# Everything else on the remote is unchanged. Needs Magisk; takes effect after a restart.
+#   scripts/remote-keys install [--reboot]    scripts/remote-keys uninstall [--reboot]    scripts/remote-keys status
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+KL=/system/usr/keylayout/Vendor_0171_Product_0427.kl
+MOD=/data/adb/modules/glass-remote-keys
+SERVICE=dev.glasslauncher/dev.glasslauncher.system.RemoteKeysService
+
+enable_service() {
+  local cur; cur="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
+  case "$cur" in *"$SERVICE"*) ;; null|"") adb shell settings put secure enabled_accessibility_services "$SERVICE" ;;
+    *) adb shell settings put secure enabled_accessibility_services "$cur:$SERVICE" ;; esac
+  adb shell settings put secure accessibility_enabled 1
+}
+
+case "${1:-status}" in
+  install)
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    # Start from the stick's own layout (the module's copy masks it) and change only these lines.
+    adb shell "su -c 'cat $MOD/system/usr/keylayout/${KL##*/} 2>/dev/null || cat $KL'" > "$tmp/orig.kl"
+    sed -E -e 's/^(key 744[[:space:]]+)APP_1/\1BUTTON_9/' -e 's/^(key 745[[:space:]]+)APP_2/\1BUTTON_10/' \
+           -e 's/^(key 746[[:space:]]+)APP_3/\1BUTTON_11/' -e 's/^(key 747[[:space:]]+)APP_4/\1BUTTON_12/' \
+           -e 's/^(key 748[[:space:]]+)RECENTS/\1BUTTON_13/' -e 's/^(key 249[[:space:]]+)BUTTON_16/\1SETTINGS/' \
+           "$tmp/orig.kl" > "$tmp/new.kl"
+    grep -q BUTTON_9 "$tmp/new.kl" || { echo "unexpected key layout; nothing changed" >&2; exit 1; }
+    adb push "$ROOT/tools/magisk/glass-remote-keys/module.prop" /data/local/tmp/grk.prop >/dev/null
+    adb push "$tmp/new.kl" /data/local/tmp/grk.kl >/dev/null
+    adb shell "su -c 'mkdir -p $MOD/system/usr/keylayout && cp /data/local/tmp/grk.prop $MOD/module.prop && cp /data/local/tmp/grk.kl $MOD/system/usr/keylayout/${KL##*/} && chmod 644 $MOD/system/usr/keylayout/${KL##*/} && rm -f $MOD/remove $MOD/disable /data/local/tmp/grk.*'"
+    enable_service
+    echo "Installed. Restart the TV to apply${2:+ (restarting)}."
+    [ "${2:-}" = --reboot ] && adb reboot || true ;;
+  uninstall)
+    adb shell "su -c 'touch $MOD/remove'" && echo "Removed on next restart${2:+ (restarting)}."
+    [ "${2:-}" = --reboot ] && adb reboot || true ;;
+  status)
+    if adb shell cat "$KL" | grep -q BUTTON_9; then echo "active"; elif adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'"; then echo "installed, restart pending"; else echo "not installed"; fi ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
+esac

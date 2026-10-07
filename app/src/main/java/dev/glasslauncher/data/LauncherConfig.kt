@@ -35,6 +35,10 @@ data class LauncherConfig(
     val textScale: Float = 1f,
     /** Packages seen before; anything not in here is new and gets the blue dot until opened. */
     val seenApps: Set<String> = emptySet(),
+    /** Most recently opened first; the app switcher's fallback when usage access isn't granted. */
+    val recentApps: List<String> = emptyList(),
+    /** Remote button name (e.g. "KEYCODE_APP_1") -> action; see RemoteAction. Missing = Fire TV default. */
+    val remoteButtons: Map<String, String> = emptyMap(),
 )
 
 @Serializable

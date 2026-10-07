@@ -1,6 +1,8 @@
 package dev.glasslauncher.featured
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +48,9 @@ import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.Type
 
+/** Matches the backdrop's dissolve (BackdropState.swap). */
+private const val SLIDE_FADE_MS = 550
+
 /**
  * The featured item's wordmark over the full-bleed backdrop, top left like an Apple TV top shelf.
  * Logos are drawn as white wordmarks so they read on any art (some ship black-on-transparent).
@@ -60,8 +65,9 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
                 .widthIn(max = 340.dp)
                 .graphicsLayer { alpha = (1f - expanded() * 3f).coerceIn(0f, 1f) },
         ) {
-            // At rest tvOS shows only the big wordmark; details wait for the full-screen view.
-            Wordmark(item, height = 72.dp)
+            // At rest tvOS shows only the big wordmark; details wait for the full-screen view. Titles
+            // dissolve into each other in step with the backdrop.
+            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { Wordmark(it, height = 72.dp) }
         }
     }
 }
@@ -115,12 +121,16 @@ fun ExpandedShelf(
                 .padding(bottom = 34.dp),
         ) {
             Column(Modifier.padding(start = m.inset).widthIn(max = 520.dp)) {
-                Wordmark(item, height = 76.dp)
-                item.subtitle?.let {
-                    Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
-                }
-                item.description?.let {
-                    Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
+                    Column {
+                        Wordmark(shown, height = 76.dp)
+                        shown.subtitle?.let {
+                            Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
+                        }
+                        shown.description?.let {
+                            Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                        }
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 14.dp, bottom = 18.dp)) {
                     val shown = feed.items.size.coerceAtMost(12)

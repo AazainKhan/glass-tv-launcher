@@ -41,8 +41,9 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val surface = SurfaceView(context)
     private val fade = View(context).apply { setBackgroundColor(Color.BLACK) }
-    private val location = label(20f).apply { gravity = Gravity.START }
-    private val clock = label(34f)
+    // tvOS-style: a light clock without am/pm and a small caption, each with only a soft contact shadow.
+    private val location = label(13f, alpha = 0.85f).apply { gravity = Gravity.START; letterSpacing = 0.01f }
+    private val clock = label(26f, alpha = 0.95f).apply { letterSpacing = -0.01f }
     private var player: ExoPlayer? = null
     private var videos: List<AerialVideo> = emptyList()
 
@@ -65,7 +66,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         scope.launch {
             launch {
                 while (true) {
-                    clock.text = DateFormat.getTimeFormat(context).format(Date())
+                    clock.text = java.text.SimpleDateFormat(if (DateFormat.is24HourFormat(context)) "H:mm" else "h:mm", java.util.Locale.getDefault()).format(Date())
                     delay(60_000L - System.currentTimeMillis() % 60_000L + 50)
                 }
             }
@@ -108,13 +109,13 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         fade.animate().alpha(0f).setDuration(1200).setStartDelay(200).start()
     }
 
-    private fun label(size: Float) = TextView(context).apply {
-        setTextColor(Color.WHITE)
+    private fun label(size: Float, alpha: Float) = TextView(context).apply {
+        setTextColor(Color.argb((alpha * 255).toInt(), 255, 255, 255))
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-        setShadowLayer(12f, 0f, 2f, Color.argb(160, 0, 0, 0))
+        setShadowLayer(dp(3).toFloat(), 0f, 1f, Color.argb(70, 0, 0, 0))
         // TextView measures the glyphs only; leave room so the shadow isn't cut off at the sides.
         setPadding(dp(10), dp(4), dp(10), dp(8))
-        typeface = runCatching { androidx.core.content.res.ResourcesCompat.getFont(context, dev.glasslauncher.R.font.inter_semibold) }.getOrNull()
+        typeface = runCatching { androidx.core.content.res.ResourcesCompat.getFont(context, dev.glasslauncher.R.font.inter_medium) }.getOrNull()
             ?: android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
     }
 

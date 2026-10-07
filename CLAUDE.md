@@ -66,6 +66,13 @@ Work cheapest-first. Most UI work never needs the device.
 
 **3. Numbers:** `scripts/perf-run [--rounds N] [keys…]` (see below). `scripts/perf-gate` builds release, runs it, and fails against `perf-budget.json` (p90, p99, janky %, PSS, idle CPU): run it before merging rendering changes. `scripts/bench` runs the Macrobenchmarks (cold startup and D-pad browsing, with and without the Baseline Profile) and `scripts/bench profile` regenerates the profile; both need Magisk root for the adb Shell user.
 
+## Remote buttons (Fire TV)
+
+- Fire OS consumes the app buttons (`KeyMapManager` in system_server launches Netflix/Prime/…), Recent Apps, and Settings (a global key sent to `com.amazon.tv.settings.v2/.GlobalKeyHandler`) before any app or accessibility service sees them. Home long-press goes to `com.amazon.tv.quicksettings`. Leave Home and the quick menu alone (user's call).
+- `scripts/remote-keys install` (Magisk module `tools/magisk/glass-remote-keys`, needs a restart) remaps the app buttons and Recent Apps to BUTTON_9..13, which reach `RemoteKeysService`; actions live in `system/RemoteButtons.kt` and Settings › Remote Buttons. `uninstall` restores Fire's behaviour. Settings can't be freed by a key layout: `FireTVKeyPolicyManager` (in `interceptKeyBeforeQueueing`) catches it by scan code 249 whatever keycode it maps to; a kernel keymap (EVIOCSKEYCODE) would be the next thing to try.
+- androidx.benchmark 1.5.0 checks root with `su root id`, which Magisk's su answers with nothing (and hangs under the test runner), so `scripts/bench` / `bench profile` hang at startup on the stick.
+- `RemoteKeysService` must set `FLAG_REQUEST_FILTER_KEY_EVENTS` at runtime in `onServiceConnected`; the XML flag alone didn't deliver keys on Fire OS 8. Keys injected with `input keyevent` never reach accessibility filters; use `scripts/key` (sendevent), which now also knows `app1-app4 recents settings alexa tv mute`.
+
 ## Performance rules (learned on the GE9215, don't regress)
 
 The GPU affords only about **two full-screen blended passes per frame**. Target: under 1% janky frames, about 0% idle CPU, under 120 MB PSS, release APK under 8 MB.

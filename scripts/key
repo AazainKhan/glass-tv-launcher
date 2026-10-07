@@ -12,6 +12,7 @@
 #                                           frame landed, or "busy" after 3 s of continuous drawing)
 #
 # Keys: up down left right select back home menu play rew ff
+#       app1-app4 (the app buttons) recents settings alexa tv mute
 set -euo pipefail
 source "$(dirname "$0")/lib/device.sh"
 require_device_access
@@ -23,6 +24,8 @@ code() {
     up) echo 103 ;; down) echo 108 ;; left) echo 105 ;; right) echo 106 ;;
     select|ok|center|enter) echo 96 ;; back) echo 158 ;; home) echo 172 ;; menu) echo 139 ;;
     play|playpause) echo 164 ;; rew) echo 168 ;; ff) echo 208 ;;
+    app1) echo 744 ;; app2) echo 745 ;; app3) echo 746 ;; app4) echo 747 ;; recents) echo 748 ;;
+    settings) echo 249 ;; alexa) echo 217 ;; tv) echo 362 ;; mute) echo 113 ;;
     *) echo "unknown key: $1" >&2; exit 2 ;;
   esac
 }
@@ -31,6 +34,7 @@ keycode() {
     up) echo DPAD_UP ;; down) echo DPAD_DOWN ;; left) echo DPAD_LEFT ;; right) echo DPAD_RIGHT ;;
     select|ok|center|enter) echo DPAD_CENTER ;; back) echo BACK ;; home) echo HOME ;; menu) echo MENU ;;
     play|playpause) echo MEDIA_PLAY_PAUSE ;; rew) echo MEDIA_REWIND ;; ff) echo MEDIA_FAST_FORWARD ;;
+    settings) echo SETTINGS ;; tv) echo LIVE_TV ;; mute) echo VOLUME_MUTE ;; *) echo "$1" | tr a-z A-Z ;;
   esac
 }
 ms() { awk "BEGIN{printf \"%.3f\", $1/1000}"; }

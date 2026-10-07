@@ -52,6 +52,7 @@ sealed interface Overlay {
     data object Settings : Overlay
     data object Tips : Overlay
     data object ControlCenter : Overlay
+    data object AppSwitcher : Overlay
     data class PhoneSetup(
         val title: String,
         val fields: List<dev.glasslauncher.system.PhoneField>,

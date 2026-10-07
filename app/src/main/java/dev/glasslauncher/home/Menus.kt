@@ -120,6 +120,7 @@ fun OverlayContent(
         is Overlay.FolderOpen -> FolderView(overlay.folderId, model, layout, active, open, close)
         Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter(model, cfg, active, open, closeAll)
+        Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
     }
 }
 
