@@ -35,11 +35,13 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             ACTION_CONTROL_CENTER -> requests.trySend(HomeRequest.ControlCenter)
             ACTION_APP_SWITCHER -> requests.trySend(HomeRequest.AppSwitcher)
+            ACTION_TV_SETTINGS -> requests.trySend(HomeRequest.TvSettings)
         }
     }
 
     companion object {
         const val ACTION_CONTROL_CENTER = "dev.glasslauncher.action.CONTROL_CENTER"
         const val ACTION_APP_SWITCHER = "dev.glasslauncher.action.APP_SWITCHER"
+        const val ACTION_TV_SETTINGS = "dev.glasslauncher.action.TV_SETTINGS"
     }
 }

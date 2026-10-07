@@ -103,7 +103,7 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
             Text(clock, style = Type.heading.copy(fontWeight = FontWeight.Medium), color = palette.primary.copy(alpha = 0.9f), modifier = Modifier.padding(start = 4.dp, bottom = 16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
-                CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), BigWidth, Big, modifier = Modifier.focusRequester(first), onClick = { system { SystemControls.openSystemSettings(context) } }) { fg ->
+                CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), BigWidth, Big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
                     BigIcon(R.drawable.ic_settings, "Settings", fg)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(Gap)) {

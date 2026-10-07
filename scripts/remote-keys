@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Lets Glass Launcher map the Fire TV remote's app buttons and Recent Apps (Settings ›
+# Lets Glass Launcher map the Fire TV remote's app buttons, Recent Apps and Settings (Settings ›
 # Remote Buttons). Fire OS consumes those inside the system, so this Magisk module overlays the
 # remote's key layout with spare gamepad codes that reach Glass's accessibility service:
 #   APP_1..APP_4 -> BUTTON_9..BUTTON_12, RECENTS -> BUTTON_13
-# (Settings is caught by Fire's key policy by scan code, so remapping it does nothing.)
+# Settings is caught by Fire's key policy by its kernel key code (249), so the module's service.sh also
+# rewrites the remote's kernel keymap (tools/keymap/glass-keymap) to send 185, which reaches Glass as an
+# unnamed key (Fire also swallows BUTTON_16, so it isn't mapped to a keycode).
 # Everything else on the remote is unchanged. Needs Magisk; takes effect after a restart.
 #   scripts/remote-keys install [--reboot]    scripts/remote-keys uninstall [--reboot]    scripts/remote-keys status
 set -euo pipefail
@@ -28,11 +30,13 @@ case "${1:-status}" in
     sed -E -e 's/^(key 744[[:space:]]+)APP_1/\1BUTTON_9/' -e 's/^(key 745[[:space:]]+)APP_2/\1BUTTON_10/' \
            -e 's/^(key 746[[:space:]]+)APP_3/\1BUTTON_11/' -e 's/^(key 747[[:space:]]+)APP_4/\1BUTTON_12/' \
            -e 's/^(key 748[[:space:]]+)RECENTS/\1BUTTON_13/' -e 's/^(key 249[[:space:]]+)BUTTON_16/\1SETTINGS/' \
-           "$tmp/orig.kl" > "$tmp/new.kl"
+           "$tmp/orig.kl" | grep -v '^key 18[45] ' > "$tmp/new.kl"
     grep -q BUTTON_9 "$tmp/new.kl" || { echo "unexpected key layout; nothing changed" >&2; exit 1; }
     adb push "$ROOT/tools/magisk/glass-remote-keys/module.prop" /data/local/tmp/grk.prop >/dev/null
     adb push "$tmp/new.kl" /data/local/tmp/grk.kl >/dev/null
-    adb shell "su -c 'mkdir -p $MOD/system/usr/keylayout && cp /data/local/tmp/grk.prop $MOD/module.prop && cp /data/local/tmp/grk.kl $MOD/system/usr/keylayout/${KL##*/} && chmod 644 $MOD/system/usr/keylayout/${KL##*/} && rm -f $MOD/remove $MOD/disable /data/local/tmp/grk.*'"
+    adb push "$ROOT/tools/magisk/glass-remote-keys/service.sh" /data/local/tmp/grk.sh >/dev/null
+    adb push "$ROOT/tools/keymap/glass-keymap" /data/local/tmp/grk.bin >/dev/null
+    adb shell "su -c 'mkdir -p $MOD/system/usr/keylayout && cp /data/local/tmp/grk.prop $MOD/module.prop && cp /data/local/tmp/grk.kl $MOD/system/usr/keylayout/${KL##*/} && chmod 644 $MOD/system/usr/keylayout/${KL##*/} && cp /data/local/tmp/grk.sh $MOD/service.sh && cp /data/local/tmp/grk.bin $MOD/glass-keymap && chmod 755 $MOD/service.sh $MOD/glass-keymap && rm -f $MOD/remove $MOD/disable /data/local/tmp/grk.* && $MOD/glass-keymap remap \"Fire TV Remote\" 249 185'"
     enable_service
     echo "Installed. Restart the TV to apply${2:+ (restarting)}."
     [ "${2:-}" = --reboot ] && adb reboot || true ;;

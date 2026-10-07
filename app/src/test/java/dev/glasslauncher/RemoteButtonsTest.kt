@@ -11,6 +11,8 @@ class RemoteButtonsTest {
         assertEquals(RemoteAction.OpenApp("com.netflix.ninja"), RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap()))
         assertEquals(RemoteAction.OpenApp("com.amazon.firebat"), RemoteButtons.actionFor("KEYCODE_BUTTON_10", emptyMap()))
         assertEquals(RemoteAction.AppSwitcher, RemoteButtons.actionFor("KEYCODE_BUTTON_13", emptyMap()))
+        assertEquals(RemoteAction.TvSettings, RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 185))
+        assertNull(RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 999))
     }
 
     @Test fun userMappingWins() {
@@ -27,7 +29,7 @@ class RemoteButtonsTest {
     }
 
     @Test fun actionsRoundTrip() {
-        listOf(RemoteAction.Default, RemoteAction.Nothing, RemoteAction.Home, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.OpenApp("a.b"))
+        listOf(RemoteAction.Default, RemoteAction.Nothing, RemoteAction.Home, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.TvSettings, RemoteAction.OpenApp("a.b"))
             .forEach { assertEquals(it, RemoteAction.parse(it.key)) }
     }
 }

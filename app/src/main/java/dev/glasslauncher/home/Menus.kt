@@ -121,6 +121,15 @@ fun OverlayContent(
         Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter(model, cfg, active, open, closeAll)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
+        Overlay.TvSettings -> SettingsPage(active, icon = { SettingsIcon() }) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            MenuList(active) { first ->
+                PanelTitle("Settings")
+                dev.glasslauncher.system.SystemControls.tvSettingsSections.forEachIndexed { i, section ->
+                    MenuRow(section.title, { dev.glasslauncher.system.SystemControls.openTvSettings(context, section) }, if (i == 0) Modifier.focusRequester(first) else Modifier, chevron = true)
+                }
+            }
+        }
     }
 }
 

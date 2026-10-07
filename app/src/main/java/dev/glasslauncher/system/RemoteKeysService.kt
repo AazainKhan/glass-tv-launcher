@@ -23,10 +23,11 @@ class RemoteKeysService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val name = KeyEvent.keyCodeToString(event.keyCode)
-        if (dev.glasslauncher.BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN) Log.i(TAG, "$name scan=${event.scanCode}")
-        val action = RemoteButtons.actionFor(name, app.config.config.value.remoteButtons) ?: return false
-        // Act on release so a held button doesn't repeat, and swallow both halves of the press.
-        if (event.action == KeyEvent.ACTION_UP) run(action)
+        val action = RemoteButtons.actionFor(name, app.config.config.value.remoteButtons, event.scanCode) ?: return false
+        if (dev.glasslauncher.BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN) Log.i(TAG, "$name scan=${event.scanCode} -> $action")
+        // Act on the first down (a key the layout doesn't name never delivers its up here); ignore
+        // auto-repeat, and swallow every half of the press.
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) run(action)
         return true
     }
 
@@ -41,6 +42,7 @@ class RemoteKeysService : AccessibilityService() {
             }
             RemoteAction.ControlCenter -> home(MainActivity.ACTION_CONTROL_CENTER)
             RemoteAction.AppSwitcher -> home(MainActivity.ACTION_APP_SWITCHER)
+            RemoteAction.TvSettings -> home(MainActivity.ACTION_TV_SETTINGS)
             RemoteAction.Home -> performGlobalAction(GLOBAL_ACTION_HOME)
             RemoteAction.Nothing, RemoteAction.Default -> Unit
         }

@@ -53,6 +53,8 @@ sealed interface Overlay {
     data object Tips : Overlay
     data object ControlCenter : Overlay
     data object AppSwitcher : Overlay
+    /** Fire TV's own settings, as a top-level list (the stock home screen normally provides it). */
+    data object TvSettings : Overlay
     data class PhoneSetup(
         val title: String,
         val fields: List<dev.glasslauncher.system.PhoneField>,

@@ -614,7 +614,7 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     } else if (!HomeSetup.isRemoteKeysEnabled(context)) {
         Hint("Turn on Glass Launcher Remote Buttons in the TV's Accessibility settings.")
     }
-    Hint("Home, Back, Settings, volume, mute, power, Alexa and the TV button keep working as usual.")
+    Hint("Home, Back, volume, mute, power, Alexa and the TV button keep working as usual.")
 }
 
 @Composable
@@ -627,7 +627,7 @@ private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, 
         done()
     }
     PanelTitle(button.label)
-    val options = listOf(button.default, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
+    val options = listOf(button.default, RemoteAction.TvSettings, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
     options.forEachIndexed { i, a ->
         val label = if (a == button.default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
         MenuRow(label, { set(a) }, if (i == 0) f else Modifier, value = if (a == current) "✓" else null)
@@ -649,6 +649,7 @@ private fun ColumnScope.ButtonAppPage(model: HomeModel, layout: HomeLayout, id: 
 
 private fun actionName(action: RemoteAction, pm: android.content.pm.PackageManager): String = when (action) {
     is RemoteAction.OpenApp -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(action.pkg, 0)).toString() }.getOrDefault(action.pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() })
+    RemoteAction.TvSettings -> "TV Settings"
     RemoteAction.ControlCenter -> "Control Center"
     RemoteAction.AppSwitcher -> "App Switcher"
     RemoteAction.Home -> "Home"
