@@ -1,0 +1,8 @@
+{
+  "_comment": "Limits for scripts/perf-gate on the Fire TV Stick 4K (release build, dev-mode on, nothing else running). Tighten as the app improves; loosen only with a reason in the commit.",
+  "p90": 12,
+  "p99": 25,
+  "jankyPct": 5,
+  "pssMB": 120,
+  "idleCpuPct": 1.0
+}

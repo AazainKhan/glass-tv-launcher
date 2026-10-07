@@ -43,7 +43,7 @@ private val volatileTags = listOf("clock", "status-pill") // the pill resizes wi
 fun ComposeTestRule.stableImage(): Bitmap {
     val bitmap = onRoot().captureToImage().asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(bitmap)
-    val paint = Paint().apply { color = android.graphics.Color.MAGENTA }
+    val paint = Paint().apply { color = android.graphics.Color.rgb(40, 40, 46) }  // neutral, but clearly a mask
     // Any text that reads as a time of day ("5:42", "17:05", "5:42 a.m.") is a clock, tagged or not.
     val timeText = androidx.compose.ui.test.SemanticsMatcher("shows a time") { n ->
         n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text).orEmpty()

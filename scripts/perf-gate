@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Pass/fail performance check against perf-budget.json: builds and installs release, runs
+# scripts/perf-run, and fails (exit 1) on any metric over budget. Run before merging UI or
+# rendering changes. Needs the stick free: close tv-live (its recorder skews numbers).
+#   scripts/perf-gate [--no-build] [--rounds N]
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+cd "$ROOT"
+build=1; rounds=3
+while [ $# -gt 0 ]; do case "$1" in --no-build) build=0; shift ;; --rounds) rounds="$2"; shift 2 ;; *) shift ;; esac; done
+if adb shell pgrep screenrecord >/dev/null 2>&1; then
+  echo "perf-gate: screenrecord is running (tv-live open?); close it first or the numbers are meaningless" >&2; exit 2
+fi
+[ "$build" = 0 ] || scripts/build release >/dev/null
+result="$(scripts/perf-run --rounds "$rounds" | tail -1)"
+scripts/dev-mode off >/dev/null
+echo "$result"
+python3 - "$result" "$ROOT/perf-budget.json" <<'PY'
+import json, sys
+r = json.loads(sys.argv[1]); b = json.load(open(sys.argv[2]))
+bad = [f"{k} {r.get(k)} > {v}" for k, v in b.items() if not k.startswith("_") and r.get(k) is not None and float(r[k]) > v]
+print("perf-gate: " + ("FAIL: " + "; ".join(bad) if bad else "pass"))
+sys.exit(1 if bad else 0)
+PY

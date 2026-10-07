@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "glass-launcher"
 include(":app")
+include(":baselineprofile")

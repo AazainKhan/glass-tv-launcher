@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.roborazzi)
+    alias(libs.plugins.baselineprofile)
 }
 
 android {
@@ -86,6 +87,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
     implementation(libs.serialization.json)
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)

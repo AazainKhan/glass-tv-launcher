@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Macrobenchmarks on the stick (baselineprofile/.../HomeBenchmarks.kt): cold startup and D-pad
+# browsing frame times, each with and without the Baseline Profile. Prints a summary table.
+#   scripts/bench              all four benchmarks (~10 min)
+#   scripts/bench startup      only the startup ones (class filter by method name prefix)
+#   scripts/bench profile      regenerate the Baseline Profile (app/src/release/generated/…)
+# Needs Magisk root for the adb Shell user (Fire OS 8 is below API 33), and the stick free.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+cd "$ROOT"
+if [ -z "${JAVA_HOME:-}" ] || ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -qE 'version "(17|21)'; then
+  JAVA_HOME="$(/usr/libexec/java_home -v 21)"; export JAVA_HOME
+fi
+if [ "${1:-}" = profile ]; then
+  ./gradlew :app:generateBaselineProfile --console=plain -q
+  find app/src -path '*generated/baselineProfiles*' -type f -exec wc -l {} +
+  exit
+fi
+filter=(); [ -n "${1:-}" ] && filter=(-Pandroid.testInstrumentationRunnerArguments.tests_regex=".*${1}.*")
+./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest --console=plain -q "${filter[@]}"
+python3 - <<'PY'
+import glob, json
+for f in glob.glob("baselineprofile/build/outputs/connected_android_test_additional_output/**/*benchmarkData.json", recursive=True):
+    for b in json.load(open(f))["benchmarks"]:
+        m = b["metrics"]
+        parts = [f"{k}: median {v['median']:.1f}" for k, v in m.items()]
+        if "sampledMetrics" in b:
+            parts += [f"{k}: p50 {v['P50']:.1f} p90 {v['P90']:.1f} p99 {v['P99']:.1f}" for k, v in b["sampledMetrics"].items()]
+        print(f"{b['name']:<28} " + " | ".join(parts))
+PY

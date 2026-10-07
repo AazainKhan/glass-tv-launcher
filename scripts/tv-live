@@ -189,9 +189,10 @@ GALLERY_SOURCES = {
     "Components": [("app/src/test/screenshots/previews/*.png", "image")],
     "Motion": [("app/build/strips/*.png", "image"), ("build/clips/*.png", "image"), ("build/clips/*.mp4", "video")],
     "Focus": [("app/build/focus-graph/*.md", "text")],
+    "Compare": [("build/compare/*.png", "image")],
     "Reports": [("reports/inbox/*/still.png", "image"), ("reports/inbox/*/last-6s.mp4", "video"), ("reports/inbox/*/report.md", "text")],
 }
-SERVABLE = ("app/build/", "app/src/test/screenshots/", "build/clips/", "reports/")
+SERVABLE = ("app/build/", "app/src/test/screenshots/", "build/clips/", "build/compare/", "reports/")
 
 
 def gallery_listing():

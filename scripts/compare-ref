@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Puts our render next to the matching tvOS 27 reference frame, same height, labelled, so the
+# difference in spacing, glass, type and focus is visible in one image.
+#
+#   scripts/compare-ref                    every Home screen against its default reference
+#   scripts/compare-ref home-dock          one screen (a baseline name from app/src/test/screenshots)
+#   scripts/compare-ref home-dock topshelf-mayday     choose the reference by keyword
+#   scripts/compare-ref build/x.png folder-open       any image of ours
+#   scripts/compare-ref --list [keyword]   list reference frames
+#
+# Output: build/compare/<ours>--<ref>.png (also shown in tv-live's Gallery, Compare tab).
+# References: TVOS_REFS (default ~/Documents/firestick-unlocked/tvos27-inspo/screenshots).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REFS="${TVOS_REFS:-$HOME/Documents/firestick-unlocked/tvos27-inspo/screenshots}"
+OUT="$ROOT/build/compare"; mkdir -p "$OUT"
+FONT=/System/Library/Fonts/Helvetica.ttc
+
+# Our screen -> reference keyword.
+default_ref() {
+  case "$1" in
+    home-dock) echo home-topshelf-mayday ;;
+    home-dock-light) echo home-full-grid-light ;;
+    home-featured-row) echo home-topshelf-fullbleed ;;
+    home-grid) echo home-grid-dark-mode ;;
+    control-center) echo control-center-over-podcasts ;;
+    folder-open) echo folder-open-glass-panel ;;
+    settings) echo settings-root-dark ;;
+    app-menu) echo home-grid-profile-switcher-popover ;;
+    *) echo "" ;;
+  esac
+}
+
+find_ref() { find "$REFS" -type f -iname "*$1*" | sort | tail -1; }
+
+compare_one() {
+  local ours="$1" key="$2" name ref
+  if [ -f "$ours" ]; then name="$(basename "$ours" .png)"; else name="$ours"; ours="$ROOT/app/src/test/screenshots/$ours.png"; fi
+  [ -f "$ours" ] || { echo "no such screen: $ours" >&2; return 1; }
+  [ -n "$key" ] || key="$(default_ref "$name")"
+  [ -n "$key" ] || { echo "no default reference for $name; pass a keyword (scripts/compare-ref --list)" >&2; return 1; }
+  ref="$(find_ref "$key")"
+  [ -n "$ref" ] || { echo "no reference matches '$key'" >&2; return 1; }
+  local out="$OUT/$name--$(basename "${ref%.*}").png"
+  magick \( "$ours" -resize x720 -gravity north -background "#111" -splice 0x36 -font "$FONT" -pointsize 22 -fill white -annotate +0+6 "Glass: $name" \) \
+         \( "$ref" -resize x720 -gravity north -background "#111" -splice 0x36 -font "$FONT" -pointsize 22 -fill white -annotate +0+6 "tvOS 27: $(basename "$ref")" \) \
+         -background "#111" +append "$out"
+  echo "$out"
+}
+
+case "${1:-}" in
+  --list) find "$REFS" -type f \( -iname '*.jpg' -o -iname '*.png' \) | sed "s|$REFS/||" | grep -i -- "${2:-}" | sort ;;
+  "") for f in "$ROOT"/app/src/test/screenshots/*.png; do n="$(basename "$f" .png)"; [ -n "$(default_ref "$n")" ] && compare_one "$n" ""; done ;;
+  *) compare_one "$1" "${2:-}" ;;
+esac

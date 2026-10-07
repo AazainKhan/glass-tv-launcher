@@ -26,18 +26,27 @@ Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination G
 
 Work cheapest-first. Most UI work never needs the device.
 
+**0. Start of a session:** the SessionStart hook lists open **reports** (the user's "Report" button in the live view, and crashes/ANRs from `scripts/watch-crashes`): `scripts/reports`, `scripts/reports show <id>`, and when fixed `scripts/reports done <id> "what changed"`. Treat them as the user's bug queue. Before sending input to the stick, `scripts/stick-lock take "<you>"` and `export TV_OWNER="<you>"`; other sessions may be using it. Release it when done. Work in a git worktree when another session is active in this checkout.
+
+**Guard rails (automatic):** a Stop hook runs `scripts/shots all` when UI code changed and blocks once if it fails. The git pre-commit hook (`core.hooksPath = scripts/git-hooks`) does the same for commits touching UI or baselines. If the change is intended, run `scripts/shots record` (and `previews record`) and commit the new baselines with the code.
+
+**Build loop:** after a one-line change, a debug build is about 3 s plus 4 s to install; release (R8) is about 80 s. Use `scripts/build debug` for anything visual on the device and release only for performance numbers.
+
 **1. On the Mac, no device (Robolectric + Roborazzi, `app/src/test/.../shots/`):**
 
 - `scripts/shots verify` renders every Home screen (dock, featured row, grid, Control Center, app menu, folder, settings, light) at the stick's 960x540 dp and diffs against `app/src/test/screenshots/`. About 25 s warm. On failure, look at `app/build/outputs/roborazzi/*_compare.png`.
 - `scripts/shots record` after an intended UI change, then review the new PNGs in the diff like code. `scripts/shots verify grid` runs one screen.
 - `scripts/shots focus` crawls every focusable on Home with all four D-pad directions and fails on focus loss, unreachable apps, or Down from a featured card staying in the row. Read the whole graph in `app/build/focus-graph/home.md`; add named expectations to `FocusCrawlTest` when you fix a focus bug.
+- `scripts/shots previews [record]`: component `@Preview`s in `app/src/debug/.../preview/ComponentPreviews.kt` (tiles, tray, menu, light/dark) on the real wallpaper, as screenshot tests (a couple of seconds each). Iterate on a single component here; add a preview for whatever you're polishing.
+- `scripts/compare-ref [screen] [keyword]`: our render next to the matching tvOS 27 frame from `tvos27-inspo/screenshots` (default mapping per screen), written to `build/compare/`. Use it to check spacing, glass and type against the source of truth. `--list <keyword>` finds frames.
 - `scripts/shots strips [name]` writes frame-exact strips of transitions (12 frames, 32 ms apart, clock paused) to `app/build/strips/`. One image shows a whole focus move: use it to judge motion, not just the end state. Add a case in `MotionStrips.kt`.
 - The harness (`TvHarness`) installs 14 fake TV apps with generated banners, seeds the featured cache with fixture art, blocks the network, marks tips seen, and takes a `config` lambda for other states (folders, theme…). The clock and status pill are masked out of baselines. CI runs these tests but doesn't compare pixels, because fonts differ across OSes.
 - Robolectric gotchas: Coil must use BitmapFactory (`imageDecoderEnabled(false)`, already done in the harness), and `createEmptyComposeRule` + `ActivityScenario` run the real `MainActivity`.
 
 **2. On the device:**
 
-- **Live view in the Claude browser pane:** preview `tv-live` (`scripts/tv-live`, http://localhost:8765). It shows the screen at native 1080p (20 Mbit/s), with a "Lossless still" PNG and an unscaled "1:1" mode for judging edges and blending, and arrows/Enter/Backspace/H/M on the page drive the remote. It records with the stick's encoder, so stop it before benchmarking. `scrcpy` gives a native window.
+- **Gallery** (`/gallery` in tv-live): everything being built, refreshing itself. Tabs: screen renders and failing diffs, component previews, motion strips and device clips, the focus graph, reference comparisons, and reports. Point the user here instead of pasting images.
+- **Live view in the Claude browser pane:** preview `tv-live` (`scripts/tv-live`, http://localhost:8765). It shows the screen at native 1080p (20 Mbit/s), with a "Lossless still" PNG and an unscaled "1:1" mode for judging edges and blending, and arrows/Enter/Backspace/H/M on the page drive the remote. It records with the stick's encoder, so stop it before benchmarking. `scrcpy` gives a native window. Its **Report** box saves a lossless still, the last 6 s as video, the focused element and the note to `reports/inbox/`.
 - `scripts/key down down right select`: real remote events via `sendevent` (adb is root), about 0.1 s per press vs 0.9 s for `input keyevent`. Also `hold:800:down` (auto-repeat), `wait:300`, and `settle`. `settle` waits until the app stops drawing and prints when the last frame landed (an animation-length measurement), or `busy` after 3 s of continuous drawing (video backdrop).
 - `scripts/shot [out.png] [width]`: screenshot in about 1 s, downscaled to 960 wide. It fails with a clear message when a DRM app (Netflix…) is on screen.
 - `scripts/clip <name> <keys…>`: records a transition and writes `build/clips/<name>.png`, 18 frames 33 ms apart starting at the first visible change, plus the mp4.
@@ -46,6 +55,8 @@ Work cheapest-first. Most UI work never needs the device.
 - **The first key after a few idle minutes only wakes the UI** (chrome fade); it doesn't move focus. Send one throwaway press, or `scripts/tv trigger-app-event config '{"idleFadeMinutes":0}'` on a debug build (restore it to 3 after).
 - **Debug-build hooks:** `app/src/debug/.../DebugEventActivity.kt` handles `glassdev://event?name=…&payload=…`. Events: `config` (merge JSON into `LauncherConfig`) and `home`. Use `scripts/tv trigger-app-event <name> '<json>'`. Release builds don't contain it.
 
+- **Emulator for parallel work:** `scripts/emulator start` boots an Android TV (API 31) emulator on its own adb server, invisible to everything using the stick; `eval "$(scripts/emulator env)"` points `scripts/key`, `shot`, `tv` etc. at it, and `scripts/emulator install debug` puts the current build on it. Use it for functional and focus checks while someone else has the stick. It doesn't match the stick's GPU, Fire OS or speed, so judge looks and performance on the stick only.
+
 **agent-device** (`scripts/tv`, also registered as an MCP server in `.mcp.json`; defaults live in `agent-device.json`):
 
 - Batch steps: `scripts/tv batch --steps '[{"command":"tv-remote","input":{"action":"press","button":"down"}},{"command":"snapshot","input":{"interactiveOnly":true,"diff":true}}]'`. Add `--level digest` for cheaper output.
@@ -53,7 +64,7 @@ Work cheapest-first. Most UI work never needs the device.
 - Snapshots take about 2.5 s and `wait stable` about 5 s, so prefer `scripts/key … settle` plus `scripts/shot` for quick loops. `find <text>` **taps** the match. `perf frames` needs `scripts/tv open dev.glasslauncher` first.
 - Every agent-device version shares one daemon in `~/.agent-device`; two sessions on different versions keep replacing each other's daemon. Keep everyone on the pinned version, or set `AGENT_DEVICE_STATE_DIR` per session.
 
-**3. Numbers:** `scripts/perf-run [--rounds N] [keys…]` (see below).
+**3. Numbers:** `scripts/perf-run [--rounds N] [keys…]` (see below). `scripts/perf-gate` builds release, runs it, and fails against `perf-budget.json` (p90, p99, janky %, PSS, idle CPU): run it before merging rendering changes. `scripts/bench` runs the Macrobenchmarks (cold startup and D-pad browsing, with and without the Baseline Profile) and `scripts/bench profile` regenerates the profile; both need Magisk root for the adb Shell user.
 
 ## Performance rules (learned on the GE9215, don't regress)
 
