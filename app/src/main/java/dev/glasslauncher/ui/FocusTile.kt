@@ -90,8 +90,10 @@ fun FocusTile(
 
     LaunchedEffect(focused) {
         if (!focused || prefs.reduceMotion) return@LaunchedEffect
-        launch { tiltY.snapTo(KeyDirection.dx * 8f); tiltY.animateTo(0f, spring(dampingRatio = 0.42f, stiffness = 180f)) }
-        launch { tiltX.snapTo(-KeyDirection.dy * 8f); tiltX.animateTo(0f, spring(dampingRatio = 0.42f, stiffness = 180f)) }
+        // A hint of direction, not a wobble: tvOS doesn't tilt on D-pad moves at all (motion-spec §10), so
+        // this is tiny and critically damped, settled before the focus scale is (was 8° with overshoot).
+        launch { tiltY.snapTo(KeyDirection.dx * TILT_DEG); tiltY.animateTo(0f, spring(dampingRatio = 1f, stiffness = 600f)) }
+        launch { tiltX.snapTo(-KeyDirection.dy * TILT_DEG); tiltX.animateTo(0f, spring(dampingRatio = 1f, stiffness = 600f)) }
     }
     LaunchedEffect(wiggle) {
         if (wiggle && !prefs.reduceMotion) {
@@ -201,3 +203,5 @@ fun navigationSound(): Int = when {
     KeyDirection.dy < 0 -> SoundEffectConstants.NAVIGATION_UP
     else -> SoundEffectConstants.NAVIGATION_DOWN
 }
+
+private const val TILT_DEG = 1.5f

@@ -37,6 +37,7 @@ import dev.glasslauncher.data.AerialQuality
 import dev.glasslauncher.data.Auto
 import dev.glasslauncher.data.BackgroundMode
 import dev.glasslauncher.system.PhoneField
+import dev.glasslauncher.data.FeaturedMode
 import dev.glasslauncher.data.FeaturedSourceId
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.ThemeMode
@@ -188,7 +189,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
             }
         })
     }, value = "QR code")
-    MenuRow("Featured Row", { push(Page.Featured) }, value = sourceName(cfg.featured.source), chevron = true)
+    MenuRow("Featured Row", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
     MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
     MenuRow("Screensaver", { push(Page.Screensaver) }, chevron = true)
@@ -199,6 +200,12 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
     MenuRow("Backup & Restore", { push(Page.Backup) }, chevron = true)
     MenuRow("About", { push(Page.About) }, chevron = true)
+}
+
+private fun featuredSummary(fc: dev.glasslauncher.data.FeaturedConfig) = when {
+    fc.mode == FeaturedMode.Off || fc.source == FeaturedSourceId.Off -> "Off"
+    fc.mode == FeaturedMode.FocusedApp -> "Focused App"
+    else -> sourceName(fc.source)
 }
 
 private fun sourceName(id: FeaturedSourceId) = when (id) {
@@ -300,9 +307,32 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         model.edit { it.copy(featured = transform(it.featured)) }
 
     PanelTitle("Featured Row")
+    // Turning it off keeps the default source, so turning it back on restores it.
+    val off = fc.mode == FeaturedMode.Off || fc.source == FeaturedSourceId.Off
+    val defaultSource = fc.source.takeIf { it != FeaturedSourceId.Off } ?: FeaturedSourceId.Stremio
     SectionLabel("Show content from")
-    FeaturedSourceId.entries.forEachIndexed { i, id ->
-        MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, if (i == 0) f else Modifier, value = if (fc.source == id) "✓" else null)
+    MenuRow("Focused App", { setFeatured { it.copy(mode = FeaturedMode.FocusedApp, source = defaultSource) } }, f, value = if (!off && fc.mode == FeaturedMode.FocusedApp) "✓" else null)
+    MenuRow("One Source", { setFeatured { it.copy(mode = FeaturedMode.OneSource, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.OneSource) "✓" else null)
+    MenuRow("Off", { setFeatured { it.copy(mode = FeaturedMode.Off) } }, value = if (off) "✓" else null)
+    if (off) return
+    if (fc.mode == FeaturedMode.FocusedApp) {
+        Hint("The shelf shows the focused top-row app's content: Stremio, YouTube and Plex from their own catalogs; Netflix, Prime Video, Disney+, Apple TV, Max and Hulu from TMDB. Other apps, or services not set up below, show the default source.")
+    }
+    SectionLabel("Default Source")
+    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off }.forEach { id ->
+        MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, value = if (fc.source == id) "✓" else null)
+    }
+    if (fc.mode == FeaturedMode.FocusedApp) {
+        // Every service an app can use, whichever is the default.
+        SectionLabel("Services")
+        MenuRow("TMDB API Key", {
+            open(Overlay.TextInput("TMDB API Key", fc.tmdbKey, "Free at themoviedb.org → Settings → API. Used for Netflix, Prime Video, Disney+, Apple TV, Max and Hulu.") { k -> setFeatured { it.copy(tmdbKey = k) } })
+        }, value = mask(fc.tmdbKey))
+        MenuRow("YouTube API Key", {
+            open(Overlay.TextInput("YouTube Data API Key", fc.youtubeKey, "Create one in Google Cloud Console with YouTube Data API v3 enabled.") { k -> setFeatured { it.copy(youtubeKey = k) } })
+        }, value = mask(fc.youtubeKey))
+        if (fc.plexToken.isBlank()) MenuRow("Plex", { push(Page.PlexLink) }, value = "Sign In")
+        else MenuRow("Plex", { setFeatured { it.copy(plexToken = "") } }, value = "Sign Out")
     }
     when (fc.source) {
         FeaturedSourceId.Stremio -> {
@@ -343,9 +373,7 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         }
         FeaturedSourceId.Off -> Unit
     }
-    if (fc.source != FeaturedSourceId.Off) {
-        MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
-    }
+    MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
 }
 
 private fun mask(key: String) = if (key.isBlank()) "Not set" else "••••" + key.takeLast(4)

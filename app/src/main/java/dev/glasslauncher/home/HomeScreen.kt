@@ -127,6 +127,8 @@ enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings }
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
+/** Focus rests this long on a top-row app before the shelf switches to its content. */
+private const val SHELF_FOLLOW_MS = 450L
 
 const val SETTINGS_TILE_KEY = "glass:settings"
 
@@ -159,11 +161,22 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = !dark, highContrast = prefs.highContrast) }
     backdrop.reduceTransparency = prefs.reduceTransparency
 
-    // Featured content drives the live backdrop.
-    LaunchedEffect(cfg.featured) { graph.featured.refresh(cfg.featured) }
+    var lastDockFocused by remember { mutableStateOf<String?>(null) }
+    // Featured content drives the live backdrop. In "Focused app" mode the shelf follows the focused
+    // top-row app once focus rests on it (browsing along the row doesn't fetch and bake every app).
+    var shelfApp by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(lastDockFocused, cfg.featured.mode) {
+        if (cfg.featured.mode != dev.glasslauncher.data.FeaturedMode.FocusedApp) return@LaunchedEffect
+        delay(SHELF_FOLLOW_MS)
+        shelfApp = lastDockFocused?.removePrefix("app:")
+    }
+    val featuredCfg = remember(cfg.featured, shelfApp) { dev.glasslauncher.featured.AppSources.effective(cfg.featured, shelfApp) }
+    LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
-    val feed = featuredState.feed?.takeIf { cfg.featured.source != FeaturedSourceId.Off && it.items.isNotEmpty() }
+    val feed = featuredState.feed?.takeIf { featuredCfg != null && it.items.isNotEmpty() }
     var heroIndex by remember { mutableIntStateOf(0) }
+    // A different shelf starts from its first item.
+    LaunchedEffect(feed?.items?.firstOrNull()?.id) { heroIndex = 0 }
     val hero = feed?.items?.getOrNull(heroIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
     val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
 
@@ -172,7 +185,6 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val overlays = remember { mutableStateListOf<Overlay>() }
     var moving by remember { mutableStateOf<String?>(null) }
     var lastFocused by remember { mutableStateOf<String?>(null) }
-    var lastDockFocused by remember { mutableStateOf<String?>(null) }
     var focusedRow by remember { mutableIntStateOf(1) }
     val expand = remember { Animatable(0f) }
     var expanded by remember { mutableStateOf(false) }
@@ -195,7 +207,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
         // baking the wallpaper only to throw it away (the two bakes used to run in parallel at startup).
-        if (sceneUrl == null && cfg.background == BackgroundMode.Featured && cfg.featured.source != FeaturedSourceId.Off && backdrop.backdrop == null) delay(1_200)
+        if (sceneUrl == null && cfg.background == BackgroundMode.Featured && featuredCfg != null && backdrop.backdrop == null) delay(1_200)
         val ready = prebaked[0]?.takeIf { it.first == sceneUrl }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
         if (ready == null && expanded) delay(220) // let quick left/right browsing settle before re-baking the glass

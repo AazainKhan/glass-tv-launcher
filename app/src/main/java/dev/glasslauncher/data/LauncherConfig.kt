@@ -63,9 +63,14 @@ data class Folder(val id: String, val name: String, val apps: List<String>)
 @Serializable
 enum class FeaturedSourceId { Off, Stremio, Tmdb, YouTube, Plex }
 
+/** Featured Row: follow the focused top-row app (tvOS), always one source, or off. */
+enum class FeaturedMode { FocusedApp, OneSource, Off }
+
 @Serializable
 data class FeaturedConfig(
+    /** The one source, and the fallback in [FeaturedMode.FocusedApp]. (Off here is the pre-mode way of turning it off.) */
     val source: FeaturedSourceId = FeaturedSourceId.Stremio,
+    val mode: FeaturedMode = FeaturedMode.OneSource,
     val stremioCatalog: String = "movie/top",
     val tmdbKey: String = "",
     /** TMDB watch provider: netflix, prime, appletv, disney, max, or trending. */

@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 private val EDGE_BAND = 10.dp
+/** Blur below which glass blends from its flat over-blur tint back to its texture. */
+private const val TEXTURE_FADE = 0.3f
 private val EDGE_SHIFT = 9.dp
 
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
@@ -181,9 +183,13 @@ private class GlassNode(
         // Once Home's backdrop is blurring (scrolling toward, or resting on, the grid), frosted glass over
         // it looks the same as its tint alone, so skip sampling the texture and draw flat. The glass was
         // most of the GPU time on the dock-to-grid scroll (25% janky frames before, ~1% after).
-        val overBlur = !style.useOverlay && blur > 0f
+        // The textured look fades in over the last stretch of the blur (and out over the first), so the
+        // tray and folders don't snap between the flat and textured looks at the end of a scroll. Both
+        // are drawn only while blur < TEXTURE_FADE, when the scroll has mostly settled.
+        val texture = if (style.useOverlay) 1f else (1f - blur / TEXTURE_FADE).coerceIn(0f, 1f)
+        val overBlur = texture < 1f
         // Clear glass follows the blur behind it: light over the sharp hero, frosted once the grid is up.
-        val clear = style.clear && !state.reduceTransparency && blur == 0f
+        val clear = style.clear && !state.reduceTransparency
         val source = when {
             style.useOverlay -> state.overlay ?: backdrop?.blurredSoftware
             clear -> backdrop?.clearSoftware
@@ -210,7 +216,13 @@ private class GlassNode(
             )
             overlayShader = ComposeShader(tintShader, highlight, PorterDuff.Mode.SRC_OVER)
         }
-        if (source != null && root != IntSize.Zero && !overBlur) {
+        if (overBlur) {
+            // Flat tint: over a blurred backdrop this is what frosted glass looks like (tvOS's grid tray is
+            // a flat translucent slab), and texture shaders here tipped the GPU over budget.
+            val flat = if (state.reduceTransparency) solidTint(style.tint) else Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f)
+            drawOutline(outline, flat, alpha = 1f - texture)
+        }
+        if (source != null && root != IntSize.Zero && texture > 0f) {
             if (source !== shaderSource) {
                 shaderSource = source
                 backdropShader = BitmapShader(source.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -231,22 +243,18 @@ private class GlassNode(
                 prevMatrix.setScale(root.width / previousSource.width.toFloat(), root.height / previousSource.height.toFloat())
                 prevMatrix.postTranslate(-origin.x, -origin.y)
                 prevShader!!.setLocalMatrix(prevMatrix)
-                drawOutline(outline, ShaderBrush(ComposeShader(prevShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
-                drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = fade)
+                drawOutline(outline, ShaderBrush(ComposeShader(prevShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
+                drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = fade * texture)
             } else {
                 prevShaderSource = null; prevShader = null
-                drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
+                drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
             }
-            if (clear) drawEdgeBand(source, if (previousSource != null) fade else 1f)
-        } else if (overBlur) {
-            // Flat tint and rim: over a blurred backdrop this is what frosted glass looks like (tvOS's
-            // grid tray is a flat translucent slab), and gradient shaders here tipped the GPU over budget.
-            // Visible as a slab, like tvOS's grid tray (flat fills are cheap, so strength costs nothing).
-            drawOutline(outline, if (state.reduceTransparency) solidTint(style.tint) else Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f))
-        } else {
+            // The refracted edge (the costliest stroke, ~7 ms) only once the blur has settled.
+            if (clear && texture >= 1f) drawEdgeBand(source, if (previousSource != null) fade else 1f)
+        } else if (!overBlur) {
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }
-        if (overBlur) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))
+        if (texture < 0.5f) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))
         else drawRim(outline)
         drawContent()
     }

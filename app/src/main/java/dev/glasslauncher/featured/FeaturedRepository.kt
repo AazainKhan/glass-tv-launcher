@@ -29,20 +29,31 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
     val state: StateFlow<FeaturedState> = _state
     private var loadedKey: String? = null
     private var loadedAt = 0L
+    /** Recent feeds by config, so the "Focused app" shelf switches between apps without refetching. */
+    private val memory = object : LinkedHashMap<String, Pair<FeaturedFeed, Long>>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<FeaturedFeed, Long>>) = size > 8
+    }
 
     suspend fun refresh(cfg: FeaturedConfig, force: Boolean = false) = mutex.withLock {
         val key = cfg.toString()
-        val fresh = loadedKey == key && SystemClock.elapsedRealtime() - loadedAt < 30 * 60_000L
-        if (fresh && !force) return@withLock
-        if (loadedKey != key) {
-            _state.value = FeaturedState(readCache(key))
+        val now = SystemClock.elapsedRealtime()
+        memory[key]?.let { (feed, at) ->
+            _state.value = FeaturedState(feed)
+            loadedKey = key; loadedAt = at
+            if (!force && now - at < 30 * 60_000L) return@withLock
         }
+        val fresh = loadedKey == key && now - loadedAt < 30 * 60_000L
+        if (fresh && !force) return@withLock
+        // Switching source: show its cached feed if there is one; otherwise keep the current shelf up until
+        // the new one arrives (blanking it would drop the backdrop to the wallpaper for a moment).
+        if (loadedKey != key) readCache(key)?.let { _state.value = FeaturedState(it) }
         val source = Sources.of(cfg.source) ?: run { _state.value = FeaturedState(); return@withLock }
         val result = runCatching { source.load(http, cfg) }
         result.onSuccess { feed ->
             _state.value = FeaturedState(feed)
             loadedKey = key
             loadedAt = SystemClock.elapsedRealtime()
+            memory[key] = feed to loadedAt
             writeCache(key, feed)
         }.onFailure { e ->
             _state.value = _state.value.copy(error = if (_state.value.feed == null) e.message ?: "Couldn't load featured content" else null)
