@@ -1,0 +1,4 @@
+# Precompile the launcher's own code on install so the first scroll and focus moves aren't interpreted.
+# Compose and AndroidX ship their own profiles; ProfileInstaller merges them.
+HSPLdev/glasslauncher/**->**(**)**
+Ldev/glasslauncher/**;

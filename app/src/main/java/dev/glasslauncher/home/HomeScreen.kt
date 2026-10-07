@@ -520,22 +520,22 @@ private fun FolderCell(
         onMenu = onMenu,
         glassBackground = true,
     ) {
+        // Up to six mini tiles, three per row, centred like a tvOS folder.
         Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxSize().padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             item.apps.take(6).chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth()) {
                     row.forEach { app ->
                         val art = rememberArt(model, app)
-                        Box(Modifier.weight(1f).aspectRatio(16f / 9f).graphicsLayer { shape = RoundedCornerShape(4.dp); clip = true }) {
+                        Box(Modifier.fillMaxWidth(0.3f).aspectRatio(16f / 9f).graphicsLayer { shape = RoundedCornerShape(5.dp); clip = true }) {
                             art?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                         }
                     }
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
-            if (item.apps.size <= 3) Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -561,6 +561,7 @@ fun TileWithLabel(
             onClick = onClick,
             onLongClick = onMenu,
             wiggle = moving,
+            shadow = !glassBackground,
             onFocusChange = { focused = it; if (it) onFocused() },
             modifier = Modifier
                 .fillMaxWidth()

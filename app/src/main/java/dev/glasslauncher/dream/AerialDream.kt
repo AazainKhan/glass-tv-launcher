@@ -49,12 +49,18 @@ class AerialActivity : Activity() {
         view = AerialView(this, app.config.config.value.screensaver).also { setContentView(it) }
     }
 
+    private val sleepAfter = Runnable { finish() }
+
     override fun onStart() {
         super.onStart()
         view?.start()
+        // Keep the screen on only until the TV's own sleep timeout, so Aerials never stop it sleeping.
+        val sleepMs = runCatching { android.provider.Settings.Secure.getLong(contentResolver, "sleep_timeout") }.getOrDefault(20 * 60_000L)
+        window.decorView.postDelayed(sleepAfter, sleepMs.coerceIn(5 * 60_000L, 4 * 3600_000L))
     }
 
     override fun onStop() {
+        window.decorView.removeCallbacks(sleepAfter)
         view?.stop()
         super.onStop()
         finish()
@@ -86,5 +92,4 @@ object Screensaver {
     }.getOrDefault(false)
 
     const val GRANT_COMMAND = "adb shell pm grant dev.glasslauncher android.permission.WRITE_SECURE_SETTINGS"
-    const val DISABLE_AMBIENT_COMMAND = "adb shell pm disable-user --user 0 com.amazon.tv.ftvambient"
 }

@@ -398,7 +398,7 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     )
     if (!canWrite && !isSystem) Hint("One-time setup from a computer: ${Screensaver.GRANT_COMMAND}")
     if (HomeSetup.isFireTv) {
-        Hint("Fire OS plays Amazon's Ambient Experience instead of the chosen screensaver. Either use \"Start Aerials on Home After\" below, or turn Ambient Experience off from a computer: ${Screensaver.DISABLE_AMBIENT_COMMAND}")
+        Hint("Fire OS only runs Amazon's own screensavers. Use \"Start Aerials on Home After\" below to get Aerials on this TV.")
     }
     SectionLabel("Options")
     MenuRow("Quality", {
@@ -406,7 +406,7 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     }, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K")
     ToggleRow("Show Location", sc.showLocation, { v -> model.edit { it.copy(screensaver = sc.copy(showLocation = v)) } })
     ToggleRow("Show Clock", sc.showClock, { v -> model.edit { it.copy(screensaver = sc.copy(showClock = v)) } })
-    val idleOptions = listOf(0, 5, 10, 15, 30)
+    val idleOptions = listOf(0, 3, 5, 10, 15, 30)
     MenuRow("Start Aerials on Home After", {
         val next = idleOptions[(idleOptions.indexOf(cfg.aerialsOnIdleMinutes).coerceAtLeast(0) + 1) % idleOptions.size]
         model.edit { it.copy(aerialsOnIdleMinutes = next) }

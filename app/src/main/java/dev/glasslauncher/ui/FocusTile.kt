@@ -59,6 +59,7 @@ fun FocusTile(
     wiggle: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
+    shadow: Boolean = true,
     onFocusChange: (Boolean) -> Unit = {},
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
@@ -102,7 +103,7 @@ fun FocusTile(
             .drawBehind {
                 // Pre-blurred shadow bitmap instead of animated elevation, which the render thread
                 // would otherwise re-tessellate every frame.
-                if (lift > 0.01f) {
+                if (shadow && lift > 0.01f) {
                     val w = size.width * scale * 1.06f
                     val h = size.height * scale * 1.12f
                     drawImage(

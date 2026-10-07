@@ -223,12 +223,15 @@ private fun IconPickerBody(app: AppEntry, model: HomeModel, active: Boolean, ope
 private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: () -> Unit, open: (Overlay) -> Unit) {
     val palette = LocalPalette.current
     var text by remember { mutableStateOf(overlay.initial) }
+    var editing by remember { mutableStateOf(false) }
     val field = remember { FocusRequester() }
+    val editRow = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
-    var fieldFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(active) {
-        if (active) { withFrameNanos { }; runCatching { field.requestFocus() }; keyboard?.show() }
+    // Fire TV's keyboard is full-screen and modal and opens whenever a text field takes focus, so the
+    // real field is only focusable while editing; otherwise the value sits in a normal row.
+    LaunchedEffect(active) { if (active && !editing) { withFrameNanos { }; runCatching { editRow.requestFocus() } } }
+    LaunchedEffect(editing) {
+        if (editing) { withFrameNanos { }; runCatching { field.requestFocus() }; keyboard?.show() }
     }
     var submitted by remember { mutableStateOf(false) }
     fun submit() {
@@ -236,43 +239,41 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
         submitted = true
         keyboard?.hide(); close(); overlay.onDone(text.trim())
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    MenuList(active && !editing) { _ ->
         PanelTitle(overlay.title)
-        BasicTextField(
-            value = text,
-            onValueChange = { text = it },
-            singleLine = true,
-            textStyle = Type.heading.copy(color = palette.primary),
-            cursorBrush = SolidColor(palette.primary),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done, showKeyboardOnFocus = false),
-            keyboardActions = KeyboardActions(onDone = { submit() }, onNext = { submit() }, onGo = { submit() }, onSearch = { submit() }, onSend = { submit() }),
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(field)
-                .onFocusChanged { fieldFocused = it.isFocused }
-                .onPreviewKeyEvent { e ->
-                    val k = e.nativeKeyEvent
-                    when {
-                        k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER && k.action == AndroidKeyEvent.ACTION_UP -> { keyboard?.show(); true }
-                        k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && k.action == AndroidKeyEvent.ACTION_DOWN -> {
-                            keyboard?.hide(); focusManager.moveFocus(FocusDirection.Down); true
-                        }
-                        else -> false
-                    }
-                }
-                .background(if (fieldFocused) palette.primary.copy(alpha = 0.16f) else palette.primary.copy(alpha = 0.08f), Shapes.row)
-                .padding(horizontal = 18.dp, vertical = 14.dp)
-                .testTag("text-input"),
-        )
+        if (editing) {
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                textStyle = Type.heading.copy(color = palette.primary),
+                cursorBrush = SolidColor(palette.primary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }, onNext = { submit() }, onGo = { submit() }, onSearch = { submit() }, onSend = { submit() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(field)
+                    .onFocusChanged { if (!it.isFocused && editing) editing = false }
+                    .background(palette.primary.copy(alpha = 0.16f), Shapes.row)
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
+                    .testTag("text-input"),
+            )
+        } else {
+            MenuRow(
+                title = text.ifEmpty { "Empty" },
+                onClick = { editing = true },
+                modifier = Modifier.focusRequester(editRow).testTag("text-value"),
+                value = "Edit",
+            )
+        }
         if (overlay.hint.isNotEmpty()) Hint(overlay.hint)
         Spacer(Modifier.height(8.dp))
-        MenuRow("Done", { submit() })
         MenuRow("Type on Your Phone", {
-            keyboard?.hide()
             open(Overlay.PhoneSetup(overlay.title, listOf(PhoneField("value", overlay.title, text, overlay.hint))) { values ->
                 values["value"]?.takeIf { it.isNotBlank() }?.let { text = it; submit() }
             })
-        })
+        }, value = "QR code")
+        MenuRow("Done", { submit() })
         MenuRow("Cancel", { keyboard?.hide(); close() })
     }
 }
@@ -333,7 +334,7 @@ private fun FolderView(
                 Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                     row.forEachIndexed { i, app ->
                         val key = appKey(app.packageName)
-                        val req = if (rowIndex == 0 && i == 0) first else requesters.getOrPut(key) { FocusRequester() }
+                        val req = remember(key, rowIndex, i) { if (rowIndex == 0 && i == 0) first else requesters.getOrPut(key) { FocusRequester() } }
                         requesters[key] = req
                         Box(Modifier.weight(1f)) {
                             AppCell(
