@@ -101,14 +101,18 @@ fun FocusTile(
             .drawBehind {
                 // Pre-blurred shadow bitmap instead of animated elevation, which the render thread
                 // would otherwise re-tessellate every frame.
-                if (shadow && lift > 0.01f) {
-                    val w = size.width * scale * 1.06f
-                    val h = size.height * scale * 1.12f
+                // Every tile sits slightly above the backdrop (tvOS 27): a soft, close shadow at rest
+                // that grows, drops and darkens as the tile lifts on focus.
+                if (shadow) {
+                    val spread = 1.04f + 0.06f * lift
+                    val w = size.width * scale * spread
+                    val h = size.height * scale * (spread + 0.06f * lift)
+                    val drop = (4.dp.toPx() + 12.dp.toPx() * lift)
                     drawImage(
                         TileShadow.image,
-                        dstOffset = IntOffset(((size.width - w) / 2).toInt(), ((size.height - h) / 2 + 10.dp.toPx() * lift).toInt()),
+                        dstOffset = IntOffset(((size.width - w) / 2).toInt(), ((size.height - h) / 2 + drop).toInt()),
                         dstSize = IntSize(w.toInt(), h.toInt()),
-                        alpha = 0.55f * lift,
+                        alpha = 0.34f + 0.3f * lift,
                         filterQuality = FilterQuality.Low,
                     )
                 }

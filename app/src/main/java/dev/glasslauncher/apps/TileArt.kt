@@ -63,7 +63,33 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         res.getDrawableForDensity(iconRes, android.util.DisplayMetrics.DENSITY_XXXHIGH, null)
     }.getOrNull()
 
-    private fun render(spec: TileSpec): Bitmap {
+    /** The TV banner at xxxhdpi when the app ships one, so a re-centred logo stays crisp. */
+    private fun hiResBanner(app: AppEntry): Drawable? = runCatching {
+        val info = pm.getActivityInfo(app.component, 0)
+        val bannerRes = info.bannerResource.takeIf { it != 0 } ?: info.applicationInfo.banner
+        if (bannerRes == 0) return@runCatching null
+        pm.getResourcesForApplication(info.applicationInfo).getDrawableForDensity(bannerRes, android.util.DisplayMetrics.DENSITY_XXXHIGH, null)
+    }.getOrNull()
+
+    private fun render(spec: TileSpec): Bitmap = renderArt(spec).also(::bakeBevel)
+
+    /**
+     * A faint top light and bottom shade baked into the art, so every tile reads as a slightly raised
+     * surface (tvOS 27) without an extra blended pass per tile at draw time.
+     */
+    private fun bakeBevel(bitmap: Bitmap) {
+        val h = bitmap.height.toFloat()
+        Canvas(bitmap).drawRect(0f, 0f, bitmap.width.toFloat(), h, Paint().apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, h,
+                intArrayOf(Color.argb(30, 255, 255, 255), Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(26, 0, 0, 0)),
+                floatArrayOf(0f, 0.42f, 0.7f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+        })
+    }
+
+    private fun renderArt(spec: TileSpec): Bitmap {
         val app = spec.app
         val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -79,10 +105,11 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         spec.iconPack?.let { pack ->
             iconPacks.iconFor(pack, app.component)?.let { drawGenerated(canvas, it); return bitmap }
         }
-        val banner = runCatching { pm.getActivityBanner(app.component) }.getOrNull()
+        val banner = hiResBanner(app)
+            ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
         if (banner != null) {
-            drawCover(canvas, banner)
+            drawBanner(canvas, banner)
             return bitmap
         }
         val icon = icon(app)
@@ -114,6 +141,76 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         val top = (HEIGHT - h) / 2
         d.setBounds(left, top, left + w, top + h)
         d.draw(canvas)
+    }
+
+    /**
+     * Banners are cover-cropped to 5:3 as before, unless that would leave the logo cut off, crowding
+     * an edge, or visibly off-centre (some ship the logo hugging one side). Those, when the banner's
+     * background is one solid colour, are redrawn with the logo centred at the same size, never larger.
+     */
+    private fun drawBanner(canvas: Canvas, d: Drawable) {
+        val iw = d.intrinsicWidth.takeIf { it > 0 } ?: WIDTH
+        val ih = d.intrinsicHeight.takeIf { it > 0 } ?: HEIGHT
+        val scale = min(1f, 640f / iw)
+        val bw = (iw * scale).toInt().coerceAtLeast(1)
+        val bh = (ih * scale).toInt().coerceAtLeast(1)
+        val src = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, bw, bh)
+        d.draw(Canvas(src))
+        val bg = edgeColor(src)
+        val box = bg?.let { contentBounds(src, it) }
+        src.recycle()
+        if (bg == null || box == null) return drawCover(canvas, d)
+
+        // Where the logo lands under a plain cover crop, in tile pixels.
+        val k = max(WIDTH / bw.toFloat(), HEIGHT / bh.toFloat())
+        val left = (box.left - bw / 2f) * k + WIDTH / 2f
+        val right = (box.right - bw / 2f) * k + WIDTH / 2f
+        val top = (box.top - bh / 2f) * k + HEIGHT / 2f
+        val bottom = (box.bottom - bh / 2f) * k + HEIGHT / 2f
+        val marginX = WIDTH * 0.07f
+        val marginY = HEIGHT * 0.07f
+        val centred = kotlin.math.abs((left + right) / 2f - WIDTH / 2f) <= WIDTH * 0.035f &&
+            kotlin.math.abs((top + bottom) / 2f - HEIGHT / 2f) <= HEIGHT * 0.05f
+        if (centred && left >= marginX && right <= WIDTH - marginX && top >= marginY && bottom <= HEIGHT - marginY) return drawCover(canvas, d)
+
+        val fit = min(k, min(WIDTH * 0.8f / box.width(), HEIGHT * 0.62f / box.height()))
+        canvas.drawColor(bg)
+        // Draw the whole banner (its own background continues around the logo) shifted so the logo is centred.
+        val dx = WIDTH / 2f - box.exactCenterX() * fit
+        val dy = HEIGHT / 2f - box.exactCenterY() * fit
+        val u = fit * bw / iw.toFloat()
+        canvas.save()
+        canvas.translate(dx, dy)
+        canvas.scale(u, u)
+        d.setBounds(0, 0, iw, ih)
+        d.draw(canvas)
+        canvas.restore()
+    }
+
+    /** Bounding box of pixels that differ from [bg], with a little breathing room; null if empty. */
+    private fun contentBounds(bitmap: Bitmap, bg: Int): android.graphics.Rect? {
+        val w = bitmap.width
+        val h = bitmap.height
+        val row = IntArray(w)
+        var left = w; var right = -1; var top = h; var bottom = -1
+        for (y in 0 until h) {
+            bitmap.getPixels(row, 0, w, 0, y, w, 1)
+            for (x in 0 until w) {
+                val c = row[x]
+                val diff = kotlin.math.abs(Color.red(c) - Color.red(bg)) + kotlin.math.abs(Color.green(c) - Color.green(bg)) +
+                    kotlin.math.abs(Color.blue(c) - Color.blue(bg)) + (255 - Color.alpha(c)) / 2
+                if (diff > 60) {
+                    if (x < left) left = x
+                    if (x > right) right = x
+                    if (y < top) top = y
+                    bottom = y
+                }
+            }
+        }
+        if (right < left || bottom < top) return null
+        val pad = (min(w, h) * 0.02f).toInt()
+        return android.graphics.Rect((left - pad).coerceAtLeast(0), (top - pad).coerceAtLeast(0), (right + pad + 1).coerceAtMost(w), (bottom + pad + 1).coerceAtMost(h))
     }
 
     private fun drawAdaptive(canvas: Canvas, icon: AdaptiveIconDrawable) {
@@ -179,11 +276,15 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
     /** The icon's border colour when the outer ring is (nearly) one solid colour, else null. */
     private fun edgeColor(probe: Bitmap): Int? {
         val samples = ArrayList<Int>()
-        val inset = PROBE / 12
-        for (i in inset until PROBE - inset step 3) {
-            listOf(probe.getPixel(i, inset), probe.getPixel(i, PROBE - 1 - inset), probe.getPixel(inset, i), probe.getPixel(PROBE - 1 - inset, i))
-                .filter { Color.alpha(it) > 230 }
-                .forEach { samples += it }
+        val pw = probe.width
+        val ph = probe.height
+        val inset = min(pw, ph) / 12
+        val step = (max(pw, ph) / 32).coerceAtLeast(3)
+        for (i in inset until pw - inset step step) {
+            listOf(probe.getPixel(i, inset), probe.getPixel(i, ph - 1 - inset)).filter { Color.alpha(it) > 230 }.forEach { samples += it }
+        }
+        for (i in inset until ph - inset step step) {
+            listOf(probe.getPixel(inset, i), probe.getPixel(pw - 1 - inset, i)).filter { Color.alpha(it) > 230 }.forEach { samples += it }
         }
         if (samples.size < 40) return null
         val r = samples.map { Color.red(it) }.sorted()[samples.size / 2]

@@ -75,6 +75,7 @@ Releases are built by GitHub Actions when a `v*` tag is pushed. Set the `RELEASE
 
 - Glass Launcher is licensed under [Apache-2.0](LICENSE).
 - [Inter](https://rsms.me/inter/) by Rasmus Andersson, SIL Open Font License ([licenses/Inter-OFL.txt](licenses/Inter-OFL.txt)).
+- Icons from [Material Symbols](https://fonts.google.com/icons) by Google, Apache-2.0 (`app/src/main/res/drawable/ic_*.xml`).
 - Aerial videos are streamed from Apple's servers and are © Apple.
 - This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming availability data provided by JustWatch.
 - Weather data by [Open-Meteo](https://open-meteo.com). Featured content from Stremio Cinemeta, YouTube and Plex is shown using your own accounts and keys.

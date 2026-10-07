@@ -109,22 +109,13 @@ fun rememberClock(h24: Boolean): String {
 
 private fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).format(Date())
 
+/** The settings gear (Material Symbols, filled): one clean silhouette at every size. */
 @Composable
 fun GearIcon(color: Color, size: Dp = 20.dp) {
-    Canvas(Modifier.size(size).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }) {
-        val c = Offset(this.size.width / 2, this.size.height / 2)
-        val outer = this.size.minDimension / 2
-        repeat(8) { i ->
-            rotate(i * 45f, c) {
-                drawRoundRect(
-                    color,
-                    topLeft = Offset(c.x - outer * 0.16f, c.y - outer),
-                    size = androidx.compose.ui.geometry.Size(outer * 0.32f, outer * 0.42f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(outer * 0.08f),
-                )
-            }
-        }
-        drawCircle(color, radius = outer * 0.72f, center = c)
-        drawCircle(Color.Black, radius = outer * 0.28f, center = c, blendMode = androidx.compose.ui.graphics.BlendMode.DstOut)
-    }
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.res.painterResource(dev.glasslauncher.R.drawable.ic_settings),
+        contentDescription = null,
+        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color),
+        modifier = Modifier.size(size),
+    )
 }

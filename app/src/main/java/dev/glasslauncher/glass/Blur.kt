@@ -28,6 +28,7 @@ object Blur {
     }
 
     fun blurInPlace(bitmap: Bitmap, radius: Int) {
+        if (radius <= 0) return
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)

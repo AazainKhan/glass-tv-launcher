@@ -60,13 +60,14 @@ Work cheapest-first. Most UI work never needs the device.
 The GPU affords only about **two full-screen blended passes per frame**. Target: under 1% janky frames, about 0% idle CPU, under 120 MB PSS, release APK under 8 MB.
 
 - Wallpaper bitmaps are opaque (`setHasAlpha(false)`), HARDWARE config, with the scrim baked in (`WallpaperLoader.load`). Never add full-screen translucent overlays.
-- Glass (`glass/Glass.kt`) is a single fill per surface: a screen-mapped `BitmapShader` composed with the tint and highlight. No `clipPath`, no stacked translucent passes. The dock tray is *clear* glass (`GlassStyle.clear`): it samples the lightly blurred `clearSoftware` over the hero (the frosted `blurredSoftware` once the grid is up) and adds one thin stroke, the refracted edge band. Panels stay frosted.
+- Glass (`glass/Glass.kt`) is a single fill per surface: a screen-mapped `BitmapShader` composed with the tint and highlight. No `clipPath`, no stacked translucent passes. The dock tray is *clear* glass (`GlassStyle.clear`): it samples the lightly blurred `clearSoftware` over the hero (the frosted `blurredSoftware` once the grid is up) and adds one masked stroke, the refracted edge band, which fades into the body so there's no seam. Panels and folders stay frosted. Each extra shader-filled stroke along the tray cost ~7 ms/frame (measured: 4 rings took p50 from 12 to 28 ms), so keep it to one.
 - No animated `shadowElevation`; tiles use the pre-blurred `TileShadow` bitmap.
 - Heavy content that scrolls in and out (the top shelf) lives **outside** the `LazyColumn` and moves with the scroll in `graphicsLayer`. Fades use `CompositingStrategy.ModulateAlpha`.
 - Animate only in layout/draw phases (`graphicsLayer {}`, `drawWithContent {}`); no per-frame recomposition.
 - Idle: no infinite animations. The clock and idle timer wake at most once a minute.
 
 - Wallpaper blur transitions step through `Backdrop.ladder` (opaque, progressively blurred copies); never cross-fade two full-screen images.
+- Hero backdrops are baked at 1920x1080 (shown 1:1); every blurred copy comes from one 960x540 intermediate. 1080p vs 720p made no measurable frame difference.
 - Rendered tiles are HARDWARE bitmaps and Coil's memory cache is capped at 12%; software bitmaps cost both native heap and GPU memory.
 - Blurred text shadows (`TextStyle.shadow`) are expensive when the text moves. Use them only on small static text (the clock).
 - Background load skews numbers: `installd` runs after `compile -m speed`, and AT4K burns CPU if it's running. Wait for `installd` to go idle and keep AT4K stopped before benchmarking. Current baseline in a key-every-1.4 s stress run: median 7 ms, p90 about 11 ms, 4–9% janky (transitions only), about 0% idle CPU, about 84 MB PSS.

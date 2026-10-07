@@ -51,10 +51,10 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         addView(surface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(fade, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(location, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
-            setMargins(dp(56), 0, 0, dp(44))
+            setMargins(dp(46), 0, 0, dp(36)) // text sits at 56/44 after the shadow padding
         })
         addView(clock, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
-            setMargins(0, dp(36), dp(56), 0)
+            setMargins(0, dp(32), dp(46), 0)
         })
         location.visibility = if (cfg.showLocation) View.VISIBLE else View.GONE
         clock.visibility = if (cfg.showClock) View.VISIBLE else View.GONE
@@ -112,6 +112,8 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         setTextColor(Color.WHITE)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
         setShadowLayer(12f, 0f, 2f, Color.argb(160, 0, 0, 0))
+        // TextView measures the glyphs only; leave room so the shadow isn't cut off at the sides.
+        setPadding(dp(10), dp(4), dp(10), dp(8))
         typeface = runCatching { androidx.core.content.res.ResourcesCompat.getFont(context, dev.glasslauncher.R.font.inter_semibold) }.getOrNull()
             ?: android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
     }

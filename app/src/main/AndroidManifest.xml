@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Control Center: Wi-Fi network name (Android reveals SSIDs only with location access) and Bluetooth state. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Granted manually over adb; lets the app set itself as screensaver and enable its Home button fallback. -->
     <uses-permission
         android:name="android.permission.WRITE_SECURE_SETTINGS"
@@ -126,6 +131,7 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/home_guard" />
         </service>
+
 
         <receiver
             android:name=".system.InstallResultReceiver"

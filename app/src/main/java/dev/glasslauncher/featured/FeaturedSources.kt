@@ -145,7 +145,7 @@ object Tmdb : FeaturedSource {
                 title = title,
                 subtitle = listOfNotNull(if (type == "tv") "Series" else "Movie", year, provider?.name).joinToString("  ·  "),
                 description = o["overview"].str(),
-                image = "https://image.tmdb.org/t/p/w1280" + o["backdrop_path"].str(),
+                image = "https://image.tmdb.org/t/p/original" + o["backdrop_path"].str(),
                 packages = provider?.packages ?: emptyList(),
             )
         }

@@ -38,8 +38,8 @@ import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
-private val EDGE_BAND = 7.dp
-private val EDGE_SHIFT = 10.dp
+private val EDGE_BAND = 10.dp
+private val EDGE_SHIFT = 9.dp
 
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
 @Stable
@@ -89,11 +89,11 @@ data class GlassStyle(
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
-        fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.45f), 0.30f, 0.70f)
-        else GlassStyle(Color(0xFF1A1D24).copy(alpha = 0.28f), 0.12f, 0.48f)
+        fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.30f), 0.22f, 0.45f)
+        else GlassStyle(Color(0xFF1A1D24).copy(alpha = 0.14f), 0.10f, 0.30f)
 
-        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.16f), 0.22f, 0.85f, clear = true)
-        else GlassStyle(Color.White.copy(alpha = 0.04f), 0.12f, 0.6f, clear = true)
+        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.12f), 0.16f, 0.5f, clear = true)
+        else GlassStyle(Color.White.copy(alpha = 0.03f), 0.08f, 0.32f, clear = true)
 
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
     }
@@ -131,10 +131,9 @@ private class GlassNode(
     private var cachedOutline: Outline? = null
     private var shaderSource: ImageBitmap? = null
     private var backdropShader: BitmapShader? = null
-    private var edgeShader: BitmapShader? = null
-    private var edgeSource: ImageBitmap? = null
-    private val edgeMatrix = Matrix()
-    private var edgeOutline: Outline? = null
+    private var edgeKey: Any? = null
+    private var edgeBrush: ShaderBrush? = null
+    private var edgeRing: Outline? = null
     private var overlayShader: Shader? = null
     private var overlayKey: Any? = null
     private val matrix = Matrix()
@@ -155,7 +154,7 @@ private class GlassNode(
             cachedSize = size
             cachedOutline = shape.createOutline(size, layoutDirection, this)
             val band = EDGE_BAND.toPx()
-            edgeOutline = shape.createOutline(Size(size.width - band, size.height - band), layoutDirection, this)
+            edgeRing = shape.createOutline(Size(size.width - band, size.height - band), layoutDirection, this)
         }
         val outline = cachedOutline ?: return drawContent()
         val root = state.rootSize
@@ -211,23 +210,35 @@ private class GlassNode(
      * through a mild zoom-out about the surface's centre (no RuntimeShader on API 30).
      */
     private fun DrawScope.drawEdgeBand(source: ImageBitmap) {
-        val ring = edgeOutline ?: return
+        val ring = edgeRing ?: return
         val band = EDGE_BAND.toPx()
-        val shift = EDGE_SHIFT.toPx()
-        if (source !== edgeSource || edgeShader == null) {
-            edgeSource = source
-            edgeShader = BitmapShader(source.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        // Built once per source/size/style/position; rebuilding shaders per frame is wasted work.
+        val key = listOf(source, size, style, origin, state.rootSize)
+        if (key != edgeKey) {
+            edgeKey = key
+            val shift = EDGE_SHIFT.toPx()
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val m = Matrix(matrix).apply {
+                postTranslate(-band / 2f, -band / 2f)
+                postScale(cx / (cx + shift), cy / (cy + shift), cx - band / 2f, cy - band / 2f)
+            }
+            val bent = BitmapShader(source.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { setLocalMatrix(m) }
+            // Fully bent at the rim, fading to nothing at the band's inner edge, so it melts into the
+            // body instead of leaving a seam (the long top and bottom edges are where a seam shows).
+            val h = size.height
+            val edge = (band / h).coerceAtMost(0.45f)
+            val mask = LinearGradient(
+                0f, -band / 2f, 0f, h - band / 2f,
+                intArrayOf(android.graphics.Color.BLACK, android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT, android.graphics.Color.BLACK),
+                floatArrayOf(0f, edge, 1f - edge, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            edgeBrush = ShaderBrush(ComposeShader(bent, mask, PorterDuff.Mode.DST_IN))
         }
-        val shader = edgeShader!!
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        // The band is drawn translated by band/2, so map from that space.
-        edgeMatrix.set(matrix)
-        edgeMatrix.postTranslate(-band / 2f, -band / 2f)
-        edgeMatrix.postScale(cx / (cx + shift), cy / (cy + shift), cx - band / 2f, cy - band / 2f)
-        shader.setLocalMatrix(edgeMatrix)
+        // One stroke: each extra ring cost about 7 ms a frame on the Fire TV GPU.
         translate(band / 2f, band / 2f) {
-            drawOutline(ring, ShaderBrush(ComposeShader(shader, overlayShader!!, PorterDuff.Mode.SRC_OVER)), style = Stroke(width = band))
+            drawOutline(ring, edgeBrush!!, style = Stroke(width = band))
         }
     }
 
@@ -243,6 +254,6 @@ private class GlassNode(
             0.8f to Color.White.copy(alpha = style.rim * 0.05f),
             1f to Color.White.copy(alpha = style.rim * 0.25f),
         )
-        drawOutline(outline, brush, style = Stroke(width = 1.5.dp.toPx()))
+        drawOutline(outline, brush, style = Stroke(width = 1.dp.toPx()))
     }
 }

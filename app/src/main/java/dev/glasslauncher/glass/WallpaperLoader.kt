@@ -62,7 +62,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
 
     /** Full-bleed top-shelf art (or a video frame) as the Home backdrop. */
     suspend fun fromImage(image: Bitmap, scene: Scene = Scene.Hero): Backdrop = withContext(Dispatchers.Default) {
-        bake(cropToScreen(image.copy(Bitmap.Config.ARGB_8888, true)), scene)
+        bake(cropToScreen(image, recycleSource = false), scene)
     }
 
     enum class Scene { Wallpaper, Hero }
@@ -88,14 +88,18 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
      * surfaces sample (which is what tints glass from the content behind it).
      */
     private fun bake(source: Bitmap, scene: Scene): Backdrop {
-        val blurred = Blur.backdrop(source, BLUR_W, BLUR_H, radius = 5)
+        // Every blurred copy comes from one half-size intermediate: cheaper than re-sampling the 1080p
+        // source for each, and a cleaner downscale for the small ones.
+        val mid = Blur.backdrop(source, SHARP_W / 2, SHARP_H / 2, radius = 0, saturation = 1f)
+        val blurred = Blur.backdrop(mid, BLUR_W, BLUR_H, radius = 5)
         val isLight = scene == Scene.Wallpaper && Blur.luminance(blurred) > 0.62f
         val steps = listOf(
             Triple(640, 360, 1), Triple(448, 252, 2), Triple(320, 180, 3), Triple(240, 135, 4),
         ).mapIndexed { i, (w, h, r) ->
-            Blur.backdrop(source, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
+            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
         }
-        val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
+        val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
+        mid.recycle()
         // Scrims are baked in and the bitmaps are marked opaque, so drawing the backdrop is a single
         // non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
         bakeScrim(source, isLight, scene)
@@ -184,7 +188,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         return cropToScreen(decoded)
     }
 
-    private fun cropToScreen(src: Bitmap): Bitmap {
+    private fun cropToScreen(src: Bitmap, recycleSource: Boolean = true): Bitmap {
         val out = Bitmap.createBitmap(SHARP_W, SHARP_H, Bitmap.Config.ARGB_8888)
         val scale = max(SHARP_W / src.width.toFloat(), SHARP_H / src.height.toFloat())
         val w = (SHARP_W / scale).toInt()
@@ -192,7 +196,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         val left = (src.width - w) / 2
         val top = (src.height - h) / 2
         Canvas(out).drawBitmap(src, Rect(left, top, left + w, top + h), Rect(0, 0, SHARP_W, SHARP_H), Paint(Paint.FILTER_BITMAP_FLAG))
-        if (src != out) src.recycle()
+        if (recycleSource && src != out) src.recycle()
         return out
     }
 
@@ -213,8 +217,9 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
     }
 
     companion object {
-        const val SHARP_W = 1280
-        const val SHARP_H = 720
+        // Native 1080p: hero art is shown 1:1, and a 720p bake looked soft next to the tiles.
+        const val SHARP_W = 1920
+        const val SHARP_H = 1080
         const val BLUR_W = 192
         const val BLUR_H = 108
         const val CLEAR_W = 480

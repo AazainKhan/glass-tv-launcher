@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -49,6 +50,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -114,6 +116,8 @@ import dev.glasslauncher.widgets.StatusPill
 import dev.glasslauncher.widgets.rememberIdleState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -179,6 +183,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         val next = sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it) }.getOrNull() } ?: graph.wallpapers.load(wallpaper)
         backdrop.swap(next, animate = backdrop.backdrop != null && !prefs.reduceMotion)
     }
+
+    // Loading state: Home stays hidden until its first backdrop is baked and the app list is in, then
+    // fades in whole, instead of assembling piece by piece (black screen, bare tray, tiles jumping).
+    var ready by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        withTimeoutOrNull(8_000) {
+            snapshotFlow { layout.loaded && (backdrop.backdrop != null || cfg.background == BackgroundMode.Motion) }.first { it }
+            withFrameNanos { }
+        }
+        ready = true
+    }
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(ready) { if (ready) reveal.animateTo(1f, tween(if (prefs.reduceMotion) 150 else 450)) }
 
     fun open(overlay: Overlay) {
         scope.launch {
@@ -336,6 +353,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                 .fillMaxSize()
                 .semantics { testTagsAsResourceId = true }
                 .onSizeChanged { backdrop.rootSize = it }
+                // Black under the fade-in only; afterwards the backdrop is the only full-screen fill.
+                .drawBehind { if (reveal.value < 1f) drawRect(Color.Black) }
                 .onPreviewKeyEvent { ev ->
                     val e = ev.nativeKeyEvent
                     idle.touch()
@@ -363,7 +382,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { translationX = idle.shift.x; translationY = idle.shift.y }
+                    .graphicsLayer { translationX = idle.shift.x; translationY = idle.shift.y; alpha = reveal.value }
                     .drawWithContent {
                         layer.record { this@drawWithContent.drawContent() }
                         drawLayer(layer)
@@ -440,7 +459,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                 focusable = expanded || feed == null,
                 onSelect = { open(Overlay.ControlCenter) },
                 modifier = Modifier.align(Alignment.TopEnd),
-                fade = { 1f - backdrop.wallpaperBlur.value },
+                // Control Center draws its own clock in this corner.
+                fade = { if (overlays.lastOrNull() == Overlay.ControlCenter) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },
             )
 
             moving?.let { MoveBanner(it, layout, Modifier.align(Alignment.BottomCenter)) }
@@ -461,8 +481,31 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                     )
                 }
             }
+
+            if (reveal.value < 1f) StartupMark(loading = !ready, alpha = { 1f - reveal.value })
         }
     }
+}
+
+/**
+ * Shown only if startup takes more than a moment: the name, breathing slowly in the middle of a black
+ * screen, then fading out as Home fades in.
+ */
+@Composable
+private fun BoxScope.StartupMark(loading: Boolean, alpha: () -> Float) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(400); shown = true }
+    if (!shown) return
+    val breath = remember { Animatable(0.35f) }
+    LaunchedEffect(loading) {
+        if (loading) breath.animateTo(0.7f, androidx.compose.animation.core.infiniteRepeatable(tween(1400), androidx.compose.animation.core.RepeatMode.Reverse))
+    }
+    Text(
+        "Glass",
+        style = Type.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+        color = Color.White,
+        modifier = Modifier.align(Alignment.Center).graphicsLayer { this.alpha = breath.value * alpha() },
+    )
 }
 
 private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: HomeModel, columns: Int, done: () -> Unit) {
@@ -801,12 +844,14 @@ fun TileWithLabel(
                 .aspectRatio(m.tileAspect)
                 .then(tileModifier)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .testTag(tag)
-                .then(
-                    if (glassBackground) Modifier.glass(LocalBackdrop.current, RoundedCornerShape(m.tileRadius), GlassStyle.shelf(palette.light))
-                    else Modifier,
-                ),
-        ) { content() }
+                .testTag(tag),
+        ) {
+            // Inside the tile's scaled layer, so the glass grows with its contents on focus. Frosted,
+            // not the tray's clear glass: no refracted edge band per folder.
+            if (glassBackground) {
+                Box(Modifier.fillMaxSize().glass(LocalBackdrop.current, RoundedCornerShape(m.tileRadius), GlassStyle.shelf(palette.light).copy(clear = false))) { content() }
+            } else content()
+        }
         if (showLabel || isNew) {
             // Sits in the row gap below the tile so labels never change the layout.
             Row(
