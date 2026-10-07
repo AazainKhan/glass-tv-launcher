@@ -159,8 +159,13 @@ private class GlassNode(
         val outline = cachedOutline ?: return drawContent()
         val root = state.rootSize
         val backdrop = state.backdrop
+        val blur = state.wallpaperBlur.value
+        // Once Home's backdrop is blurring (scrolling toward, or resting on, the grid), frosted glass over
+        // it looks the same as its tint alone, so skip sampling the texture and draw flat. The glass was
+        // most of the GPU time on the dock-to-grid scroll (25% janky frames before, ~1% after).
+        val overBlur = !style.useOverlay && blur > 0f
         // Clear glass follows the blur behind it: light over the sharp hero, frosted once the grid is up.
-        val clear = style.clear && !state.reduceTransparency && state.wallpaperBlur.value < 0.5f
+        val clear = style.clear && !state.reduceTransparency && blur == 0f
         val source = when {
             style.useOverlay -> state.overlay ?: backdrop?.blurredSoftware
             clear -> backdrop?.clearSoftware
@@ -187,7 +192,7 @@ private class GlassNode(
             )
             overlayShader = ComposeShader(tintShader, highlight, PorterDuff.Mode.SRC_OVER)
         }
-        if (source != null && root != IntSize.Zero) {
+        if (source != null && root != IntSize.Zero && !overBlur) {
             if (source !== shaderSource) {
                 shaderSource = source
                 backdropShader = BitmapShader(source.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -197,10 +202,15 @@ private class GlassNode(
             backdropShader!!.setLocalMatrix(matrix)
             drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
             if (clear) drawEdgeBand(source)
+        } else if (overBlur) {
+            // Flat tint and rim: over a blurred backdrop this is what frosted glass looks like (tvOS's
+            // grid tray is a flat translucent slab), and gradient shaders here tipped the GPU over budget.
+            drawOutline(outline, if (state.reduceTransparency) solidTint(style.tint) else style.tint)
         } else {
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }
-        drawRim(outline)
+        if (overBlur) drawOutline(outline, Color.White.copy(alpha = style.rim * 0.3f), style = Stroke(width = 1.dp.toPx()))
+        else drawRim(outline)
         drawContent()
     }
 

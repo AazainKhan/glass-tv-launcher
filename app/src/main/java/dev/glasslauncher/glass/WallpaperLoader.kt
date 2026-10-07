@@ -50,6 +50,8 @@ data class Blob(val color: Int, val x: Float, val y: Float, val r: Float)
 class WallpaperLoader(private val context: Context, private val http: OkHttpClient) {
 
     private val dir = File(context.filesDir, "wallpapers").apply { mkdirs() }
+    // RenderScript setup takes tens of ms, so it happens on the first bake (a background thread).
+    private val blurReady by lazy { Blur.init(context) }
 
     suspend fun load(wallpaper: Wallpaper): Backdrop = withContext(Dispatchers.Default) {
         val source = when (wallpaper.kind) {
@@ -88,6 +90,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
      * surfaces sample (which is what tints glass from the content behind it).
      */
     private fun bake(source: Bitmap, scene: Scene): Backdrop {
+        blurReady
         // Every blurred copy comes from one half-size intermediate: cheaper than re-sampling the 1080p
         // source for each, and a cleaner downscale for the small ones.
         val mid = Blur.backdrop(source, SHARP_W / 2, SHARP_H / 2, radius = 0, saturation = 1f)
@@ -110,7 +113,12 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         val sharp = source.copy(Bitmap.Config.HARDWARE, false)?.also { source.recycle() } ?: source
         val blurredGpu = blurredScreen.copy(Bitmap.Config.HARDWARE, false)?.also { blurredScreen.recycle() } ?: blurredScreen
         val ladder = listOf(sharp) + steps.map { b -> b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b } + blurredGpu
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, blurred.asImageBitmap(), clear.asImageBitmap(), isLight)
+        // The glass samples these through a BitmapShader every frame: as software bitmaps the GPU re-uploads
+        // them each frame of a scroll (measured: glass off cut janky frames from 39% to 15%), so they live
+        // on the GPU too. The names say "Software" for history; they're only read by shaders.
+        val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
+        val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), isLight)
     }
 
     private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene) {

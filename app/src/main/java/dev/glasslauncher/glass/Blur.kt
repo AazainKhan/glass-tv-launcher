@@ -7,15 +7,30 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 
 /**
- * CPU blur for small, downscaled bitmaps. Three box-blur passes approximate a gaussian and
- * finish in a few milliseconds at backdrop sizes (~200x110), so no RenderScript or API 31+ is needed.
+ * Blur for small, downscaled bitmaps. Uses RenderScript's native gaussian (ScriptIntrinsicBlur) where
+ * the platform still ships it (deprecated, but present through Android 11 on Fire TV): it is ~50x
+ * faster than the Kotlin fallback, which made every top-shelf slide cost ~300 ms of CPU. Falls back
+ * to three box-blur passes (also used by the JVM screenshot tests) with the same apparent strength.
  */
+@Suppress("DEPRECATION")
 object Blur {
+    private var rs: android.renderscript.RenderScript? = null
+    private var intrinsic: android.renderscript.ScriptIntrinsicBlur? = null
+
+    /** Call once from Application.onCreate; without it (or if it fails) the CPU fallback is used. */
+    fun init(context: android.content.Context) {
+        runCatching {
+            val r = android.renderscript.RenderScript.create(context.applicationContext)
+            intrinsic = android.renderscript.ScriptIntrinsicBlur.create(r, android.renderscript.Element.U8_4(r))
+            rs = r
+        }
+    }
 
     fun backdrop(source: Bitmap, width: Int, height: Int, radius: Int, saturation: Float = 1.35f): Bitmap {
         val small = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
-            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(saturation) })
+            // A colour filter forces Skia's slow per-pixel path; skip it when it would do nothing.
+            if (saturation != 1f) colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(saturation) })
         }
         Canvas(small).drawBitmap(
             source,
@@ -29,6 +44,7 @@ object Blur {
 
     fun blurInPlace(bitmap: Bitmap, radius: Int) {
         if (radius <= 0) return
+        if (gpuBlur(bitmap, radius)) return
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)
@@ -39,6 +55,29 @@ object Blur {
             boxVertical(scratch, pixels, width, height, radius)
         }
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+    }
+
+    /**
+     * Three box passes of [boxRadius] approximate a gaussian with sigma = sqrt(((2r+1)^2 - 1) / 4);
+     * RenderScript's radius maps to sigma = 0.4 r + 0.6, so this keeps the look identical.
+     */
+    @Synchronized
+    private fun gpuBlur(bitmap: Bitmap, boxRadius: Int): Boolean {
+        val r = rs ?: return false
+        val blur = intrinsic ?: return false
+        if (bitmap.config != Bitmap.Config.ARGB_8888 || !bitmap.isMutable) return false
+        val sigma = kotlin.math.sqrt((((2 * boxRadius + 1) * (2 * boxRadius + 1)) - 1) / 4.0)
+        val rsRadius = ((sigma - 0.6) / 0.4).toFloat().coerceIn(0.5f, 25f)
+        return runCatching {
+            val alloc = android.renderscript.Allocation.createFromBitmap(r, bitmap)
+            val out = android.renderscript.Allocation.createTyped(r, alloc.type)
+            blur.setRadius(rsRadius)
+            blur.setInput(alloc)
+            blur.forEach(out)
+            out.copyTo(bitmap)
+            alloc.destroy(); out.destroy()
+            true
+        }.getOrDefault(false)
     }
 
     private fun boxHorizontal(src: IntArray, dst: IntArray, w: Int, h: Int, r: Int) {

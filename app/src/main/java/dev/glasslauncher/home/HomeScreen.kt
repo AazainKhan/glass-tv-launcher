@@ -124,6 +124,7 @@ import kotlin.math.roundToInt
 enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings }
 
 private const val SLIDE_MS = 9_000L
+private const val SLIDE_QUIET_MS = 3_000L
 
 const val SETTINGS_TILE_KEY = "glass:settings"
 
@@ -287,9 +288,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // The top shelf advances on its own, to the right, at rest and in full screen, as on tvOS. Any
     // browsing restarts the timer (heroIndex is a key). In full screen focus follows, so the row glides.
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background) {
-        if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || cfg.background != BackgroundMode.Featured) return@LaunchedEffect
+    // It pauses while the grid is up (the backdrop is blurred there) and waits for a few quiet seconds,
+    // so a slide's bake and cross-fade never land on top of a scroll.
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background, focusedRow >= 2) {
+        if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
         delay(SLIDE_MS)
+        while (idle.millisSinceInput() < SLIDE_QUIET_MS) delay(SLIDE_QUIET_MS - idle.millisSinceInput() + 50)
         val next = (heroIndex + 1) % feed.items.size
         val url = feed.items[next].image
         if (url != null) runCatching { graph.wallpapers.fromUrl(url) }.getOrNull()?.let { prebaked[0] = url to it }

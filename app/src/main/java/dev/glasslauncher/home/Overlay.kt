@@ -69,7 +69,8 @@ suspend fun captureBlurred(layer: GraphicsLayer): ImageBitmap? = runCatching {
         val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
         val blurred = Blur.backdrop(soft, WallpaperLoader.BLUR_W, WallpaperLoader.BLUR_H, radius = 6).also { soft.recycle() }
         // A capture taken before the first real frame is blank; returning null falls back to the wallpaper blur.
-        if (blurred.getPixel(blurred.width / 2, blurred.height / 2) ushr 24 == 0) null else blurred.asImageBitmap()
+        if (blurred.getPixel(blurred.width / 2, blurred.height / 2) ushr 24 == 0) null
+        else (blurred.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred).asImageBitmap()
     }
 }.getOrNull()
 
