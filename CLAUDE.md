@@ -15,7 +15,10 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 
 Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination GE9215 GPU, 2 GB). Rooted with Magisk. Connected over adb.
 
-- **AT4K (`com.overdevs.at4k`) is the user's default home.** Open Glass Launcher with `adb shell am start -n dev.glasslauncher/.MainActivity`. Don't change the default home, or disable or enable system packages, without asking.
+- **Glass Launcher is the default home** (set with `cmd package set-home-activity`; the Magisk boot script `/data/adb/service.d/start-launcher.sh` starts it). AT4K (`com.overdevs.at4k`) stays installed as the fallback. To revert: `adb shell cmd package set-home-activity com.overdevs.at4k/.MainActivity` and edit the boot script back.
+- The user has given broad permission for device changes. Still restore anything you change only for a test (e.g. screensaver settings).
+- Fire OS ignores third-party DreamServices, even with Ambient Experience disabled; `Somnambulator` won't start one. Use the in-app "Start Aerials on Home after" (set to 3 min on this stick).
+- `WRITE_SECURE_SETTINGS` and the Now Playing notification listener are granted to the app on this device.
 - The stick sleeps after about 5 minutes; a black screenshot usually means it's asleep. Wake it with `adb shell input keyevent KEYCODE_WAKEUP`.
 - To simulate a Home press to the launcher: `adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity`.
 
@@ -41,15 +44,22 @@ The GPU affords only about **two full-screen blended passes per frame**. Target:
 - Animate only in layout/draw phases (`graphicsLayer {}`, `drawWithContent {}`); no per-frame recomposition.
 - Idle: no infinite animations. The clock and idle timer wake at most once a minute.
 
+- Wallpaper blur transitions step through `Backdrop.ladder` (opaque, progressively blurred copies); never cross-fade two full-screen images.
+- Rendered tiles are HARDWARE bitmaps and Coil's memory cache is capped at 12%; software bitmaps cost both native heap and GPU memory.
+- Blurred text shadows (`TextStyle.shadow`) are expensive when the text moves. Use them only on small static text (the clock).
+- Background load skews numbers: `installd` runs after `compile -m speed`, and AT4K burns CPU if it's running. Wait for `installd` to go idle and keep AT4K stopped before benchmarking. Current baseline in a key-every-1.4 s stress run: median 7 ms, p90 about 11 ms, 4–9% janky (transitions only), about 0% idle CPU, about 84 MB PSS.
+
 How to measure: `scripts/tv perf frames --json`, or `adb shell dumpsys gfxinfo dev.glasslauncher reset`, a key sequence, then `dumpsys gfxinfo`. Run `adb shell cmd package compile -m speed -f dev.glasslauncher` first so JIT warm-up doesn't skew results. For deeper dives: `adb shell perfetto … gfx view sched freq --app dev.glasslauncher`, analysed with the `perfetto` Python package.
 
-`DebugFlags.kt` (`adb shell setprop debug.glass.flags <bits>`) is a **temporary** perf-bisect switch. Remove it before release.
+To bisect, temporarily add a `DebugFlags` object that reads `getprop debug.glass.flags` and gate suspects on its bits. Benchmark each bit with the script pattern in git history, then delete it.
 
 ## Code gotchas
 
 - **No labelled returns out of inline composable lambdas** (`return@Column`, `return@key`, `return@LaunchedEffect` inside `runCatching{}.getOrElse{}`). They compile but R8 fails with `$$$$$NON_LOCAL_RETURN$$$$$`. Use if/else.
 - Compose on TV defaults to a 30% "pivot" bring-into-view. Lists that shouldn't pivot use `MinimalScroll` (panels) or `NoAutoScroll` (home list, scrolled manually in `onRowFocused`).
 - Overlays: only the top overlay traps focus (`Modifier.trapFocus(active)`); stacked ones refuse focus. Select and Menu handling only fires on a press that **started** on that element, so the key-up of the press that opened a menu is ignored.
+- Fire TV's keyboard is full-screen and modal and opens whenever a `BasicTextField` gains focus. Text panels show the value in a row and only make the field focusable while editing (`TextInputBody`). The keyboard's action button submits; the phone form (`PhoneSetupServer`) is the preferred path.
+- Apple's Aerial host (`sylvan.apple.com`) chains to Apple Root CA, which Android lacks. It's trusted for that host only in `res/xml/network_security_config.xml`.
 - Config is one JSON blob in DataStore (`data/ConfigStore.kt`, `LauncherConfig`), encoded with defaults. **Changing a default doesn't affect existing installs.**
 
 ## Layout
