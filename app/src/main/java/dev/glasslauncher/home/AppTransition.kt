@@ -10,6 +10,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
@@ -110,6 +111,7 @@ class AppTransition(
             launch { progress.animateTo(1f, tween(OPEN_MS, easing = ZoomOut)) }
             delay(HANDOFF_MS)
             if (!startApp(app)) { reset(); return@launch }
+            model.noteLaunched(app.packageName)
             // Some apps take seconds to cover Home; only undo if the app never took focus from it.
             delay(2_500)
             if (window != null && !closing && view.hasWindowFocus()) { last = null; coverAlpha.animateTo(0f, tween(200)); reset() }
@@ -137,15 +139,21 @@ class AppTransition(
         }
     }
 
-    private fun startApp(app: AppEntry): Boolean {
-        val intent = model.launchIntent(app) ?: return false
+    /** Off the main thread: the binder call blocked it for ~40–60 ms, mid-zoom. */
+    private suspend fun startApp(app: AppEntry): Boolean = withContext(Dispatchers.IO) {
+        val intent = model.launchIntent(app) ?: return@withContext false
         val options = ActivityOptions.makeCustomAnimation(context, R.anim.app_open_enter, R.anim.app_open_hold).toBundle()
-        return try {
+        try {
             context.startActivity(intent, options)
-            model.noteLaunched(app.packageName)
             true
         } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }
     }
+
+    /**
+     * The zoom's draw operations compile GPU programs on first use (~95 ms on the GE9215), which made the
+     * first launch after Home started stall for three frames. Home draws them once, invisibly, up front.
+     */
+    var warmed by mutableStateOf(false)
 
     /** Home is hidden: drop the window so nothing is left over if Home comes back another way. */
     fun onHomeStopped() {
@@ -191,9 +199,11 @@ class AppTransition(
             // The tile art is back by about half size, so you see where it's going.
             launch { fill.animateTo(0f, tween(CLOSE_FADE_MS, delayMillis = 30)) }
             progress.animateTo(0f, tween(CLOSE_MS, easing = FastOutSlowInEasing))
-            settle.animateTo(0f, tween(LAND_MS, easing = FastOutSlowInEasing))
-            // Home sharpens under the landed tile (which is exactly the real one), then the window goes.
-            coverAlpha.animateTo(0f, tween(UNBLUR_MS))
+            // Home starts sharpening as the tile settles, so there's no blurred pause after landing; the
+            // window (exactly the real tile by then) goes once Home is clear.
+            launch { settle.animateTo(0f, tween(LAND_MS, easing = FastOutSlowInEasing)) }
+            delay(LAND_MS / 2L)
+            coverAlpha.animateTo(0f, tween(UNBLUR_MS, easing = FastOutSlowInEasing))
             window = null
             closing = false
             cover = null
@@ -217,7 +227,7 @@ class AppTransition(
         const val CLOSE_MS = 220
         const val CLOSE_FADE_MS = 110
         const val LAND_MS = 125
-        const val UNBLUR_MS = 120
+        const val UNBLUR_MS = 200
         /** Where the close lands before settling, relative to the focused tile. */
         const val LAND_SCALE = 1.3f
 
@@ -240,7 +250,19 @@ val LocalAppTransition = staticCompositionLocalOf<AppTransition?> { null }
 
 /** Draws the blurred Home and the window. Placed above everything else on Home. */
 @Composable
-fun AppTransitionLayer(t: AppTransition) {
+fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
+    if (!t.warmed && warmSource != null) {
+        val glyph = remember { ImageBitmap(4, 4) }
+        val grey = remember { ColorFilter.tint(Color(0xFFB9BBC2)) }
+        Canvas(Modifier.size(2.dp)) {
+            // The same operations as the zoom, at an alpha too low to see.
+            drawImage(warmSource, srcOffset = IntOffset.Zero, srcSize = IntSize(warmSource.width, warmSource.height), dstSize = IntSize(2, 2), alpha = 0.01f)
+            drawRoundRect(ShaderBrush(ImageShader(warmSource)), size = Size(2f, 2f), cornerRadius = CornerRadius(1f), alpha = 0.01f)
+            drawRoundRect(Color.Black, Offset.Zero, Size(2f, 2f), CornerRadius(1f), alpha = 0.01f)
+            drawImage(glyph, dstOffset = IntOffset.Zero, dstSize = IntSize(2, 2), alpha = 0.01f, colorFilter = grey)
+        }
+        androidx.compose.runtime.LaunchedEffect(Unit) { withFrameNanos { }; withFrameNanos { }; t.warmed = true }
+    }
     val w = t.window
     if (w == null && t.coverAlpha.value == 0f) return
     val grey = remember { ColorFilter.tint(Color(0xFFB9BBC2)) }

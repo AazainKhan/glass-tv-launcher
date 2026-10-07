@@ -619,7 +619,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
             if (reveal.value < 1f) StartupMark(loading = !ready, alpha = { 1f - reveal.value })
 
-            AppTransitionLayer(transition)
+            AppTransitionLayer(transition, warmSource = backdrop.backdrop?.blurredSoftware.takeIf { ready })
 
             // The frame before an appearance/background/text-size change, fading out over the new one.
             dissolve.image?.let { frame ->

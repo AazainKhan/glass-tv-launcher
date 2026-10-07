@@ -22,7 +22,7 @@ GAP="${KEY_GAP_MS:-120}"
 code() {
   case "$1" in
     up) echo 103 ;; down) echo 108 ;; left) echo 105 ;; right) echo 106 ;;
-    select|ok|center|enter) echo '$S' ;; back) echo 158 ;; home) echo 172 ;; menu) echo 139 ;;
+    select|ok|center|enter) echo 96 ;; back) echo 158 ;; home) echo 172 ;; menu) echo 139 ;;
     play|playpause) echo 164 ;; rew) echo 168 ;; ff) echo 208 ;;
     app1) echo 744 ;; app2) echo 745 ;; app3) echo 746 ;; app4) echo 747 ;; recents) echo 748 ;;
     settings) echo 249 ;; alexa) echo 217 ;; tv) echo 362 ;; mute) echo 113 ;;
@@ -40,10 +40,10 @@ keycode() {
 ms() { awk "BEGIN{printf \"%.3f\", $1/1000}"; }
 
 [ $# -gt 0 ] || { sed -n '2,11p' "$0"; exit 2; }
-cmds=""; alt=""   # alt: the same sequence via `input keyevent`, for devices without the remote (emulator)
+cmds=""; alt=""; vr=""   # vr: glass-press arguments (virtual remote); alt: the same sequence via `input keyevent`, for devices without the remote (emulator)
 for arg in "$@"; do
   case "$arg" in
-    wait:*) cmds+="sleep $(ms "${arg#wait:}");"; alt+="sleep $(ms "${arg#wait:}");" ;;
+    wait:*) cmds+="sleep $(ms "${arg#wait:}");"; alt+="sleep $(ms "${arg#wait:}");"; vr+=" w${arg#wait:}" ;;
     settle|settle:*)
       q="${arg#settle}"; q="${q#:}"; q="${q:-300}"
       # Poll the foreground app's frame counter every 50 ms until it holds still for $q ms. Times are
@@ -56,21 +56,24 @@ for arg in "$@"; do
       s+="[ \"\$n\" = \"\$last\" ] || { last=\$n; still=\$now; };"
       s+="[ \$(( (now-still)*10 )) -ge $q ] && break; [ \$(( (now-t0)*10 )) -ge 3000 ] && { r=busy; break; }; sleep 0.05; done;"
       s+="echo \$r \$(( (still-t0)*10 ))ms;"
-      cmds+="$s"; alt+="$s" ;;
+      cmds+="$s"; alt+="$s"; vr+=" w400" ;;
     hold:*:*)
       rest="${arg#hold:}"; c=$(code "${rest#*:}")
       cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sleep $(ms "${rest%%:*}");sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");"
-      alt+="input keyevent --longpress KEYCODE_$(keycode "${rest#*:}");" ;;
+      alt+="input keyevent --longpress KEYCODE_$(keycode "${rest#*:}");"; vr+=" $c:${rest%%:*}" ;;
     *)
       c=$(code "$arg")
       cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");"
-      alt+="input keyevent KEYCODE_$(keycode "$arg");" ;;
+      alt+="input keyevent KEYCODE_$(keycode "$arg");"; vr+=" $c" ;;
   esac
 done
-find_dev="S=96; D=${KEY_DEVICE:-\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4} /name:.*Fire TV Remote/{print d; exit}')};"
-# The Bluetooth remote's node disappears while the remote sleeps. Then use Amazon's virtual keyboard
-# (amzkeyboard): still real key events, which Glass's tiles need (an injected `input keyevent` Select
-# doesn't click them on Fire OS). Select is KEY_ENTER there. App and Settings buttons need the remote.
-find_dev+="[ -n \"\$D\" ] || { D=\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4} /name:.*amzkeyboard/{print d; exit}'); S=28; };"
-# Without either input node (emulators), fall back to `input keyevent` (~0.9 s a press).
-adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds else $alt fi"
+find_dev="D=${KEY_DEVICE:-\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4} /name:.*Fire TV Remote/{print d; exit}')};"
+# The Bluetooth remote's node disappears while it sleeps. Then a temporary virtual remote
+# (tools/uinput/glass-press, same vendor/product, so the remote's key layout applies) sends real key
+# events: an injected `input keyevent` Select doesn't click Glass's tiles on Fire OS. Emulators without
+# either fall back to `input keyevent` (~0.9 s a press).
+VR=/data/local/tmp/glass-press
+if ! adb shell "test -x $VR" 2>/dev/null; then
+  adb push "$(dirname "$0")/../tools/uinput/glass-press" "$VR" >/dev/null 2>&1 && adb shell chmod 755 "$VR" || true
+fi
+adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds elif [ -x $VR ]; then $VR $GAP$vr; else $alt fi"
