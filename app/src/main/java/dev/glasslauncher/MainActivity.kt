@@ -25,6 +25,18 @@ class MainActivity : ComponentActivity() {
         request(intent)
     }
 
+    private var stoppedSinceResume = false
+
+    override fun onStop() {
+        super.onStop()
+        stoppedSinceResume = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        stoppedSinceResume = false
+    }
+
     override fun onRestart() {
         super.onRestart()
         // No system animation on the way back: Glass draws the app closing into its tile itself.
@@ -38,8 +50,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // Home pressed on Home goes back to the top; Home pressed in an app just returns, leaving focus on
         // the app's tile (that's where the close animation lands, as on tvOS).
-        val onHome = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-        if (intent.action == Intent.ACTION_MAIN) { if (onHome) requests.trySend(HomeRequest.Home) } else request(intent)
+        // (Android pauses Home before delivering the intent, so "stopped since it was last resumed" is
+        // what tells the two apart, not the lifecycle state.)
+        if (intent.action == Intent.ACTION_MAIN) { if (!stoppedSinceResume) requests.trySend(HomeRequest.Home) } else request(intent)
     }
 
     /** Remote buttons (RemoteKeysService) ask for Control Center or the app switcher this way. */

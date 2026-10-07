@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Memory tuning for the Fire TV stick as a Magisk module (tools/magisk/glass-tuning): 1.2 GB zram,
+# least-recently-used-first lmkd, 12 cached apps instead of 4. Takes effect after a restart.
+#   scripts/tuning install [--reboot] | uninstall [--reboot] | status
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+MOD=/data/adb/modules/glass-tuning
+LOG="$HOME/Documents/firestick-unlocked/DEBLOAT-LOG.md"
+log() { printf -- "- %s %s\n" "$(date '+%Y-%m-%d %H:%M')" "$*" >> "$LOG"; }
+case "${1:-status}" in
+  install)
+    adb push "$ROOT/tools/magisk/glass-tuning/module.prop" /data/local/tmp/gt.prop >/dev/null
+    adb push "$ROOT/tools/magisk/glass-tuning/service.sh" /data/local/tmp/gt.sh >/dev/null
+    # Fire OS turns zram on at boot completion from /vendor/etc/fstab.enableswap (800 MB); the module
+    # overlays that file with a 1.2 GB size.
+    adb push "$ROOT/tools/magisk/glass-tuning/system/vendor/etc/fstab.enableswap" /data/local/tmp/gt.fstab >/dev/null
+    adb shell "su -c 'mkdir -p $MOD && cp /data/local/tmp/gt.prop $MOD/module.prop && cp /data/local/tmp/gt.sh $MOD/service.sh && rm -f $MOD/post-fs-data.sh && mkdir -p $MOD/system/vendor/etc && cp /data/local/tmp/gt.fstab $MOD/system/vendor/etc/fstab.enableswap && chmod 644 $MOD/system/vendor/etc/fstab.enableswap && chmod 755 $MOD/service.sh && rm -f $MOD/remove $MOD/disable /data/local/tmp/gt*'"
+    log "installed Magisk module glass-tuning (zram 1.2 GB, lmkd LRU-first, 12 cached apps)"
+    echo "Installed; restart to apply."
+    [ "${2:-}" = --reboot ] && adb reboot || true ;;
+  uninstall)
+    adb shell "su -c 'touch $MOD/remove'"
+    # The cached-app cap is a stored setting, not part of the module: put Fire OS's value back.
+    adb shell settings put global activity_manager_constants max_cached_processes=4
+    log "removed Magisk module glass-tuning; max_cached_processes back to 4"
+    echo "Removed on next restart."
+    [ "${2:-}" = --reboot ] && adb reboot || true ;;
+  status)
+    adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'" && echo "module installed" || echo "module not installed"
+    echo "zram $(( $(adb shell cat /sys/block/zram0/disksize | tr -d '\r') / 1048576 )) MB, $(adb shell settings get global activity_manager_constants), kill_heaviest=$(adb shell getprop ro.lmk.kill_heaviest_task)" ;;
+  *) echo "usage: scripts/tuning install|uninstall|status" >&2; exit 2 ;;
+esac

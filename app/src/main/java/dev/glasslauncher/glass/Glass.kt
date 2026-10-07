@@ -39,8 +39,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 private val EDGE_BAND = 10.dp
-/** Blur below which glass blends from its flat over-blur tint back to its texture. */
-private const val TEXTURE_FADE = 0.3f
 private val EDGE_SHIFT = 9.dp
 
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
@@ -78,6 +76,12 @@ class BackdropState {
     var rootSize by mutableStateOf(IntSize.Zero)
     /** 0 = sharp wallpaper, 1 = fully blurred (grid scrolled). Animated by the home screen. */
     val wallpaperBlur = Animatable(0f)
+    /**
+     * How much of the glass texture shows once the blur is back at 0: Home fades it in after a scroll
+     * lands, so the tray and folders frost back instead of snapping (blending during the scroll itself
+     * cost ~6% janky frames).
+     */
+    val textureIn = Animatable(1f)
     /** Optional frozen, blurred snapshot of the screen used behind overlays such as folders. */
     var overlay by mutableStateOf<ImageBitmap?>(null)
     /** Accessibility: glass becomes nearly opaque. */
@@ -183,10 +187,8 @@ private class GlassNode(
         // Once Home's backdrop is blurring (scrolling toward, or resting on, the grid), frosted glass over
         // it looks the same as its tint alone, so skip sampling the texture and draw flat. The glass was
         // most of the GPU time on the dock-to-grid scroll (25% janky frames before, ~1% after).
-        // The textured look fades in over the last stretch of the blur (and out over the first), so the
-        // tray and folders don't snap between the flat and textured looks at the end of a scroll. Both
-        // are drawn only while blur < TEXTURE_FADE, when the scroll has mostly settled.
-        val texture = if (style.useOverlay) 1f else (1f - blur / TEXTURE_FADE).coerceIn(0f, 1f)
+        // Flat while the backdrop is blurred or blurring; the texture fades back in after the scroll lands.
+        val texture = if (style.useOverlay) 1f else if (blur > 0f) 0f else state.textureIn.value
         val overBlur = texture < 1f
         // Clear glass follows the blur behind it: light over the sharp hero, frosted once the grid is up.
         val clear = style.clear && !state.reduceTransparency
@@ -249,8 +251,7 @@ private class GlassNode(
                 prevShaderSource = null; prevShader = null
                 drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
             }
-            // The refracted edge (the costliest stroke, ~7 ms) only once the blur has settled.
-            if (clear && texture >= 1f) drawEdgeBand(source, if (previousSource != null) fade else 1f)
+            if (clear) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)
         } else if (!overBlur) {
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }

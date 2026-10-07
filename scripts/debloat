@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Fire TV deeper debloat: disables Amazon background services that hold RAM or CPU and do nothing
+# useful on a rooted stick, and keeps a few heavy apps from running in the background. Reversible.
+#   scripts/debloat apply | revert | status
+# Every change is appended to ~/Documents/firestick-unlocked/DEBLOAT-LOG.md.
+# Kept on purpose: Alexa (vizzini, aria, alexa media), accounts (dcp, imp, tcomm, device.messaging),
+# the phone remote (whisperlink), settings, input. Unidentified cached processes (ceviche, adep,
+# prism, diode) are left alone: lmkd frees cached processes first anyway.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+LOG="$HOME/Documents/firestick-unlocked/DEBLOAT-LOG.md"
+
+DISABLE=(
+  com.amazon.device.software.ota            # OTA updates: an update on this rooted, unlocked stick can lose root or worse
+  com.amazon.device.software.ota.override
+  com.amazon.tv.forcedotaupdater.v2
+  com.amazon.device.metrics                 # metrics and telemetry
+  com.amazon.wirelessmetrics.service
+  com.amazon.device.telemetry.emitter
+  com.amazon.neo.minerva
+  com.amazon.device.crashmanager            # crash report upload
+  com.amazon.ftvads.deeplinking             # ads
+  com.amazon.media.recommendations          # recommendations for the (disabled) stock launcher
+  com.amazon.whisperjoin.middleware.v2.np   # Wi-Fi setup of other Amazon devices
+  com.amazon.whad                           # whole-home audio (multi-room Echo groups)
+)
+# Still usable when opened, just not running in the background.
+BACKGROUND=(
+  com.amazon.firebat        # Prime Video (~95 MB resident at idle)
+  com.amazon.venezia        # Appstore
+  com.estrongs.android.pop  # ES File Explorer
+)
+
+log() { printf -- "- %s %s\n" "$(date '+%Y-%m-%d %H:%M')" "$*" >> "$LOG"; }
+
+case "${1:-status}" in
+  apply)
+    [ -f "$LOG" ] || printf "# Fire TV debloat log\n\nWritten by glass-launcher/scripts/debloat. Revert: \`scripts/debloat revert\`.\n\n" > "$LOG"
+    for p in "${DISABLE[@]}"; do
+      if adb shell pm list packages -e "$p" | grep -qx "package:$p"; then
+        adb shell pm disable-user --user 0 "$p" >/dev/null && log "disabled $p"
+      fi
+    done
+    for p in "${BACKGROUND[@]}"; do
+      adb shell pm list packages "$p" | grep -qx "package:$p" || continue
+      adb shell cmd appops set "$p" RUN_ANY_IN_BACKGROUND ignore && adb shell am force-stop "$p" && log "background-restricted $p"
+    done
+    echo "Applied; takes full effect after a restart."
+    ;;
+  revert)
+    for p in "${DISABLE[@]}"; do
+      if adb shell pm list packages -d "$p" | grep -qx "package:$p"; then
+        adb shell pm enable "$p" >/dev/null && log "re-enabled $p"
+      fi
+    done
+    for p in "${BACKGROUND[@]}"; do
+      adb shell cmd appops set "$p" RUN_ANY_IN_BACKGROUND allow 2>/dev/null && log "background-allowed $p" || true
+    done
+    echo "Reverted."
+    ;;
+  status)
+    for p in "${DISABLE[@]}"; do printf "%-45s %s\n" "$p" "$(adb shell pm list packages -d "$p" | grep -qx "package:$p" && echo disabled || echo enabled)"; done
+    for p in "${BACKGROUND[@]}"; do printf "%-45s background %s\n" "$p" "$(adb shell cmd appops get "$p" RUN_ANY_IN_BACKGROUND 2>/dev/null | awk '{print $2}' | tr -d ';')"; done
+    ;;
+  *) echo "usage: scripts/debloat apply|revert|status" >&2; exit 2 ;;
+esac

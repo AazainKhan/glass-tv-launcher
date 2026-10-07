@@ -129,6 +129,8 @@ private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
 /** Focus rests this long on a top-row app before the shelf switches to its content. */
 private const val SHELF_FOLLOW_MS = 450L
+/** Glass texture fade-in after a scroll back to the top lands. */
+private const val TEXTURE_IN_MS = 220
 
 const val SETTINGS_TILE_KEY = "glass:settings"
 
@@ -284,7 +286,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 val target = if (index >= 2) 1f else 0f
                 // The blur eases in over the scroll rather than riding its front-loaded curve: on a ladder of
                 // baked steps, the scroll's fast start reads as the backdrop lurching.
+                if (target > 0f) backdrop.textureIn.snapTo(0f)
                 if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, tween(520, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                // Landed at the top: the glass frosts back over the settled frame rather than snapping.
+                if (target == 0f) { if (prefs.reduceMotion) backdrop.textureIn.snapTo(1f) else backdrop.textureIn.animateTo(1f, tween(TEXTURE_IN_MS)) }
             }
             if (index <= 1) scrollToTop() else {
                 // The focused row's tiles settle at the pivot; the first row has the tray gap above it.
