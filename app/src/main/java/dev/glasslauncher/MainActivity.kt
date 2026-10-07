@@ -3,35 +3,23 @@ package dev.glasslauncher
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
-import dev.glasslauncher.apps.AppRepository
-import dev.glasslauncher.apps.TileArt
+import androidx.activity.viewModels
+import dev.glasslauncher.home.HomeModel
 import dev.glasslauncher.home.HomeScreen
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 class MainActivity : ComponentActivity() {
 
+    private val model: HomeModel by viewModels()
     private val homePresses = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repository = AppRepository(applicationContext)
-        val tileArt = TileArt(applicationContext)
-
-        // Back on the home screen has nowhere to go.
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = Unit
-        })
-
-        setContent {
-            HomeScreen(
-                repository = repository,
-                tileArt = tileArt,
-                homePresses = homePresses,
-            )
-        }
+        setContent { HomeScreen(model, homePresses) }
+        // The wallpaper covers the whole window; skipping the window background saves a full-screen fill per frame.
+        window.setBackgroundDrawable(null)
     }
 
     override fun onNewIntent(intent: Intent) {

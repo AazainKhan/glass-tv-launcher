@@ -1,0 +1,45 @@
+package dev.glasslauncher
+
+import android.app.Application
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.crossfade
+import dev.glasslauncher.apps.AppRepository
+import dev.glasslauncher.apps.IconPacks
+import dev.glasslauncher.apps.TileArt
+import dev.glasslauncher.data.ConfigStore
+import dev.glasslauncher.featured.FeaturedRepository
+import dev.glasslauncher.glass.WallpaperLoader
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+
+class GlassApp : Application(), SingletonImageLoader.Factory {
+
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    val http: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    val config by lazy { ConfigStore(this, scope) }
+    val apps by lazy { AppRepository(this) }
+    val iconPacks by lazy { IconPacks(this) }
+    val tileArt by lazy { TileArt(this, iconPacks) }
+    val wallpapers by lazy { WallpaperLoader(this, http) }
+    val featured by lazy { FeaturedRepository(this, http) }
+
+    override fun newImageLoader(context: android.content.Context): ImageLoader =
+        ImageLoader.Builder(context)
+            .components { add(OkHttpNetworkFetcherFactory(callFactory = { http })) }
+            .crossfade(true)
+            .build()
+}
+
+val android.content.Context.app: GlassApp get() = applicationContext as GlassApp

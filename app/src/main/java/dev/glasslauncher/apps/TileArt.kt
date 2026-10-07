@@ -3,57 +3,93 @@ package dev.glasslauncher.apps
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.max
 import kotlin.math.min
 
+/** What a tile should be drawn from; part of the cache key so changes re-render. */
+data class TileSpec(val app: AppEntry, val customIcon: String?, val iconPack: String?)
+
 /**
- * Produces a full-bleed 16:9 tile for every app: the TV banner when one exists,
- * otherwise a generated tile so phone-style square icons never look out of place.
+ * Produces a full-bleed 16:9 tile for every app: a custom image, the TV banner, or a generated
+ * tile so phone-style square icons never look out of place.
  */
-class TileArt(context: Context) {
+class TileArt(context: Context, private val iconPacks: IconPacks) {
 
+    private val res = context.resources
     private val pm: PackageManager = context.packageManager
-    private val cache = LruCache<String, ImageBitmap>(64)
+    private val cache = object : LruCache<TileSpec, ImageBitmap>(16 * 1024 * 1024) {
+        override fun sizeOf(key: TileSpec, value: ImageBitmap) = value.width * value.height * 4
+    }
 
-    suspend fun load(app: AppEntry): ImageBitmap {
-        cache.get(app.packageName)?.let { return it }
-        val art = withContext(Dispatchers.Default) { render(app).asImageBitmap() }
-        cache.put(app.packageName, art)
+    fun peek(spec: TileSpec): ImageBitmap? = cache.get(spec)
+
+    suspend fun load(spec: TileSpec): ImageBitmap {
+        cache.get(spec)?.let { return it }
+        val art = withContext(Dispatchers.Default) { render(spec).asImageBitmap() }
+        cache.put(spec, art)
         return art
     }
 
-    fun invalidate() = cache.evictAll()
+    /** Icon on a coloured backing, used for folder previews and menus. */
+    fun icon(app: AppEntry): Drawable =
+        runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: pm.defaultActivityIcon
 
-    private fun render(app: AppEntry): Bitmap {
+    private fun render(spec: TileSpec): Bitmap {
+        val app = spec.app
         val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+
+        spec.customIcon?.let { path ->
+            val custom = decodeFile(path)
+            if (custom != null) {
+                val drawable = BitmapDrawable(res, custom)
+                if (custom.width >= custom.height * 1.4f) drawCover(canvas, drawable) else drawGenerated(canvas, drawable)
+                return bitmap
+            }
+        }
+        spec.iconPack?.let { pack ->
+            iconPacks.iconFor(pack, app.component)?.let { drawGenerated(canvas, it); return bitmap }
+        }
         val banner = runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
         if (banner != null) {
             drawCover(canvas, banner)
             return bitmap
         }
-        val icon = runCatching { pm.getActivityIcon(app.component) }.getOrNull()
-            ?: pm.defaultActivityIcon
-        if (icon is AdaptiveIconDrawable && icon.background != null) {
+        val icon = icon(app)
+        if (icon is AdaptiveIconDrawable && icon.background != null && icon.foreground != null) {
             drawAdaptive(canvas, icon)
         } else {
             drawGenerated(canvas, icon)
         }
         return bitmap
+    }
+
+    private fun decodeFile(path: String): Bitmap? {
+        val file = File(path)
+        if (!file.exists()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= WIDTH && bounds.outHeight / (sample * 2) >= HEIGHT) sample *= 2
+        return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
     private fun drawCover(canvas: Canvas, d: Drawable) {
@@ -75,10 +111,8 @@ class TileArt(context: Context) {
         val size = (HEIGHT * 1.35f).toInt()
         val left = (WIDTH - size) / 2
         val top = (HEIGHT - size) / 2
-        icon.foreground?.let {
-            it.setBounds(left, top, left + size, top + size)
-            it.draw(canvas)
-        }
+        icon.foreground.setBounds(left, top, left + size, top + size)
+        icon.foreground.draw(canvas)
     }
 
     private fun drawGenerated(canvas: Canvas, icon: Drawable) {
@@ -92,27 +126,20 @@ class TileArt(context: Context) {
         canvas.drawRect(0f, 0f, WIDTH.toFloat(), HEIGHT.toFloat(), paint)
 
         val size = (HEIGHT * 0.58f).toInt()
-        val left = (WIDTH - size) / 2
-        val top = (HEIGHT - size) / 2
-        val iconBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        Canvas(iconBitmap).also { c ->
-            icon.setBounds(0, 0, size, size)
-            icon.draw(c)
-        }
+        val left = (WIDTH - size) / 2f
+        val top = (HEIGHT - size) / 2f
+        val rect = RectF(left, top, left + size, top + size)
+        val radius = size * 0.22f
         val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(70, 0, 0, 0)
-            setShadowLayer(18f, 0f, 6f, Color.argb(90, 0, 0, 0))
+            setShadowLayer(16f, 0f, 5f, Color.argb(90, 0, 0, 0))
         }
-        val radius = size * 0.22f
-        canvas.drawRoundRect(RectF(left.toFloat(), top.toFloat(), (left + size).toFloat(), (top + size).toFloat()), radius, radius, shadow)
-        val clip = android.graphics.Path().apply {
-            addRoundRect(RectF(left.toFloat(), top.toFloat(), (left + size).toFloat(), (top + size).toFloat()), radius, radius, android.graphics.Path.Direction.CW)
-        }
+        canvas.drawRoundRect(rect, radius, radius, shadow)
         canvas.save()
-        canvas.clipPath(clip)
-        canvas.drawBitmap(iconBitmap, left.toFloat(), top.toFloat(), null)
+        canvas.clipPath(Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) })
+        icon.setBounds(rect.left.toInt(), rect.top.toInt(), rect.right.toInt(), rect.bottom.toInt())
+        icon.draw(canvas)
         canvas.restore()
-        iconBitmap.recycle()
     }
 
     private fun dominantColor(icon: Drawable): Int {
@@ -142,7 +169,7 @@ class TileArt(context: Context) {
     )
 
     companion object {
-        const val WIDTH = 400
-        const val HEIGHT = 225
+        const val WIDTH = 336
+        const val HEIGHT = 189
     }
 }

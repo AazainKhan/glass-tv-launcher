@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">Glass Launcher</string>
+    <string name="screensaver_name">Glass Aerials</string>
+    <string name="home_guard_name">Glass Launcher Home Button</string>
+    <string name="home_guard_description">Brings Glass Launcher back when the TV\'s built-in home screen opens. It only watches for the built-in launcher\'s window and does not read screen content or intercept buttons.</string>
 </resources>
