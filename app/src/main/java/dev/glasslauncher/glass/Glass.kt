@@ -21,6 +21,7 @@ import android.graphics.ComposeShader
 import android.graphics.LinearGradient
 import android.graphics.PorterDuff
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import android.graphics.Matrix
 import android.graphics.Shader
 import androidx.compose.ui.graphics.Shape
@@ -45,6 +46,8 @@ class BackdropState {
     val wallpaperBlur = Animatable(0f)
     /** Optional frozen, blurred snapshot of the screen used behind overlays such as folders. */
     var overlay by mutableStateOf<ImageBitmap?>(null)
+    /** Accessibility: glass becomes nearly opaque. */
+    var reduceTransparency by mutableStateOf(false)
 }
 
 val LocalBackdrop = staticCompositionLocalOf { BackdropState() }
@@ -122,10 +125,11 @@ private class GlassNode(
         val root = state.rootSize
         val source = if (style.useOverlay) state.overlay ?: state.backdrop?.blurredSoftware else state.backdrop?.blurredSoftware
 
-        val key = Triple(style, size, source)
+        val opaque = state.reduceTransparency
+        val key = listOf(style, size, source, opaque)
         if (key != overlayKey) {
             overlayKey = key
-            val tint = style.tint.toArgb()
+            val tint = (if (opaque) solidTint(style.tint) else style.tint).toArgb()
             val tintShader = LinearGradient(0f, 0f, 0f, 1f, tint, tint, Shader.TileMode.CLAMP)
             val highlight = LinearGradient(
                 0f, 0f, 0f, size.height,
@@ -154,6 +158,9 @@ private class GlassNode(
         drawRim(outline)
         drawContent()
     }
+
+    private fun solidTint(tint: Color): Color =
+        if (tint.luminance() > 0.5f) Color(0xF2F4F5F8) else Color(0xF21A1D25)
 
     private fun DrawScope.drawRim(outline: Outline) {
         val brush = Brush.linearGradient(

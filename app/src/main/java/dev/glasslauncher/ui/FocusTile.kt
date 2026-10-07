@@ -37,12 +37,17 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalView
+import android.view.SoundEffectConstants
 import kotlinx.coroutines.launch
 
 /**
  * A focusable surface with tvOS-style motion: spring lift and scale, a tilt in from the direction
  * focus arrived from, and a one-shot specular sweep. All motion runs in the layer/draw phase.
- * Select = click, hold Select or press Menu = long click.
+ * Select = click, hold Select or press Menu = long click, Play/Pause = [onPlay] (defaults to click).
+ * Honours [LocalUiPrefs]: reduce motion drops tilt, sheen and wiggle; sounds use the system's
+ * navigation sound setting.
  */
 @Composable
 fun FocusTile(
@@ -50,15 +55,18 @@ fun FocusTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = Shapes.tile,
-    focusedScale: Float = 1.12f,
+    focusedScale: Float = 1.1f,
     wiggle: Boolean = false,
     onLongClick: (() -> Unit)? = null,
+    onPlay: (() -> Unit)? = onClick,
     onFocusChange: (Boolean) -> Unit = {},
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var pressed by remember { mutableStateOf(false) }
     val longFired = remember { booleanArrayOf(false) }
+    val prefs = LocalUiPrefs.current
+    val view = LocalView.current
 
     val scale by animateFloatAsState(
         when {
@@ -66,7 +74,7 @@ fun FocusTile(
             focused -> focusedScale
             else -> 1f
         },
-        spring(dampingRatio = 0.62f, stiffness = 420f),
+        if (prefs.reduceMotion) tween(120) else spring(dampingRatio = 0.62f, stiffness = 420f),
         label = "scale",
     )
     val lift by animateFloatAsState(if (focused) 1f else 0f, spring(stiffness = 300f), label = "lift")
@@ -76,13 +84,13 @@ fun FocusTile(
     val wiggleAngle = remember { Animatable(0f) }
 
     LaunchedEffect(focused) {
-        if (!focused) return@LaunchedEffect
+        if (!focused || prefs.reduceMotion) return@LaunchedEffect
         launch { tiltY.snapTo(KeyDirection.dx * 8f); tiltY.animateTo(0f, spring(dampingRatio = 0.42f, stiffness = 180f)) }
         launch { tiltX.snapTo(-KeyDirection.dy * 8f); tiltX.animateTo(0f, spring(dampingRatio = 0.42f, stiffness = 180f)) }
         launch { sheen.snapTo(0f); sheen.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) }
     }
     LaunchedEffect(wiggle) {
-        if (wiggle) {
+        if (wiggle && !prefs.reduceMotion) {
             wiggleAngle.snapTo(-1.6f)
             wiggleAngle.animateTo(1.6f, infiniteRepeatable(tween(140), RepeatMode.Reverse))
         }
@@ -94,7 +102,7 @@ fun FocusTile(
             .drawBehind {
                 // Pre-blurred shadow bitmap instead of animated elevation, which the render thread
                 // would otherwise re-tessellate every frame.
-                if (lift > 0.01f && !dev.glasslauncher.DebugFlags.off(dev.glasslauncher.DebugFlags.TILE_FX)) {
+                if (lift > 0.01f) {
                     val w = size.width * scale * 1.06f
                     val h = size.height * scale * 1.12f
                     drawImage(
@@ -109,10 +117,8 @@ fun FocusTile(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                if (!dev.glasslauncher.DebugFlags.off(dev.glasslauncher.DebugFlags.TILE_FX)) {
-                    rotationX = tiltX.value
-                    rotationY = tiltY.value
-                }
+                rotationX = tiltX.value
+                rotationY = tiltY.value
                 rotationZ = wiggleAngle.value
                 cameraDistance = 14f * density
                 this.shape = shape
@@ -133,6 +139,9 @@ fun FocusTile(
                         ),
                     )
                 }
+                if (focused && wiggle && prefs.reduceMotion) {
+                    drawRect(Color.White, style = Stroke(3.dp.toPx()))
+                }
                 if (focused) {
                     drawRect(
                         Brush.verticalGradient(
@@ -143,6 +152,7 @@ fun FocusTile(
                 }
             }
             .onFocusChanged {
+                if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused
                 if (!it.isFocused) pressed = false
                 onFocusChange(it.isFocused)
@@ -164,10 +174,17 @@ fun FocusTile(
                         } else if (e.action == AndroidKeyEvent.ACTION_UP) {
                             val wasPressed = pressed
                             pressed = false
-                            if (wasPressed && !longFired[0]) onClick()
+                            if (wasPressed && !longFired[0]) {
+                                if (prefs.sounds) view.playSoundEffect(SoundEffectConstants.CLICK)
+                                onClick()
+                            }
                             longFired[0] = false
                         }
                         true
+                    }
+                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> {
+                        if (e.action == AndroidKeyEvent.ACTION_UP) onPlay?.invoke()
+                        onPlay != null
                     }
                     AndroidKeyEvent.KEYCODE_MENU -> {
                         if (e.action == AndroidKeyEvent.ACTION_UP) onLongClick?.invoke()
@@ -180,10 +197,18 @@ fun FocusTile(
                 contentDescription = label
                 role = Role.Button
                 onClick { onClick(); true }
-                if (onLongClick != null) onLongClick { onLongClick(); true }
+                if (onLongClick != null) onLongClick(label = "Options") { onLongClick(); true }
             }
             .focusable(),
     ) {
         content(focused)
     }
+}
+
+/** Matches the system's directional focus sounds to the last D-pad press. */
+fun navigationSound(): Int = when {
+    KeyDirection.dx < 0 -> SoundEffectConstants.NAVIGATION_LEFT
+    KeyDirection.dx > 0 -> SoundEffectConstants.NAVIGATION_RIGHT
+    KeyDirection.dy < 0 -> SoundEffectConstants.NAVIGATION_UP
+    else -> SoundEffectConstants.NAVIGATION_DOWN
 }

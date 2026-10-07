@@ -84,6 +84,14 @@ import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.KeyDirection
 import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.Palette
+import dev.glasslauncher.ui.LocalUiPrefs
+import dev.glasslauncher.ui.UiPrefs
+import dev.glasslauncher.ui.Safe
+import androidx.tv.material3.LocalTextStyle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.glasslauncher.dream.AerialActivity
+import kotlinx.coroutines.delay
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.Type
 import dev.glasslauncher.widgets.IdleState
@@ -92,10 +100,10 @@ import dev.glasslauncher.widgets.rememberIdleState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
-private val SidePadding = 48.dp
+private val SidePadding = Safe.horizontal
 private val ColumnGap = 20.dp
 private val RowGap = 6.dp
-private val ShelfHeight = 300.dp
+private val ShelfHeight = 312.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 private object NoAutoScroll : BringIntoViewSpec {
@@ -105,7 +113,8 @@ private object NoAutoScroll : BringIntoViewSpec {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
-    val graph = LocalContext.current.app
+    val context = LocalContext.current
+    val graph = context.app
     val cfg by model.config.collectAsStateWithLifecycle()
     val layout by model.layout.collectAsStateWithLifecycle()
     val backdrop = remember { BackdropState() }
@@ -116,7 +125,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     }
     val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
     LaunchedEffect(wallpaper) { backdrop.backdrop = graph.wallpapers.load(wallpaper) }
-    val palette = remember(backdrop.backdrop, dark) { Palette(light = backdrop.backdrop?.isLight ?: !dark) }
+    val prefs = remember(cfg) { UiPrefs.resolve(context, cfg) }
+    val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = backdrop.backdrop?.isLight ?: !dark, highContrast = prefs.highContrast) }
+    backdrop.reduceTransparency = prefs.reduceTransparency
 
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -154,7 +165,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
 
     fun onRowFocused(index: Int) {
         scope.launch {
-            launch { backdrop.wallpaperBlur.animateTo(if (index >= 2) 1f else 0f, tween(350)) }
+            launch {
+                val target = if (index >= 2) 1f else 0f
+                if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, tween(350))
+            }
             if (index <= 1) scrollToTop() else {
                 val target = with(density) { 64.dp.toPx() }
                 val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
@@ -166,7 +180,29 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     fun onShelfFocused() = onRowFocused(0)
 
     // Initial focus once apps are known; refocus whatever was focused when overlays close.
-    LaunchedEffect(layout.loaded) { if (layout.loaded) focusKey(firstKey()) }
+    LaunchedEffect(layout.loaded) {
+        if (!layout.loaded) return@LaunchedEffect
+        focusKey(firstKey())
+        if (!cfg.tipsSeen) {
+            delay(1500) // let the wallpaper and shelf draw so the card's glass has something to blur
+            open(Overlay.Tips)
+        }
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(cfg.aerialsOnIdleMinutes) {
+        val limit = cfg.aerialsOnIdleMinutes * 60_000L
+        if (limit <= 0) return@LaunchedEffect
+        while (true) {
+            val remaining = limit - idle.millisSinceInput()
+            if (remaining > 0) delay(remaining)
+            else {
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty()) {
+                    context.startActivity(android.content.Intent(context, AerialActivity::class.java))
+                }
+                idle.touch()
+            }
+        }
+    }
     LaunchedEffect(Unit) {
         snapshotFlow { overlays.isEmpty() }.collect { empty ->
             if (empty) {
@@ -201,7 +237,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         }
     }
 
-    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPalette provides palette) {
+    CompositionLocalProvider(
+        LocalBackdrop provides backdrop,
+        LocalPalette provides palette,
+        LocalUiPrefs provides prefs,
+        LocalTextStyle provides Type.body,
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -227,14 +268,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                     .fillMaxSize()
                     .graphicsLayer { translationX = idle.shift.x; translationY = idle.shift.y }
                     .drawWithContent {
-                        if (dev.glasslauncher.DebugFlags.off(dev.glasslauncher.DebugFlags.LAYER)) drawContent() else {
-                            layer.record { this@drawWithContent.drawContent() }
-                            drawLayer(layer)
-                        }
+                        layer.record { this@drawWithContent.drawContent() }
+                        drawLayer(layer)
                     },
             ) {
                 WallpaperLayer(backdrop, palette)
-                if (!dev.glasslauncher.DebugFlags.off(dev.glasslauncher.DebugFlags.SHELF)) {
+                run {
                     // Lives outside the list so it stays composed; follows the scroll and fades in the draw phase only.
                     Box(
                         Modifier
@@ -247,7 +286,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
                     ) {
-                        TopShelf(cfg = cfg, modifier = Modifier.fillMaxSize(), onFocused = { if (it) onShelfFocused() })
+                        TopShelf(cfg = cfg, modifier = Modifier.fillMaxSize(), paused = overlays.isNotEmpty() || idle.idle || moving != null, onFocused = { if (it) onShelfFocused() })
                     }
                 }
                 CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
@@ -275,6 +314,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                 modifier = Modifier.align(Alignment.TopEnd),
                 fade = { 1f - backdrop.wallpaperBlur.value },
             )
+
+            moving?.let { MoveBanner(it, layout, Modifier.align(Alignment.BottomCenter)) }
 
             overlays.forEachIndexed { index, overlay ->
                 val top = index == overlays.lastIndex
@@ -319,7 +360,6 @@ private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: 
 @Composable
 private fun WallpaperLayer(state: BackdropState, palette: Palette) {
     Canvas(Modifier.fillMaxSize()) {
-        if (dev.glasslauncher.DebugFlags.off(dev.glasslauncher.DebugFlags.WALLPAPER)) return@Canvas
         val b = state.backdrop ?: return@Canvas
         val dst = IntSize(size.width.toInt(), size.height.toInt())
         val blur = state.wallpaperBlur.value
@@ -551,9 +591,28 @@ fun TileWithLabel(
 
 @Composable
 fun rememberArt(model: HomeModel, app: AppEntry): ImageBitmap? {
-    val graph = LocalContext.current.app
+    val context = LocalContext.current
+    val graph = context.app
     val cfg by model.config.collectAsStateWithLifecycle()
     val spec = model.spec(app, cfg)
     val art by produceState(graph.tileArt.peek(spec), spec) { value = graph.tileArt.load(spec) }
     return art
+}
+
+/** tvOS shows guidance while rearranging; without it the wiggle mode feels like a dead end. */
+@Composable
+private fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Modifier) {
+    val palette = LocalPalette.current
+    val inDock = layout.dock.any { appKey(it.packageName) == key }
+    val hint = if (inDock) "◀ ▶  Rearrange   ·   ▼  Move to Apps   ·   Select  Done"
+    else "◀ ▶ ▲ ▼  Move   ·   ▲ on first row  Add to Top Row   ·   Select  Done"
+    Box(
+        modifier
+            .padding(bottom = Safe.bottom)
+            .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
+            .padding(horizontal = 28.dp, vertical = 14.dp)
+            .testTag("move-banner"),
+    ) {
+        Text(hint, style = Type.secondary, color = palette.primary)
+    }
 }

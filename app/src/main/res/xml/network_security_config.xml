@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Apple serves its Aerial videos from sylvan.apple.com with a chain that ends at "Apple Root CA",
+     which Android doesn't ship. Trust it for that host only (SHA-256 B0:B1:73:0E:...:F0:24). -->
+<network-security-config>
+    <domain-config>
+        <domain includeSubdomains="false">sylvan.apple.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/apple_root_ca" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

@@ -2,7 +2,6 @@ package dev.glasslauncher.dream
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
@@ -113,8 +112,8 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         setTextColor(Color.WHITE)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
         setShadowLayer(12f, 0f, 2f, Color.argb(160, 0, 0, 0))
-        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-        background = GradientDrawable().apply { setColor(Color.TRANSPARENT) }
+        typeface = runCatching { androidx.core.content.res.ResourcesCompat.getFont(context, dev.glasslauncher.R.font.inter_semibold) }.getOrNull()
+            ?: android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

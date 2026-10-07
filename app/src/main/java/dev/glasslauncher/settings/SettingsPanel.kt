@@ -34,6 +34,8 @@ import androidx.tv.material3.Text
 import dev.glasslauncher.BuildConfig
 import dev.glasslauncher.app
 import dev.glasslauncher.data.AerialQuality
+import dev.glasslauncher.data.Auto
+import dev.glasslauncher.system.PhoneField
 import dev.glasslauncher.data.FeaturedSourceId
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.ThemeMode
@@ -81,6 +83,7 @@ private sealed interface Page {
     data object Updates : Page
     data object Backup : Page
     data object About : Page
+    data object Accessibility : Page
 }
 
 @Composable
@@ -104,7 +107,7 @@ fun SettingsPanel(
         } else MenuList(active) { first ->
             val f = Modifier.focusRequester(first)
             when (page) {
-                Page.Root -> RootPage(cfg, f, ::push)
+                Page.Root -> RootPage(model, cfg, f, ::push, open)
                 Page.Appearance -> AppearancePage(model, cfg, f, ::push)
                 Page.Featured -> FeaturedPage(model, cfg, f, open, ::push)
                 Page.PlexLink -> PlexLinkPage(model, cfg, f, ::pop)
@@ -117,6 +120,7 @@ fun SettingsPanel(
                 Page.Updates -> UpdatesPage(f)
                 Page.Backup -> BackupPage(model, f)
                 Page.About -> AboutPage(f)
+                Page.Accessibility -> AccessibilityPage(model, cfg, f)
                 is Page.Wallpapers -> Unit
             }
         }
@@ -124,14 +128,43 @@ fun SettingsPanel(
 }
 
 @Composable
-private fun ColumnScope.RootPage(cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit, open: (Overlay) -> Unit) {
+    val context = LocalContext.current
+    val graph = context.app
+    val scope = rememberCoroutineScope()
     PanelTitle("Settings")
     MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name)
+    MenuRow("Set Up from Phone", {
+        open(Overlay.PhoneSetup(
+            "Glass Launcher Setup",
+            listOf(
+                PhoneField("tmdb", "TMDB API key or read token", cfg.featured.tmdbKey, "For Netflix, Prime Video, Apple TV+… rows", secret = true),
+                PhoneField("youtube", "YouTube Data API key", cfg.featured.youtubeKey, "For the YouTube row", secret = true),
+                PhoneField("city", "Weather city", cfg.weather?.city?.substringBefore(',') ?: "", "e.g. Toronto"),
+                PhoneField("wallpaper", "Wallpaper image URL", "", "https://…"),
+            ),
+        ) { v ->
+            v["tmdb"]?.takeIf { it.isNotBlank() }?.let { k -> model.edit { it.copy(featured = it.featured.copy(tmdbKey = k)) } }
+            v["youtube"]?.takeIf { it.isNotBlank() }?.let { k -> model.edit { it.copy(featured = it.featured.copy(youtubeKey = k)) } }
+            v["city"]?.takeIf { it.isNotBlank() }?.let { q ->
+                scope.launch { Weather.geocode(graph.http, q, cfg.weather?.fahrenheit ?: false)?.let { w -> model.edit { it.copy(weather = w) } } }
+            }
+            v["wallpaper"]?.takeIf { it.isNotBlank() }?.let { url ->
+                scope.launch {
+                    if (graph.wallpapers.downloadUrl(url)) model.edit {
+                        val w = Wallpaper(WallpaperKind.Url, url)
+                        if (it.theme == ThemeMode.Light) it.copy(wallpaperLight = w) else it.copy(wallpaperDark = w)
+                    }
+                }
+            }
+        })
+    }, value = "QR code")
     MenuRow("Featured Row", { push(Page.Featured) }, value = sourceName(cfg.featured.source))
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString())
     MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On")
     MenuRow("Screensaver", { push(Page.Screensaver) })
     MenuRow("Widgets", { push(Page.Widgets) })
+    MenuRow("Accessibility", { push(Page.Accessibility) })
     MenuRow("Home Button", { push(Page.HomeButton) })
     MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME)
     MenuRow("Backup & Restore", { push(Page.Backup) })
@@ -364,12 +397,20 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
         enabled = canWrite || isSystem,
     )
     if (!canWrite && !isSystem) Hint("One-time setup from a computer: ${Screensaver.GRANT_COMMAND}")
+    if (HomeSetup.isFireTv) {
+        Hint("Fire OS plays Amazon's Ambient Experience instead of the chosen screensaver. Either use \"Start Aerials on Home After\" below, or turn Ambient Experience off from a computer: ${Screensaver.DISABLE_AMBIENT_COMMAND}")
+    }
     SectionLabel("Options")
     MenuRow("Quality", {
         model.edit { it.copy(screensaver = sc.copy(quality = if (sc.quality == AerialQuality.Hd1080) AerialQuality.Uhd4k else AerialQuality.Hd1080)) }
     }, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K")
     ToggleRow("Show Location", sc.showLocation, { v -> model.edit { it.copy(screensaver = sc.copy(showLocation = v)) } })
     ToggleRow("Show Clock", sc.showClock, { v -> model.edit { it.copy(screensaver = sc.copy(showClock = v)) } })
+    val idleOptions = listOf(0, 5, 10, 15, 30)
+    MenuRow("Start Aerials on Home After", {
+        val next = idleOptions[(idleOptions.indexOf(cfg.aerialsOnIdleMinutes).coerceAtLeast(0) + 1) % idleOptions.size]
+        model.edit { it.copy(aerialsOnIdleMinutes = next) }
+    }, value = if (cfg.aerialsOnIdleMinutes == 0) "System decides" else "${cfg.aerialsOnIdleMinutes} min")
     Hint("Aerial videos stream from Apple and are cached (up to 600 MB) so they replay offline.")
 }
 
@@ -523,4 +564,18 @@ private fun ColumnScope.AboutPage(f: Modifier) {
     Hint("Open source under the Apache License 2.0. github.com/${BuildConfig.UPDATE_REPO}")
     Hint("Aerial videos are streamed from Apple. Featured content from Stremio Cinemeta, TMDB, YouTube or Plex using your own keys. This product uses the TMDB API but is not endorsed or certified by TMDB. Weather by Open-Meteo.")
     Box(Modifier.size(1.dp))
+}
+
+@Composable
+private fun ColumnScope.AccessibilityPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    PanelTitle("Accessibility")
+    MenuRow("Reduce Motion", {
+        val next = Auto.entries[(cfg.reduceMotion.ordinal + 1) % Auto.entries.size]
+        model.edit { it.copy(reduceMotion = next) }
+    }, f, value = when (cfg.reduceMotion) { Auto.Auto -> "Automatic"; Auto.On -> "On"; Auto.Off -> "Off" })
+    Hint("Turns off tilt, shimmer, wiggle and fades. Automatic follows the system's animation setting.")
+    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> model.edit { it.copy(reduceTransparency = v) } })
+    Hint("Makes glass panels solid for easier reading. Also used when the system's high-contrast text is on.")
+    ToggleRow("Navigation Sounds", cfg.sounds, { v -> model.edit { it.copy(sounds = v) } })
+    Hint("Plays the system focus and click sounds, if they're enabled in the TV's settings.")
 }

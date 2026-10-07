@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalView
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
 import dev.glasslauncher.glass.GlassStyle
@@ -72,6 +73,8 @@ fun MenuRow(
     var focused by remember { mutableStateOf(false) }
     // Only a press that started on this row counts, so the key-up from the press that opened a menu is ignored.
     val pressed = remember { booleanArrayOf(false) }
+    val prefs = LocalUiPrefs.current
+    val view = LocalView.current
     val scale by animateFloatAsState(if (focused) 1.03f else 1f, spring(0.7f, 500f), label = "rowScale")
     val bg by animateColorAsState(if (focused) palette.focusFill else Color.Transparent, label = "rowBg")
     val fg = when {
@@ -87,7 +90,11 @@ fun MenuRow(
             .heightIn(min = 46.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .background(bg, Shapes.row)
-            .onFocusChanged { focused = it.isFocused; if (!it.isFocused) pressed[0] = false }
+            .onFocusChanged {
+                if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
+                focused = it.isFocused
+                if (!it.isFocused) pressed[0] = false
+            }
             .onKeyEvent { e ->
                 val k = e.nativeKeyEvent
                 val select = k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER || k.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
@@ -95,7 +102,10 @@ fun MenuRow(
                 if (select) {
                     if (k.action == AndroidKeyEvent.ACTION_DOWN && k.repeatCount == 0) pressed[0] = true
                     if (k.action == AndroidKeyEvent.ACTION_UP) {
-                        if (pressed[0] && enabled) onClick()
+                        if (pressed[0] && enabled) {
+                            if (prefs.sounds) view.playSoundEffect(android.view.SoundEffectConstants.CLICK)
+                            onClick()
+                        }
                         pressed[0] = false
                     }
                 }
@@ -112,7 +122,7 @@ fun MenuRow(
         CompositionLocalProvider(LocalContentColor provides fg) {
             leading?.invoke()
             Text(title, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (value != null) Text(value, style = Type.body, color = if (focused) fg.copy(alpha = 0.7f) else palette.secondary, maxLines = 1)
+            if (value != null) Text(value, style = Type.secondary, color = if (focused) fg.copy(alpha = 0.7f) else palette.secondary, maxLines = 1)
             trailing?.invoke(this)
         }
     }
@@ -127,7 +137,7 @@ fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modi
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text.uppercase(),
-        style = Type.label,
+        style = Type.overline,
         color = LocalPalette.current.secondary,
         modifier = modifier.padding(start = 18.dp, top = 14.dp, bottom = 4.dp),
     )
@@ -135,7 +145,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun Hint(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = Type.caption, color = LocalPalette.current.secondary, modifier = modifier.padding(horizontal = 18.dp, vertical = 6.dp))
+    Text(text, style = Type.secondary, color = LocalPalette.current.secondary, modifier = modifier.padding(horizontal = 18.dp, vertical = 6.dp))
 }
 
 @Composable

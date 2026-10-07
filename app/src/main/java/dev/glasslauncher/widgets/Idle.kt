@@ -32,6 +32,8 @@ class IdleState(val fadeMs: Long) {
 
     val chromeAlpha: Float get() = alpha.value
 
+    fun millisSinceInput() = SystemClock.uptimeMillis() - lastInput
+
     fun touch() {
         lastInput = SystemClock.uptimeMillis()
         if (idle) {

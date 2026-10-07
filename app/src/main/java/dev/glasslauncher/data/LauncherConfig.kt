@@ -23,10 +23,20 @@ data class LauncherConfig(
     val showNowPlaying: Boolean = true,
     val homeGuard: Boolean = false,
     val seededDefaults: Boolean = false,
+    val reduceMotion: Auto = Auto.Auto,
+    val reduceTransparency: Boolean = false,
+    val sounds: Boolean = true,
+    /** Start the Aerial screensaver after this many idle minutes on Home; 0 = leave it to the system. */
+    val aerialsOnIdleMinutes: Int = 0,
+    val tipsSeen: Boolean = false,
 )
 
 @Serializable
 enum class ThemeMode { System, Light, Dark }
+
+/** Auto follows the system accessibility setting. */
+@Serializable
+enum class Auto { Auto, On, Off }
 
 @Serializable
 enum class WallpaperKind { Preset, File, Url }

@@ -86,4 +86,5 @@ object Screensaver {
     }.getOrDefault(false)
 
     const val GRANT_COMMAND = "adb shell pm grant dev.glasslauncher android.permission.WRITE_SECURE_SETTINGS"
+    const val DISABLE_AMBIENT_COMMAND = "adb shell pm disable-user --user 0 com.amazon.tv.ftvambient"
 }

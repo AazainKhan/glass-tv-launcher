@@ -47,6 +47,12 @@ sealed interface Overlay {
         val onDone: (String) -> Unit,
     ) : Overlay
     data object Settings : Overlay
+    data object Tips : Overlay
+    data class PhoneSetup(
+        val title: String,
+        val fields: List<dev.glasslauncher.system.PhoneField>,
+        val onSubmit: (Map<String, String>) -> Unit,
+    ) : Overlay
 }
 
 /** Captures what's on screen, blurs it once, and returns it as the backdrop for overlay glass. */
@@ -54,16 +60,22 @@ suspend fun captureBlurred(layer: GraphicsLayer): ImageBitmap? = runCatching {
     val shot = layer.toImageBitmap().asAndroidBitmap()
     withContext(Dispatchers.Default) {
         val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
-        Blur.backdrop(soft, WallpaperLoader.BLUR_W, WallpaperLoader.BLUR_H, radius = 6).also { soft.recycle() }.asImageBitmap()
+        val blurred = Blur.backdrop(soft, WallpaperLoader.BLUR_W, WallpaperLoader.BLUR_H, radius = 6).also { soft.recycle() }
+        // A capture taken before the first real frame is blank; returning null falls back to the wallpaper blur.
+        if (blurred.getPixel(blurred.width / 2, blurred.height / 2) ushr 24 == 0) null else blurred.asImageBitmap()
     }
 }.getOrNull()
 
-/** Keeps D-pad focus inside an overlay so it can't wander onto the home screen underneath. */
-fun Modifier.trapFocus(): Modifier = focusProperties { onExit = { cancelFocusChange() } }.focusGroup()
+/**
+ * The active overlay keeps D-pad focus inside it; overlays stacked underneath refuse focus entirely,
+ * so focus can't wander onto hidden menus or the home screen.
+ */
+fun Modifier.trapFocus(active: Boolean): Modifier =
+    focusProperties { if (active) onExit = { cancelFocusChange() } else onEnter = { cancelFocusChange() } }.focusGroup()
 
 /** Right-hand glass panel that slides in, used for menus and settings. */
 @Composable
-fun SidePanel(width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
+fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 380f)) }
     Box(
@@ -79,7 +91,7 @@ fun SidePanel(width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
                 .width(width)
                 .fillMaxHeight()
                 .graphicsLayer { translationX = (1f - enter.value) * 80.dp.toPx() }
-                .trapFocus(),
+                .trapFocus(active),
             content = content,
         )
     }
@@ -87,7 +99,7 @@ fun SidePanel(width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
 
 /** Fades and scales a full-screen overlay in. */
 @Composable
-fun FullOverlay(content: @Composable BoxScope.() -> Unit) {
+fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         launch { enter.animateTo(1f, tween(260)) }
@@ -100,9 +112,23 @@ fun FullOverlay(content: @Composable BoxScope.() -> Unit) {
                 val s = 0.94f + 0.06f * enter.value
                 scaleX = s; scaleY = s
             }
-            .trapFocus(),
+            .trapFocus(active),
         content = content,
     )
 }
 
 val Scrim = Color(0x59000000)
+
+/** Scroll only as far as needed to reveal the focused row (Compose's TV default pivots every row to 30%). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+object MinimalScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val trailing = offset + size
+        return when {
+            offset >= 0 && trailing <= containerSize -> 0f
+            offset < 0 && trailing > containerSize -> 0f
+            kotlin.math.abs(offset) < kotlin.math.abs(trailing - containerSize) -> offset
+            else -> trailing - containerSize
+        }
+    }
+}
