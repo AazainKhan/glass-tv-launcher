@@ -110,15 +110,17 @@ fun FocusTile(
                 // Every tile sits slightly above the backdrop (tvOS 27): a soft, close shadow at rest
                 // that grows, drops and darkens as the tile lifts on focus.
                 if (shadow) {
-                    val spread = 1.04f + 0.06f * lift
+                    // tvOS 27 tiles cast a clear soft shadow straight down even at rest (inspo
+                    // home-grid-scroll): darker and a touch lower than before; focus deepens and drops it.
+                    val spread = 1.05f + 0.05f * lift
                     val w = size.width * scale * spread
                     val h = size.height * scale * (spread + 0.06f * lift)
-                    val drop = (4.dp.toPx() + 12.dp.toPx() * lift)
+                    val drop = (6.dp.toPx() + 10.dp.toPx() * lift)
                     drawImage(
                         TileShadow.image,
                         dstOffset = IntOffset(((size.width - w) / 2).toInt(), ((size.height - h) / 2 + drop).toInt()),
                         dstSize = IntSize(w.toInt(), h.toInt()),
-                        alpha = 0.34f + 0.3f * lift,
+                        alpha = 0.5f + 0.2f * lift,
                         filterQuality = FilterQuality.Low,
                     )
                 }

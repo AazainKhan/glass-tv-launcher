@@ -60,7 +60,7 @@ fun PreviewStage(light: Boolean = false, content: @Composable BoxScope.() -> Uni
     val state = remember(light) {
         BackdropState().also { s ->
             runBlocking {
-                s.swap(context.app.wallpapers.load(Wallpaper(WallpaperKind.Preset, if (light) "dawn" else "aurora")), animate = false)
+                s.swap(context.app.wallpapers.load(Wallpaper(WallpaperKind.Preset, if (light) "dawn" else "aurora"), light = light), animate = false)
             }
         }
     }

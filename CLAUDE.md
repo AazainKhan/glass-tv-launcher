@@ -20,7 +20,10 @@ Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination G
 - Fire OS ignores third-party DreamServices, even with Ambient Experience disabled; `Somnambulator` won't start one. Use the in-app "Start Aerials on Home after" (set to 3 min on this stick).
 - `WRITE_SECURE_SETTINGS` and the Now Playing notification listener are granted to the app on this device.
 - The stick sleeps after about 5 minutes; a black screenshot usually means it's asleep. Wake it with `adb shell input keyevent KEYCODE_WAKEUP`.
-- To simulate a Home press to the launcher: `adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity`.
+- To simulate a Home press to the launcher: `adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity`. **Always start Glass this way** (`scripts/build` and the boot script do): a plain `am start -n` puts it in an ordinary task, and the first Home press then creates a second Glass in the home task (state lost, double memory).
+- Fire OS drops `Log.d`/`Log.v` from apps; use `Log.i`/`Log.w` for temporary debugging.
+- Netflix (and other DRM apps) set FLAG_SECURE: screenshots and `scripts/clip` show black. Use YouTube, Stremio or TizenTube to judge app open/close.
+- AirPlay comes from PhairPlay (`scripts/phairplay install`): upstream at a pinned commit plus `tools/phairplay/glass-control.patch` (signature-guarded control receiver, state broadcasts, player brought forward on a session). Same debug key as Glass, which is what grants `com.phairplay.permission.CONTROL`. Idle cost: 0% CPU, ~44 MB PSS in its own process. Control Center shows the AirPlay pill only when it's installed.
 
 ## Dev loop: see it, check it, measure it
 
@@ -81,6 +84,7 @@ The GPU affords only about **two full-screen blended passes per frame**. Target:
 - Wallpaper bitmaps are opaque (`setHasAlpha(false)`), HARDWARE config, with the scrim baked in (`WallpaperLoader.load`). Never add full-screen translucent overlays.
 - Glass (`glass/Glass.kt`) is a single fill per surface: a screen-mapped `BitmapShader` composed with the tint and highlight. No `clipPath`, no stacked translucent passes. The dock tray is *clear* glass (`GlassStyle.clear`): it samples the lightly blurred `clearSoftware` over the hero (the frosted `blurredSoftware` once the grid is up) and adds one masked stroke, the refracted edge band, which fades into the body so there's no seam. Panels and folders stay frosted. Each extra shader-filled stroke along the tray cost ~7 ms/frame (measured: 4 rings took p50 from 12 to 28 ms), so keep it to one.
 - No animated `shadowElevation`; tiles use the pre-blurred `TileShadow` bitmap.
+- Appearance is baked: `WallpaperLoader` washes the blurred rungs and glass texture milky white in light appearance (dark art more) and towards charcoal in dark (light art only), growing per rung so the scroll fades into it. The palette follows the theme, not the art. Switching appearance re-bakes behind a dissolve.
 - Heavy content that scrolls in and out (the top shelf) lives **outside** the `LazyColumn` and moves with the scroll in `graphicsLayer`. Fades use `CompositingStrategy.ModulateAlpha`.
 - Animate only in layout/draw phases (`graphicsLayer {}`, `drawWithContent {}`); no per-frame recomposition.
 - Idle: no infinite animations. The clock and idle timer wake at most once a minute.
@@ -97,7 +101,17 @@ How to measure: `scripts/perf-run` compiles with `-m speed`, turns on dev-mode, 
 
 To bisect, temporarily add a `DebugFlags` object that reads `getprop debug.glass.flags` and gate suspects on its bits. Benchmark each bit with the script pattern in git history, then delete it.
 
+## App open and close (`home/AppTransition.kt`, motion-spec §9)
+
+Glass draws both itself; measured on the stick 2026-10-07 against the HotshotTek reference.
+- **Open:** PixelCopy of the window straight into 480×270 (async, off the UI thread), blurred, shown as the cover in one frame; a rounded window grows from the tile's focused rect (`tween(450)`, exp-decelerate k=3.5, starting 12% in), crossfading from the tile art to a launch colour plus the logo lifted off the banner in grey. `startActivity` at 170 ms with `makeCustomAnimation(app_open_enter, app_open_hold)`; the app's first window fades in over it. Home's own content is hidden (alpha 0) while the cover is opaque.
+- **Close:** on return the window (left full screen through ON_STOP, so the system's task snapshot matches Home's late first frame) waits for steady frames, shrinks into the tile (`tween(220)` ease-in-out, art back by half size), lands 1.3× and settles (125 ms), then Home sharpens (120 ms) before the window goes.
+- What didn't work: `makeThumbnailScaleUpAnimation` draws no zoom at all on Fire OS 8; `GraphicsLayer.toImageBitmap` for the cover cost 50–90 ms of main thread per press; `clipPath` for the window made its first frames 80–150 ms; the theme's `windowAnimationStyle` is ignored for the home task (Fire faded Home in from black ~300 ms after the Home press), but `overridePendingTransition(0, 0)` in `onRestart` works.
+- A Home intent that arrives while Glass isn't resumed is a return from an app: it keeps focus and scroll (Home pressed on Home still goes to the top). The slideshow pauses while Home is stopped.
+
 ## Code gotchas
+
+- `BackdropState.swap` must clear `previous` in a `finally`: a swap cancelled mid-fade left it set, so every glass surface drew twice forever and the old backdrop stayed in memory (perf-gate went from 0% to 12% janky, +26 MB).
 
 - **No labelled returns out of inline composable lambdas** (`return@Column`, `return@key`, `return@LaunchedEffect` inside `runCatching{}.getOrElse{}`). They compile but R8 fails with `$$$$$NON_LOCAL_RETURN$$$$$`. Use if/else.
 - Compose on TV defaults to a 30% "pivot" bring-into-view. Lists that shouldn't pivot use `MinimalScroll` (panels) or `NoAutoScroll` (home list, scrolled manually in `onRowFocused`).

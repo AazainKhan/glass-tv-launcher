@@ -81,6 +81,23 @@ object HomeSetup {
     fun isGuardEnabled(context: Context): Boolean = isServiceEnabled(context, guardComponent(context))
     fun isRemoteKeysEnabled(context: Context): Boolean = isServiceEnabled(context, ComponentName(context, RemoteKeysService::class.java))
 
+    /**
+     * Android drops an app's accessibility services from the enabled list when the app is force-stopped
+     * (Settings › Force Stop, adb, benchmarks). With the remote-button layout installed that would leave
+     * the remapped buttons dead, so Glass turns its service back on at startup (needs WRITE_SECURE_SETTINGS).
+     */
+    fun ensureRemoteKeys(context: Context) {
+        if (!RemoteButtons.takeoverActive() || isRemoteKeysEnabled(context)) return
+        runCatching {
+            val cr = context.contentResolver
+            val own = ComponentName(context, RemoteKeysService::class.java).flattenToString()
+            val current = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                ?.split(':')?.filter { it.isNotBlank() }.orEmpty()
+            Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, (current + own).distinct().joinToString(":"))
+            Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+        }
+    }
+
     private fun isServiceEnabled(context: Context, component: ComponentName): Boolean =
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             ?.split(':')?.any { ComponentName.unflattenFromString(it) == component } == true

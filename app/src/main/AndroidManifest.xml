@@ -26,7 +26,18 @@
         android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+        AirPlay (Control Center): drives PhairPlay's receiver through its signature-guarded control
+        receiver (scripts/phairplay). Declared here too, so the grant doesn't depend on install order.
+    -->
+    <permission
+        android:name="com.phairplay.permission.CONTROL"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.phairplay.permission.CONTROL" />
+
     <queries>
+        <package android:name="com.phairplay.firetv" />
+        <package android:name="com.phairplay.googletv" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

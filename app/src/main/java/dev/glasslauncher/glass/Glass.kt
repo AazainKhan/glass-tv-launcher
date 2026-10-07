@@ -55,14 +55,22 @@ class BackdropState {
     suspend fun swap(next: Backdrop, animate: Boolean) {
         val old = backdrop
         if (old == null || !animate) {
+            previous = null
             backdrop = next
+            fade.snapTo(1f)
             return
         }
         previous = old
         backdrop = next
-        fade.snapTo(0f)
-        fade.animateTo(1f, androidx.compose.animation.core.tween(550))
-        previous = null
+        try {
+            fade.snapTo(0f)
+            fade.animateTo(1f, androidx.compose.animation.core.tween(550))
+        } finally {
+            // Also when a newer swap cancels this one mid-fade: a previous left behind made every glass
+            // surface (and the backdrop) draw twice for good, and kept its bitmaps alive (perf-gate: 12%
+            // janky frames, +26 MB).
+            previous = null
+        }
     }
 
     var rootSize by mutableStateOf(IntSize.Zero)
@@ -96,6 +104,13 @@ data class GlassStyle(
         else GlassStyle(Color.White.copy(alpha = 0.03f), 0.08f, 0.32f, clear = true)
 
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
+
+        /**
+         * Control Center tiles: denser than panels, so a tile over a dark or busy patch of the art still
+         * reads as a solid control, as tvOS's do (a plain panel tint looked see-through there).
+         */
+        fun control(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.58f), 0.22f, 0.5f, useOverlay = true)
+        else GlassStyle(Color(0xFF3A3D45).copy(alpha = 0.55f), 0.12f, 0.34f, useOverlay = true)
     }
 }
 
@@ -131,6 +146,9 @@ private class GlassNode(
     private var cachedOutline: Outline? = null
     private var shaderSource: ImageBitmap? = null
     private var backdropShader: BitmapShader? = null
+    private var prevShaderSource: ImageBitmap? = null
+    private var prevShader: BitmapShader? = null
+    private val prevMatrix = Matrix()
     private var edgeKey: Any? = null
     private var edgeBrush: ShaderBrush? = null
     private var edgeRing: Outline? = null
@@ -200,16 +218,35 @@ private class GlassNode(
             matrix.setScale(root.width / source.width.toFloat(), root.height / source.height.toFloat())
             matrix.postTranslate(-origin.x, -origin.y)
             backdropShader!!.setLocalMatrix(matrix)
-            drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
-            if (clear) drawEdgeBand(source)
+            // While the backdrop cross-fades to a new slide, the glass does too, on the same clock: the
+            // old picture underneath, the new one fading in over it. Otherwise the tray switches first.
+            val previous = state.previous
+            val fade = state.fade.value
+            val previousSource = previous?.let { if (style.useOverlay) null else if (clear) it.clearSoftware else it.blurredSoftware }
+            if (previousSource != null && fade < 1f) {
+                if (previousSource !== prevShaderSource) {
+                    prevShaderSource = previousSource
+                    prevShader = BitmapShader(previousSource.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+                }
+                prevMatrix.setScale(root.width / previousSource.width.toFloat(), root.height / previousSource.height.toFloat())
+                prevMatrix.postTranslate(-origin.x, -origin.y)
+                prevShader!!.setLocalMatrix(prevMatrix)
+                drawOutline(outline, ShaderBrush(ComposeShader(prevShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
+                drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = fade)
+            } else {
+                prevShaderSource = null; prevShader = null
+                drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
+            }
+            if (clear) drawEdgeBand(source, if (previousSource != null) fade else 1f)
         } else if (overBlur) {
             // Flat tint and rim: over a blurred backdrop this is what frosted glass looks like (tvOS's
             // grid tray is a flat translucent slab), and gradient shaders here tipped the GPU over budget.
-            drawOutline(outline, if (state.reduceTransparency) solidTint(style.tint) else style.tint)
+            // Visible as a slab, like tvOS's grid tray (flat fills are cheap, so strength costs nothing).
+            drawOutline(outline, if (state.reduceTransparency) solidTint(style.tint) else Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f))
         } else {
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }
-        if (overBlur) drawOutline(outline, Color.White.copy(alpha = style.rim * 0.3f), style = Stroke(width = 1.dp.toPx()))
+        if (overBlur) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))
         else drawRim(outline)
         drawContent()
     }
@@ -219,7 +256,7 @@ private class GlassNode(
      * from slightly beyond the edge, compressed. Faked with one stroke whose shader maps the screen
      * through a mild zoom-out about the surface's centre (no RuntimeShader on API 30).
      */
-    private fun DrawScope.drawEdgeBand(source: ImageBitmap) {
+    private fun DrawScope.drawEdgeBand(source: ImageBitmap, alpha: Float = 1f) {
         val ring = edgeRing ?: return
         val band = EDGE_BAND.toPx()
         // Built once per source/size/style/position; rebuilding shaders per frame is wasted work.
@@ -248,7 +285,7 @@ private class GlassNode(
         }
         // One stroke: each extra ring cost about 7 ms a frame on the Fire TV GPU.
         translate(band / 2f, band / 2f) {
-            drawOutline(ring, edgeBrush!!, style = Stroke(width = band))
+            drawOutline(ring, edgeBrush!!, alpha = alpha, style = Stroke(width = band))
         }
     }
 

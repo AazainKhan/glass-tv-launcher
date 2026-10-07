@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home stays put under the app's fade-in (its zoom window is the last thing drawn). -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="150"
+    android:fromAlpha="1"
+    android:toAlpha="1" />

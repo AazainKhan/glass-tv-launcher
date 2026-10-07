@@ -70,7 +70,8 @@ private val Blue = Color(0xFF0A84FF)
 /**
  * SYS-01, laid out like tvOS 27 Control Center: the time over a right-hand column of glass tiles.
  * A large Settings tile for the TV's own settings (white when focused, focused first), two-line pills
- * for Wi-Fi, Bluetooth, the launcher's settings and Text Size, then round buttons for game
+ * for Wi-Fi, Bluetooth, the launcher's settings and Text Size, a wide AirPlay toggle when PhairPlay is
+ * installed, then round buttons for game
  * controllers, Light/Dark, the screen saver and the app switcher. Glass tiles
  * take their tint from the content behind them; a pill's icon sits in a white disc while it's on.
  */
@@ -90,6 +91,7 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val textSteps = listOf(1f to "Default", 1.15f to "Large", 1.3f to "Larger")
     val textIndex = textSteps.indexOfFirst { it.first >= cfg.textScale - 0.01f }.coerceAtLeast(0)
     val dark = cfg.theme != ThemeMode.Light
+    val airPlay = dev.glasslauncher.system.AirPlay.rememberState(active)
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
@@ -134,6 +136,18 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                 CcTile("Text Size", textSteps[textIndex].second, Shapes.pill, PillWidth, Pill, onClick = {
                     screen.dissolve { model.edit { it.copy(textScale = textSteps[(textIndex + 1) % textSteps.size].first) } }
                 }) { fg -> PillContent(R.drawable.ic_format_size, "Text Size", textSteps[textIndex].second, fg, on = false, accent = fg) }
+            }
+            // AirPlay receiving (PhairPlay, scripts/phairplay); only shown once it's installed. A toggle,
+            // like Wi-Fi's on state: white disc, blue glyph. A connected Mac or iPhone is named.
+            airPlay?.let { (state, set) ->
+                val value = when {
+                    state.sender != null -> "Connected to ${state.sender}"
+                    state.on -> "On"
+                    else -> "Off"
+                }
+                CcTile("AirPlay", value, Shapes.pill, ColumnWidth, Pill, onClick = { set(!state.on) }) { fg ->
+                    PillContent(R.drawable.ic_airplay, "AirPlay", value, fg, on = state.on, accent = Blue)
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(RoundGap)) {
                 Round(R.drawable.ic_sports_esports, "Game Controllers") { system { SystemControls.openGameControllers(context) } }
@@ -222,7 +236,7 @@ private fun CcTile(
                 .fillMaxSize()
                 .then(
                     if (focused) Modifier.background(palette.focusFill, shape)
-                    else Modifier.glass(LocalBackdrop.current, shape, GlassStyle.overlay(palette.light)),
+                    else Modifier.glass(LocalBackdrop.current, shape, GlassStyle.control(palette.light)),
                 ),
             contentAlignment = Alignment.Center,
         ) { content(fg) }

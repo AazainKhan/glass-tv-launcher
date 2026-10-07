@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.Text
 import dev.glasslauncher.app
@@ -155,7 +156,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     val prefs = remember(cfg) { UiPrefs.resolve(context, cfg) }
     val metrics = remember(cfg.textScale) { Metrics(cfg.textScale) }
-    val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = backdrop.backdrop?.isLight ?: !dark, highContrast = prefs.highContrast) }
+    val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = !dark, highContrast = prefs.highContrast) }
     backdrop.reduceTransparency = prefs.reduceTransparency
 
     // Featured content drives the live backdrop.
@@ -181,6 +182,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     var homeFocused by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val layer = rememberGraphicsLayer()
+    val transition = remember { AppTransition(context, scope, backdrop, model) }
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     val cardRequester = remember { FocusRequester() }
@@ -189,12 +191,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val sceneUrl = if (cfg.background == BackgroundMode.Featured) hero?.image else null
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
-    LaunchedEffect(sceneUrl, wallpaper, cfg.background) {
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark) {
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
-        val ready = prebaked[0]?.takeIf { it.first == sceneUrl }?.second
+        // The featured feed is usually a few ms behind the first composition: wait for it rather than
+        // baking the wallpaper only to throw it away (the two bakes used to run in parallel at startup).
+        if (sceneUrl == null && cfg.background == BackgroundMode.Featured && cfg.featured.source != FeaturedSourceId.Off && backdrop.backdrop == null) delay(1_200)
+        val ready = prebaked[0]?.takeIf { it.first == sceneUrl }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
         if (ready == null && expanded) delay(220) // let quick left/right browsing settle before re-baking the glass
-        val next = ready ?: sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it) }.getOrNull() } ?: graph.wallpapers.load(wallpaper)
+        val next = ready ?: sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it, light = !dark) }.getOrNull() } ?: graph.wallpapers.load(wallpaper, light = !dark)
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement.
         backdrop.swap(next, animate = backdrop.backdrop != null)
     }
@@ -208,6 +213,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             withFrameNanos { }
         }
         ready = true
+        // Startup metric: the system logs "Fully drawn" (time to real content, not the first frame).
+        runCatching { (view.context as? android.app.Activity ?: (context as? android.app.Activity))?.reportFullyDrawn() }
     }
     val reveal = remember { Animatable(0f) }
     LaunchedEffect(ready) { if (ready) reveal.animateTo(1f, tween(if (prefs.reduceMotion) 150 else 450)) }
@@ -263,8 +270,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         scope.launch {
             launch {
                 val target = if (index >= 2) 1f else 0f
-                // The blur rides the same decelerating curve as the scroll.
-                if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, Motion.scroll())
+                // The blur eases in over the scroll rather than riding its front-loaded curve: on a ladder of
+                // baked steps, the scroll's fast start reads as the backdrop lurching.
+                if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, tween(520, easing = androidx.compose.animation.core.FastOutSlowInEasing))
             }
             if (index <= 1) scrollToTop() else {
                 // The focused row's tiles settle at the pivot; the first row has the tray gap above it.
@@ -303,13 +311,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // browsing restarts the timer (heroIndex is a key). In full screen focus follows, so the row glides.
     // It pauses while the grid is up (the backdrop is blurred there) and waits for a few quiet seconds,
     // so a slide's bake and cross-fade never land on top of a scroll.
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background, focusedRow >= 2) {
+    // Paused while Home is hidden (an app is in front): no bakes behind the app, and Home comes back on
+    // the slide it left on, which is what the app-close animation's blurred picture shows.
+    val homeVisible = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background, focusedRow >= 2, homeVisible) {
+        if (!homeVisible) return@LaunchedEffect
         if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
         delay(SLIDE_MS)
         while (idle.millisSinceInput() < SLIDE_QUIET_MS) delay(SLIDE_QUIET_MS - idle.millisSinceInput() + 50)
         val next = (heroIndex + 1) % feed.items.size
         val url = feed.items[next].image
-        if (url != null) runCatching { graph.wallpapers.fromUrl(url) }.getOrNull()?.let { prebaked[0] = url to it }
+        // Pre-baked at background priority, so a slide never competes with a scroll or focus move.
+        if (url != null) runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
+        feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }
         heroIndex = next
         if (expanded) {
             withFrameNanos { }
@@ -324,9 +338,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         var stopped = false
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> stopped = true
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> { stopped = true; transition.onHomeStopped() }
                 androidx.lifecycle.Lifecycle.Event.ON_START -> if (stopped) {
                     stopped = false
+                    // Back from an app Home opened: it shrinks into its tile instead (motion-spec §9).
+                    if (!prefs.reduceMotion && transition.onHomeStarted { null }) return@LifecycleEventObserver
                     scope.launch {
                         if (prefs.reduceMotion) return@launch
                         homeSettle.snapTo(0f)
@@ -418,6 +434,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     CompositionLocalProvider(
         LocalMenuAnchor provides menuAnchor,
         dev.glasslauncher.ui.LocalScreenDissolve provides dissolve,
+        LocalAppTransition provides transition.takeUnless { prefs.reduceMotion },
         LocalBackdrop provides backdrop,
         LocalPalette provides palette,
         LocalUiPrefs provides prefs,
@@ -468,7 +485,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        translationX = idle.shift.x; translationY = idle.shift.y; alpha = reveal.value
+                        translationX = idle.shift.x; translationY = idle.shift.y
+                        // Hidden while an app open/close covers it completely: one less full screen to draw.
+                        alpha = if (transition.coverAlpha.value >= 1f && transition.cover != null) 0f else reveal.value
                         val settle = 1.04f - 0.04f * homeSettle.value
                         scaleX = settle; scaleY = settle
                     }
@@ -478,7 +497,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     },
             ) {
                 if (cfg.background == BackgroundMode.Motion) {
-                    MotionBackground(cfg.screensaver, backdrop, paused = overlays.isNotEmpty() || idle.idle)
+                    MotionBackground(cfg.screensaver, backdrop, light = !dark, paused = overlays.isNotEmpty() || idle.idle)
                 }
                 BackdropLayer(backdrop, drawSharp = cfg.background != BackgroundMode.Motion)
 
@@ -581,6 +600,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             }
 
             if (reveal.value < 1f) StartupMark(loading = !ready, alpha = { 1f - reveal.value })
+
+            AppTransitionLayer(transition)
 
             // The frame before an appearance/background/text-size change, fading out over the new one.
             dissolve.image?.let { frame ->
@@ -832,6 +853,7 @@ fun AppCell(
     var bounds by remember { mutableStateOf<Rect?>(null) }
     val anchorStore = LocalMenuAnchor.current
     val launchView = LocalView.current
+    val transition = LocalAppTransition.current
     TileWithLabel(
         label = app.label,
         tag = "app:${app.packageName}",
@@ -842,7 +864,11 @@ fun AppCell(
         // Launch from the tile as drawn (focused, 1.2x), so the app zooms out of what you see.
         onClick = {
             val from = bounds?.let { val dx = it.width * 0.1f; val dy = it.height * 0.1f; Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy) }
-            if (launch != null) launch(app, from) else model.launch(app, launchView, from)
+            when {
+                transition != null && from != null -> transition.open(app, from, art, launchView)
+                launch != null -> launch(app, from)
+                else -> model.launch(app, launchView, from)
+            }
         },
         onMenu = { anchorStore.bounds = bounds; onMenu() },
         showLabel = showLabel,

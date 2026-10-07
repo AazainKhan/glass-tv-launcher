@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# AirPlay for Glass: builds PhairPlay (github.com/mazer666/PhairPlay, Apache-2.0), an open-source AirPlay 2
+# receiver, with tools/phairplay/glass-control.patch applied, and installs it. The patch adds a
+# signature-guarded control receiver so Control Center's AirPlay toggle can turn it on and off, and
+# brings PhairPlay's player forward when a Mac or iPhone starts mirroring (then steps back to Home when
+# it stops). Signed with the same debug key as Glass, which is what lets the two talk.
+#   scripts/phairplay install     clone (or update) at the pinned commit, patch, build, install
+#   scripts/phairplay status      installed version and whether the receiver is running
+#   scripts/phairplay uninstall
+# Needs JDK 21, the NDK (28.2.13676358) and CMake 3.22.1 from the Android SDK.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+REPO=https://github.com/mazer666/PhairPlay.git
+COMMIT=4a3948c51d7f9d050d1f7437c0bd88877ef6db0f
+PKG=com.phairplay.firetv
+SRC="$ROOT/build/phairplay"
+
+case "${1:-status}" in
+  install)
+    if [ ! -d "$SRC/.git" ]; then git clone --quiet "$REPO" "$SRC"; fi
+    git -C "$SRC" fetch --quiet origin "$COMMIT" 2>/dev/null || git -C "$SRC" fetch --quiet origin
+    git -C "$SRC" checkout --quiet --force "$COMMIT"
+    git -C "$SRC" clean -fdq app/src
+    git -C "$SRC" apply "$ROOT/tools/phairplay/glass-control.patch"
+    export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 21)}"
+    export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+    (cd "$SRC" && ./gradlew -q assembleFiretvDebug)
+    adb install -r -t "$SRC/app/build/outputs/apk/firetv/debug/app-firetv-debug.apk"
+    # Android 10+ blocks activity starts from the background unless the app may draw over others;
+    # PhairPlay needs that to bring its player forward when a sender connects.
+    adb shell appops set "$PKG" SYSTEM_ALERT_WINDOW allow
+    # Glass declares the control permission too; if Glass went in first, reinstalling it re-grants.
+    adb shell dumpsys package dev.glasslauncher | grep -q "com.phairplay.permission.CONTROL: granted=true" \
+      || echo "Note: reinstall Glass (scripts/build) so it's granted com.phairplay.permission.CONTROL."
+    echo "PhairPlay installed. Turn AirPlay on from Control Center."
+    ;;
+  status)
+    adb shell dumpsys package "$PKG" | grep -m1 versionName || { echo "PhairPlay isn't installed"; exit 0; }
+    if adb shell dumpsys activity services "$PKG" | grep -q PhairPlayService; then echo "receiver running"; else echo "receiver off"; fi
+    ;;
+  uninstall)
+    adb uninstall "$PKG"
+    ;;
+  *) echo "usage: scripts/phairplay install|status|uninstall" >&2; exit 2 ;;
+esac

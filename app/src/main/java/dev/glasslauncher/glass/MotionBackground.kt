@@ -33,7 +33,7 @@ import kotlin.coroutines.resume
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun MotionBackground(cfg: ScreensaverConfig, state: BackdropState, paused: Boolean) {
+fun MotionBackground(cfg: ScreensaverConfig, state: BackdropState, light: Boolean, paused: Boolean) {
     val context = LocalContext.current
     val app = context.app
     val surface = remember { SurfaceView(context) }
@@ -63,7 +63,7 @@ fun MotionBackground(cfg: ScreensaverConfig, state: BackdropState, paused: Boole
                     PixelCopy.request(surface, frame, { result -> cont.resume(result == PixelCopy.SUCCESS) }, Handler(Looper.getMainLooper()))
                 }.onFailure { cont.resume(false) }
             }
-            if (ok) state.swap(app.wallpapers.fromImage(frame, WallpaperLoader.Scene.Hero), animate = false)
+            if (ok) state.swap(app.wallpapers.fromImage(frame, WallpaperLoader.Scene.Hero, background = true, light = light), animate = false)
             frame.recycle()
         }
     }

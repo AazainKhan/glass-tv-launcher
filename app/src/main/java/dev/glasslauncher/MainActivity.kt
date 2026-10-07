@@ -25,9 +25,21 @@ class MainActivity : ComponentActivity() {
         request(intent)
     }
 
+    override fun onRestart() {
+        super.onRestart()
+        // No system animation on the way back: Glass draws the app closing into its tile itself.
+        // Fire OS ignores the theme's window animations for the home task (it fades Home in from black
+        // ~300 ms after the Home press), but honours a pending override.
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == Intent.ACTION_MAIN) requests.trySend(HomeRequest.Home) else request(intent)
+        // Home pressed on Home goes back to the top; Home pressed in an app just returns, leaving focus on
+        // the app's tile (that's where the close animation lands, as on tvOS).
+        val onHome = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        if (intent.action == Intent.ACTION_MAIN) { if (onHome) requests.trySend(HomeRequest.Home) } else request(intent)
     }
 
     /** Remote buttons (RemoteKeysService) ask for Control Center or the app switcher this way. */

@@ -1,0 +1,356 @@
+package dev.glasslauncher.home
+
+import android.app.ActivityOptions
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.graphics.Bitmap
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
+import dev.glasslauncher.R
+import dev.glasslauncher.apps.AppEntry
+import dev.glasslauncher.glass.BackdropState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.withFrameNanos
+import kotlin.math.exp
+import kotlin.math.max
+
+/**
+ * App open and close, drawn by the launcher (motion-spec §9, the HotshotTek reference).
+ *
+ * Open: Home blurs in one frame; the tile becomes a rounded window filled with the app's launch colour
+ * and its glyph in grey, and grows to full screen at full speed, decelerating (τ ≈ 130 ms). The app
+ * is started part way through and fades in over the window, so the system's own zoom never plays.
+ *
+ * Close: when Home comes back from that app, a full-screen window in the launch colour shrinks into
+ * the app's tile on an ease-in-out curve, turning back into the tile art by half size, lands a little
+ * large, settles into the focused tile, and only then does Home sharpen.
+ *
+ * Everything is one blurred-Home image plus one rounded window, so it costs about a full-screen pass.
+ */
+@Stable
+class AppTransition(
+    private val context: Context,
+    private val scope: CoroutineScope,
+    private val backdrop: BackdropState,
+    private val model: HomeModel,
+) {
+    /** Blurred capture of Home, drawn over it while a transition runs. */
+    var cover by mutableStateOf<ImageBitmap?>(null); private set
+    val coverAlpha = Animatable(0f)
+    var window by mutableStateOf<LaunchWindow?>(null); private set
+    var closing by mutableStateOf(false); private set
+    /** Open: 0 = tile, 1 = full screen. Close: 1 = full screen, 0 = landed (slightly large). */
+    val progress = Animatable(0f)
+    /** 0 = the tile art, 1 = launch colour and glyph. */
+    val fill = Animatable(0f)
+    /** Close only: 1 = landed large, 0 = exactly the focused tile. */
+    val settle = Animatable(1f)
+
+    private var last: LaunchWindow? = null
+    private var job: Job? = null
+    /** Launch colour and glyph per tile art (art bitmaps are cached and reused, so identity works). */
+    private val looks = java.util.Collections.synchronizedMap(java.util.WeakHashMap<ImageBitmap, Pair<Color, ImageBitmap?>>())
+
+    val running get() = window != null
+
+    fun open(app: AppEntry, from: Rect?, art: ImageBitmap?, view: android.view.View) {
+        if (from == null || backdrop.rootSize == IntSize.Zero) { model.launch(app, view, from); return }
+        job?.cancel()
+        job = scope.launch {
+            // Glyph and colour come from the tile art in parallel with the Home capture (both ~10–30 ms).
+            val look = async(Dispatchers.Default) { art?.let { a -> looks[a] ?: launchLook(a).also { looks[a] = it } } }
+            val captured = captureScreen(view) ?: backdrop.backdrop?.blurredSoftware
+            val (color, glyph) = look.await() ?: (Color(0xFF15161A) to null)
+            val w = LaunchWindow(app, from, art, color, glyph)
+            closing = false
+            cover = captured
+            coverAlpha.snapTo(1f)
+            // Already moving on its first frame, as Apple's is (about a quarter of the way at 0 ms).
+            progress.snapTo(OPEN_START)
+            fill.snapTo(0f)
+            settle.snapTo(1f)
+            window = w
+            last = w
+            launch { fill.animateTo(1f, tween(FILL_MS)) }
+            launch { progress.animateTo(1f, tween(OPEN_MS, easing = ZoomOut)) }
+            delay(HANDOFF_MS)
+            if (!startApp(app)) { reset(); return@launch }
+            // Some apps take seconds to cover Home; only undo if the app never took focus from it.
+            delay(2_500)
+            if (window != null && !closing && view.hasWindowFocus()) { last = null; coverAlpha.animateTo(0f, tween(200)); reset() }
+        }
+    }
+
+    /**
+     * The screen as it is, small and blurred. PixelCopy reads the window's last frame on the
+     * compositor's side straight into a 480×270 bitmap, so the UI thread never waits on it
+     * (GraphicsLayer.toImageBitmap re-rendered Home on the main thread: ~50–90 ms per press).
+     */
+    private suspend fun captureScreen(view: android.view.View): ImageBitmap? {
+        val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
+            .filterIsInstance<android.app.Activity>().firstOrNull()?.window ?: return null
+        val small = Bitmap.createBitmap(480, 270, Bitmap.Config.ARGB_8888)
+        val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+            runCatching {
+                android.view.PixelCopy.request(window, small, { cont.resumeWith(Result.success(it == android.view.PixelCopy.SUCCESS)) }, android.os.Handler(android.os.Looper.getMainLooper()))
+            }.onFailure { cont.resumeWith(Result.success(false)) }
+        }
+        if (!ok) { small.recycle(); return null }
+        return withContext(Dispatchers.Default) {
+            val blurred = dev.glasslauncher.glass.Blur.backdrop(small, dev.glasslauncher.glass.WallpaperLoader.BLUR_W, dev.glasslauncher.glass.WallpaperLoader.BLUR_H, radius = 6).also { small.recycle() }
+            (blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred).asImageBitmap()
+        }
+    }
+
+    private fun startApp(app: AppEntry): Boolean {
+        val intent = model.launchIntent(app) ?: return false
+        val options = ActivityOptions.makeCustomAnimation(context, R.anim.app_open_enter, R.anim.app_open_hold).toBundle()
+        return try {
+            context.startActivity(intent, options)
+            model.noteLaunched(app.packageName)
+            true
+        } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }
+    }
+
+    /** Home is hidden: drop the window so nothing is left over if Home comes back another way. */
+    fun onHomeStopped() {
+        if (closing) return
+        job?.cancel()
+        // Left full screen on purpose: Home's first frames when it comes back then match the snapshot
+        // the system shows meanwhile (the launch window), instead of dipping to black.
+        if (last != null) {
+            scope.launch { progress.snapTo(1f); fill.snapTo(1f); coverAlpha.snapTo(1f) }
+        } else {
+            window = null
+            scope.launch { coverAlpha.snapTo(0f) }
+        }
+    }
+
+    /**
+     * Home is visible again. If the last launch came from Home, plays the close into its tile and
+     * returns true (Home skips its own settle). [tileBounds] is where that tile is now, if on screen.
+     */
+    fun onHomeStarted(tileBounds: (AppEntry) -> Rect?): Boolean {
+        val w = last ?: return false
+        last = null
+        val target = tileBounds(w.app) ?: w.tile
+        val coverImage = cover ?: backdrop.backdrop?.blurredSoftware ?: return false
+        job?.cancel()
+        job = scope.launch {
+            cover = coverImage
+            closing = true
+            window = w.copy(tile = target)
+            coverAlpha.snapTo(1f)
+            progress.snapTo(1f)
+            fill.snapTo(1f)
+            settle.snapTo(1f)
+            // Home's first frames after coming back are slow (the system shows its snapshot, the full
+            // window, meanwhile): start the clock once frames are steady, or the shrink is skipped.
+            var previous = withFrameNanos { it }
+            for (i in 0 until 12) {
+                val now = withFrameNanos { it }
+                val steady = now - previous < 25_000_000L
+                previous = now
+                if (steady) break
+            }
+            // The tile art is back by about half size, so you see where it's going.
+            launch { fill.animateTo(0f, tween(CLOSE_FADE_MS, delayMillis = 30)) }
+            progress.animateTo(0f, tween(CLOSE_MS, easing = FastOutSlowInEasing))
+            settle.animateTo(0f, tween(LAND_MS, easing = FastOutSlowInEasing))
+            // Home sharpens under the landed tile (which is exactly the real one), then the window goes.
+            coverAlpha.animateTo(0f, tween(UNBLUR_MS))
+            window = null
+            closing = false
+            cover = null
+        }
+        return true
+    }
+
+    private fun reset() {
+        window = null
+        closing = false
+        scope.launch { coverAlpha.snapTo(0f) }
+        cover = null
+    }
+
+    companion object {
+        const val OPEN_MS = 450
+        const val OPEN_START = 0.12f
+        const val FILL_MS = 110
+        /** startActivity this far into the zoom; the app's first window fades in over the rest. */
+        const val HANDOFF_MS = 170L
+        const val CLOSE_MS = 220
+        const val CLOSE_FADE_MS = 110
+        const val LAND_MS = 125
+        const val UNBLUR_MS = 120
+        /** Where the close lands before settling, relative to the focused tile. */
+        const val LAND_SCALE = 1.3f
+
+        /** Exponential decelerate with τ ≈ 130 ms over 450 ms (k = 3.5), full speed on the first frame. */
+        val ZoomOut = Easing { x -> ((1f - exp(-3.5f * x)) / (1f - exp(-3.5f))) }
+    }
+}
+
+@Immutable
+data class LaunchWindow(
+    val app: AppEntry,
+    /** The tile as drawn when focused (window coordinates). */
+    val tile: Rect,
+    val art: ImageBitmap?,
+    val color: Color,
+    val glyph: ImageBitmap?,
+)
+
+val LocalAppTransition = staticCompositionLocalOf<AppTransition?> { null }
+
+/** Draws the blurred Home and the window. Placed above everything else on Home. */
+@Composable
+fun AppTransitionLayer(t: AppTransition) {
+    val w = t.window
+    if (w == null && t.coverAlpha.value == 0f) return
+    val grey = remember { ColorFilter.tint(Color(0xFFB9BBC2)) }
+    Canvas(Modifier.fillMaxSize()) {
+        val cover = t.cover
+        val coverAlpha = t.coverAlpha.value
+        val coveredByWindow = w != null && t.progress.value >= 0.999f && t.fill.value >= 1f
+        if (cover != null && coverAlpha > 0f && !coveredByWindow) {
+            drawImage(cover, srcOffset = IntOffset.Zero, srcSize = IntSize(cover.width, cover.height), dstSize = IntSize(size.width.toInt(), size.height.toInt()), alpha = coverAlpha)
+        }
+        w ?: return@Canvas
+        val full = Rect(Offset.Zero, size)
+        val p = t.progress.value
+        val rect = if (!t.closing) lerpRect(w.tile, full, p) else {
+            val land = scaleRect(w.tile, AppTransition.LAND_SCALE)
+            if (p > 0f) lerpRect(land, full, p) else lerpRect(w.tile, land, t.settle.value)
+        }
+        // Corners stay rounded until the window is nearly full screen.
+        val tileRadius = 16.dp.toPx()
+        val toFull = ((rect.width - w.tile.width) / (size.width - w.tile.width)).coerceIn(0f, 1f)
+        val radius = lerp(tileRadius, 26.dp.toPx(), toFull) * (1f - ((toFull - 0.92f) / 0.08f).coerceIn(0f, 1f))
+        val f = t.fill.value
+        // Rounded rects only (the art through an image shader): a clipPath here costs HWUI a mask per
+        // frame and made the first frames of the zoom take 80–150 ms on the stick.
+        if (f < 1f && w.art != null) {
+            val art = w.art
+            val sx = rect.width / art.width
+            val sy = rect.height / art.height
+            withTransform({ translate(rect.left, rect.top); scale(sx, sy, Offset.Zero) }) {
+                drawRoundRect(ShaderBrush(ImageShader(art)), size = Size(art.width.toFloat(), art.height.toFloat()), cornerRadius = CornerRadius(radius / sx, radius / sy))
+            }
+        }
+        if (f > 0f) {
+            drawRoundRect(w.color, rect.topLeft, rect.size, CornerRadius(radius), alpha = f)
+            w.glyph?.let { g ->
+                // The glyph stays about tile-sized and centred, as the launch screen's logo does.
+                val gw = lerp(w.tile.width * 0.62f, w.tile.width * 0.9f, toFull)
+                val gh = gw * g.height / g.width
+                drawImage(
+                    g,
+                    dstOffset = IntOffset((rect.center.x - gw / 2).toInt(), (rect.center.y - gh / 2).toInt()),
+                    dstSize = IntSize(gw.toInt(), gh.toInt()),
+                    alpha = f * 0.55f,
+                    colorFilter = grey,
+                )
+            }
+        }
+    }
+}
+
+private fun lerpRect(a: Rect, b: Rect, t: Float) =
+    Rect(lerp(a.left, b.left, t), lerp(a.top, b.top, t), lerp(a.right, b.right, t), lerp(a.bottom, b.bottom, t))
+
+private fun scaleRect(r: Rect, s: Float): Rect {
+    val dx = r.width * (s - 1f) / 2f
+    val dy = r.height * (s - 1f) / 2f
+    return Rect(r.left - dx, r.top - dy, r.right + dx, r.bottom + dy)
+}
+
+/**
+ * The window's launch colour and glyph from the tile art: the colour is the art's most saturated
+ * hue (its background when that's coloured), darkened to a launch-screen tone; the glyph is the logo
+ * lifted off the background as an alpha mask, drawn grey like tvOS's launch screens.
+ */
+private fun launchLook(art: ImageBitmap): Pair<Color, ImageBitmap?> {
+    val src = art.asAndroidBitmap().let { if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it }
+    val w = 160
+    val h = max(1, w * src.height / src.width)
+    val small = Bitmap.createScaledBitmap(src, w, h, true)
+    val px = IntArray(w * h).also { small.getPixels(it, 0, w, 0, 0, w, h) }
+    if (small !== src) small.recycle()
+    if (src !== art.asAndroidBitmap()) src.recycle()
+
+    fun r(c: Int) = (c shr 16 and 0xFF) / 255f
+    fun g(c: Int) = (c shr 8 and 0xFF) / 255f
+    fun b(c: Int) = (c and 0xFF) / 255f
+    fun sat(c: Int): Float { val mx = maxOf(r(c), g(c), b(c)); val mn = minOf(r(c), g(c), b(c)); return if (mx == 0f) 0f else (mx - mn) / mx }
+
+    // Background: the median of the opaque pixels a few in from the border (art can have transparent,
+    // rounded corners, which read as black).
+    val inset = 4
+    val edge = buildList {
+        for (x in inset until w - inset) { add(px[inset * w + x]); add(px[(h - 1 - inset) * w + x]) }
+        for (y in inset until h - inset) { add(px[y * w + inset]); add(px[y * w + w - 1 - inset]) }
+    }.filter { (it ushr 24) > 200 }.ifEmpty { listOf(px[px.size / 2]) }
+    fun median(f: (Int) -> Float) = edge.map(f).sorted()[edge.size / 2]
+    val bg = floatArrayOf(median(::r), median(::g), median(::b))
+
+    // Colour: saturation-weighted average.
+    var sr = 0f; var sg = 0f; var sb = 0f; var sw = 0f
+    for (c in px) { val s = sat(c); val wt = s * s; sr += r(c) * wt; sg += g(c) * wt; sb += b(c) * wt; sw += wt }
+    val base = if (sw / px.size > 0.02f) floatArrayOf(sr / sw, sg / sw, sb / sw) else bg
+    val mx = maxOf(base[0], base[1], base[2]).coerceAtLeast(0.001f)
+    val tone = 0.2f / mx // a dark launch tone that keeps the hue
+    val color = Color((base[0] * tone).coerceIn(0f, 1f), (base[1] * tone).coerceIn(0f, 1f), (base[2] * tone).coerceIn(0f, 1f))
+
+    // Glyph: how far each pixel is from the background, as alpha.
+    val out = IntArray(w * h)
+    for (i in px.indices) {
+        val c = px[i]
+        if ((c ushr 24) < 128) continue
+        val d = maxOf(kotlin.math.abs(r(c) - bg[0]), kotlin.math.abs(g(c) - bg[1]), kotlin.math.abs(b(c) - bg[2]))
+        // Banners often have a soft gradient or panel behind the logo: only clear contrast counts.
+        val a = ((d - 0.2f) / 0.25f).coerceIn(0f, 1f)
+        out[i] = ((a * 255).toInt() shl 24) or 0xFFFFFF
+    }
+    // A logo is a small part of the art; if most of it differs from the "background" (photographic
+    // art), there's no glyph to lift, and the window shows just its colour.
+    val coverage = out.count { (it ushr 24) > 128 }.toFloat() / out.size
+    if (coverage > 0.35f) return color to null
+    val glyph = Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+    return color to glyph.asImageBitmap()
+}

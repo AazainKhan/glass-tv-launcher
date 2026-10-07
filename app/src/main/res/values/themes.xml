@@ -4,5 +4,23 @@
         <item name="android:windowShowWallpaper">false</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@style/GlassWindowAnimations</item>
+    </style>
+
+    <!--
+        Home appears at once when it comes back to the front: Glass plays the app close itself (a
+        window shrinking into the tile). Fire OS's default task animation otherwise runs over it and
+        shows ~200 ms of black.
+    -->
+    <style name="GlassWindowAnimations" parent="@android:style/Animation.Activity">
+        <item name="android:taskToFrontEnterAnimation">@anim/glass_instant</item>
+        <item name="android:taskToFrontExitAnimation">@anim/glass_instant</item>
+        <item name="android:taskCloseEnterAnimation">@anim/glass_instant</item>
+        <item name="android:taskOpenExitAnimation">@anim/glass_instant</item>
+        <item name="android:activityCloseEnterAnimation">@anim/glass_instant</item>
+        <item name="android:activityOpenExitAnimation">@anim/glass_instant</item>
+        <item name="android:wallpaperCloseEnterAnimation">@anim/glass_instant</item>
+        <item name="android:wallpaperOpenExitAnimation">@anim/glass_instant</item>
+        <item name="android:wallpaperIntraCloseEnterAnimation">@anim/glass_instant</item>
     </style>
 </resources>

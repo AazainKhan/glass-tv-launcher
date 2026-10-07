@@ -15,12 +15,21 @@ import dev.glasslauncher.glass.WallpaperLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class GlassApp : Application(), SingletonImageLoader.Factory {
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    override fun onCreate() {
+        super.onCreate()
+        // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
+        // not on the first bake's critical path.
+        scope.launch(Dispatchers.Default) { runCatching { wallpapers.prewarm() } }
+        scope.launch(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
+    }
 
     val http: OkHttpClient by lazy {
         OkHttpClient.Builder()

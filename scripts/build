@@ -14,4 +14,6 @@ case "$VARIANT" in
   *) echo "usage: scripts/build [debug|release]" >&2; exit 2 ;;
 esac
 ./gradlew ":app:$TASK" --console=plain -q
-adb shell am start -n dev.glasslauncher/.MainActivity >/dev/null
+# Through the HOME intent, so it lands in the home task the Home button returns to (a plain start
+# makes a second Glass in an ordinary task, and the first Home press then creates another).
+adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity >/dev/null

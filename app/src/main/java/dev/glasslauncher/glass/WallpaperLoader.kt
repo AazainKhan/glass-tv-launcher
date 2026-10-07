@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import dev.glasslauncher.data.Wallpaper
 import dev.glasslauncher.data.WallpaperKind
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,7 +41,7 @@ class Backdrop(
      * stays readable through it, as on tvOS 27, instead of turning into a frosted wash.
      */
     val clearSoftware: ImageBitmap,
-    /** True when the wallpaper is light enough that content should use dark text. */
+    /** Baked for light appearance: the blurred copies are washed milky so dark text reads on them. */
     val isLight: Boolean,
 )
 
@@ -53,24 +54,32 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
     // RenderScript setup takes tens of ms, so it happens on the first bake (a background thread).
     private val blurReady by lazy { Blur.init(context) }
 
-    suspend fun load(wallpaper: Wallpaper): Backdrop = withContext(Dispatchers.Default) {
+    suspend fun load(wallpaper: Wallpaper, light: Boolean): Backdrop = withContext(Dispatchers.Default) {
         val source = when (wallpaper.kind) {
             WallpaperKind.Preset -> renderPreset(presets.firstOrNull { it.id == wallpaper.value } ?: presets.first())
             WallpaperKind.File -> decode(File(wallpaper.value)) ?: renderPreset(presets.first())
             WallpaperKind.Url -> decode(cachedUrlFile(wallpaper.value)) ?: renderPreset(presets.first())
         }
-        bake(source, Scene.Wallpaper)
+        bake(source, Scene.Wallpaper, light) { true }
     }
 
     /** Full-bleed top-shelf art (or a video frame) as the Home backdrop. */
-    suspend fun fromImage(image: Bitmap, scene: Scene = Scene.Hero): Backdrop = withContext(Dispatchers.Default) {
-        bake(cropToScreen(image, recycleSource = false), scene)
+    suspend fun fromImage(image: Bitmap, scene: Scene = Scene.Hero, background: Boolean = false, light: Boolean = false): Backdrop =
+        withContext(if (background) BakeDispatcher else Dispatchers.Default) {
+            val job = coroutineContext[kotlinx.coroutines.Job]
+            bake(cropToScreen(image, recycleSource = false), scene, light) { job?.isActive != false }
+        }
+
+    /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
+    fun prewarm() {
+        blurReady
+        coil3.SingletonImageLoader.get(context)
     }
 
     enum class Scene { Wallpaper, Hero }
 
     /** Downloads (or reuses Coil's cache for) a featured image and bakes it as the Home backdrop. */
-    suspend fun fromUrl(url: String): Backdrop? {
+    suspend fun fromUrl(url: String, background: Boolean = false, light: Boolean = false): Backdrop? {
         val request = coil3.request.ImageRequest.Builder(context)
             .data(url)
             .size(SHARP_W, SHARP_H)
@@ -81,7 +90,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         val result = coil3.SingletonImageLoader.get(context).execute(request)
         val image = (result as? coil3.request.SuccessResult)?.image ?: return null
         val bitmap = image.toBitmap()
-        return fromImage(bitmap).also { bitmap.recycle() }
+        return fromImage(bitmap, background = background, light = light).also { bitmap.recycle() }
     }
 
     /**
@@ -89,24 +98,38 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
      * progressively blurred opaque copies for the scroll blur, and the small blurred texture the glass
      * surfaces sample (which is what tints glass from the content behind it).
      */
-    private fun bake(source: Bitmap, scene: Scene): Backdrop {
+    /** [alive] is checked between steps, so a superseded bake (fast browsing, startup) stops early. */
+    private fun bake(source: Bitmap, scene: Scene, light: Boolean, alive: () -> Boolean): Backdrop {
+        fun check() { if (!alive()) { throw kotlinx.coroutines.CancellationException("bake superseded") } }
         blurReady
         // Every blurred copy comes from one half-size intermediate: cheaper than re-sampling the 1080p
         // source for each, and a cleaner downscale for the small ones.
         val mid = Blur.backdrop(source, SHARP_W / 2, SHARP_H / 2, radius = 0, saturation = 1f)
+        check()
         val blurred = Blur.backdrop(mid, BLUR_W, BLUR_H, radius = 5)
-        val isLight = scene == Scene.Wallpaper && Blur.luminance(blurred) > 0.62f
-        val steps = listOf(
-            Triple(640, 360, 1), Triple(448, 252, 2), Triple(320, 180, 3), Triple(240, 135, 4),
-        ).mapIndexed { i, (w, h, r) ->
-            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
+        // Appearance changes the blurred copies, not the art: in light appearance they wash towards milky
+        // white (more for dark art), in dark towards charcoal (only light art needs it), as tvOS's grid does.
+        // Washes grow with each rung, so the scroll blur also fades into the appearance.
+        val luminance = Blur.luminance(blurred)
+        val wash = if (light) (0.62f - luminance * 0.45f).coerceIn(0.3f, 0.6f) else ((luminance - 0.35f) * 0.9f).coerceIn(0f, 0.4f)
+        // Ten rungs from sharp to fully blurred, so the blur ramps smoothly as Home scrolls to the grid
+        // (six rungs read as visible jumps on the long tvOS scroll curve).
+        val rungs = listOf(
+            Triple(800, 450, 1), Triple(640, 360, 1), Triple(544, 306, 2), Triple(448, 252, 2),
+            Triple(384, 216, 3), Triple(320, 180, 3), Triple(272, 153, 4), Triple(240, 135, 4),
+        )
+        val steps = rungs.mapIndexed { i, (w, h, r) ->
+            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / (rungs.size + 1)).also { bakeScrim(it, light, scene, wash * (i + 1) / (rungs.size + 1)); it.setHasAlpha(false) }
         }
-        val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
+        check()
+        val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, light, scene, 0f); it.setHasAlpha(false) }
         mid.recycle()
         // Scrims are baked in and the bitmaps are marked opaque, so drawing the backdrop is a single
         // non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
-        bakeScrim(source, isLight, scene)
-        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, isLight, scene) }
+        bakeScrim(source, light, scene, 0f)
+        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, light, scene, wash) }
+        // The glass texture gets the appearance wash but not the scrims, so panels keep their own tint.
+        if (wash > 0f) Canvas(blurred).drawColor(washColor(light, wash))
         source.setHasAlpha(false)
         blurredScreen.setHasAlpha(false)
         blurred.setHasAlpha(false)
@@ -118,27 +141,36 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
         val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), isLight)
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), light)
     }
 
-    private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene) {
+    /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */
+    private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene, wash: Float) {
         val w = bitmap.width.toFloat()
         val h = bitmap.height.toFloat()
         val canvas = Canvas(bitmap)
+        // A light wash replaces the darkening scrims as it builds up.
+        val scrim = if (light) (1f - wash / 0.4f).coerceIn(0f, 1f) else 1f
         if (scene == Scene.Hero) {
             // Top-shelf art darkens under the tray and behind the title, as on tvOS.
             canvas.drawRect(0f, 0f, w, h, Paint().apply {
-                shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, Color.argb(120, 0, 0, 0), Shader.TileMode.CLAMP)
+                shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, Color.argb((120 * scrim).toInt(), 0, 0, 0), Shader.TileMode.CLAMP)
             })
             canvas.drawRect(0f, 0f, w, h, Paint().apply {
-                shader = android.graphics.LinearGradient(0f, 0f, w * 0.5f, 0f, Color.argb(95, 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                shader = android.graphics.LinearGradient(0f, 0f, w * 0.5f, 0f, Color.argb((95 * scrim).toInt(), 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
-            return
+        } else {
+            val end = if (light) Color.argb(38, 255, 255, 255) else Color.argb(102, 0, 0, 0)
+            canvas.drawRect(0f, 0f, w, h, Paint().apply {
+                shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, end, Shader.TileMode.CLAMP)
+            })
         }
-        val end = if (light) Color.argb(38, 255, 255, 255) else Color.argb(102, 0, 0, 0)
-        canvas.drawRect(0f, 0f, w, h, Paint().apply {
-            shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, end, Shader.TileMode.CLAMP)
-        })
+        if (wash > 0f) canvas.drawColor(washColor(light, wash))
+    }
+
+    private fun washColor(light: Boolean, wash: Float): Int {
+        val c = if (light) 255 else 0
+        return Color.argb((wash * 255).toInt(), c, c, c)
     }
 
     /** Downloads the image so it survives offline boots; returns false if it isn't a decodable image. */
@@ -226,6 +258,11 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
 
     companion object {
         // Native 1080p: hero art is shown 1:1, and a 720p bake looked soft next to the tiles.
+        /** One low-priority thread for slideshow bakes: they must never compete with drawing or input. */
+        val BakeDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "glass-bake")
+        }.asCoroutineDispatcher()
+
         const val SHARP_W = 1920
         const val SHARP_H = 1080
         const val BLUR_W = 192

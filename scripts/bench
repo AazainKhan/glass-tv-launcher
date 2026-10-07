@@ -19,6 +19,8 @@ fi
 a11y="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
 restore_a11y() { [ "$a11y" = null ] || [ -z "$a11y" ] && return; adb shell settings put secure enabled_accessibility_services "$a11y"; adb shell settings put secure accessibility_enabled 1; }
 trap restore_a11y EXIT
+# macOS bash 3.2 skips the EXIT trap when the script is killed; turn signals into a normal exit.
+trap "exit 130" INT TERM HUP
 adb shell settings delete secure enabled_accessibility_services >/dev/null
 if [ "${1:-}" = profile ]; then
   ./gradlew :app:generateBaselineProfile --console=plain -q

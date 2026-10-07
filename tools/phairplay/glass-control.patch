@@ -1,0 +1,305 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index bf97c78..e9609e5 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -41,6 +41,22 @@
+     <!-- Start on boot -->
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+ 
++    <!--
++        Remote control from a trusted launcher (same signing key): turn the receiver on/off and read
++        its state. See service/ControlReceiver.kt.
++    -->
++    <permission
++        android:name="com.phairplay.permission.CONTROL"
++        android:protectionLevel="signature" />
++    <uses-permission android:name="com.phairplay.permission.CONTROL" />
++
++    <!--
++        Bring the player to the front when a sender connects while another app (the launcher) is in
++        front. Android 10+ only allows that background activity start with this app-op granted
++        (adb: appops set <package> SYSTEM_ALERT_WINDOW allow).
++    -->
++    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
++
+     <!-- Foreground service notification (Android 13+ requires runtime grant) -->
+     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ 
+@@ -120,6 +136,17 @@
+             if the "Start on boot" setting is enabled.
+             exported="false" because it is only triggered by the system broadcast.
+         -->
++        <receiver
++            android:name=".service.ControlReceiver"
++            android:exported="true"
++            android:permission="com.phairplay.permission.CONTROL">
++            <intent-filter>
++                <action android:name="com.phairplay.action.ENABLE" />
++                <action android:name="com.phairplay.action.DISABLE" />
++                <action android:name="com.phairplay.action.QUERY" />
++            </intent-filter>
++        </receiver>
++
+         <receiver
+             android:name=".service.BootReceiver"
+             android:exported="false">
+diff --git a/app/src/main/kotlin/com/phairplay/MainActivity.kt b/app/src/main/kotlin/com/phairplay/MainActivity.kt
+index ab86f6a..3040dd3 100644
+--- a/app/src/main/kotlin/com/phairplay/MainActivity.kt
++++ b/app/src/main/kotlin/com/phairplay/MainActivity.kt
+@@ -115,8 +115,23 @@ class MainActivity : AppCompatActivity() {
+         requestNotificationPermission()
+     }
+ 
++    /**
++     * True when the service brought this screen forward for a session (a launcher was in front):
++     * when the session ends it steps back to whatever was there, instead of staying on the
++     * waiting screen. A Back press during the session still exits as before.
++     */
++    private var forSession = false
++    private var sessionShown = false
++
++    override fun onNewIntent(intent: Intent) {
++        super.onNewIntent(intent)
++        if (intent.getBooleanExtra(EXTRA_SESSION, false)) forSession = true
++    }
++
+     override fun onStart() {
+         super.onStart()
++        visible = true
++        if (intent?.getBooleanExtra(EXTRA_SESSION, false) == true) { forSession = true; intent.removeExtra(EXTRA_SESSION) }
+         // Bind so we can observe StateFlows and supply the video Surface
+         val intent = Intent(this, PhairPlayService::class.java)
+         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+@@ -124,6 +139,9 @@ class MainActivity : AppCompatActivity() {
+ 
+     override fun onStop() {
+         super.onStop()
++        visible = false
++        forSession = false
++        sessionShown = false
+         // Clear surface reference before unbinding to avoid holding a dead Surface
+         service?.setVideoSurfaceProvider { null }
+         if (isBound) {
+@@ -330,9 +348,6 @@ class MainActivity : AppCompatActivity() {
+         }
+     }
+ 
+-    companion object {
+-        private const val PERMISSION_REQUEST_NOTIFICATIONS = 1001
+-    }
+ 
+     // ─── Streaming overlay ────────────────────────────────────────────────────
+ 
+@@ -383,8 +398,17 @@ class MainActivity : AppCompatActivity() {
+             nowPlaying != null -> showNowPlayingScreen(nowPlaying)
+             currentAirPlayState == ProtocolState.CONNECTED -> showStreamingScreen()
+             photoFrame != null -> showPhotoScreen(photoFrame)
+-            else -> hideStreamingScreen()
++            else -> {
++                hideStreamingScreen()
++                if (forSession && sessionShown) {
++                    forSession = false
++                    sessionShown = false
++                    moveTaskToBack(true)
++                }
++                return
++            }
+         }
++        sessionShown = true
+     }
+ 
+     /** Shows the AirPlay pairing PIN over the full screen during SRP pair-setup. */
+@@ -397,4 +421,13 @@ class MainActivity : AppCompatActivity() {
+         streamingContainer.visibility = View.VISIBLE
+         streamingContainer.bringToFront()
+     }
++
++    companion object {
++        private const val PERMISSION_REQUEST_NOTIFICATIONS = 1001
++        const val EXTRA_SESSION = "com.phairplay.extra.SESSION"
++
++        /** Whether the player is on screen (read by the service before bringing it forward). */
++        @Volatile var visible = false
++            private set
++    }
+ }
+diff --git a/app/src/main/kotlin/com/phairplay/service/ControlReceiver.kt b/app/src/main/kotlin/com/phairplay/service/ControlReceiver.kt
+new file mode 100644
+index 0000000..74aff98
+--- /dev/null
++++ b/app/src/main/kotlin/com/phairplay/service/ControlReceiver.kt
+@@ -0,0 +1,73 @@
++package com.phairplay.service
++
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++import com.phairplay.settings.SettingsRepository
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import timber.log.Timber
++
++/**
++ * ControlReceiver — lets a trusted app (a launcher's AirPlay toggle) turn the receiver on and off
++ * and ask whether it's running, without opening PhairPlay.
++ *
++ * Exported, but guarded by [PERMISSION_CONTROL] (signature level): only apps signed with the same
++ * key can send to it. Replies and state changes go out as [ACTION_STATE] broadcasts that need the
++ * same permission to receive.
++ *
++ * Turning the receiver on also turns "Start on boot" on, so the toggle survives a restart; turning
++ * it off turns that off again.
++ */
++class ControlReceiver : BroadcastReceiver() {
++
++    override fun onReceive(context: Context, intent: Intent) {
++        val app = context.applicationContext
++        when (intent.action) {
++            ACTION_ENABLE -> {
++                ServiceController.start(app)
++                rememberOnBoot(app, true)
++            }
++            ACTION_DISABLE -> {
++                if (PhairPlayService.running) ServiceController.stop(app)
++                rememberOnBoot(app, false)
++                broadcastState(app, running = false, sender = null)
++            }
++            ACTION_QUERY -> broadcastState(app, PhairPlayService.running, PhairPlayService.senderName)
++        }
++    }
++
++    private fun rememberOnBoot(context: Context, on: Boolean) {
++        val pending = goAsync()
++        CoroutineScope(Dispatchers.IO).launch {
++            try {
++                SettingsRepository(context).update { it.copy(startOnBoot = on) }
++            } catch (e: Exception) {
++                Timber.e(e, "ControlReceiver: couldn't save startOnBoot")
++            } finally {
++                pending.finish()
++            }
++        }
++    }
++
++    companion object {
++        const val PERMISSION_CONTROL = "com.phairplay.permission.CONTROL"
++        const val ACTION_ENABLE = "com.phairplay.action.ENABLE"
++        const val ACTION_DISABLE = "com.phairplay.action.DISABLE"
++        const val ACTION_QUERY = "com.phairplay.action.QUERY"
++        const val ACTION_STATE = "com.phairplay.action.STATE"
++        const val EXTRA_RUNNING = "running"
++        const val EXTRA_SENDER = "sender"
++
++        fun broadcastState(context: Context, running: Boolean, sender: String?) {
++            context.sendBroadcast(
++                Intent(ACTION_STATE)
++                    .putExtra(EXTRA_RUNNING, running)
++                    .putExtra(EXTRA_SENDER, sender)
++                    .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
++                PERMISSION_CONTROL,
++            )
++        }
++    }
++}
+diff --git a/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt b/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt
+index da0852a..192c4d3 100644
+--- a/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt
++++ b/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt
+@@ -163,6 +163,7 @@ class PhairPlayService : Service() {
+ 
+     override fun onDestroy() {
+         Logger.i("PhairPlayService destroying")
++        publishState(false, null)
+         stopAllReceiversInternal()
+         serviceJob.cancel()
+         super.onDestroy()
+@@ -182,6 +183,7 @@ class PhairPlayService : Service() {
+ 
+         _serviceState.value = ServiceState.Running
+         updateNotification(isRunning = true)
++        publishState(true, null)
+ 
+         if (settings.airPlayEnabled)   startAirPlay(settings)
+         if (settings.miracastEnabled)  startMiracast()
+@@ -198,6 +200,7 @@ class PhairPlayService : Service() {
+         _serviceState.value = ServiceState.Stopped
+         _activeConnection.value = null
+         updateNotification(isRunning = false)
++        publishState(false, null)
+     }
+ 
+     /**
+@@ -263,15 +266,18 @@ class PhairPlayService : Service() {
+                     mimeType = imageType.mimeType
+                 )
+                 updateNotification(isRunning = true)
++                bringPlayerForward()
+             },
+             onPhotoCleared = {
+                 _photoFrame.value = null
+             },
+             onNowPlayingChanged = { info ->
+                 _nowPlaying.value = info
++                if (info != null) bringPlayerForward()
+             },
+             onPinChanged = { pin ->
+                 _pairingPin.value = pin
++                if (pin != null) bringPlayerForward()
+             },
+             onStateChanged = { state ->
+                 _airPlayState.value = state
+@@ -281,6 +287,8 @@ class PhairPlayService : Service() {
+                         _activeConnection.value =
+                             ActiveConnection(pendingSenderName, Protocol.AIRPLAY)
+                         updateNotification(isRunning = true, streamingSenderName = pendingSenderName)
++                        publishState(true, pendingSenderName)
++                        bringPlayerForward()
+                     }
+                     ProtocolState.ADVERTISING,
+                     ProtocolState.DISABLED,
+@@ -288,6 +296,7 @@ class PhairPlayService : Service() {
+                         _activeConnection.value = null
+                         updateNotification(isRunning = state != ProtocolState.DISABLED &&
+                                                        state != ProtocolState.ERROR)
++                        if (state == ProtocolState.ADVERTISING) publishState(true, null)
+                     }
+                 }
+             }
+@@ -422,6 +431,35 @@ class PhairPlayService : Service() {
+         const val ACTION_START    = "com.phairplay.action.START"
+         const val ACTION_STOP     = "com.phairplay.action.STOP"
+         const val ACTION_RESTART  = "com.phairplay.action.RESTART"
++
++        /** Read by [ControlReceiver] to answer state queries (same process). */
++        @Volatile var running = false
++            private set
++        @Volatile var senderName: String? = null
++            private set
++    }
++
++    /** Publishes the receiver state to trusted apps (a launcher's AirPlay toggle). */
++    private fun publishState(isRunning: Boolean, sender: String?) {
++        if (running == isRunning && senderName == sender) return
++        running = isRunning
++        senderName = sender
++        ControlReceiver.broadcastState(applicationContext, isRunning, sender)
++    }
++
++    /**
++     * Something arrived for the screen (a mirror, a photo, music, a pairing PIN) while the player
++     * isn't in front: bring it forward, flagged so it steps back again when the session ends.
++     */
++    private fun bringPlayerForward() {
++        if (MainActivity.visible) return
++        runCatching {
++            startActivity(
++                Intent(this, MainActivity::class.java)
++                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
++                    .putExtra(MainActivity.EXTRA_SESSION, true)
++            )
++        }.onFailure { Logger.e("Couldn't bring the player forward", it) }
+     }
+ }
+ 

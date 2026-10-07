@@ -82,6 +82,8 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         noteLaunched(app.packageName)
     }
 
+    fun launchIntent(app: AppEntry): Intent? = graph.apps.launchIntent(app)
+
     /** Remembers the launch for the app switcher and clears the new-app dot. */
     fun noteLaunched(pkg: String) = edit {
         it.copy(seenApps = it.seenApps + pkg, recentApps = (listOf(pkg) + (it.recentApps - pkg)).take(RECENT_LIMIT))

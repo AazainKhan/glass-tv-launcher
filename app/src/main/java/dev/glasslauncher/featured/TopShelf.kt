@@ -48,6 +48,13 @@ import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.Type
 
+/**
+ * The logo request, shared with the slideshow's prefetch so the next title is already in memory when
+ * its slide dissolves in (fixed original size, so the memory-cache key matches).
+ */
+fun logoRequest(context: android.content.Context, logo: String): ImageRequest =
+    ImageRequest.Builder(context).data(logo).size(coil3.size.Size.ORIGINAL).transformations(LogoLegibility()).build()
+
 /** Matches the backdrop's dissolve (BackdropState.swap). */
 private const val SLIDE_FADE_MS = 550
 
@@ -76,9 +83,7 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
 private fun Wordmark(item: FeaturedItem, height: Dp) {
     if (item.logo != null) {
         val context = LocalContext.current
-        val request = remember(item.logo) {
-            ImageRequest.Builder(context).data(item.logo).transformations(LogoLegibility()).build()
-        }
+        val request = remember(item.logo) { logoRequest(context, item.logo) }
         // The baked shadow pads the bitmap by a tenth of its height on each side; draw it that much
         // larger and pull it back so the logo itself keeps its size and left edge.
         AsyncImage(
