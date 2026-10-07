@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Type text into the focused field through ADBKeyBoard, which has no on-screen UI, so the D-pad
+# keeps working and any Unicode ("Smart Home…", emoji, spaces) arrives intact.
+#
+#   scripts/tv-type "Smart Home…"            replace the field's text
+#   scripts/tv-type --append " more"         append instead
+#   scripts/tv-type --submit "query"         then press the keyboard's action button (Done)
+#   scripts/tv-type --submit=3 "query"       action code: 2 Go, 3 Search, 5 Next, 6 Done
+#   scripts/tv-type --select "name"          press Select first, to start editing the focused row
+#
+# The field must be focused, or use --select on a text row so editing starts after the IME switch
+# (otherwise Fire TV's full-screen keyboard opens first). The previous IME (Fire TV's
+# keyboard) is restored afterwards. ADBKeyBoard (github.com/senzhk/ADBKeyBoard) is installed on
+# first use.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+IME=com.android.adbkeyboard/.AdbIME
+CLEAR=1; SUBMIT=""; SELECT=0
+while [ $# -gt 1 ] || [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --append) CLEAR=0; shift ;;
+    --select) SELECT=1; shift ;;
+    --submit) SUBMIT=6; shift ;;
+    --submit=*) SUBMIT="${1#--submit=}"; shift ;;
+    *) break ;;
+  esac
+done
+[ $# -eq 1 ] || { sed -n '2,14p' "$0"; exit 2; }
+
+if ! adb shell pm path com.android.adbkeyboard >/dev/null 2>&1; then
+  # Not vendored (GPL-2.0, and it's only a dev tool): fetched once from the project, pinned by hash.
+  APK="$ROOT/tools/ADBKeyboard.apk"
+  if [ ! -f "$APK" ]; then
+    mkdir -p "$ROOT/tools"
+    curl -fsSL -o "$APK" https://raw.githubusercontent.com/senzhk/ADBKeyBoard/master/ADBKeyboard.apk
+  fi
+  echo "e698adea5633135a067b038f9a0cf41baa4de09888713a81593fb2b9682cdc59  $APK" | shasum -a 256 -c --quiet - || { rm -f "$APK"; echo "ADBKeyboard.apk hash mismatch" >&2; exit 1; }
+  adb install -r "$APK" >/dev/null
+fi
+prev="$(adb shell settings get secure default_input_method | tr -d '\r')"
+[ "$prev" = "$IME" ] && prev=com.amazon.tv.ime/.FireTVIME   # a previous run was interrupted
+restore() { adb shell ime set "$prev" >/dev/null; }
+trap restore EXIT
+
+adb shell "ime enable $IME >/dev/null; ime set $IME >/dev/null"
+[ "$SELECT" = 1 ] && "$ROOT/scripts/key" select wait:300 >/dev/null
+sleep 0.3   # let the field bind its input connection to the new IME
+[ "$CLEAR" = 1 ] && adb shell am broadcast -a ADB_CLEAR_TEXT >/dev/null
+adb shell am broadcast -a ADB_INPUT_B64 --es msg "$(printf '%s' "$1" | base64)" >/dev/null
+[ -n "$SUBMIT" ] && adb shell am broadcast -a ADB_EDITOR_CODE --ei code "$SUBMIT" >/dev/null
+echo "typed $(printf '%s' "$1" | LC_ALL=en_US.UTF-8 wc -m | tr -d ' ') chars${SUBMIT:+, action $SUBMIT}"

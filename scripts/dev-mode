@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Put the stick in a predictable state for testing, and put it back afterwards.
+#   scripts/dev-mode on      stay awake, stop AT4K, wait for installd/dexopt to go quiet
+#   scripts/dev-mode off     restore the saved sleep settings
+#   scripts/dev-mode status
+# The original values are saved on the device (/data/local/tmp/dev-mode.saved), so `off`
+# restores them even from another shell or after a reboot.
+set -euo pipefail
+SAVED=/data/local/tmp/dev-mode.saved
+
+case "${1:-status}" in
+  on)
+    adb shell "[ -f $SAVED ] || echo \"\$(settings get global stay_on_while_plugged_in) \$(settings get system screen_off_timeout) \$(settings get secure sleep_timeout)\" > $SAVED"
+    adb shell 'settings put global stay_on_while_plugged_in 7
+      settings put system screen_off_timeout 2147483647
+      settings put secure sleep_timeout -1
+      input keyevent KEYCODE_WAKEUP
+      am force-stop com.overdevs.at4k'
+    # Background dexopt (after installs or `compile -m speed`) skews timings; wait until it's idle.
+    for _ in $(seq 1 60); do
+      busy=$(adb shell "top -b -n 1 -q -o %CPU,ARGS | awk '\$1>20 && /installd|dex2oat|dexopt/' | head -1")
+      [ -z "$busy" ] && break
+      echo "waiting for: $busy"; sleep 2
+    done
+    echo "dev-mode on"
+    ;;
+  off)
+    adb shell "if [ -f $SAVED ]; then set -- \$(cat $SAVED)
+      settings put global stay_on_while_plugged_in \$1
+      settings put system screen_off_timeout \$2
+      settings put secure sleep_timeout \$3
+      rm $SAVED; echo restored \$*; else echo 'dev-mode was not on'; fi"
+    ;;
+  status)
+    adb shell "echo stay_on=\$(settings get global stay_on_while_plugged_in) screen_off=\$(settings get system screen_off_timeout) sleep=\$(settings get secure sleep_timeout); [ -f $SAVED ] && echo \"dev-mode on (saved: \$(cat $SAVED))\" || echo 'dev-mode off'"
+    ;;
+  *) echo "usage: scripts/dev-mode on|off|status" >&2; exit 2 ;;
+esac

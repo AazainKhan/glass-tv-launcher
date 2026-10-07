@@ -3,6 +3,6 @@
   "private": true,
   "description": "Dev tooling for driving the TV during development (agent-device).",
   "devDependencies": {
-    "agent-device": "0.21.22"
+    "agent-device": "0.21.23"
   }
 }

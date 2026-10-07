@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# agent-device pinned to the TV. Set TV_SERIAL to pick a device; defaults to the first adb TV.
+# agent-device pinned to the TV. Defaults (platform, target, session, screenshot scale) come from
+# agent-device.json; TV_SERIAL picks a device when more than one is attached.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AD="$ROOT/node_modules/.bin/agent-device"
 [ -x "$AD" ] || (cd "$ROOT" && npm install --silent)
-SERIAL="${TV_SERIAL:-$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')}"
-exec "$AD" "$@" --platform android --target tv --serial "$SERIAL" --session "${TV_SESSION:-tv}"
+cd "$ROOT"
+# Debug builds handle trigger-app-event (app/src/debug/.../DebugEventActivity.kt). Read by the daemon at start.
+EVENT_URL='glassdev://event?name={event}&payload={payload}'
+export AGENT_DEVICE_ANDROID_APP_EVENT_URL_TEMPLATE="${AGENT_DEVICE_ANDROID_APP_EVENT_URL_TEMPLATE:-$EVENT_URL}"
+exec "$AD" "$@" ${TV_SERIAL:+--serial "$TV_SERIAL"} ${TV_SESSION:+--session "$TV_SESSION"}

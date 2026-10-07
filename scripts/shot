@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Screenshot the TV (waking it first if asleep), downscaled for cheap viewing.
+#   scripts/shot [out.png] [width]     default /tmp/tv.png, 960 px wide (0 = native 1920)
+# Pulls the raw framebuffer and encodes on the Mac: ~1 s, vs ~2 s for `screencap -p`.
+set -euo pipefail
+OUT="${1:-/tmp/tv.png}"; W="${2:-960}"
+adb shell 'dumpsys power 2>/dev/null | grep -c "mWakefulness=Awake" >/dev/null || { input keyevent KEYCODE_WAKEUP; sleep 1; }'
+RAW="$(mktemp)"; trap 'rm -f "$RAW"' EXIT
+adb exec-out screencap > "$RAW"
+if [ ! -s "$RAW" ]; then
+  echo "screencap returned nothing: a DRM/secure app (e.g. Netflix) is on screen, which blocks capture" >&2
+  exit 1
+fi
+# Header (API 30): u32 width, u32 height, u32 format, u32 dataspace; then RGBA pixels.
+read -r WIDTH HEIGHT < <(head -c 8 "$RAW" | od -An -tu4)
+SCALE=(); [ "$W" = 0 ] || SCALE=(-vf "scale=$W:-1")
+tail -c +17 "$RAW" | ffmpeg -loglevel error -y -f rawvideo -pix_fmt rgba -s "${WIDTH}x${HEIGHT}" -i - "${SCALE[@]}" -frames:v 1 "$OUT"
+echo "$OUT"

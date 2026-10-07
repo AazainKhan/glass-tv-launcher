@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "agent-device": {
+      "command": "node_modules/.bin/agent-device",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "AGENT_DEVICE_ANDROID_APP_EVENT_URL_TEMPLATE": "glassdev://event?name={event}&payload={payload}"
+      }
+    }
+  }
+}

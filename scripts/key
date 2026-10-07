@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Fast remote presses: writes real key events to the Fire TV remote's input device (adb is root),
+# so a press costs ~0.1 s instead of ~0.9 s for `input keyevent`, and holds auto-repeat
+# exactly like a held button.
+#
+#   scripts/key down down right select     press in order (default 120 ms apart)
+#   scripts/key hold:800:down               hold Down for 800 ms (auto-repeats)
+#   scripts/key wait:500 back               pause 500 ms, then Back
+#   KEY_GAP_MS=40 scripts/key down down     faster repeat-rate presses
+#   scripts/key down settle                 then wait until the foreground app stops drawing
+#   scripts/key settle:500                  (settle = 300 ms without a new frame; prints when the last
+#                                           frame landed, or "busy" after 3 s of continuous drawing)
+#
+# Keys: up down left right select back home menu play rew ff
+set -euo pipefail
+DEV='$D'   # resolved on the device: the input node named "Fire TV Remote" (override with KEY_DEVICE)
+GAP="${KEY_GAP_MS:-120}"
+
+code() {
+  case "$1" in
+    up) echo 103 ;; down) echo 108 ;; left) echo 105 ;; right) echo 106 ;;
+    select|ok|center|enter) echo 96 ;; back) echo 158 ;; home) echo 172 ;; menu) echo 139 ;;
+    play|playpause) echo 164 ;; rew) echo 168 ;; ff) echo 208 ;;
+    *) echo "unknown key: $1" >&2; exit 2 ;;
+  esac
+}
+ms() { awk "BEGIN{printf \"%.3f\", $1/1000}"; }
+
+[ $# -gt 0 ] || { sed -n '2,11p' "$0"; exit 2; }
+cmds=""
+for arg in "$@"; do
+  case "$arg" in
+    wait:*) cmds+="sleep $(ms "${arg#wait:}");" ;;
+    settle|settle:*)
+      q="${arg#settle}"; q="${q#:}"; q="${q:-300}"
+      # Poll the foreground app's frame counter every 50 ms until it holds still for $q ms. Times are
+      # centiseconds from /proc/uptime: the stick's shell does 32-bit arithmetic, so no ns clocks.
+      # Something drawing every frame (video backdrop) never settles; give up after 3 s and say so.
+      cmds+="P=\$(dumpsys window 2>/dev/null | sed -n 's/.*mCurrentFocus=.* \([a-zA-Z0-9_.]*\)\/.*/\1/p' | head -1);"
+      cmds+="cs(){ read u _ </proc/uptime; echo \${u%.*}\${u#*.}; };"
+      cmds+="t0=\$(cs); last=-1; still=\$t0; r=settled;"
+      cmds+="while :; do n=\$(dumpsys gfxinfo \$P | sed -n 's/.*Total frames rendered: //p'); now=\$(cs);"
+      cmds+="[ \"\$n\" = \"\$last\" ] || { last=\$n; still=\$now; };"
+      cmds+="[ \$(( (now-still)*10 )) -ge $q ] && break; [ \$(( (now-t0)*10 )) -ge 3000 ] && { r=busy; break; }; sleep 0.05; done;"
+      cmds+="echo \$r \$(( (still-t0)*10 ))ms;" ;;
+    hold:*:*)
+      rest="${arg#hold:}"; c=$(code "${rest#*:}")
+      cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sleep $(ms "${rest%%:*}");sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");" ;;
+    *)
+      c=$(code "$arg")
+      cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");" ;;
+  esac
+done
+find_dev="D=${KEY_DEVICE:-\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4} /name:.*Fire TV Remote/{print d; exit}')};"
+adb ${ANDROID_SERIAL:+-s "$ANDROID_SERIAL"} shell "$find_dev$cmds"

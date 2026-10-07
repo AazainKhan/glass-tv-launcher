@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Record a transition on the real TV and turn it into one frame-strip image for review.
+#
+#   scripts/clip focus-down down              press Down, strip the motion
+#   scripts/clip open-cc up up select         keys as in scripts/key (wait:/hold: work too)
+#   CLIP_FPS=60 CLIP_FRAMES=24 scripts/clip ...
+#
+# Writes build/clips/<name>.mp4 and build/clips/<name>.png: CLIP_FRAMES frames (default 18) at
+# CLIP_FPS (default 30) starting at the first key press, 6 per row, labelled with ms.
+# screenrecord uses the stick's encoder: judge how motion looks, never benchmark from a clip.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+NAME="${1:?usage: scripts/clip <name> <keys...>}"; shift
+[ $# -gt 0 ] || { echo "usage: scripts/clip <name> <keys...>" >&2; exit 2; }
+FPS="${CLIP_FPS:-30}"; FRAMES="${CLIP_FRAMES:-18}"
+OUT="$ROOT/build/clips"; mkdir -p "$OUT"
+DEV=/data/local/tmp/clip.mp4
+
+adb shell "rm -f $DEV; input keyevent KEYCODE_WAKEUP"
+adb shell "screenrecord --size 960x540 --bit-rate 12000000 $DEV" &
+REC=$!
+sleep 1.0                                   # recorder start-up; the first frame is the "before"
+"$ROOT/scripts/key" settle:200 >/dev/null   # start from a still screen
+"$ROOT/scripts/key" "$@" settle >/dev/null
+sleep 0.3
+adb shell pkill -INT screenrecord || true
+wait $REC 2>/dev/null || true
+sleep 0.5
+adb pull -q "$DEV" "$OUT/$NAME.mp4"
+
+# Start the strip one frame before the screen first changes (the key's first visible effect).
+FIRST=$(ffmpeg -hide_banner -i "$OUT/$NAME.mp4" -vf "select='gt(scene,0.002)',showinfo" -f null - 2>&1 \
+  | sed -n 's/.*pts_time:\([0-9.]*\).*/\1/p' | head -1)
+START=$(python3 -c "print(max(0.0, ${FIRST:-1.0} - 1/$FPS))")
+STEP=$(python3 -c "print(round(1000/$FPS))")
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+ffmpeg -loglevel error -y -ss "$START" -i "$OUT/$NAME.mp4" -vf "fps=$FPS,scale=320:-1" -frames:v "$FRAMES" "$TMP/f%03d.png"
+labels=(); n=0
+for f in "$TMP"/f*.png; do labels+=(-label "$(( n * STEP )) ms" "$f"); n=$((n + 1)); done
+magick montage -font /System/Library/Fonts/Helvetica.ttc -pointsize 14 -fill white -background black \
+  "${labels[@]}" -tile 6x -geometry +3+3 "$OUT/$NAME.png"
+echo "$OUT/$NAME.png"
+echo "$OUT/$NAME.mp4"

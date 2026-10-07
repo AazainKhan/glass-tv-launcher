@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Live view of the TV in a browser tab, with remote controls.
+
+    scripts/tv-live [--port 8765] [--size 960x540]
+
+Open http://localhost:8765 (in the Claude desktop browser pane: preview "tv-live").
+The device's screen recorder (H.264) is transcoded by ffmpeg to MJPEG, so any <img> can show it.
+Arrow keys / Enter / Backspace (Back) / H (Home) / M (Menu) / Space (Play) drive the remote.
+Recording uses the stick's encoder, so close the tab before benchmarking.
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+KEY = os.path.join(ROOT, "scripts", "key")
+KEYS = {"up", "down", "left", "right", "select", "back", "home", "menu", "play", "rew", "ff"}
+
+
+class Stream:
+    """One shared device recording, started while at least one viewer is connected."""
+
+    def __init__(self, size):
+        self.size = size
+        self.frame, self.seq = None, 0
+        self.cond = threading.Condition()
+        self.viewers = 0
+        self.thread = None
+
+    def attach(self):
+        with self.cond:
+            self.viewers += 1
+            if self.thread is None or not self.thread.is_alive():
+                self.thread = threading.Thread(target=self._run, daemon=True)
+                self.thread.start()
+
+    def detach(self):
+        with self.cond:
+            self.viewers -= 1
+
+    def publish(self, jpeg):
+        with self.cond:
+            self.frame, self.seq = jpeg, self.seq + 1
+            self.cond.notify_all()
+
+    def next(self, after, timeout=5):
+        with self.cond:
+            self.cond.wait_for(lambda: self.seq != after, timeout)
+            return self.frame, self.seq
+
+    def _still(self):
+        # screenrecord only emits frames when the screen changes, so seed viewers with a still.
+        w = self.size.split("x")[0]
+        cap = subprocess.run(
+            f"adb exec-out screencap -p | ffmpeg -loglevel error -i - -vf scale={w}:-1 -q:v 4 -f mjpeg -",
+            shell=True, capture_output=True)
+        if cap.stdout:
+            self.publish(cap.stdout)
+
+    def _run(self):
+        subprocess.run(["adb", "shell", "input keyevent KEYCODE_WAKEUP"], capture_output=True)
+        self._still()
+        while True:
+            with self.cond:
+                if self.viewers <= 0:
+                    self.thread = None
+                    return
+            # screenrecord stops after 180 s; loop to keep the view going.
+            rec = subprocess.Popen(
+                ["adb", "exec-out", "screenrecord", "--output-format=h264", f"--size={self.size}",
+                 "--bit-rate=6000000", "--time-limit=170", "-"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            ff = subprocess.Popen(
+                ["ffmpeg", "-loglevel", "error", "-flags", "low_delay",
+                 "-probesize", "65536", "-analyzeduration", "0", "-f", "h264", "-i", "-",
+                 "-pix_fmt", "yuvj420p", "-q:v", "5", "-f", "mjpeg", "-"],
+                stdin=rec.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            rec.stdout.close()
+            buf = b""
+            while True:
+                chunk = ff.stdout.read1(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while True:
+                    start = buf.find(b"\xff\xd8")
+                    end = buf.find(b"\xff\xd9", start + 2)
+                    if start < 0 or end < 0:
+                        break
+                    self.publish(buf[start:end + 2])
+                    buf = buf[end + 2:]
+                with self.cond:
+                    if self.viewers <= 0:
+                        break
+            for p in (ff, rec):
+                p.kill()
+            subprocess.run(["adb", "shell", "pkill -INT screenrecord"], capture_output=True)
+            time.sleep(0.2)
+
+
+PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>TV Live</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:dark;--bg:#0b0b0f;--fg:#e8e8ee;--btn:#22232b;--btn2:#30313b;--accent:#4f7cff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px -apple-system,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px}
+#screen{width:100%;max-width:1280px;aspect-ratio:16/9;background:#000;border-radius:8px;object-fit:contain;outline:none}
+#screen:focus{box-shadow:0 0 0 2px var(--accent)}
+.row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:center}
+.pad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:4px}
+button{background:var(--btn);color:var(--fg);border:0;border-radius:10px;font-size:15px;cursor:pointer;min-width:48px;height:48px;padding:0 12px}
+button:hover{background:var(--btn2)}button:active{background:var(--accent)}
+.ok{border-radius:50%}small{opacity:.6}#status{min-width:140px;text-align:center}
+</style></head><body>
+<img id="screen" src="/stream" tabindex="0" alt="TV screen">
+<div class="row">
+ <div class="pad">
+  <span></span><button data-k="up">▲</button><span></span>
+  <button data-k="left">◀</button><button class="ok" data-k="select">OK</button><button data-k="right">▶</button>
+  <span></span><button data-k="down">▼</button><span></span>
+ </div>
+ <div class="row">
+  <button data-k="back">Back</button><button data-k="home">Home</button><button data-k="menu">Menu</button>
+  <button data-k="rew">⏪</button><button data-k="play">⏯</button><button data-k="ff">⏩</button>
+ </div>
+ <div id="status"><small>click the screen, then use arrows · Enter · ⌫ Back · H · M</small></div>
+</div>
+<script>
+const status=document.getElementById('status');
+function press(k){fetch('/key?k='+k,{method:'POST'}).then(r=>{status.textContent=r.ok?k:'error: '+k})}
+document.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>press(b.dataset.k));
+const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'select',Backspace:'back',Escape:'back',h:'home',m:'menu',' ':'play'};
+document.addEventListener('keydown',e=>{const k=map[e.key];if(k){e.preventDefault();press(k)}});
+const img=document.getElementById('screen');
+img.onerror=()=>setTimeout(()=>{img.src='/stream?'+Date.now()},1000);
+</script></body></html>"""
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)))
+    ap.add_argument("--size", default="960x540")
+    args = ap.parse_args()
+    for tool in ("adb", "ffmpeg"):
+        if not shutil.which(tool):
+            raise SystemExit(f"tv-live needs {tool} on PATH")
+    stream = Stream(args.size)
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            path = urlparse(self.path).path
+            if path == "/":
+                body = PAGE.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif path == "/stream":
+                self.send_response(200)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                stream.attach()
+                seq = -1
+                try:
+                    while True:
+                        frame, seq = stream.next(seq)
+                        if frame is None:
+                            continue
+                        self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                         + str(len(frame)).encode() + b"\r\n\r\n" + frame + b"\r\n")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    stream.detach()
+            elif path == "/frame.jpg":
+                frame = stream.frame or b""
+                self.send_response(200 if frame else 503)
+                self.send_header("Content-Type", "image/jpeg")
+                self.end_headers()
+                self.wfile.write(frame)
+            else:
+                self.send_error(404)
+
+        def do_POST(self):
+            u = urlparse(self.path)
+            k = parse_qs(u.query).get("k", [""])[0]
+            if u.path == "/key" and k in KEYS:
+                ok = subprocess.run([KEY, k], capture_output=True).returncode == 0
+                self.send_response(204 if ok else 500)
+                self.end_headers()
+            else:
+                self.send_error(400)
+
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    print(f"tv-live on http://localhost:{args.port}", flush=True)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

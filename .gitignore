@@ -9,3 +9,5 @@ captures/
 node_modules/
 .tvshots/
 docs/research/decompiled/
+tools/.venv/
+tools/ADBKeyboard.apk

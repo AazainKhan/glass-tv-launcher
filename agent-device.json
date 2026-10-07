@@ -1,0 +1,6 @@
+{
+  "platform": "android",
+  "target": "tv",
+  "session": "tv",
+  "screenshotScale": 0.5
+}

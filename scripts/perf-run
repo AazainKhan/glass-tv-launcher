@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Repeatable frame-time benchmark for a key sequence (the recipe from CLAUDE.md).
+#   scripts/perf-run [--rounds N] [--no-compile] [keys...]
+# Defaults: 3 rounds of "down down up up right right left left" with 1.4 s gaps (real remote
+# pacing). Prints one JSON line: frames, janky %, p50/p90/p95/p99 ms, PSS MB, idle CPU %.
+# Don't record video or run agent-device snapshots during a run: both cost GPU/CPU.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PKG="${PERF_PKG:-dev.glasslauncher}"
+ROUNDS=3; COMPILE=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rounds) ROUNDS="$2"; shift 2 ;;
+    --no-compile) COMPILE=0; shift ;;
+    *) break ;;
+  esac
+done
+KEYS=("$@"); [ ${#KEYS[@]} -gt 0 ] || KEYS=(down down up up right right left left)
+
+if [ "$COMPILE" = 1 ]; then
+  adb shell cmd package compile -m speed -f "$PKG" >/dev/null
+fi
+"$ROOT/scripts/dev-mode" on >/dev/null
+adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n "$PKG/.MainActivity" >/dev/null
+"$ROOT/scripts/key" settle >/dev/null
+adb shell dumpsys gfxinfo "$PKG" reset >/dev/null
+
+seq_args=()
+for _ in $(seq 1 "$ROUNDS"); do for k in "${KEYS[@]}"; do seq_args+=("$k" wait:1280); done; done
+KEY_GAP_MS=120 "$ROOT/scripts/key" "${seq_args[@]}" settle >/dev/null
+
+gfx="$(adb shell dumpsys gfxinfo "$PKG")"
+pss_kb="$(adb shell dumpsys meminfo "$PKG" | tr -d '\r' | awk '/TOTAL PSS:/{print $3; exit}')"
+# Idle CPU: utime+stime ticks (100/s) over 5 quiet seconds. toybox top's %CPU is unreliable here.
+cpu="$(adb shell "p=\$(pidof $PKG); a=\$(awk '{print \$14+\$15}' /proc/\$p/stat); sleep 5; b=\$(awk '{print \$14+\$15}' /proc/\$p/stat); echo \$((b-a))" | tr -d "\r" | awk '{printf "%.1f", $1/5}')"
+num() { echo "$gfx" | sed -n "s/.*$1: *\([0-9.]*\).*/\1/p" | head -1; }
+printf '{"pkg":"%s","keys":%d,"frames":%s,"janky":%s,"jankyPct":%s,"p50":%s,"p90":%s,"p95":%s,"p99":%s,"pssMB":%s,"idleCpuPct":%s}\n' \
+  "$PKG" "$(( ROUNDS * ${#KEYS[@]} ))" "$(num 'Total frames rendered')" "$(num 'Janky frames')" \
+  "$(echo "$gfx" | sed -n 's/.*Janky frames: [0-9]* (\([0-9.]*\)%).*/\1/p' | head -1)" \
+  "$(num '50th percentile')" "$(num '90th percentile')" "$(num '95th percentile')" "$(num '99th percentile')" \
+  "$(( ${pss_kb:-0} / 1024 ))" "${cpu:-null}"
