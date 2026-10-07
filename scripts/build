@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Build and install on the connected TV. Usage: scripts/build [debug|release]
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VARIANT="${1:-release}"
+if [ -z "${JAVA_HOME:-}" ] || ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -qE 'version "(17|21)'; then
+  JAVA_HOME="$(/usr/libexec/java_home -v 21 2>/dev/null || /usr/libexec/java_home -v 17)"
+  export JAVA_HOME
+fi
+cd "$ROOT"
+case "$VARIANT" in
+  debug) TASK=installDebug ;;
+  release) TASK=installRelease ;;
+  *) echo "usage: scripts/build [debug|release]" >&2; exit 2 ;;
+esac
+./gradlew ":app:$TASK" --console=plain -q
+adb shell am start -n dev.glasslauncher/.MainActivity >/dev/null

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# agent-device pinned to the TV. Set TV_SERIAL to pick a device; defaults to the first adb TV.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+AD="$ROOT/node_modules/.bin/agent-device"
+[ -x "$AD" ] || (cd "$ROOT" && npm install --silent)
+SERIAL="${TV_SERIAL:-$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')}"
+exec "$AD" "$@" --platform android --target tv --serial "$SERIAL" --session "${TV_SESSION:-tv}"
