@@ -60,7 +60,7 @@ Work cheapest-first. Most UI work never needs the device.
 The GPU affords only about **two full-screen blended passes per frame**. Target: under 1% janky frames, about 0% idle CPU, under 120 MB PSS, release APK under 8 MB.
 
 - Wallpaper bitmaps are opaque (`setHasAlpha(false)`), HARDWARE config, with the scrim baked in (`WallpaperLoader.load`). Never add full-screen translucent overlays.
-- Glass (`glass/Glass.kt`) is a single fill per surface: a screen-mapped `BitmapShader` composed with the tint and highlight. No `clipPath`, no stacked translucent passes.
+- Glass (`glass/Glass.kt`) is a single fill per surface: a screen-mapped `BitmapShader` composed with the tint and highlight. No `clipPath`, no stacked translucent passes. The dock tray is *clear* glass (`GlassStyle.clear`): it samples the lightly blurred `clearSoftware` over the hero (the frosted `blurredSoftware` once the grid is up) and adds one thin stroke, the refracted edge band. Panels stay frosted.
 - No animated `shadowElevation`; tiles use the pre-blurred `TileShadow` bitmap.
 - Heavy content that scrolls in and out (the top shelf) lives **outside** the `LazyColumn` and moves with the scroll in `graphicsLayer`. Fades use `CompositingStrategy.ModulateAlpha`.
 - Animate only in layout/draw phases (`graphicsLayer {}`, `drawWithContent {}`); no per-frame recomposition.
@@ -71,7 +71,7 @@ The GPU affords only about **two full-screen blended passes per frame**. Target:
 - Blurred text shadows (`TextStyle.shadow`) are expensive when the text moves. Use them only on small static text (the clock).
 - Background load skews numbers: `installd` runs after `compile -m speed`, and AT4K burns CPU if it's running. Wait for `installd` to go idle and keep AT4K stopped before benchmarking. Current baseline in a key-every-1.4 s stress run: median 7 ms, p90 about 11 ms, 4–9% janky (transitions only), about 0% idle CPU, about 84 MB PSS.
 
-How to measure: `scripts/perf-run` compiles with `-m speed`, turns on dev-mode, resets gfxinfo, plays D-pad rounds at real remote pace (1.4 s apart), and prints one JSON line: frames, janky %, p50/p90/p95/p99, PSS and idle CPU (from `/proc/<pid>/stat`, since toybox `top` is unreliable). Run `scripts/dev-mode off` afterwards. For deeper dives: `adb shell perfetto … gfx view sched freq --app dev.glasslauncher`, analysed with the `perfetto` Python package in `tools/.venv` (`python3 -m venv tools/.venv && tools/.venv/bin/pip install perfetto`).
+How to measure: `scripts/perf-run` compiles with `-m speed`, turns on dev-mode, resets gfxinfo, plays D-pad rounds at real remote pace (1.4 s apart), and prints one JSON line: frames, janky %, p50/p90/p95/p99, PSS and idle CPU (from `/proc/<pid>/stat`, since toybox `top` is unreliable). Run `scripts/dev-mode off` afterwards. Check `adb shell ps -A | grep screenrecord` first: a live view open in any chat records with the stick's encoder and roughly doubles p90. If you can't stop it, A/B against the previous build under the same load. For deeper dives: `adb shell perfetto … gfx view sched freq --app dev.glasslauncher`, analysed with the `perfetto` Python package in `tools/.venv` (`python3 -m venv tools/.venv && tools/.venv/bin/pip install perfetto`).
 
 To bisect, temporarily add a `DebugFlags` object that reads `getprop debug.glass.flags` and gate suspects on its bits. Benchmark each bit with the script pattern in git history, then delete it.
 

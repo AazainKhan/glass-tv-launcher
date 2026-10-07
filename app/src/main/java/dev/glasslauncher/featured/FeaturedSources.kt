@@ -49,7 +49,7 @@ private fun OkHttpClient.getJson(url: String, headers: Map<String, String> = emp
     }
 }
 
-private fun JsonElement?.str(): String? = (this as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString || it.content != "null" }?.content
+private fun JsonElement?.str(): String? = (this as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString || it.content != "null" }?.content?.takeIf { it.isNotBlank() }
 
 object Sources {
     fun of(id: FeaturedSourceId): FeaturedSource? = when (id) {

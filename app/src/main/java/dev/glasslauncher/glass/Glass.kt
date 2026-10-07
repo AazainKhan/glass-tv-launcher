@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.node.DrawModifierNode
@@ -36,6 +37,9 @@ import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+
+private val EDGE_BAND = 7.dp
+private val EDGE_SHIFT = 10.dp
 
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
 @Stable
@@ -77,14 +81,19 @@ data class GlassStyle(
     val highlight: Float,
     val rim: Float,
     val useOverlay: Boolean = false,
+    /**
+     * Clear glass (the dock tray): samples a lightly blurred copy so the art stays readable through
+     * it, and bends the content along the edge. Frosted glass (panels) samples the heavy blur.
+     */
+    val clear: Boolean = false,
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
         fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.45f), 0.30f, 0.70f)
         else GlassStyle(Color(0xFF1A1D24).copy(alpha = 0.28f), 0.12f, 0.48f)
 
-        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.32f), 0.26f, 0.75f)
-        else GlassStyle(Color.Black.copy(alpha = 0.22f), 0.08f, 0.45f)
+        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.16f), 0.22f, 0.85f, clear = true)
+        else GlassStyle(Color.White.copy(alpha = 0.04f), 0.12f, 0.6f, clear = true)
 
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
     }
@@ -122,6 +131,10 @@ private class GlassNode(
     private var cachedOutline: Outline? = null
     private var shaderSource: ImageBitmap? = null
     private var backdropShader: BitmapShader? = null
+    private var edgeShader: BitmapShader? = null
+    private var edgeSource: ImageBitmap? = null
+    private val edgeMatrix = Matrix()
+    private var edgeOutline: Outline? = null
     private var overlayShader: Shader? = null
     private var overlayKey: Any? = null
     private val matrix = Matrix()
@@ -141,10 +154,19 @@ private class GlassNode(
         if (size != cachedSize) {
             cachedSize = size
             cachedOutline = shape.createOutline(size, layoutDirection, this)
+            val band = EDGE_BAND.toPx()
+            edgeOutline = shape.createOutline(Size(size.width - band, size.height - band), layoutDirection, this)
         }
         val outline = cachedOutline ?: return drawContent()
         val root = state.rootSize
-        val source = if (style.useOverlay) state.overlay ?: state.backdrop?.blurredSoftware else state.backdrop?.blurredSoftware
+        val backdrop = state.backdrop
+        // Clear glass follows the blur behind it: light over the sharp hero, frosted once the grid is up.
+        val clear = style.clear && !state.reduceTransparency && state.wallpaperBlur.value < 0.5f
+        val source = when {
+            style.useOverlay -> state.overlay ?: backdrop?.blurredSoftware
+            clear -> backdrop?.clearSoftware
+            else -> backdrop?.blurredSoftware
+        }
 
         val opaque = state.reduceTransparency
         val key = listOf(style, size, source, opaque)
@@ -175,6 +197,7 @@ private class GlassNode(
             matrix.postTranslate(-origin.x, -origin.y)
             backdropShader!!.setLocalMatrix(matrix)
             drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)))
+            if (clear) drawEdgeBand(source)
         } else {
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }
@@ -182,15 +205,43 @@ private class GlassNode(
         drawContent()
     }
 
+    /**
+     * Liquid Glass bends light at its edge: a thin band just inside the outline shows the content
+     * from slightly beyond the edge, compressed. Faked with one stroke whose shader maps the screen
+     * through a mild zoom-out about the surface's centre (no RuntimeShader on API 30).
+     */
+    private fun DrawScope.drawEdgeBand(source: ImageBitmap) {
+        val ring = edgeOutline ?: return
+        val band = EDGE_BAND.toPx()
+        val shift = EDGE_SHIFT.toPx()
+        if (source !== edgeSource || edgeShader == null) {
+            edgeSource = source
+            edgeShader = BitmapShader(source.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        val shader = edgeShader!!
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        // The band is drawn translated by band/2, so map from that space.
+        edgeMatrix.set(matrix)
+        edgeMatrix.postTranslate(-band / 2f, -band / 2f)
+        edgeMatrix.postScale(cx / (cx + shift), cy / (cy + shift), cx - band / 2f, cy - band / 2f)
+        shader.setLocalMatrix(edgeMatrix)
+        translate(band / 2f, band / 2f) {
+            drawOutline(ring, ShaderBrush(ComposeShader(shader, overlayShader!!, PorterDuff.Mode.SRC_OVER)), style = Stroke(width = band))
+        }
+    }
+
     private fun solidTint(tint: Color): Color =
         if (tint.luminance() > 0.5f) Color(0xF2F4F5F8) else Color(0xF21A1D25)
 
     private fun DrawScope.drawRim(outline: Outline) {
         // Edges are defined by light, not lines: bright along the top, fading out down the sides.
+        // Light catches the top edge most and the bottom edge a little (tvOS 27's glossier rim).
         val brush = Brush.verticalGradient(
             0f to Color.White.copy(alpha = style.rim),
-            0.35f to Color.White.copy(alpha = style.rim * 0.18f),
-            1f to Color.White.copy(alpha = style.rim * 0.06f),
+            0.3f to Color.White.copy(alpha = style.rim * 0.14f),
+            0.8f to Color.White.copy(alpha = style.rim * 0.05f),
+            1f to Color.White.copy(alpha = style.rim * 0.25f),
         )
         drawOutline(outline, brush, style = Stroke(width = 1.5.dp.toPx()))
     }

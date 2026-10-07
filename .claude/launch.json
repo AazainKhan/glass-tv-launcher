@@ -4,8 +4,9 @@
     {
       "name": "tv-live",
       "runtimeExecutable": "scripts/tv-live",
-      "runtimeArgs": ["--port", "8765"],
-      "port": 8765
+      "runtimeArgs": [],
+      "port": 8765,
+      "autoPort": true
     }
   ]
 }

@@ -35,6 +35,11 @@ class Backdrop(
     val ladder: List<ImageBitmap>,
     /** Same blur as a software bitmap, for the glass BitmapShader. */
     val blurredSoftware: ImageBitmap,
+    /**
+     * Lightly blurred software copy (scrim included) for clear glass such as the dock tray: the art
+     * stays readable through it, as on tvOS 27, instead of turning into a frosted wash.
+     */
+    val clearSoftware: ImageBitmap,
     /** True when the wallpaper is light enough that content should use dark text. */
     val isLight: Boolean,
 )
@@ -68,10 +73,13 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             .data(url)
             .size(SHARP_W, SHARP_H)
             .allowHardware(false)
+            // Baked into the backdrop right away; keeping the 3.6 MB source in Coil's memory cache only costs PSS.
+            .memoryCachePolicy(coil3.request.CachePolicy.DISABLED)
             .build()
         val result = coil3.SingletonImageLoader.get(context).execute(request)
         val image = (result as? coil3.request.SuccessResult)?.image ?: return null
-        return fromImage(image.toBitmap())
+        val bitmap = image.toBitmap()
+        return fromImage(bitmap).also { bitmap.recycle() }
     }
 
     /**
@@ -87,6 +95,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         ).mapIndexed { i, (w, h, r) ->
             Blur.backdrop(source, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
         }
+        val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
         // Scrims are baked in and the bitmaps are marked opaque, so drawing the backdrop is a single
         // non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
         bakeScrim(source, isLight, scene)
@@ -97,7 +106,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         val sharp = source.copy(Bitmap.Config.HARDWARE, false)?.also { source.recycle() } ?: source
         val blurredGpu = blurredScreen.copy(Bitmap.Config.HARDWARE, false)?.also { blurredScreen.recycle() } ?: blurredScreen
         val ladder = listOf(sharp) + steps.map { b -> b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b } + blurredGpu
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, blurred.asImageBitmap(), isLight)
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, blurred.asImageBitmap(), clear.asImageBitmap(), isLight)
     }
 
     private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene) {
@@ -107,10 +116,10 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         if (scene == Scene.Hero) {
             // Top-shelf art darkens under the tray and behind the title, as on tvOS.
             canvas.drawRect(0f, 0f, w, h, Paint().apply {
-                shader = android.graphics.LinearGradient(0f, h * 0.38f, 0f, h, Color.TRANSPARENT, Color.argb(190, 0, 0, 0), Shader.TileMode.CLAMP)
+                shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, Color.argb(120, 0, 0, 0), Shader.TileMode.CLAMP)
             })
             canvas.drawRect(0f, 0f, w, h, Paint().apply {
-                shader = android.graphics.LinearGradient(0f, 0f, w * 0.55f, 0f, Color.argb(130, 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                shader = android.graphics.LinearGradient(0f, 0f, w * 0.5f, 0f, Color.argb(95, 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
             return
         }
@@ -208,6 +217,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         const val SHARP_H = 720
         const val BLUR_W = 192
         const val BLUR_H = 108
+        const val CLEAR_W = 480
+        const val CLEAR_H = 270
 
         val presets = listOf(
             Preset("aurora", "Aurora", false, 0xFF0B1026.toInt(), listOf(

@@ -55,7 +55,7 @@ fun FocusTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = Shapes.tile,
-    focusedScale: Float = 1.15f,
+    focusedScale: Float = 1.2f,
     wiggle: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,

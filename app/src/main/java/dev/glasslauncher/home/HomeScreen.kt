@@ -11,6 +11,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -49,6 +50,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -187,10 +189,27 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     fun closeTop() { overlays.removeLastOrNull() }
     fun firstKey(): String? = layout.dock.firstOrNull()?.let { appKey(it.packageName) } ?: layout.grid.firstOrNull()?.key
 
+    fun exists(key: String) = key == SETTINGS_TILE_KEY ||
+        layout.dock.any { appKey(it.packageName) == key } || layout.grid.any { it.key == key }
+    /** Where focus goes when [key] has left Home: the folder the app went into, else the first app. */
+    fun replacement(key: String): String? =
+        layout.grid.firstOrNull { it is GridItem.FolderItem && it.apps.any { a -> appKey(a.packageName) == key } }?.key ?: firstKey()
+
+    fun tryFocus(key: String) = runCatching { requester(key).requestFocus(FocusDirection.Enter) }.getOrDefault(false)
+
     suspend fun focusKey(key: String?) {
-        key ?: return
+        val target = key?.let { if (exists(it)) it else replacement(it) } ?: return
         withFrameNanos { }
-        runCatching { requester(key).requestFocus() }
+        if (tryFocus(target)) return
+        // Grid rows off screen aren't composed yet: bring the row in, then focus it.
+        val index = layout.grid.indexOfFirst { it.key == target }.takeIf { it >= 0 }
+            ?: if (target == SETTINGS_TILE_KEY) layout.grid.size else null
+        if (index != null) {
+            listState.scrollToItem(2 + index / metrics.columns, -with(density) { metrics.gridPivot.roundToPx() })
+            withFrameNanos { }
+            if (tryFocus(target)) return
+        }
+        firstKey()?.let { if (it != target) tryFocus(it) }
     }
 
     suspend fun scrollToTop() {
@@ -270,6 +289,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         }
     }
     LaunchedEffect(layout, moving) { moving?.let { focusKey(it) } }
+    // An app menu action can take the focused tile off Home (into a folder, hidden); config writes land
+    // after the menu closes, so re-home focus whenever the layout changes under it.
+    LaunchedEffect(layout) {
+        val last = lastFocused ?: return@LaunchedEffect
+        if (overlays.isEmpty() && !expanded && moving == null && !exists(last)) focusKey(last)
+    }
     LaunchedEffect(backdrop.backdrop) {
         if (overlays.isNotEmpty()) {
             withFrameNanos { }
@@ -358,7 +383,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                             .fillMaxSize()
                             .graphicsLayer {
                                 val atRest = 1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f)
-                                alpha = idle.chromeAlpha * atRest
+                                // Gone within the first third of the expand, before the large title fades in.
+                                alpha = idle.chromeAlpha * atRest * (1f - expand.value * 3f).coerceIn(0f, 1f)
                                 translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
@@ -484,6 +510,18 @@ private fun BackdropLayer(state: BackdropState, drawSharp: Boolean) {
     }
 }
 
+/**
+ * Left/Right at the end of a row does nothing, as on tvOS, instead of letting focus search wander to
+ * whatever is geometrically nearest (the status pill, or the end of the previous row).
+ */
+fun Modifier.stopAtRowEnds(): Modifier = focusProperties {
+    onExit = {
+        if (requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Left ||
+            requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Right
+        ) cancelFocusChange()
+    }
+}.then(Modifier.focusGroup())
+
 private sealed interface Cell {
     data class Item(val item: GridItem) : Cell
     data object Settings : Cell
@@ -539,7 +577,8 @@ private fun HomeList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = m.inset, end = m.inset, top = if (i == 0) m.trayToGrid else 0.dp)
-                    .onFocusChanged { if (it.hasFocus) onRowFocused(i + 2) },
+                    .onFocusChanged { if (it.hasFocus) onRowFocused(i + 2) }
+                    .stopAtRowEnds(),
             ) {
                 row.forEach { cell ->
                     Box(Modifier.weight(1f)) {
@@ -608,7 +647,7 @@ private fun DockTray(
             .glass(LocalBackdrop.current, RoundedCornerShape(m.trayRadius), GlassStyle.shelf(palette.light))
             .padding(start = m.inset - m.trayMargin, end = m.inset - m.trayMargin, top = m.trayPadVertical, bottom = m.trayPadVertical),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().testTag("dock")) {
+        Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().stopAtRowEnds().testTag("dock")) {
             apps.take(m.columns).forEach { app ->
                 Box(Modifier.weight(1f)) {
                     val key = appKey(app.packageName)

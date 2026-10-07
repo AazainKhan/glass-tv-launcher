@@ -31,7 +31,7 @@ data class Metrics(val textScale: Float = 1f) {
     val trayPadVertical: Dp = (20 * textScale).dp
     val trayRadius: Dp = 30.dp
     /** Where the tray's top edge sits when Home is at rest, leaving the top shelf above it. */
-    val trayTopAtRest: Dp = 368.dp
+    val trayTopAtRest: Dp = 384.dp
     /** Gap between the tray and the first grid row (tvOS ~72px). */
     val trayToGrid: Dp = 36.dp
     /** Where a focused grid row settles when scrolled. */

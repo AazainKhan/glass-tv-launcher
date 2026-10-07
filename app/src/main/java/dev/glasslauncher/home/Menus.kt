@@ -250,8 +250,18 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
     // Fire TV's keyboard is full-screen and modal and opens whenever a text field takes focus, so the
     // real field is only focusable while editing; otherwise the value sits in a normal row.
     LaunchedEffect(active) { if (active && !editing) { withFrameNanos { }; runCatching { editRow.requestFocus() } } }
+    var fieldHadFocus by remember { mutableStateOf(false) }
     LaunchedEffect(editing) {
-        if (editing) { withFrameNanos { }; runCatching { field.requestFocus() }; keyboard?.show() }
+        if (editing) {
+            fieldHadFocus = false
+            withFrameNanos { }
+            runCatching { field.requestFocus() }
+            keyboard?.show()
+        } else if (active) {
+            // Editing ended (keyboard closed or focus moved): give focus back to the value row.
+            withFrameNanos { }
+            runCatching { editRow.requestFocus() }
+        }
     }
     var submitted by remember { mutableStateOf(false) }
     fun submit() {
@@ -273,7 +283,12 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(field)
-                    .onFocusChanged { if (!it.isFocused && editing) editing = false }
+                    .onFocusChanged {
+                        // onFocusChanged also fires on attach with the initial unfocused state; only a real
+                        // loss of focus after editing started should end editing.
+                        if (it.isFocused) fieldHadFocus = true
+                        else if (fieldHadFocus && editing) editing = false
+                    }
                     .background(palette.primary.copy(alpha = 0.16f), Shapes.row)
                     .padding(horizontal = 18.dp, vertical = 14.dp)
                     .testTag("text-input"),

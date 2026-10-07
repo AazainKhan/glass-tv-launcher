@@ -39,7 +39,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader.Builder(context)
             .components { add(OkHttpNetworkFetcherFactory(callFactory = { http })) }
-            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.12).build() }
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.06).build() }
             .crossfade(true)
             .build()
 }

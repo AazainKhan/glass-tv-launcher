@@ -41,6 +41,7 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import dev.glasslauncher.home.stopAtRowEnds
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.Type
@@ -56,13 +57,11 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
         Column(
             Modifier
                 .padding(start = m.inset, top = m.chromeInset + 14.dp)
-                .widthIn(max = 420.dp)
-                .graphicsLayer { alpha = 1f - expanded() },
+                .widthIn(max = 340.dp)
+                .graphicsLayer { alpha = (1f - expanded() * 3f).coerceIn(0f, 1f) },
         ) {
-            Wordmark(item, height = 58.dp)
-            item.subtitle?.let {
-                Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.78f), maxLines = 1, modifier = Modifier.padding(top = 10.dp))
-            }
+            // At rest tvOS shows only the big wordmark; details wait for the full-screen view.
+            Wordmark(item, height = 72.dp)
         }
     }
 }
@@ -104,7 +103,8 @@ fun ExpandedShelf(
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (index - 1).coerceAtLeast(0))
     Box(
         modifier.graphicsLayer {
-            alpha = progress()
+            // Starts after the small title has faded, so the title never shows twice.
+            alpha = ((progress() - 0.4f) / 0.6f).coerceIn(0f, 1f)
             translationY = (1f - progress()) * 40.dp.toPx()
         },
     ) {
@@ -138,6 +138,7 @@ fun ExpandedShelf(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 84.dp)
+                    .stopAtRowEnds()
                     .onPreviewKeyEvent { e ->
                         val k = e.nativeKeyEvent
                         if (k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && k.action == AndroidKeyEvent.ACTION_DOWN) { onExitDown(); true } else false
