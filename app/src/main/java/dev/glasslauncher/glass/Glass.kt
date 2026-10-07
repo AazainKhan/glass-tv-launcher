@@ -86,6 +86,8 @@ class BackdropState {
     var overlay by mutableStateOf<ImageBitmap?>(null)
     /** Accessibility: glass becomes nearly opaque. */
     var reduceTransparency by mutableStateOf(false)
+    /** Light appearance: overlay snapshots get the same text-safe range as baked glass. */
+    var light = false
 }
 
 val LocalBackdrop = staticCompositionLocalOf { BackdropState() }
@@ -100,6 +102,8 @@ data class GlassStyle(
      * it, and bends the content along the edge. Frosted glass (panels) samples the heavy blur.
      */
     val clear: Boolean = false,
+    /** Clear glass that carries text: samples the text-safe copy of the clear texture. */
+    val legible: Boolean = false,
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
@@ -112,11 +116,11 @@ data class GlassStyle(
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
 
         /**
-         * Control Center tiles: denser than panels, so a tile over a dark or busy patch of the art still
-         * reads as a solid control, as tvOS's do (a plain panel tint looked see-through there).
+         * Control Center tiles: the dock's clear glass (lightly blurred art, refracted edge, rim), sampled
+         * from the text-safe copy of that texture so labels keep 4.5:1 on any art.
          */
-        fun control(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.58f), 0.22f, 0.5f, useOverlay = true)
-        else GlassStyle(Color(0xFF3A3D45).copy(alpha = 0.55f), 0.12f, 0.34f, useOverlay = true)
+        fun control(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.2f), 0.22f, 0.55f, clear = true, legible = true)
+        else GlassStyle(Color.White.copy(alpha = 0.06f), 0.12f, 0.4f, clear = true, legible = true)
     }
 }
 
@@ -194,7 +198,7 @@ private class GlassNode(
         val clear = style.clear && !state.reduceTransparency
         val source = when {
             style.useOverlay -> state.overlay ?: backdrop?.blurredSoftware
-            clear -> backdrop?.clearSoftware
+            clear -> if (style.legible) backdrop?.clearLegible else backdrop?.clearSoftware
             else -> backdrop?.blurredSoftware
         }
 
@@ -236,7 +240,7 @@ private class GlassNode(
             // old picture underneath, the new one fading in over it. Otherwise the tray switches first.
             val previous = state.previous
             val fade = state.fade.value
-            val previousSource = previous?.let { if (style.useOverlay) null else if (clear) it.clearSoftware else it.blurredSoftware }
+            val previousSource = previous?.let { if (style.useOverlay) null else if (clear) (if (style.legible) it.clearLegible else it.clearSoftware) else it.blurredSoftware }
             if (previousSource != null && fade < 1f) {
                 if (previousSource !== prevShaderSource) {
                     prevShaderSource = previousSource
@@ -251,7 +255,9 @@ private class GlassNode(
                 prevShaderSource = null; prevShader = null
                 drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
             }
-            if (clear) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)
+            // The refracted edge is one stroke on the big tray; on a dozen small Control Center tiles it
+            // took frames to 23 ms, so text-carrying clear glass keeps the texture and rim only.
+            if (clear && !style.legible) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)
         } else if (!overBlur) {
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }

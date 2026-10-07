@@ -162,6 +162,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val metrics = remember(cfg.textScale) { Metrics(cfg.textScale) }
     val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = !dark, highContrast = prefs.highContrast) }
     backdrop.reduceTransparency = prefs.reduceTransparency
+    backdrop.light = !dark
 
     var lastDockFocused by remember { mutableStateOf<String?>(null) }
     // Featured content drives the live backdrop. In "Focused app" mode the shelf follows the focused
@@ -236,7 +237,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     fun open(overlay: Overlay) {
         scope.launch {
-            if (overlays.isEmpty()) backdrop.overlay = captureBlurred(layer)
+            if (overlays.isEmpty()) backdrop.overlay = captureBlurred(layer, backdrop.light)
             overlays.add(overlay)
         }
     }
@@ -407,7 +408,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(backdrop.backdrop) {
         if (overlays.isNotEmpty()) {
             withFrameNanos { }
-            backdrop.overlay = captureBlurred(layer)
+            backdrop.overlay = captureBlurred(layer, backdrop.light)
         }
     }
     LaunchedEffect(Unit) {
@@ -803,13 +804,16 @@ private fun HomeList(
 /** tvOS shows "⌃ Swipe up for full screen" just above the tray. */
 @Composable
 private fun ShelfHint(alpha: () -> Float) {
-    val palette = LocalPalette.current
+    // On the art itself (no glass): white with a shadow unless the art just above the tray is light.
+    val onLight = LocalBackdrop.current.backdrop?.artLight(0.35f, 0.6f, 0.65f, 0.7f) == true
+    val color = if (onLight) Color(0xFF0E1015) else Color.White
+    val shadow = if (onLight) null else Type.shadow
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(bottom = 10.dp).graphicsLayer { this.alpha = alpha() },
     ) {
-        Text("⌃", style = Type.secondary.copy(shadow = Type.shadow), color = palette.primary.copy(alpha = 0.85f))
-        Text("Press up for full screen", style = Type.caption.copy(shadow = Type.shadow), color = palette.primary.copy(alpha = 0.75f))
+        Text("⌃", style = Type.secondary.copy(shadow = shadow), color = color.copy(alpha = 0.9f))
+        Text("Press up for full screen", style = Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, shadow = shadow), color = color.copy(alpha = 0.9f))
     }
 }
 

@@ -10,6 +10,7 @@ import dev.glasslauncher.home.HomeRequest
 import dev.glasslauncher.home.HomeScreen
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -35,6 +36,20 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         stoppedSinceResume = false
+        // However Glass came back (Home, Back out of the store), Amazon's launcher goes off again.
+        val app = application as GlassApp
+        app.scope.launch(kotlinx.coroutines.Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(app, bringHome = false) }
+    }
+
+    /** The Appstore's launcher entry asks Home for Amazon's apps page; show the store instead of ignoring it. */
+    private fun storeRequest(intent: Intent?): Boolean {
+        if (!dev.glasslauncher.system.AmazonStore.isStoreRequest(intent)) return false
+        val node = intent?.getStringExtra("navigate_node") ?: return false
+        val source = intent.getStringExtra("source") ?: "appstore"
+        intent.removeExtra("navigate_node")
+        val app = application as GlassApp
+        app.scope.launch(kotlinx.coroutines.Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.open(app, node, source) }
+        return true
     }
 
     override fun onRestart() {
@@ -52,6 +67,7 @@ class MainActivity : ComponentActivity() {
         // the app's tile (that's where the close animation lands, as on tvOS).
         // (Android pauses Home before delivering the intent, so "stopped since it was last resumed" is
         // what tells the two apart, not the lifecycle state.)
+        if (storeRequest(intent)) return
         if (intent.action == Intent.ACTION_MAIN) { if (!stoppedSinceResume) requests.trySend(HomeRequest.Home) } else request(intent)
     }
 

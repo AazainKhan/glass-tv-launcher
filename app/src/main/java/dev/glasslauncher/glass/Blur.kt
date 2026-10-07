@@ -122,6 +122,32 @@ object Blur {
     }
 
     /** Mean perceived luminance 0..1, used to pick light or dark text over an image. */
+    /**
+     * Makes glass a safe background for text, per pixel: in dark appearance nothing brighter than 45%
+     * (white text keeps at least 4.5:1 contrast on any art), in light appearance nothing darker than 50%
+     * (the same for dark text). [strength] 0..1 blends in from the untouched image.
+     */
+    fun legible(bitmap: Bitmap, light: Boolean, strength: Float = 1f) {
+        if (strength <= 0f) return
+        val scale = if (light) 1f - 0.5f * strength else 1f - 0.55f * strength
+        val offset = if (light) 255f * 0.5f * strength else 0f
+        val m = ColorMatrix(floatArrayOf(
+            scale, 0f, 0f, 0f, offset,
+            0f, scale, 0f, 0f, offset,
+            0f, 0f, scale, 0f, offset,
+            0f, 0f, 0f, 1f, 0f,
+        ))
+        Canvas(bitmap).drawBitmap(bitmap, 0f, 0f, Paint().apply { colorFilter = ColorMatrixColorFilter(m) })
+    }
+
+    /** Average luminance of a [cols]×[rows] grid over the image, row by row (for text placed on art). */
+    fun lumaGrid(source: Bitmap, cols: Int, rows: Int): FloatArray {
+        val small = Bitmap.createScaledBitmap(source, cols, rows, true)
+        val px = IntArray(cols * rows).also { small.getPixels(it, 0, cols, 0, 0, cols, rows) }
+        if (small !== source) small.recycle()
+        return FloatArray(px.size) { i -> val p = px[i]; ((0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f) }
+    }
+
     fun luminance(bitmap: Bitmap): Float {
         val w = bitmap.width; val h = bitmap.height
         val px = IntArray(w * h)

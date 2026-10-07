@@ -124,6 +124,17 @@ Glass draws both itself; measured on the stick 2026-10-07 against the HotshotTek
 - What didn't work: `makeThumbnailScaleUpAnimation` draws no zoom at all on Fire OS 8; `GraphicsLayer.toImageBitmap` for the cover cost 50–90 ms of main thread per press; `clipPath` for the window made its first frames 80–150 ms; the theme's `windowAnimationStyle` is ignored for the home task (Fire faded Home in from black ~300 ms after the Home press), but `overridePendingTransition(0, 0)` in `onRestart` works.
 - A Home intent that arrives while Glass isn't resumed is a return from an app: it keeps focus and scroll (Home pressed on Home still goes to the top). The slideshow pauses while Home is stopped.
 
+## Text contrast (light and dark)
+
+- Glass and the grid backdrop are baked into a text-safe range per pixel (`Blur.legible`): dark appearance nothing brighter than 45% (white text ≥ 4.5:1), light appearance nothing darker than 50% (dark text ≥ 4.5:1). Overlay snapshots get the same. Palette secondary/faint alphas are set for that range.
+- Text placed straight on artwork (Control Center clock and weather, "Press up for full screen") picks white-with-shadow or dark from `Backdrop.artLight(region)`, a luminance grid of the art, not from the theme.
+- Control Center tiles use the dock's clear glass from a text-safe copy (`clearLegible`), without the refracted-edge stroke: with it a dozen small tiles took frames to 23 ms. Measured on the CC navigation route: 9% janky vs 23% for the old overlay style.
+
+## Fire OS integration notes
+
+- Appstore: its launcher entry only sends Home `navigate_node=l_apps`, which needs Amazon's launcher. `system/AmazonStore.kt` enables it (root), opens the page, and on the next Home start (root `logcat` of ActivityTaskManager START / `wm_new_intent`; Home presses reach no app or accessibility service, and `amazon.intent.action.HOME_PRESSED` is sent to two Amazon packages only) disables it again and restores Glass as Home.
+- Uninstall needs `REQUEST_DELETE_PACKAGES` (Android 9+); without it the system uninstaller closes at once (the "white flash").
+
 ## Code gotchas
 
 - `BackdropState.swap` must clear `previous` in a `finally`: a swap cancelled mid-fade left it set, so every glass surface drew twice forever and the old backdrop stayed in memory (perf-gate went from 0% to 12% janky, +26 MB).

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -89,7 +90,11 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val network by produceState("", active) { value = withContext(Dispatchers.IO) { SystemControls.network(context) } }
     val wifiOn = remember(active) { SystemControls.wifiConnected(context) }
     val bluetooth = remember(active) { SystemControls.bluetoothOn() }
-    val clock = rememberClock(cfg.clock24h)
+    val clock = rememberClock(cfg.clock24h, seconds = true)
+    // The time sits straight on the art (no glass), so it follows the art behind it, not the theme.
+    val headerOnLight = LocalBackdrop.current.backdrop?.artLight(0.6f, 0f, 1f, 0.12f) == true
+    val headerColor = if (headerOnLight) Color(0xFF0E1015) else Color.White
+    val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium, shadow = if (headerOnLight) null else Type.shadow)
     val textSteps = listOf(1f to "Default", 1.15f to "Large", 1.3f to "Larger")
     val textIndex = textSteps.indexOfFirst { it.first >= cfg.textScale - 0.01f }.coerceAtLeast(0)
     val dark = cfg.theme != ThemeMode.Light
@@ -119,7 +124,15 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                 .trapFocus(active)
                 .testTag("control-center"),
         ) {
-            Text(clock, style = Type.heading.copy(fontWeight = FontWeight.Medium), color = palette.primary.copy(alpha = 0.9f), modifier = Modifier.padding(start = 4.dp, bottom = 16.dp))
+            // Right-aligned like tvOS (it sits where the status pill was), with the weather beside it.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(end = 4.dp, bottom = 16.dp),
+            ) {
+                cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor, headerStyle) }
+                Text(clock, style = headerStyle, color = headerColor, modifier = Modifier.testTag("cc-clock"))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
                 CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), BigWidth, Big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->

@@ -21,8 +21,9 @@ import dev.glasslauncher.data.LauncherConfig
 @Immutable
 data class Palette(val light: Boolean, val highContrast: Boolean = false) {
     val primary = if (light) Color(0xFF0E1015) else Color.White
-    val secondary = if (light) Color(if (highContrast) 0xE60E1015 else 0xB30E1015) else Color(if (highContrast) 0xE6FFFFFF else 0xB8FFFFFF)
-    val faint = if (light) Color(0x700E1015) else Color(0x70FFFFFF)
+    // Secondary and faint text keep WCAG AA (4.5:1) on the glass and grid ranges set by Blur.legible.
+    val secondary = if (light) Color(if (highContrast) 0xF00E1015 else 0xCC0E1015) else Color(if (highContrast) 0xF0FFFFFF else 0xDBFFFFFF)
+    val faint = if (light) Color(0x990E1015) else Color(0x99FFFFFF)
     val focusFill = if (light) Color(0xFF0E1015) else Color.White
     val onFocusFill = if (light) Color.White else Color(0xFF0E1015)
     val scrim = if (light) Color(0x33FFFFFF) else Color(0x66000000)

@@ -41,9 +41,31 @@ class Backdrop(
      * stays readable through it, as on tvOS 27, instead of turning into a frosted wash.
      */
     val clearSoftware: ImageBitmap,
+    /** [clearSoftware] in the text-safe range (Blur.legible): clear glass that carries text (Control Center). */
+    val clearLegible: ImageBitmap = clearSoftware,
     /** Baked for light appearance: the blurred copies are washed milky so dark text reads on them. */
     val isLight: Boolean,
-)
+    /** Luminance of the art (as shown, scrims included) on a [LUMA_COLS]×[LUMA_ROWS] grid. */
+    private val luma: FloatArray = FloatArray(0),
+) {
+    /**
+     * Whether the art behind a region (fractions of the screen) is light, so text placed straight on it
+     * (not on glass) should be dark. Uses the brightest cell: a light patch is what makes white text fail.
+     */
+    fun artLight(left: Float, top: Float, right: Float, bottom: Float): Boolean {
+        if (luma.isEmpty()) return isLight
+        var max = 0f
+        val c0 = (left * LUMA_COLS).toInt().coerceIn(0, LUMA_COLS - 1); val c1 = (right * LUMA_COLS).toInt().coerceIn(c0, LUMA_COLS - 1)
+        val r0 = (top * LUMA_ROWS).toInt().coerceIn(0, LUMA_ROWS - 1); val r1 = (bottom * LUMA_ROWS).toInt().coerceIn(r0, LUMA_ROWS - 1)
+        for (r in r0..r1) for (c in c0..c1) max = maxOf(max, luma[r * LUMA_COLS + c])
+        return max > 0.62f
+    }
+
+    companion object {
+        const val LUMA_COLS = 32
+        const val LUMA_ROWS = 18
+    }
+}
 
 data class Preset(val id: String, val name: String, val light: Boolean, val base: Int, val blobs: List<Blob>)
 data class Blob(val color: Int, val x: Float, val y: Float, val r: Float)
@@ -119,17 +141,22 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             Triple(384, 216, 3), Triple(320, 180, 3), Triple(272, 153, 4), Triple(240, 135, 4),
         )
         val steps = rungs.mapIndexed { i, (w, h, r) ->
-            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / (rungs.size + 1)).also { bakeScrim(it, light, scene, wash * (i + 1) / (rungs.size + 1)); it.setHasAlpha(false) }
+            val t = (i + 1f) / (rungs.size + 1)
+            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * t).also { bakeScrim(it, light, scene, wash * t); Blur.legible(it, light, t * t); it.setHasAlpha(false) }
         }
         check()
         val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, light, scene, 0f); it.setHasAlpha(false) }
+        val clearText = clear.copy(Bitmap.Config.ARGB_8888, true).also { Blur.legible(it, light) }
         mid.recycle()
         // Scrims are baked in and the bitmaps are marked opaque, so drawing the backdrop is a single
         // non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
         bakeScrim(source, light, scene, 0f)
-        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, light, scene, wash) }
+        val luma = Blur.lumaGrid(source, Backdrop.LUMA_COLS, Backdrop.LUMA_ROWS)
+        // The grid and every glass surface carry text, so both get the legibility range (see Blur.legible).
+        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, light, scene, wash); Blur.legible(it, light) }
         // The glass texture gets the appearance wash but not the scrims, so panels keep their own tint.
         if (wash > 0f) Canvas(blurred).drawColor(washColor(light, wash))
+        Blur.legible(blurred, light)
         source.setHasAlpha(false)
         blurredScreen.setHasAlpha(false)
         blurred.setHasAlpha(false)
@@ -141,7 +168,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
         val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), light)
+        val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma)
     }
 
     /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */

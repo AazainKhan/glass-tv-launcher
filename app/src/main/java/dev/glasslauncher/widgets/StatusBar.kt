@@ -97,18 +97,29 @@ fun StatusPill(
 val TextShadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), Offset(0f, 2f), 10f)
 
 @Composable
-fun rememberClock(h24: Boolean): String {
-    val pattern = if (h24) "HH:mm" else "h:mm"
+fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
+    // 12-hour time says AM or PM. Seconds tick only where asked (Control Center, while it's open);
+    // the always-visible pill wakes once a minute.
+    val pattern = when {
+        h24 && seconds -> "HH:mm:ss"
+        h24 -> "HH:mm"
+        seconds -> "h:mm:ss a"
+        else -> "h:mm a"
+    }
+    val step = if (seconds) 1_000L else 60_000L
     val text by produceState(format(pattern), pattern) {
         while (true) {
             value = format(pattern)
-            delay(60_000L - System.currentTimeMillis() % 60_000L + 50)
+            delay(step - System.currentTimeMillis() % step + 20)
         }
     }
     return text
 }
 
-private fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).format(Date())
+// AM/PM as "AM"/"PM" whatever the locale's markers are (en_CA writes "p.m.").
+private fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).apply {
+    dateFormatSymbols = dateFormatSymbols.apply { amPmStrings = arrayOf("AM", "PM") }
+}.format(Date())
 
 /** The settings gear (Material Symbols, filled): one clean silhouette at every size. */
 @Composable

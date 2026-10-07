@@ -30,6 +30,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         scope.launch(Dispatchers.Default) { runCatching { wallpapers.prewarm() } }
         scope.launch(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
         scope.launch(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
+        // A store visit cut short (Glass restarted): put Glass back as Home.
+        scope.launch(Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(this@GlassApp, bringHome = false) }
     }
 
     val http: OkHttpClient by lazy {

@@ -66,14 +66,14 @@ sealed interface Overlay {
 }
 
 /** Captures what's on screen, blurs it once, and returns it as the backdrop for overlay glass. */
-suspend fun captureBlurred(layer: GraphicsLayer): ImageBitmap? = runCatching {
+suspend fun captureBlurred(layer: GraphicsLayer, light: Boolean? = null): ImageBitmap? = runCatching {
     val shot = layer.toImageBitmap().asAndroidBitmap()
     withContext(Dispatchers.Default) {
         val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
         val blurred = Blur.backdrop(soft, WallpaperLoader.BLUR_W, WallpaperLoader.BLUR_H, radius = 6).also { soft.recycle() }
         // A capture taken before the first real frame is blank; returning null falls back to the wallpaper blur.
         if (blurred.getPixel(blurred.width / 2, blurred.height / 2) ushr 24 == 0) null
-        else (blurred.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred).asImageBitmap()
+        else (blurred.also { if (light != null) Blur.legible(it, light) }.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred).asImageBitmap()
     }
 }.getOrNull()
 
