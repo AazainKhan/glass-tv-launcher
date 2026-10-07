@@ -3,6 +3,7 @@ package dev.glasslauncher
 import android.app.Application
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import dev.glasslauncher.apps.AppRepository
@@ -38,6 +39,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader.Builder(context)
             .components { add(OkHttpNetworkFetcherFactory(callFactory = { http })) }
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.12).build() }
             .crossfade(true)
             .build()
 }

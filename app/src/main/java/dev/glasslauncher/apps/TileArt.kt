@@ -42,7 +42,11 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
 
     suspend fun load(spec: TileSpec): ImageBitmap {
         cache.get(spec)?.let { return it }
-        val art = withContext(Dispatchers.Default) { render(spec).asImageBitmap() }
+        val art = withContext(Dispatchers.Default) {
+            // GPU-only copy: a software tile would be held twice (native heap plus its texture).
+            val soft = render(spec)
+            (soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap()
+        }
         cache.put(spec, art)
         return art
     }
