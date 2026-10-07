@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Live view of the TV in a browser tab, with remote controls.
 
-    scripts/tv-live [--port 8765] [--size 960x540]
+    scripts/tv-live [--port 8765] [--size 1920x1080] [--bitrate 20]
 
+Defaults to the stick's native 1080p at 20 Mbit/s. "Lossless still" swaps in a PNG straight from the
+framebuffer (no video compression) for judging edges and blending; "1:1" shows it unscaled.
 Open http://localhost:8765 (in the Claude desktop browser pane: preview "tv-live").
 The device's screen recorder (H.264) is transcoded by ffmpeg to MJPEG, so any <img> can show it.
 Arrow keys / Enter / Backspace (Back) / H (Home) / M (Menu) / Space (Play) drive the remote.
@@ -25,8 +27,8 @@ KEYS = {"up", "down", "left", "right", "select", "back", "home", "menu", "play",
 class Stream:
     """One shared device recording, started while at least one viewer is connected."""
 
-    def __init__(self, size):
-        self.size = size
+    def __init__(self, size, bitrate):
+        self.size, self.bitrate = size, bitrate
         self.frame, self.seq = None, 0
         self.cond = threading.Condition()
         self.viewers = 0
@@ -57,7 +59,7 @@ class Stream:
         # screenrecord only emits frames when the screen changes, so seed viewers with a still.
         w = self.size.split("x")[0]
         cap = subprocess.run(
-            f"adb exec-out screencap -p | ffmpeg -loglevel error -i - -vf scale={w}:-1 -q:v 4 -f mjpeg -",
+            f"adb exec-out screencap -p | ffmpeg -loglevel error -i - -vf scale={w}:-1 -q:v 2 -f mjpeg -",
             shell=True, capture_output=True)
         if cap.stdout:
             self.publish(cap.stdout)
@@ -73,12 +75,12 @@ class Stream:
             # screenrecord stops after 180 s; loop to keep the view going.
             rec = subprocess.Popen(
                 ["adb", "exec-out", "screenrecord", "--output-format=h264", f"--size={self.size}",
-                 "--bit-rate=6000000", "--time-limit=170", "-"],
+                 f"--bit-rate={self.bitrate * 1_000_000}", "--time-limit=170", "-"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             ff = subprocess.Popen(
                 ["ffmpeg", "-loglevel", "error", "-flags", "low_delay",
                  "-probesize", "65536", "-analyzeduration", "0", "-f", "h264", "-i", "-",
-                 "-pix_fmt", "yuvj420p", "-q:v", "5", "-f", "mjpeg", "-"],
+                 "-pix_fmt", "yuvj420p", "-q:v", "2", "-f", "mjpeg", "-"],
                 stdin=rec.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             rec.stdout.close()
             buf = b""
@@ -108,15 +110,18 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>TV Live</title
 <style>
 :root{color-scheme:dark;--bg:#0b0b0f;--fg:#e8e8ee;--btn:#22232b;--btn2:#30313b;--accent:#4f7cff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px -apple-system,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px}
-#screen{width:100%;max-width:1280px;aspect-ratio:16/9;background:#000;border-radius:8px;object-fit:contain;outline:none}
+#screen{width:100%;max-width:1920px;aspect-ratio:16/9;background:#000;border-radius:8px;object-fit:contain;outline:none}
 #screen:focus{box-shadow:0 0 0 2px var(--accent)}
+#wrap{width:100%;max-width:1920px;overflow:auto;border-radius:8px}
+#wrap.native #screen{width:1920px;max-width:none;aspect-ratio:auto;border-radius:0}
+button.on{background:var(--accent)}
 .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:center}
 .pad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:4px}
 button{background:var(--btn);color:var(--fg);border:0;border-radius:10px;font-size:15px;cursor:pointer;min-width:48px;height:48px;padding:0 12px}
 button:hover{background:var(--btn2)}button:active{background:var(--accent)}
 .ok{border-radius:50%}small{opacity:.6}#status{min-width:140px;text-align:center}
 </style></head><body>
-<img id="screen" src="/stream" tabindex="0" alt="TV screen">
+<div id="wrap"><img id="screen" src="/stream" tabindex="0" alt="TV screen"></div>
 <div class="row">
  <div class="pad">
   <span></span><button data-k="up">▲</button><span></span>
@@ -125,30 +130,42 @@ button:hover{background:var(--btn2)}button:active{background:var(--accent)}
  </div>
  <div class="row">
   <button data-k="back">Back</button><button data-k="home">Home</button><button data-k="menu">Menu</button>
+  <button id="still">Lossless still</button><button id="native">1:1</button>
   <button data-k="rew">⏪</button><button data-k="play">⏯</button><button data-k="ff">⏩</button>
  </div>
  <div id="status"><small>click the screen, then use arrows · Enter · ⌫ Back · H · M</small></div>
 </div>
 <script>
 const status=document.getElementById('status');
-function press(k){fetch('/key?k='+k,{method:'POST'}).then(r=>{status.textContent=r.ok?k:'error: '+k})}
+let press=function(k){fetch('/key?k='+k,{method:'POST'}).then(r=>{status.textContent=r.ok?k:'error: '+k})}
 document.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>press(b.dataset.k));
 const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'select',Backspace:'back',Escape:'back',h:'home',m:'menu',' ':'play'};
 document.addEventListener('keydown',e=>{const k=map[e.key];if(k){e.preventDefault();press(k)}});
 const img=document.getElementById('screen');
-img.onerror=()=>setTimeout(()=>{img.src='/stream?'+Date.now()},1000);
+let still=false;
+img.onerror=()=>{if(!still)setTimeout(()=>{img.src='/stream?'+Date.now()},1000)};
+const stillBtn=document.getElementById('still');
+stillBtn.onclick=()=>{still=!still;stillBtn.classList.toggle('on',still);
+  stillBtn.textContent=still?'Back to live':'Lossless still';
+  img.src=still?'/still.png?'+Date.now():'/stream?'+Date.now();
+  status.textContent=still?'lossless 1920×1080 still (press again for live)':'live'};
+const nativeBtn=document.getElementById('native');
+nativeBtn.onclick=()=>{const on=document.getElementById('wrap').classList.toggle('native');nativeBtn.classList.toggle('on',on)};
+// While a still is shown, remote presses refresh it once the UI has settled.
+const _press=press;press=k=>{_press(k);if(still)setTimeout(()=>{img.src='/still.png?'+Date.now()},700)};
 </script></body></html>"""
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)))
-    ap.add_argument("--size", default="960x540")
+    ap.add_argument("--size", default="1920x1080")
+    ap.add_argument("--bitrate", type=int, default=20, help="Mbit/s")
     args = ap.parse_args()
     for tool in ("adb", "ffmpeg"):
         if not shutil.which(tool):
             raise SystemExit(f"tv-live needs {tool} on PATH")
-    stream = Stream(args.size)
+    stream = Stream(args.size, args.bitrate)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -181,6 +198,13 @@ def main():
                     pass
                 finally:
                     stream.detach()
+            elif path == "/still.png":
+                png = subprocess.run(["adb", "exec-out", "screencap", "-p"], capture_output=True).stdout
+                self.send_response(200 if png else 503)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(png)
             elif path == "/frame.jpg":
                 frame = stream.frame or b""
                 self.send_response(200 if frame else 503)

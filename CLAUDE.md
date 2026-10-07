@@ -37,7 +37,7 @@ Work cheapest-first. Most UI work never needs the device.
 
 **2. On the device:**
 
-- **Live view in the Claude browser pane:** preview `tv-live` (`scripts/tv-live`, http://localhost:8765). It shows the screen at about 30 fps, and arrows/Enter/Backspace/H/M on the page drive the remote. It records with the stick's encoder, so stop it before benchmarking. `scrcpy` gives a native window.
+- **Live view in the Claude browser pane:** preview `tv-live` (`scripts/tv-live`, http://localhost:8765). It shows the screen at native 1080p (20 Mbit/s), with a "Lossless still" PNG and an unscaled "1:1" mode for judging edges and blending, and arrows/Enter/Backspace/H/M on the page drive the remote. It records with the stick's encoder, so stop it before benchmarking. `scrcpy` gives a native window.
 - `scripts/key down down right select`: real remote events via `sendevent` (adb is root), about 0.1 s per press vs 0.9 s for `input keyevent`. Also `hold:800:down` (auto-repeat), `wait:300`, and `settle`. `settle` waits until the app stops drawing and prints when the last frame landed (an animation-length measurement), or `busy` after 3 s of continuous drawing (video backdrop).
 - `scripts/shot [out.png] [width]`: screenshot in about 1 s, downscaled to 960 wide. It fails with a clear message when a DRM app (Netflix…) is on screen.
 - `scripts/clip <name> <keys…>`: records a transition and writes `build/clips/<name>.png`, 18 frames 33 ms apart starting at the first visible change, plus the mp4.
