@@ -29,7 +29,16 @@ data class LauncherConfig(
     /** Start the Aerial screensaver after this many idle minutes on Home; 0 = leave it to the system. */
     val aerialsOnIdleMinutes: Int = 0,
     val tipsSeen: Boolean = false,
+    /** What fills the screen behind Home: featured artwork, the wallpaper, or Aerial video. */
+    val background: BackgroundMode = BackgroundMode.Featured,
+    /** Text Size, tvOS-style: 1.0 default, up to 1.3; tiles and gutters grow with it. */
+    val textScale: Float = 1f,
+    /** Packages seen before; anything not in here is new and gets the blue dot until opened. */
+    val seenApps: Set<String> = emptySet(),
 )
+
+@Serializable
+enum class BackgroundMode { Featured, Wallpaper, Motion }
 
 @Serializable
 enum class ThemeMode { System, Light, Dark }

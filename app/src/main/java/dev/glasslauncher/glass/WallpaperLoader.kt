@@ -11,6 +11,8 @@ import android.graphics.Rect
 import android.graphics.Shader
 import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
+import coil3.request.allowHardware
+import coil3.toBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import dev.glasslauncher.data.Wallpaper
 import dev.glasslauncher.data.WallpaperKind
@@ -50,30 +52,70 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             WallpaperKind.File -> decode(File(wallpaper.value)) ?: renderPreset(presets.first())
             WallpaperKind.Url -> decode(cachedUrlFile(wallpaper.value)) ?: renderPreset(presets.first())
         }
+        bake(source, Scene.Wallpaper)
+    }
+
+    /** Full-bleed top-shelf art (or a video frame) as the Home backdrop. */
+    suspend fun fromImage(image: Bitmap, scene: Scene = Scene.Hero): Backdrop = withContext(Dispatchers.Default) {
+        bake(cropToScreen(image.copy(Bitmap.Config.ARGB_8888, true)), scene)
+    }
+
+    enum class Scene { Wallpaper, Hero }
+
+    /** Downloads (or reuses Coil's cache for) a featured image and bakes it as the Home backdrop. */
+    suspend fun fromUrl(url: String): Backdrop? {
+        val request = coil3.request.ImageRequest.Builder(context)
+            .data(url)
+            .size(SHARP_W, SHARP_H)
+            .allowHardware(false)
+            .build()
+        val result = coil3.SingletonImageLoader.get(context).execute(request)
+        val image = (result as? coil3.request.SuccessResult)?.image ?: return null
+        return fromImage(image.toBitmap())
+    }
+
+    /**
+     * Bakes everything Home draws from one source image: the sharp screen image, a ladder of
+     * progressively blurred opaque copies for the scroll blur, and the small blurred texture the glass
+     * surfaces sample (which is what tints glass from the content behind it).
+     */
+    private fun bake(source: Bitmap, scene: Scene): Backdrop {
         val blurred = Blur.backdrop(source, BLUR_W, BLUR_H, radius = 5)
-        val isLight = Blur.luminance(blurred) > 0.62f
+        val isLight = scene == Scene.Wallpaper && Blur.luminance(blurred) > 0.62f
         val steps = listOf(
             Triple(640, 360, 1), Triple(448, 252, 2), Triple(320, 180, 3), Triple(240, 135, 4),
         ).mapIndexed { i, (w, h, r) ->
-            Blur.backdrop(source, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight); it.setHasAlpha(false) }
+            Blur.backdrop(source, w, h, radius = r, saturation = 1f + 0.35f * (i + 1) / 5f).also { bakeScrim(it, isLight, scene); it.setHasAlpha(false) }
         }
-        // The screen-bottom scrim is baked in and the bitmaps are marked opaque, so drawing the wallpaper
-        // is a single non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
-        bakeScrim(source, isLight)
-        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, isLight) }
+        // Scrims are baked in and the bitmaps are marked opaque, so drawing the backdrop is a single
+        // non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
+        bakeScrim(source, isLight, scene)
+        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, isLight, scene) }
         source.setHasAlpha(false)
         blurredScreen.setHasAlpha(false)
         blurred.setHasAlpha(false)
         val sharp = source.copy(Bitmap.Config.HARDWARE, false)?.also { source.recycle() } ?: source
         val blurredGpu = blurredScreen.copy(Bitmap.Config.HARDWARE, false)?.also { blurredScreen.recycle() } ?: blurredScreen
         val ladder = listOf(sharp) + steps.map { b -> b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b } + blurredGpu
-        Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, blurred.asImageBitmap(), isLight)
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, blurred.asImageBitmap(), isLight)
     }
 
-    private fun bakeScrim(bitmap: Bitmap, light: Boolean) {
+    private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene) {
+        val w = bitmap.width.toFloat()
         val h = bitmap.height.toFloat()
+        val canvas = Canvas(bitmap)
+        if (scene == Scene.Hero) {
+            // Top-shelf art darkens under the tray and behind the title, as on tvOS.
+            canvas.drawRect(0f, 0f, w, h, Paint().apply {
+                shader = android.graphics.LinearGradient(0f, h * 0.38f, 0f, h, Color.TRANSPARENT, Color.argb(190, 0, 0, 0), Shader.TileMode.CLAMP)
+            })
+            canvas.drawRect(0f, 0f, w, h, Paint().apply {
+                shader = android.graphics.LinearGradient(0f, 0f, w * 0.55f, 0f, Color.argb(130, 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            })
+            return
+        }
         val end = if (light) Color.argb(38, 255, 255, 255) else Color.argb(102, 0, 0, 0)
-        Canvas(bitmap).drawRect(0f, 0f, bitmap.width.toFloat(), h, Paint().apply {
+        canvas.drawRect(0f, 0f, w, h, Paint().apply {
             shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, end, Shader.TileMode.CLAMP)
         })
     }

@@ -2,6 +2,7 @@ package dev.glasslauncher.home
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -9,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -24,15 +26,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -45,9 +50,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.FilterQuality
@@ -57,65 +63,76 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.Text
 import dev.glasslauncher.app
 import dev.glasslauncher.apps.AppEntry
+import dev.glasslauncher.data.BackgroundMode
+import dev.glasslauncher.data.FeaturedSourceId
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.ThemeMode
 import dev.glasslauncher.data.appKey
-import dev.glasslauncher.featured.TopShelf
+import dev.glasslauncher.dream.AerialActivity
+import dev.glasslauncher.featured.ExpandedShelf
+import dev.glasslauncher.featured.ShelfTitle
 import dev.glasslauncher.glass.BackdropState
 import dev.glasslauncher.glass.GlassStyle
 import dev.glasslauncher.glass.LocalBackdrop
+import dev.glasslauncher.glass.MotionBackground
 import dev.glasslauncher.glass.glass
-import dev.glasslauncher.settings.SettingsPanel
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.KeyDirection
+import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.LocalPalette
-import dev.glasslauncher.ui.Palette
 import dev.glasslauncher.ui.LocalUiPrefs
-import dev.glasslauncher.ui.UiPrefs
+import dev.glasslauncher.ui.Metrics
+import dev.glasslauncher.ui.Palette
 import dev.glasslauncher.ui.Safe
-import androidx.tv.material3.LocalTextStyle
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import dev.glasslauncher.dream.AerialActivity
-import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.Type
+import dev.glasslauncher.ui.UiPrefs
 import dev.glasslauncher.widgets.IdleState
-import dev.glasslauncher.widgets.StatusBar
+import dev.glasslauncher.widgets.StatusPill
 import dev.glasslauncher.widgets.rememberIdleState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-private val SidePadding = Safe.horizontal
-private val ColumnGap = 20.dp
-private val RowGap = 6.dp
-private val ShelfHeight = 312.dp
+const val SETTINGS_TILE_KEY = "glass:settings"
 
 @OptIn(ExperimentalFoundationApi::class)
 private object NoAutoScroll : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float) = 0f
 }
 
+/**
+ * Home, laid out like tvOS 27: the featured artwork (or wallpaper, or Aerial video) fills the whole
+ * screen, the top app row sits in a glass tray over it, the grid scrolls up over a blurred copy, and
+ * pressing Up from the tray opens the featured shelf full screen.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     val context = LocalContext.current
     val graph = context.app
+    val view = LocalView.current
     val cfg by model.config.collectAsStateWithLifecycle()
     val layout by model.layout.collectAsStateWithLifecycle()
     val backdrop = remember { BackdropState() }
@@ -124,22 +141,42 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         ThemeMode.Light -> false
         ThemeMode.System -> isSystemInDarkTheme()
     }
-    val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
-    LaunchedEffect(wallpaper) { backdrop.backdrop = graph.wallpapers.load(wallpaper) }
     val prefs = remember(cfg) { UiPrefs.resolve(context, cfg) }
+    val metrics = remember(cfg.textScale) { Metrics(cfg.textScale) }
     val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = backdrop.backdrop?.isLight ?: !dark, highContrast = prefs.highContrast) }
     backdrop.reduceTransparency = prefs.reduceTransparency
+
+    // Featured content drives the live backdrop.
+    LaunchedEffect(cfg.featured) { graph.featured.refresh(cfg.featured) }
+    val featuredState by graph.featured.state.collectAsStateWithLifecycle()
+    val feed = featuredState.feed?.takeIf { cfg.featured.source != FeaturedSourceId.Off && it.items.isNotEmpty() }
+    var heroIndex by remember { mutableIntStateOf(0) }
+    val hero = feed?.items?.getOrNull(heroIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
+    val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
 
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val overlays = remember { mutableStateListOf<Overlay>() }
     var moving by remember { mutableStateOf<String?>(null) }
     var lastFocused by remember { mutableStateOf<String?>(null) }
+    var lastDockFocused by remember { mutableStateOf<String?>(null) }
+    var focusedRow by remember { mutableIntStateOf(1) }
+    val expand = remember { Animatable(0f) }
+    var expanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val layer = rememberGraphicsLayer()
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
+    val cardRequester = remember { FocusRequester() }
     val idle = rememberIdleState(cfg.idleFadeMinutes)
+
+    val sceneUrl = if (cfg.background == BackgroundMode.Featured) hero?.image else null
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background) {
+        if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
+        if (expanded) delay(220) // let quick left/right browsing settle before re-baking the glass
+        val next = sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it) }.getOrNull() } ?: graph.wallpapers.load(wallpaper)
+        backdrop.swap(next, animate = backdrop.backdrop != null && !prefs.reduceMotion)
+    }
 
     fun open(overlay: Overlay) {
         scope.launch {
@@ -147,9 +184,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
             overlays.add(overlay)
         }
     }
-    fun closeTop() {
-        overlays.removeLastOrNull()
-    }
+    fun closeTop() { overlays.removeLastOrNull() }
     fun firstKey(): String? = layout.dock.firstOrNull()?.let { appKey(it.packageName) } ?: layout.grid.firstOrNull()?.key
 
     suspend fun focusKey(key: String?) {
@@ -165,28 +200,50 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     }
 
     fun onRowFocused(index: Int) {
+        focusedRow = index
         scope.launch {
             launch {
                 val target = if (index >= 2) 1f else 0f
                 if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, tween(350))
             }
             if (index <= 1) scrollToTop() else {
-                val target = with(density) { 64.dp.toPx() }
+                // The focused row's tiles settle at the pivot; the first row has the tray gap above it.
+                val pad = if (index == 2) metrics.trayToGrid else 0.dp
+                val target = with(density) { (metrics.gridPivot - pad).toPx() }
                 val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
                 if (info != null) listState.animateScrollBy(info.offset - target, spring(stiffness = Spring.StiffnessMediumLow))
                 else listState.animateScrollToItem(index, -target.toInt())
             }
         }
     }
-    fun onShelfFocused() = onRowFocused(0)
 
-    // Initial focus once apps are known; refocus whatever was focused when overlays close.
+    fun setExpanded(value: Boolean) {
+        if (expanded == value) return
+        expanded = value
+        scope.launch {
+            if (prefs.reduceMotion) expand.snapTo(if (value) 1f else 0f)
+            else expand.animateTo(if (value) 1f else 0f, spring(dampingRatio = 0.9f, stiffness = 420f))
+        }
+        scope.launch {
+            withFrameNanos { }
+            if (value) runCatching { cardRequester.requestFocus() } else focusKey(lastDockFocused ?: firstKey())
+        }
+    }
+
     LaunchedEffect(layout.loaded) {
         if (!layout.loaded) return@LaunchedEffect
         focusKey(firstKey())
         if (!cfg.tipsSeen) {
-            delay(1500) // let the wallpaper and shelf draw so the card's glass has something to blur
+            delay(1500) // let the backdrop draw so the card's glass has something to blur
             open(Overlay.Tips)
+        }
+    }
+    // The top shelf advances on its own while Home is at rest, as on tvOS.
+    LaunchedEffect(feed, expanded, overlays.isEmpty(), idle.idle, prefs.reduceMotion, cfg.background) {
+        if (feed == null || expanded || overlays.isNotEmpty() || idle.idle || prefs.reduceMotion || cfg.background != BackgroundMode.Featured) return@LaunchedEffect
+        while (true) {
+            delay(12_000)
+            heroIndex = (heroIndex + 1) % feed.items.size
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -208,7 +265,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         snapshotFlow { overlays.isEmpty() }.collect { empty ->
             if (empty) {
                 backdrop.overlay = null
-                focusKey(lastFocused ?: firstKey())
+                if (expanded) runCatching { cardRequester.requestFocus() } else focusKey(lastFocused ?: firstKey())
             }
         }
     }
@@ -223,6 +280,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         homePresses.collect {
             overlays.clear()
             moving = null
+            setExpanded(false)
             scrollToTop()
             focusKey(firstKey())
         }
@@ -232,16 +290,20 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
         when {
             moving != null -> moving = null
             overlays.isNotEmpty() -> closeTop()
+            expanded -> setExpanded(false)
             listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 -> scope.launch {
                 scrollToTop(); focusKey(firstKey())
             }
         }
     }
 
+    val scaledDensity = Density(density.density, density.fontScale * cfg.textScale)
     CompositionLocalProvider(
         LocalBackdrop provides backdrop,
         LocalPalette provides palette,
         LocalUiPrefs provides prefs,
+        LocalMetrics provides metrics,
+        LocalDensity provides scaledDensity,
         LocalTextStyle provides Type.body,
     ) {
         Box(
@@ -258,10 +320,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                         AndroidKeyEvent.KEYCODE_DPAD_UP -> { KeyDirection.dx = 0; KeyDirection.dy = -1 }
                         AndroidKeyEvent.KEYCODE_DPAD_DOWN -> { KeyDirection.dx = 0; KeyDirection.dy = 1 }
                     }
+                    if (overlays.isNotEmpty()) return@onPreviewKeyEvent false
                     val key = moving
-                    if (key == null || overlays.isNotEmpty()) return@onPreviewKeyEvent false
-                    if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, layout, model) { moving = null }
-                    true
+                    if (key != null) {
+                        if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, layout, model, metrics.columns) { moving = null }
+                        return@onPreviewKeyEvent true
+                    }
+                    if (e.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                    when {
+                        e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { open(Overlay.ControlCenter); true }
+                        // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null -> { setExpanded(true); true }
+                        else -> false
+                    }
                 },
         ) {
             Box(
@@ -273,45 +344,75 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
                         drawLayer(layer)
                     },
             ) {
-                WallpaperLayer(backdrop, palette)
-                run {
-                    // Lives outside the list so it stays composed; follows the scroll and fades in the draw phase only.
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(ShelfHeight)
+                if (cfg.background == BackgroundMode.Motion) {
+                    MotionBackground(cfg.screensaver, backdrop, paused = overlays.isNotEmpty() || idle.idle)
+                }
+                BackdropLayer(backdrop, drawSharp = cfg.background != BackgroundMode.Motion)
+
+                // Title of the current featured item, top left, above the tray.
+                if (hero != null) {
+                    ShelfTitle(
+                        item = hero,
+                        expanded = { expand.value },
+                        modifier = Modifier
+                            .fillMaxSize()
                             .graphicsLayer {
-                                val shelfPx = ShelfHeight.toPx()
-                                translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else shelfPx)
-                                alpha = idle.chromeAlpha * (1f - backdrop.wallpaperBlur.value * 8f).coerceIn(0f, 1f)
+                                val atRest = 1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f)
+                                alpha = idle.chromeAlpha * atRest
+                                translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
-                    ) {
-                        TopShelf(cfg = cfg, modifier = Modifier.fillMaxSize(), paused = overlays.isNotEmpty() || idle.idle || moving != null, onFocused = { if (it) onShelfFocused() })
-                    }
+                    )
                 }
+
                 CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
                     HomeList(
                         layout = layout,
-                        cfg = cfg,
                         model = model,
                         listState = listState,
                         moving = moving,
-                        idle = idle,
+                        showHint = feed != null,
+                        hintAlpha = { (1f - backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f) * (1f - expand.value) * idle.chromeAlpha },
                         requester = ::requester,
-                        onFocused = { lastFocused = it },
+                        onFocused = { key, row ->
+                            lastFocused = key
+                            if (row == 1) lastDockFocused = key
+                        },
                         onRowFocused = ::onRowFocused,
                         onAppMenu = { app, inDock -> open(Overlay.AppMenu(app, inDock, null)) },
                         onFolderOpen = { open(Overlay.FolderOpen(it)) },
                         onFolderMenu = { open(Overlay.FolderMenu(it)) },
+                        onSettings = { open(Overlay.Settings) },
+                        launch = { app, bounds -> model.launch(app, view, bounds) },
+                        modifier = Modifier
+                            .graphicsLayer {
+                                // Expanding the shelf slides the tray and grid off the bottom of the screen.
+                                translationY = expand.value * size.height * 0.62f
+                                alpha = 1f - expand.value * 0.999f
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
+                            }
+                            .focusProperties { canFocus = !expanded },
+                    )
+                }
+
+                if (feed != null && (expanded || expand.value > 0f)) {
+                    ExpandedShelf(
+                        feed = feed,
+                        index = heroIndex,
+                        progress = { expand.value },
+                        firstCard = cardRequester,
+                        onIndex = { heroIndex = it },
+                        onExitDown = { setExpanded(false) },
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
 
-            StatusBar(
+            StatusPill(
                 cfg = cfg,
                 idle = idle,
-                onSettings = { open(Overlay.Settings) },
+                focusable = expanded || feed == null,
+                onSelect = { open(Overlay.ControlCenter) },
                 modifier = Modifier.align(Alignment.TopEnd),
                 fade = { 1f - backdrop.wallpaperBlur.value },
             )
@@ -338,7 +439,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<Unit>) {
     }
 }
 
-private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: HomeModel, done: () -> Unit) {
+private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: HomeModel, columns: Int, done: () -> Unit) {
     val pkg = key.removePrefix("app:")
     val inDock = key.startsWith("app:") && layout.dock.any { it.packageName == pkg }
     val gridIndex = layout.grid.indexOfFirst { it.key == key }
@@ -347,118 +448,168 @@ private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: 
         AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.move(key, 1)
         AndroidKeyEvent.KEYCODE_DPAD_UP -> when {
             inDock -> Unit
-            gridIndex in 0 until COLUMNS && key.startsWith("app:") -> model.moveIntoDock(pkg)
-            else -> model.move(key, -COLUMNS)
+            gridIndex in 0 until columns && key.startsWith("app:") -> model.moveIntoDock(pkg)
+            else -> model.move(key, -columns)
         }
         AndroidKeyEvent.KEYCODE_DPAD_DOWN -> when {
             inDock -> model.moveOutOfDock(pkg)
-            !model.move(key, COLUMNS) -> model.move(key, layout.grid.lastIndex - gridIndex)
+            !model.move(key, columns) -> model.move(key, layout.grid.lastIndex - gridIndex)
         }
         AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_BACK -> done()
     }
 }
 
+/**
+ * One opaque full-screen draw per frame: the backdrop's blur ladder step for the current scroll
+ * blur. Only during a scene change is the outgoing backdrop drawn underneath and faded.
+ */
 @Composable
-private fun WallpaperLayer(state: BackdropState, palette: Palette) {
+private fun BackdropLayer(state: BackdropState, drawSharp: Boolean) {
     Canvas(Modifier.fillMaxSize()) {
-        val b = state.backdrop ?: return@Canvas
         val dst = IntSize(size.width.toInt(), size.height.toInt())
-        val level = (state.wallpaperBlur.value * b.ladder.lastIndex).roundToInt().coerceIn(0, b.ladder.lastIndex)
-        drawImage(b.ladder[level], dstSize = dst, filterQuality = FilterQuality.Low)
+        val blur = state.wallpaperBlur.value
+        fun step(b: dev.glasslauncher.glass.Backdrop) = b.ladder[(blur * b.ladder.lastIndex).roundToInt().coerceIn(0, b.ladder.lastIndex)]
+        // In Motion mode the video shows through until the grid is scrolled into view.
+        if (!drawSharp && blur < 0.05f) return@Canvas
+        val alphaForMotion = if (drawSharp) 1f else ((blur - 0.05f) * 3f).coerceIn(0f, 1f)
+        val previous = state.previous
+        val current = state.backdrop ?: return@Canvas
+        if (previous != null) drawImage(step(previous), dstSize = dst, alpha = alphaForMotion, filterQuality = FilterQuality.Low)
+        drawImage(
+            step(current),
+            dstSize = dst,
+            alpha = alphaForMotion * if (previous != null) state.fade.value else 1f,
+            filterQuality = FilterQuality.Low,
+        )
     }
+}
+
+private sealed interface Cell {
+    data class Item(val item: GridItem) : Cell
+    data object Settings : Cell
 }
 
 @Composable
 private fun HomeList(
     layout: HomeLayout,
-    cfg: LauncherConfig,
     model: HomeModel,
     listState: LazyListState,
     moving: String?,
-    idle: IdleState,
+    showHint: Boolean,
+    hintAlpha: () -> Float,
     requester: (String) -> FocusRequester,
-    onFocused: (String) -> Unit,
+    onFocused: (String, Int) -> Unit,
     onRowFocused: (Int) -> Unit,
     onAppMenu: (AppEntry, Boolean) -> Unit,
     onFolderOpen: (String) -> Unit,
     onFolderMenu: (dev.glasslauncher.data.Folder) -> Unit,
+    onSettings: () -> Unit,
+    launch: (AppEntry, Rect?) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val rows = remember(layout.grid) { layout.grid.chunked(COLUMNS) }
+    val m = LocalMetrics.current
+    val cells = remember(layout.grid) { layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings }
+    val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
     LazyColumn(
         state = listState,
         userScrollEnabled = false,
-        contentPadding = PaddingValues(bottom = 120.dp),
-        modifier = Modifier.fillMaxSize().testTag("home"),
+        contentPadding = PaddingValues(bottom = 160.dp),
+        modifier = modifier.fillMaxSize().testTag("home"),
     ) {
-        item(key = "shelf") { Spacer(Modifier.fillMaxWidth().height(ShelfHeight)) }
+        item(key = "shelf") {
+            Box(Modifier.fillMaxWidth().height(m.trayTopAtRest), contentAlignment = Alignment.BottomCenter) {
+                if (showHint) ShelfHint(hintAlpha)
+            }
+        }
         item(key = "dock") {
-            DockShelf(
+            DockTray(
                 apps = layout.dock,
                 model = model,
                 moving = moving,
                 requester = requester,
-                onFocused = onFocused,
+                onFocused = { onFocused(it, 1) },
                 onAppMenu = { onAppMenu(it, true) },
+                launch = launch,
                 modifier = Modifier.onFocusChanged { if (it.hasFocus) onRowFocused(1) },
             )
         }
         itemsIndexed(rows, key = { i, _ -> "row-$i" }) { i, row ->
             Row(
-                horizontalArrangement = Arrangement.spacedBy(ColumnGap),
+                horizontalArrangement = Arrangement.spacedBy(m.gutter),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = SidePadding, vertical = RowGap)
+                    .padding(start = m.inset, end = m.inset, top = if (i == 0) m.trayToGrid else 0.dp)
                     .onFocusChanged { if (it.hasFocus) onRowFocused(i + 2) },
             ) {
-                row.forEach { item ->
+                row.forEach { cell ->
                     Box(Modifier.weight(1f)) {
-                        when (item) {
-                            is GridItem.App -> AppCell(
-                                app = item.app,
-                                model = model,
-                                moving = moving == item.key,
-                                focusRequester = requester(item.key),
-                                onFocused = { onFocused(item.key) },
-                                onMenu = { onAppMenu(item.app, false) },
-                            )
-                            is GridItem.FolderItem -> FolderCell(
-                                item = item,
-                                model = model,
-                                moving = moving == item.key,
-                                focusRequester = requester(item.key),
-                                onFocused = { onFocused(item.key) },
-                                onOpen = { onFolderOpen(item.folder.id) },
-                                onMenu = { onFolderMenu(item.folder) },
-                            )
+                        when (cell) {
+                            is Cell.Settings -> SettingsCell(requester(SETTINGS_TILE_KEY), { onFocused(SETTINGS_TILE_KEY, i + 2) }, onSettings)
+                            is Cell.Item -> when (val item = cell.item) {
+                                is GridItem.App -> AppCell(
+                                    app = item.app,
+                                    model = model,
+                                    moving = moving == item.key,
+                                    focusRequester = requester(item.key),
+                                    onFocused = { onFocused(item.key, i + 2) },
+                                    onMenu = { onAppMenu(item.app, false) },
+                                    launch = launch,
+                                )
+                                is GridItem.FolderItem -> FolderCell(
+                                    item = item,
+                                    model = model,
+                                    moving = moving == item.key,
+                                    focusRequester = requester(item.key),
+                                    onFocused = { onFocused(item.key, i + 2) },
+                                    onOpen = { onFolderOpen(item.folder.id) },
+                                    onMenu = { onFolderMenu(item.folder) },
+                                )
+                            }
                         }
                     }
                 }
-                repeat(COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
+                repeat(m.columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
 }
 
+/** tvOS shows "⌃ Swipe up for full screen" just above the tray. */
 @Composable
-private fun DockShelf(
+private fun ShelfHint(alpha: () -> Float) {
+    val palette = LocalPalette.current
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(bottom = 10.dp).graphicsLayer { this.alpha = alpha() },
+    ) {
+        Text("⌃", style = Type.secondary.copy(shadow = Type.shadow), color = palette.primary.copy(alpha = 0.85f))
+        Text("Press up for full screen", style = Type.caption.copy(shadow = Type.shadow), color = palette.primary.copy(alpha = 0.75f))
+    }
+}
+
+/** HOME-01: the top row lives in one large rounded glass slab spanning nearly the full width. */
+@Composable
+private fun DockTray(
     apps: List<AppEntry>,
     model: HomeModel,
     moving: String?,
     requester: (String) -> FocusRequester,
     onFocused: (String) -> Unit,
     onAppMenu: (AppEntry) -> Unit,
+    launch: (AppEntry, Rect?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val m = LocalMetrics.current
     Box(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = SidePadding - 14.dp)
-            .glass(LocalBackdrop.current, RoundedCornerShape(26.dp), GlassStyle.shelf(palette.light))
-            .padding(start = 14.dp, end = 14.dp, top = 14.dp),
+            .padding(horizontal = m.trayMargin)
+            .glass(LocalBackdrop.current, RoundedCornerShape(m.trayRadius), GlassStyle.shelf(palette.light))
+            .padding(start = m.inset - m.trayMargin, end = m.inset - m.trayMargin, top = m.trayPadVertical, bottom = m.trayPadVertical),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(ColumnGap), modifier = Modifier.fillMaxWidth().testTag("dock")) {
-            apps.forEach { app ->
+        Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().testTag("dock")) {
+            apps.take(m.columns).forEach { app ->
                 Box(Modifier.weight(1f)) {
                     val key = appKey(app.packageName)
                     AppCell(
@@ -468,10 +619,12 @@ private fun DockShelf(
                         focusRequester = requester(key),
                         onFocused = { onFocused(key) },
                         onMenu = { onAppMenu(app) },
+                        launch = launch,
+                        showLabel = false,
                     )
                 }
             }
-            repeat(DOCK_SIZE - apps.size) { Spacer(Modifier.weight(1f)) }
+            repeat(m.columns - apps.take(m.columns).size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -484,17 +637,23 @@ fun AppCell(
     focusRequester: FocusRequester?,
     onFocused: () -> Unit,
     onMenu: () -> Unit,
-    onClick: () -> Unit = { model.launch(app) },
+    launch: ((AppEntry, Rect?) -> Unit)? = null,
+    showLabel: Boolean = true,
 ) {
     val art = rememberArt(model, app)
+    val cfg by model.config.collectAsStateWithLifecycle()
+    var bounds by remember { mutableStateOf<Rect?>(null) }
     TileWithLabel(
         label = app.label,
         tag = "app:${app.packageName}",
         moving = moving,
+        isNew = model.isNew(app.packageName, cfg),
         focusRequester = focusRequester,
         onFocused = onFocused,
-        onClick = onClick,
+        onClick = { if (launch != null) launch(app, bounds) else model.launch(app) },
         onMenu = onMenu,
+        showLabel = showLabel,
+        tileModifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
     ) {
         art?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
@@ -514,79 +673,126 @@ private fun FolderCell(
         label = item.folder.name,
         tag = "folder:${item.folder.id}",
         moving = moving,
+        isNew = false,
         focusRequester = focusRequester,
         onFocused = onFocused,
         onClick = onOpen,
         onMenu = onMenu,
         glassBackground = true,
     ) {
-        // Up to six mini tiles, three per row, centred like a tvOS folder.
+        // HOME-06: a glass tile holding a 3x2 mini grid, filled from the top left like tvOS.
         Column(
-            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 10.dp),
         ) {
             item.apps.take(6).chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
                     row.forEach { app ->
                         val art = rememberArt(model, app)
-                        Box(Modifier.fillMaxWidth(0.3f).aspectRatio(16f / 9f).graphicsLayer { shape = RoundedCornerShape(5.dp); clip = true }) {
+                        Box(Modifier.weight(1f).aspectRatio(5f / 3f).graphicsLayer { shape = RoundedCornerShape(5.dp); clip = true }) {
                             art?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                         }
                     }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
     }
 }
 
+/** The launcher's own Settings, presented like the Apple TV Settings app tile at the end of the grid. */
+@Composable
+private fun SettingsCell(focusRequester: FocusRequester, onFocused: () -> Unit, onOpen: () -> Unit) {
+    TileWithLabel(
+        label = "Settings",
+        tag = "settings-tile",
+        moving = false,
+        isNew = false,
+        focusRequester = focusRequester,
+        onFocused = onFocused,
+        onClick = onOpen,
+        onMenu = onOpen,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF9CA3AF), Color(0xFF5B616B)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            dev.glasslauncher.widgets.GearIcon(Color(0xFFF2F3F5), size = 44.dp)
+        }
+    }
+}
+
+/**
+ * A 5:3 tile with the tvOS focus treatment, and its name in small grey text below it only while
+ * focused (HOME-04). Newly installed apps get a blue dot before the name.
+ */
 @Composable
 fun TileWithLabel(
     label: String,
     tag: String,
     moving: Boolean,
+    isNew: Boolean,
     focusRequester: FocusRequester?,
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onMenu: () -> Unit,
     glassBackground: Boolean = false,
+    showLabel: Boolean = true,
+    tileModifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val m = LocalMetrics.current
     var focused by remember { mutableStateOf(false) }
-    val labelAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(160), label = "label")
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    val labelAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(140), label = "label")
+    Column {
+    Box {
         FocusTile(
             label = label,
             onClick = onClick,
             onLongClick = onMenu,
             wiggle = moving,
             shadow = !glassBackground,
+            shape = RoundedCornerShape(m.tileRadius),
             onFocusChange = { focused = it; if (it) onFocused() },
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 9f)
+                .aspectRatio(m.tileAspect)
+                .then(tileModifier)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .testTag(tag)
                 .then(
-                    if (glassBackground) Modifier.glass(LocalBackdrop.current, Shapes.tile, GlassStyle.shelf(palette.light))
+                    if (glassBackground) Modifier.glass(LocalBackdrop.current, RoundedCornerShape(m.tileRadius), GlassStyle.shelf(palette.light))
                     else Modifier,
                 ),
         ) { content() }
-        Text(
-            text = label,
-            style = Type.label,
-            color = palette.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .padding(top = 12.dp, bottom = 4.dp)
-                .graphicsLayer {
-                    alpha = labelAlpha
-                    translationY = (1f - labelAlpha) * -6.dp.toPx()
-                },
-        )
+        if (showLabel || isNew) {
+            // Sits in the row gap below the tile so labels never change the layout.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationY = 12.dp.toPx() + size.height
+                        alpha = labelAlpha
+                    },
+            ) {
+                if (isNew) Box(Modifier.size(6.dp).background(palette.accent, CircleShape))
+                Text(
+                    text = label,
+                    style = Type.caption.copy(fontSize = Type.caption.fontSize * 0.98f),
+                    color = palette.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+    if (showLabel) Spacer(Modifier.height(m.labelSpace))
     }
 }
 

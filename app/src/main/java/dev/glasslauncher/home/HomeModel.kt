@@ -58,6 +58,7 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             layout.collect { l ->
                 if (!l.loaded) return@collect
                 seedDefaults(l.installed)
+                seedSeen(l.installed)
                 // Render every tile ahead of time so scrolling never waits on bitmap generation.
                 val cfg = config.value
                 l.installed.forEach { graph.tileArt.load(spec(it, cfg)) }
@@ -68,10 +69,20 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     fun spec(app: AppEntry, cfg: LauncherConfig = config.value) =
         TileSpec(app, cfg.customIcons[app.packageName], cfg.iconPack)
 
-    fun launch(app: AppEntry) {
+    /** Opens an app; with a source view and tile bounds the system zooms it out of the tile (MOTION-03). */
+    fun launch(app: AppEntry, from: android.view.View? = null, bounds: androidx.compose.ui.geometry.Rect? = null) {
         val intent = graph.apps.launchIntent(app) ?: return
-        try { getApplication<Application>().startActivity(intent) } catch (_: ActivityNotFoundException) { }
+        val options = if (from != null && bounds != null) {
+            android.app.ActivityOptions.makeScaleUpAnimation(
+                from, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt(),
+            ).toBundle()
+        } else null
+        try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
+        if (app.packageName !in config.value.seenApps) edit { it.copy(seenApps = it.seenApps + app.packageName) }
     }
+
+    /** New since the launcher last looked, and not opened yet: shows the blue dot. */
+    fun isNew(pkg: String, cfg: LauncherConfig = config.value) = cfg.seenApps.isNotEmpty() && pkg !in cfg.seenApps
 
     fun appInfo(app: AppEntry) = startSafely(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")),
@@ -183,6 +194,12 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         val dock = DEFAULT_DOCK.filter { it in have }.distinct().take(DOCK_SIZE)
         val hidden = DEFAULT_HIDDEN.filter { it in have }.toSet()
         store.update { c -> c.copy(dock = c.dock.ifEmpty { dock }, hidden = c.hidden + hidden, seededDefaults = true) }
+    }
+
+    /** Everything installed when the launcher first runs counts as already seen. */
+    private suspend fun seedSeen(installed: List<AppEntry>) {
+        if (config.value.seenApps.isNotEmpty()) return
+        store.update { c -> c.copy(seenApps = c.seenApps + installed.map { it.packageName }) }
     }
 
     companion object {

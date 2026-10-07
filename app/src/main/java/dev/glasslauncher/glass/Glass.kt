@@ -41,6 +41,26 @@ import androidx.compose.ui.unit.dp
 @Stable
 class BackdropState {
     var backdrop by mutableStateOf<Backdrop?>(null)
+        private set
+    /** The backdrop being faded out after a scene change; only non-null for the duration of [fade]. */
+    var previous by mutableStateOf<Backdrop?>(null)
+        private set
+    val fade = Animatable(1f)
+
+    /** Swaps in a new scene. The old one fades out (two passes) only for the short cross-fade. */
+    suspend fun swap(next: Backdrop, animate: Boolean) {
+        val old = backdrop
+        if (old == null || !animate) {
+            backdrop = next
+            return
+        }
+        previous = old
+        backdrop = next
+        fade.snapTo(0f)
+        fade.animateTo(1f, androidx.compose.animation.core.tween(550))
+        previous = null
+    }
+
     var rootSize by mutableStateOf(IntSize.Zero)
     /** 0 = sharp wallpaper, 1 = fully blurred (grid scrolled). Animated by the home screen. */
     val wallpaperBlur = Animatable(0f)
@@ -59,11 +79,12 @@ data class GlassStyle(
     val useOverlay: Boolean = false,
 ) {
     companion object {
-        fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.42f), 0.35f, 0.55f)
-        else GlassStyle(Color(0xFF1C2230).copy(alpha = 0.34f), 0.16f, 0.32f)
+        // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
+        fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.45f), 0.30f, 0.70f)
+        else GlassStyle(Color(0xFF1A1D24).copy(alpha = 0.28f), 0.12f, 0.48f)
 
-        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.28f), 0.3f, 0.5f)
-        else GlassStyle(Color.White.copy(alpha = 0.07f), 0.14f, 0.28f)
+        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.32f), 0.26f, 0.75f)
+        else GlassStyle(Color.Black.copy(alpha = 0.22f), 0.08f, 0.45f)
 
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
     }
@@ -133,12 +154,14 @@ private class GlassNode(
             val tintShader = LinearGradient(0f, 0f, 0f, 1f, tint, tint, Shader.TileMode.CLAMP)
             val highlight = LinearGradient(
                 0f, 0f, 0f, size.height,
+                // Gloss near the top, clear middle, soft inner shadow at the bottom (the bevel).
                 intArrayOf(
                     Color.White.copy(alpha = style.highlight).toArgb(),
                     Color.Transparent.toArgb(),
-                    Color.White.copy(alpha = style.highlight * 0.25f).toArgb(),
+                    Color.Transparent.toArgb(),
+                    Color.Black.copy(alpha = 0.16f).toArgb(),
                 ),
-                floatArrayOf(0f, 0.45f, 1f),
+                floatArrayOf(0f, 0.35f, 0.72f, 1f),
                 Shader.TileMode.CLAMP,
             )
             overlayShader = ComposeShader(tintShader, highlight, PorterDuff.Mode.SRC_OVER)
@@ -163,13 +186,12 @@ private class GlassNode(
         if (tint.luminance() > 0.5f) Color(0xF2F4F5F8) else Color(0xF21A1D25)
 
     private fun DrawScope.drawRim(outline: Outline) {
-        val brush = Brush.linearGradient(
+        // Edges are defined by light, not lines: bright along the top, fading out down the sides.
+        val brush = Brush.verticalGradient(
             0f to Color.White.copy(alpha = style.rim),
-            0.5f to Color.White.copy(alpha = style.rim * 0.25f),
-            1f to Color.White.copy(alpha = style.rim * 0.6f),
-            start = Offset.Zero,
-            end = Offset(size.width, size.height),
+            0.35f to Color.White.copy(alpha = style.rim * 0.18f),
+            1f to Color.White.copy(alpha = style.rim * 0.06f),
         )
-        drawOutline(outline, brush, style = Stroke(width = 1.2.dp.toPx()))
+        drawOutline(outline, brush, style = Stroke(width = 1.5.dp.toPx()))
     }
 }

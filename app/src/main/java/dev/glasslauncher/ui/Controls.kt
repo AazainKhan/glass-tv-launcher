@@ -4,6 +4,7 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -68,6 +69,7 @@ fun MenuRow(
     enabled: Boolean = true,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
+    chevron: Boolean = false,
 ) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
@@ -76,7 +78,8 @@ fun MenuRow(
     val prefs = LocalUiPrefs.current
     val view = LocalView.current
     val scale by animateFloatAsState(if (focused) 1.03f else 1f, spring(0.7f, 500f), label = "rowScale")
-    val bg by animateColorAsState(if (focused) palette.focusFill else Color.Transparent, label = "rowBg")
+    // SYS-02: rows rest on faint glass; the focused row is a solid white capsule.
+    val bg by animateColorAsState(if (focused) palette.focusFill else palette.primary.copy(alpha = if (palette.light) 0.06f else 0.08f), tween(90), label = "rowBg")
     val fg = when {
         focused -> palette.onFocusFill
         enabled -> palette.primary
@@ -89,7 +92,7 @@ fun MenuRow(
             .fillMaxWidth()
             .heightIn(min = 46.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(bg, Shapes.row)
+            .background(bg, Shapes.pill)
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused
@@ -124,6 +127,7 @@ fun MenuRow(
             Text(title, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (value != null) Text(value, style = Type.secondary, color = if (focused) fg.copy(alpha = 0.7f) else palette.secondary, maxLines = 1)
             trailing?.invoke(this)
+            if (chevron) Text("›", style = Type.heading, color = if (focused) fg.copy(alpha = 0.6f) else palette.faint)
         }
     }
 }

@@ -43,10 +43,10 @@ import android.view.SoundEffectConstants
 import kotlinx.coroutines.launch
 
 /**
- * A focusable surface with tvOS-style motion: spring lift and scale, a tilt in from the direction
- * focus arrived from, and a one-shot specular sweep. All motion runs in the layer/draw phase.
+ * A focusable surface with tvOS-style motion: spring lift and scale with a soft shadow, and a
+ * slight tilt in from the direction focus arrived from. All motion runs in the layer/draw phase.
  * Select = click, hold Select or press Menu = long click, Play/Pause = [onPlay] (defaults to click).
- * Honours [LocalUiPrefs]: reduce motion drops tilt, sheen and wiggle; sounds use the system's
+ * Honours [LocalUiPrefs]: reduce motion drops tilt and wiggle; sounds use the system's
  * navigation sound setting.
  */
 @Composable
@@ -55,7 +55,7 @@ fun FocusTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = Shapes.tile,
-    focusedScale: Float = 1.1f,
+    focusedScale: Float = 1.15f,
     wiggle: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
@@ -81,14 +81,12 @@ fun FocusTile(
     val lift by animateFloatAsState(if (focused) 1f else 0f, spring(stiffness = 300f), label = "lift")
     val tiltX = remember { Animatable(0f) }
     val tiltY = remember { Animatable(0f) }
-    val sheen = remember { Animatable(1f) }
     val wiggleAngle = remember { Animatable(0f) }
 
     LaunchedEffect(focused) {
         if (!focused || prefs.reduceMotion) return@LaunchedEffect
         launch { tiltY.snapTo(KeyDirection.dx * 8f); tiltY.animateTo(0f, spring(dampingRatio = 0.42f, stiffness = 180f)) }
         launch { tiltX.snapTo(-KeyDirection.dy * 8f); tiltX.animateTo(0f, spring(dampingRatio = 0.42f, stiffness = 180f)) }
-        launch { sheen.snapTo(0f); sheen.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) }
     }
     LaunchedEffect(wiggle) {
         if (wiggle && !prefs.reduceMotion) {
@@ -127,30 +125,8 @@ fun FocusTile(
             }
             .drawWithContent {
                 drawContent()
-                val s = sheen.value
-                if (focused && s < 1f) {
-                    val x = -size.width * 0.6f + s * size.width * 2.2f
-                    drawRect(
-                        Brush.linearGradient(
-                            0f to Color.Transparent,
-                            0.5f to Color.White.copy(alpha = 0.28f * (1f - s)),
-                            1f to Color.Transparent,
-                            start = Offset(x, 0f),
-                            end = Offset(x + size.width * 0.5f, size.height),
-                        ),
-                    )
-                }
-                if (focused && wiggle && prefs.reduceMotion) {
-                    drawRect(Color.White, style = Stroke(3.dp.toPx()))
-                }
-                if (focused) {
-                    drawRect(
-                        Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = 0.16f * lift),
-                            0.4f to Color.Transparent,
-                        ),
-                    )
-                }
+                // Reduce motion replaces the move-mode wiggle with a plain outline.
+                if (focused && wiggle && prefs.reduceMotion) drawRect(Color.White, style = Stroke(3.dp.toPx()))
             }
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())

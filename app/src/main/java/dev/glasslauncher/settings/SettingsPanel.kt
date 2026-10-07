@@ -35,6 +35,7 @@ import dev.glasslauncher.BuildConfig
 import dev.glasslauncher.app
 import dev.glasslauncher.data.AerialQuality
 import dev.glasslauncher.data.Auto
+import dev.glasslauncher.data.BackgroundMode
 import dev.glasslauncher.system.PhoneField
 import dev.glasslauncher.data.FeaturedSourceId
 import dev.glasslauncher.data.LauncherConfig
@@ -133,7 +134,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     val graph = context.app
     val scope = rememberCoroutineScope()
     PanelTitle("Settings")
-    MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name)
+    MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name, chevron = true)
     MenuRow("Set Up from Phone", {
         open(Overlay.PhoneSetup(
             "Glass Launcher Setup",
@@ -159,16 +160,16 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
             }
         })
     }, value = "QR code")
-    MenuRow("Featured Row", { push(Page.Featured) }, value = sourceName(cfg.featured.source))
-    MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString())
-    MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On")
-    MenuRow("Screensaver", { push(Page.Screensaver) })
-    MenuRow("Widgets", { push(Page.Widgets) })
-    MenuRow("Accessibility", { push(Page.Accessibility) })
-    MenuRow("Home Button", { push(Page.HomeButton) })
-    MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME)
-    MenuRow("Backup & Restore", { push(Page.Backup) })
-    MenuRow("About", { push(Page.About) })
+    MenuRow("Featured Row", { push(Page.Featured) }, value = sourceName(cfg.featured.source), chevron = true)
+    MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
+    MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
+    MenuRow("Screensaver", { push(Page.Screensaver) }, chevron = true)
+    MenuRow("Widgets", { push(Page.Widgets) }, chevron = true)
+    MenuRow("Accessibility", { push(Page.Accessibility) }, chevron = true)
+    MenuRow("Home Button", { push(Page.HomeButton) }, chevron = true)
+    MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
+    MenuRow("Backup & Restore", { push(Page.Backup) }, chevron = true)
+    MenuRow("About", { push(Page.About) }, chevron = true)
 }
 
 private fun sourceName(id: FeaturedSourceId) = when (id) {
@@ -186,8 +187,18 @@ private fun ColumnScope.AppearancePage(model: HomeModel, cfg: LauncherConfig, f:
         val next = ThemeMode.entries[(cfg.theme.ordinal + 1) % ThemeMode.entries.size]
         model.edit { it.copy(theme = next) }
     }, f, value = cfg.theme.name)
-    MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark))
-    MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight))
+    MenuRow("Background", {
+        val next = BackgroundMode.entries[(cfg.background.ordinal + 1) % BackgroundMode.entries.size]
+        model.edit { it.copy(background = next) }
+    }, value = when (cfg.background) { BackgroundMode.Featured -> "Featured"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" })
+    Hint("Featured fills Home with artwork from your featured source; Motion plays Apple's Aerial videos behind your apps.")
+    MenuRow("Text Size", {
+        val steps = listOf(1f, 1.15f, 1.3f)
+        val next = steps[(steps.indexOfFirst { it >= cfg.textScale - 0.01f }.coerceAtLeast(0) + 1) % steps.size]
+        model.edit { it.copy(textScale = next) }
+    }, value = when { cfg.textScale >= 1.3f -> "Largest"; cfg.textScale >= 1.15f -> "Large"; else -> "Default" })
+    MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark), chevron = true)
+    MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight), chevron = true)
     val fadeOptions = listOf(1, 3, 5, 10, 0)
     MenuRow("Fade Clock When Idle", {
         val next = fadeOptions[(fadeOptions.indexOf(cfg.idleFadeMinutes).coerceAtLeast(0) + 1) % fadeOptions.size]

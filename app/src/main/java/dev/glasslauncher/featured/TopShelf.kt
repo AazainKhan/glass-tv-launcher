@@ -1,12 +1,12 @@
 package dev.glasslauncher.featured
 
+import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,154 +14,155 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import coil3.request.transformations
-import dev.glasslauncher.app
-import dev.glasslauncher.data.FeaturedSourceId
-import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.ui.FocusTile
-import dev.glasslauncher.ui.LocalPalette
-import dev.glasslauncher.ui.LocalUiPrefs
-import dev.glasslauncher.ui.Safe
+import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.Type
-import kotlinx.coroutines.delay
 
 /**
- * The area above the top row, in the spirit of tvOS's inset-banner Top Shelf: a large hero for the
- * current item, short metadata, page dots, and a row of cards from the user's chosen source.
- * Rotates slowly while focus is elsewhere (never with reduce motion).
+ * The featured item's wordmark over the full-bleed backdrop, top left like an Apple TV top shelf.
+ * Logos are drawn as white wordmarks so they read on any art (some ship black-on-transparent).
  */
 @Composable
-fun TopShelf(cfg: LauncherConfig, modifier: Modifier = Modifier, paused: Boolean = false, onFocused: (Boolean) -> Unit) {
-    if (cfg.featured.source == FeaturedSourceId.Off) return
-    val context = LocalContext.current
-    val repo = context.app.featured
-    val prefs = LocalUiPrefs.current
-    LaunchedEffect(cfg.featured) { repo.refresh(cfg.featured) }
-    val state by repo.state.collectAsStateWithLifecycle()
-    val feed = state.feed
-    var index by remember { mutableIntStateOf(0) }
-    var focusInside by remember { mutableStateOf(false) }
-
-    LaunchedEffect(feed, focusInside, prefs.reduceMotion, paused) {
-        if (feed == null || focusInside || feed.items.size < 2 || prefs.reduceMotion || paused) return@LaunchedEffect
-        while (true) {
-            delay(9_000)
-            index = (index + 1) % feed.items.size
-        }
-    }
-
-    val palette = LocalPalette.current
-    Box(modifier.testTag("top-shelf")) {
-        val item = feed?.items?.getOrNull(index)
-        val request = remember(item?.image, prefs.reduceMotion) {
-            item?.image?.let {
-                ImageRequest.Builder(context)
-                    .data(it)
-                    .size(1024, 600)
-                    .transformations(HeroMask())
-                    .crossfade(if (prefs.reduceMotion) 0 else 450)
-                    .build()
-            }
-        }
-        AsyncImage(
-            model = request,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopEnd,
-            modifier = Modifier.fillMaxHeight().fillMaxWidth(0.72f).align(Alignment.TopEnd),
-        )
+fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = Modifier) {
+    val m = LocalMetrics.current
+    Box(modifier) {
         Column(
             Modifier
-                .fillMaxHeight()
-                .padding(start = Safe.horizontal, top = Safe.top + 8.dp, bottom = 8.dp)
-                .width(440.dp),
+                .padding(start = m.inset, top = m.chromeInset + 14.dp)
+                .widthIn(max = 420.dp)
+                .graphicsLayer { alpha = 1f - expanded() },
         ) {
-            when {
-                item != null -> {
-                    if (item.logo != null) {
-                        AsyncImage(
-                            item.logo, item.title,
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.CenterStart,
-                            modifier = Modifier.height(68.dp).fillMaxWidth(0.85f),
-                        )
-                    } else {
-                        Text(item.title, style = Type.display, color = palette.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    item.subtitle?.let {
-                        Text(it, style = Type.secondary, color = palette.secondary, maxLines = 1, modifier = Modifier.padding(top = 10.dp))
-                    }
-                    item.description?.let {
-                        Text(it, style = Type.secondary, color = palette.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                    }
-                    if (feed.items.size > 1) PageDots(count = feed.items.size.coerceAtMost(12), active = index.coerceAtMost(11))
-                }
-                state.error != null -> Text(state.error!!, style = Type.body, color = palette.secondary, modifier = Modifier.padding(top = 40.dp))
-            }
-        }
-        if (feed != null && feed.items.isNotEmpty()) {
-            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 12.dp)) {
-                Text(feed.heading.uppercase(), style = Type.overline, color = palette.secondary, modifier = Modifier.padding(start = Safe.horizontal, bottom = 8.dp))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = Safe.horizontal),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 66.dp)
-                        .onFocusChanged { focusInside = it.hasFocus; onFocused(it.hasFocus) },
-                ) {
-                    itemsIndexed(feed.items, key = { _, it -> it.id }) { i, card ->
-                        val cardRequest = remember(card.image) {
-                            ImageRequest.Builder(context).data(card.image).size(240, 135).crossfade(false).build()
-                        }
-                        FocusTile(
-                            label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
-                            onClick = { card.open(context) },
-                            onFocusChange = { if (it) index = i },
-                            modifier = Modifier.width(118.dp).height(66.dp).testTag("featured:${card.id}"),
-                        ) {
-                            AsyncImage(cardRequest, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        }
-                    }
-                }
+            Wordmark(item, height = 58.dp)
+            item.subtitle?.let {
+                Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.78f), maxLines = 1, modifier = Modifier.padding(top = 10.dp))
             }
         }
     }
 }
 
 @Composable
-private fun PageDots(count: Int, active: Int) {
-    val palette = LocalPalette.current
-    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 14.dp)) {
-        repeat(count) { i ->
-            Box(
-                Modifier
-                    .size(if (i == active) 8.dp else 6.dp)
-                    .background(if (i == active) palette.primary else palette.faint, CircleShape),
-            )
+private fun Wordmark(item: FeaturedItem, height: Dp) {
+    if (item.logo != null) {
+        AsyncImage(
+            model = item.logo,
+            contentDescription = item.title,
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart,
+            colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
+            modifier = Modifier.height(height).fillMaxWidth(),
+        )
+    } else {
+        Text(item.title, style = Type.display.copy(shadow = Type.shadow), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * "Swipe up for full screen": the tray and grid slide away, the artwork gets the whole screen, and a
+ * row of the source's titles sits along the bottom. Left/right browses (the backdrop follows),
+ * Select opens the title, Down or Back returns to the tray.
+ */
+@Composable
+fun ExpandedShelf(
+    feed: FeaturedFeed,
+    index: Int,
+    progress: () -> Float,
+    firstCard: FocusRequester,
+    onIndex: (Int) -> Unit,
+    onExitDown: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val m = LocalMetrics.current
+    val context = LocalContext.current
+    val item = feed.items.getOrNull(index) ?: return
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = (index - 1).coerceAtLeast(0))
+    Box(
+        modifier.graphicsLayer {
+            alpha = progress()
+            translationY = (1f - progress()) * 40.dp.toPx()
+        },
+    ) {
+        Column(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(bottom = 34.dp),
+        ) {
+            Column(Modifier.padding(start = m.inset).widthIn(max = 520.dp)) {
+                Wordmark(item, height = 76.dp)
+                item.subtitle?.let {
+                    Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
+                }
+                item.description?.let {
+                    Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 14.dp, bottom = 18.dp)) {
+                    val shown = feed.items.size.coerceAtMost(12)
+                    repeat(shown) { i ->
+                        val active = i == index.coerceAtMost(shown - 1)
+                        Box(Modifier.size(if (active) 8.dp else 6.dp).background(Color.White.copy(alpha = if (active) 1f else 0.4f), CircleShape))
+                    }
+                }
+            }
+            Text(feed.heading, style = Type.label.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 10.dp))
+            LazyRow(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = m.inset),
+                horizontalArrangement = Arrangement.spacedBy(m.gutter * 0.8f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 84.dp)
+                    .onPreviewKeyEvent { e ->
+                        val k = e.nativeKeyEvent
+                        if (k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && k.action == AndroidKeyEvent.ACTION_DOWN) { onExitDown(); true } else false
+                    }
+                    .testTag("featured-row"),
+            ) {
+                itemsIndexed(feed.items, key = { _, it -> it.id }) { i, card ->
+                    val request = remember(card.image) {
+                        ImageRequest.Builder(context).data(card.image).size(300, 170).crossfade(false).build()
+                    }
+                    FocusTile(
+                        label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
+                        onClick = { card.open(context) },
+                        shape = RoundedCornerShape(10.dp),
+                        onFocusChange = { if (it) onIndex(i) },
+                        modifier = Modifier
+                            .width(150.dp)
+                            .height(84.dp)
+                            .then(if (i == index) Modifier.focusRequester(firstCard) else Modifier)
+                            .testTag("featured:${card.id}"),
+                    ) {
+                        AsyncImage(request, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    }
+                }
+            }
         }
     }
 }

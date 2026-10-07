@@ -30,6 +30,9 @@ import dev.glasslauncher.data.Folder
 import dev.glasslauncher.glass.Blur
 import dev.glasslauncher.glass.WallpaperLoader
 import dev.glasslauncher.ui.GlassBox
+import dev.glasslauncher.glass.glass
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,6 +51,7 @@ sealed interface Overlay {
     ) : Overlay
     data object Settings : Overlay
     data object Tips : Overlay
+    data object ControlCenter : Overlay
     data class PhoneSetup(
         val title: String,
         val fields: List<dev.glasslauncher.system.PhoneField>,
@@ -77,7 +81,8 @@ fun Modifier.trapFocus(active: Boolean): Modifier =
 @Composable
 fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
     val enter = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { enter.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 380f)) }
+    // MOTION-02: system surfaces appear in well under 100 ms.
+    LaunchedEffect(Unit) { enter.animateTo(1f, tween(90)) }
     Box(
         Modifier
             .fillMaxSize()
@@ -102,7 +107,7 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope
 fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        launch { enter.animateTo(1f, tween(260)) }
+        launch { enter.animateTo(1f, tween(140)) }
     }
     Box(
         Modifier
@@ -129,6 +134,47 @@ object MinimalScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
             offset < 0 && trailing > containerSize -> 0f
             kotlin.math.abs(offset) < kotlin.math.abs(trailing - containerSize) -> offset
             else -> trailing - containerSize
+        }
+    }
+}
+
+/** Collects the current page's title so a full-page layout can centre it at the top (SYS-02). */
+class TitleSink { var title by androidx.compose.runtime.mutableStateOf("") }
+val LocalTitleSink = androidx.compose.runtime.staticCompositionLocalOf<TitleSink?> { null }
+
+/**
+ * SYS-02: Settings as a full page over the blurred Home: a centred grey title, a large glass icon in
+ * the left third, and the list on the right.
+ */
+@Composable
+fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    val palette = dev.glasslauncher.ui.LocalPalette.current
+    val sink = remember { TitleSink() }
+    FullOverlay(active) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    androidx.compose.ui.Modifier.glass(
+                        dev.glasslauncher.glass.LocalBackdrop.current,
+                        androidx.compose.ui.graphics.RectangleShape,
+                        dev.glasslauncher.glass.GlassStyle.overlay(palette.light).copy(highlight = 0f, rim = 0f),
+                    ),
+                ),
+        )
+        androidx.tv.material3.Text(
+            sink.title,
+            style = dev.glasslauncher.ui.Type.title.copy(fontSize = dev.glasslauncher.ui.Type.title.fontSize * 0.62f),
+            color = palette.secondary,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+        )
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(top = 70.dp, start = 45.dp, end = 45.dp, bottom = 20.dp)) {
+            Box(Modifier.weight(0.42f).fillMaxHeight(), contentAlignment = Alignment.Center) { icon() }
+            Box(Modifier.weight(0.58f).fillMaxHeight()) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalTitleSink provides sink) {
+                    Box(Modifier.fillMaxSize().trapFocus(active), content = content)
+                }
+            }
         }
     }
 }

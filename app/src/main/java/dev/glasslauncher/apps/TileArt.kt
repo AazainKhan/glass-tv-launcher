@@ -52,8 +52,16 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
     }
 
     /** Icon on a coloured backing, used for folder previews and menus. */
-    fun icon(app: AppEntry): Drawable =
-        runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: pm.defaultActivityIcon
+    fun icon(app: AppEntry): Drawable = hiResIcon(app)
+        ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: pm.defaultActivityIcon
+
+    /** The launcher icon at xxxhdpi: the default density on a TV is low and looks soft when enlarged. */
+    private fun hiResIcon(app: AppEntry): Drawable? = runCatching {
+        val info = pm.getActivityInfo(app.component, 0)
+        val iconRes = info.iconResource.takeIf { it != 0 } ?: info.applicationInfo.icon
+        val res = pm.getResourcesForApplication(info.applicationInfo)
+        res.getDrawableForDensity(iconRes, android.util.DisplayMetrics.DENSITY_XXXHIGH, null)
+    }.getOrNull()
 
     private fun render(spec: TileSpec): Bitmap {
         val app = spec.app
@@ -119,26 +127,48 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         icon.foreground.draw(canvas)
     }
 
+    /**
+     * A full-width tile in one consistent style for apps that ship no TV banner: icons with a solid
+     * edge colour are extended across the tile so the icon merges into it; anything busier sits on a
+     * blurred, colour-matched wash of itself, like the flat logo tiles on tvOS.
+     */
     private fun drawGenerated(canvas: Canvas, icon: Drawable) {
-        val base = dominantColor(icon)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                0f, 0f, WIDTH.toFloat(), HEIGHT.toFloat(),
-                shade(base, 1.15f), shade(base, 0.7f), Shader.TileMode.CLAMP,
-            )
-        }
-        canvas.drawRect(0f, 0f, WIDTH.toFloat(), HEIGHT.toFloat(), paint)
+        val probe = Bitmap.createBitmap(PROBE, PROBE, Bitmap.Config.ARGB_8888)
+        icon.setBounds(0, 0, PROBE, PROBE)
+        icon.draw(Canvas(probe))
+        val edge = edgeColor(probe)
 
-        val size = (HEIGHT * 0.58f).toInt()
+        if (edge != null) {
+            canvas.drawColor(edge)
+            val size = (HEIGHT * 1.02f).toInt()
+            val left = (WIDTH - size) / 2
+            val top = (HEIGHT - size) / 2
+            icon.setBounds(left, top, left + size, top + size)
+            icon.draw(canvas)
+            probe.recycle()
+            return
+        }
+
+        val wash = Bitmap.createBitmap(48, 29, Bitmap.Config.ARGB_8888)
+        Canvas(wash).apply {
+            drawColor(dominantColor(probe))
+            drawBitmap(probe, android.graphics.Rect(0, 0, PROBE, PROBE), android.graphics.RectF(-6f, -16f, 54f, 44f), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+        dev.glasslauncher.glass.Blur.blurInPlace(wash, 6)
+        canvas.drawBitmap(wash, null, RectF(0f, 0f, WIDTH.toFloat(), HEIGHT.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
+        canvas.drawColor(Color.argb(40, 0, 0, 0))
+        wash.recycle()
+        probe.recycle()
+
+        val size = (HEIGHT * 0.64f).toInt()
         val left = (WIDTH - size) / 2f
         val top = (HEIGHT - size) / 2f
         val rect = RectF(left, top, left + size, top + size)
-        val radius = size * 0.22f
-        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(70, 0, 0, 0)
-            setShadowLayer(16f, 0f, 5f, Color.argb(90, 0, 0, 0))
-        }
-        canvas.drawRoundRect(rect, radius, radius, shadow)
+        val radius = size * 0.23f
+        canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(60, 0, 0, 0)
+            setShadowLayer(14f, 0f, 4f, Color.argb(80, 0, 0, 0))
+        })
         canvas.save()
         canvas.clipPath(Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) })
         icon.setBounds(rect.left.toInt(), rect.top.toInt(), rect.right.toInt(), rect.bottom.toInt())
@@ -146,11 +176,26 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         canvas.restore()
     }
 
-    private fun dominantColor(icon: Drawable): Int {
+    /** The icon's border colour when the outer ring is (nearly) one solid colour, else null. */
+    private fun edgeColor(probe: Bitmap): Int? {
+        val samples = ArrayList<Int>()
+        val inset = PROBE / 12
+        for (i in inset until PROBE - inset step 3) {
+            listOf(probe.getPixel(i, inset), probe.getPixel(i, PROBE - 1 - inset), probe.getPixel(inset, i), probe.getPixel(PROBE - 1 - inset, i))
+                .filter { Color.alpha(it) > 230 }
+                .forEach { samples += it }
+        }
+        if (samples.size < 40) return null
+        val r = samples.map { Color.red(it) }.sorted()[samples.size / 2]
+        val g = samples.map { Color.green(it) }.sorted()[samples.size / 2]
+        val b = samples.map { Color.blue(it) }.sorted()[samples.size / 2]
+        val close = samples.count { kotlin.math.abs(Color.red(it) - r) + kotlin.math.abs(Color.green(it) - g) + kotlin.math.abs(Color.blue(it) - b) < 36 }
+        return if (close >= samples.size * 0.85f) Color.rgb(r, g, b) else null
+    }
+
+    private fun dominantColor(probe: Bitmap): Int {
         val s = 24
-        val small = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
-        icon.setBounds(0, 0, s, s)
-        icon.draw(Canvas(small))
+        val small = Bitmap.createScaledBitmap(probe, s, s, true)
         var r = 0.0; var g = 0.0; var b = 0.0; var weight = 0.0
         val hsv = FloatArray(3)
         for (y in 0 until s) for (x in 0 until s) {
@@ -173,7 +218,9 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
     )
 
     companion object {
-        const val WIDTH = 336
-        const val HEIGHT = 189
+        // 5:3, the tvOS app tile shape.
+        const val WIDTH = 340
+        const val HEIGHT = 204
+        private const val PROBE = 96
     }
 }

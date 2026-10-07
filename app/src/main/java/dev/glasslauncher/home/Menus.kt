@@ -71,6 +71,7 @@ import dev.glasslauncher.system.PhoneField
 import dev.glasslauncher.system.PhoneSetupServer
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.launch
 
 @Composable
@@ -117,7 +118,8 @@ fun OverlayContent(
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, model, layout, active, open, close)
-        Overlay.Settings -> SidePanel(active, width = 480.dp) { SettingsPanel(model, cfg, layout, active, open, close) }
+        Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
+        Overlay.ControlCenter -> ControlCenter(model, cfg, active, open, closeAll)
     }
 }
 
@@ -145,7 +147,25 @@ fun MenuList(active: Boolean, content: @Composable ColumnScope.(FocusRequester) 
 
 @Composable
 fun PanelTitle(text: String) {
+    val sink = LocalTitleSink.current
+    if (sink != null) {
+        // Full-page layouts show the title centred at the top instead.
+        LaunchedEffect(text) { sink.title = text }
+        return
+    }
     Text(text, style = Type.title, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 18.dp, bottom = 12.dp, top = 4.dp))
+}
+
+/** The big glass tile in the left third of Settings. */
+@Composable
+private fun SettingsIcon() {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .size(200.dp)
+            .glass(LocalBackdrop.current, RoundedCornerShape(44.dp), GlassStyle.panel(palette.light)),
+        contentAlignment = Alignment.Center,
+    ) { dev.glasslauncher.widgets.GearIcon(palette.primary.copy(alpha = 0.85f), size = 96.dp) }
 }
 
 @Composable
@@ -302,52 +322,64 @@ private fun FolderView(
         }
     }
     FullOverlay(active) {
+        // The home screen behind is shown blurred, with a frosted panel and a capsule name above it.
         Box(
             Modifier
                 .fillMaxSize()
-                .glass(LocalBackdrop.current, RectangleShape, GlassStyle.overlay(palette.light).copy(highlight = 0f, rim = 0f))
-                .background(if (palette.light) Color(0x22FFFFFF) else Color(0x33000000)),
+                .glass(LocalBackdrop.current, RectangleShape, GlassStyle.overlay(palette.light).copy(highlight = 0f, rim = 0f)),
         )
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(top = 70.dp, start = 48.dp, end = 48.dp),
+            modifier = Modifier.fillMaxSize().padding(top = 22.dp),
         ) {
             FocusTile(
                 label = "Folder name, ${folder.folder.name}",
                 shape = Shapes.pill,
                 focusedScale = 1.06f,
+                shadow = false,
                 onClick = { open(Overlay.TextInput("Rename Folder", folder.folder.name) { model.renameFolder(folderId, it) }) },
                 modifier = Modifier.testTag("folder-title"),
             ) { focused ->
                 Text(
                     folder.folder.name,
-                    style = Type.title,
+                    style = Type.heading,
                     textAlign = TextAlign.Center,
                     color = if (focused) palette.onFocusFill else palette.primary,
                     modifier = Modifier
-                        .background(if (focused) palette.focusFill else Color.Transparent, Shapes.pill)
-                        .padding(horizontal = 26.dp, vertical = 8.dp),
+                        .then(
+                            if (focused) Modifier.background(palette.focusFill, Shapes.pill)
+                            else Modifier.glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light)),
+                        )
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
                 )
             }
-            Spacer(Modifier.height(34.dp))
-            folder.apps.chunked(COLUMNS).forEachIndexed { rowIndex, row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                    row.forEachIndexed { i, app ->
-                        val key = appKey(app.packageName)
-                        val req = remember(key, rowIndex, i) { if (rowIndex == 0 && i == 0) first else requesters.getOrPut(key) { FocusRequester() } }
-                        requesters[key] = req
-                        Box(Modifier.weight(1f)) {
-                            AppCell(
-                                app = app,
-                                model = model,
-                                moving = false,
-                                focusRequester = req,
-                                onFocused = { lastFocused.value = key },
-                                onMenu = { open(Overlay.AppMenu(app, inDock = false, folderId = folderId)) },
-                            )
+            Spacer(Modifier.height(14.dp))
+            Box(
+                Modifier
+                    .width(500.dp)
+                    .glass(LocalBackdrop.current, RoundedCornerShape(30.dp), GlassStyle.panel(palette.light))
+                    .padding(horizontal = 30.dp, vertical = 26.dp),
+            ) {
+                Column {
+                    folder.apps.chunked(3).forEachIndexed { rowIndex, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(30.dp), modifier = Modifier.fillMaxWidth()) {
+                            row.forEachIndexed { i, app ->
+                                val key = appKey(app.packageName)
+                                val req = remember(key, rowIndex, i) { if (rowIndex == 0 && i == 0) first else requesters.getOrPut(key) { FocusRequester() } }
+                                Box(Modifier.weight(1f)) {
+                                    AppCell(
+                                        app = app,
+                                        model = model,
+                                        moving = false,
+                                        focusRequester = req,
+                                        onFocused = { lastFocused.value = key },
+                                        onMenu = { open(Overlay.AppMenu(app, inDock = false, folderId = folderId)) },
+                                    )
+                                }
+                            }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
-                    repeat(COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }

@@ -75,7 +75,7 @@ object Weather {
 }
 
 @Composable
-fun WeatherLabel(cfg: WeatherConfig) {
+fun WeatherLabel(cfg: WeatherConfig, color: androidx.compose.ui.graphics.Color = LocalPalette.current.primary) {
     val http = LocalContext.current.app.http
     val text by produceState<String?>(null, cfg) {
         while (true) {
@@ -83,5 +83,5 @@ fun WeatherLabel(cfg: WeatherConfig) {
             delay(if (value == null) 120_000 else 30 * 60_000L)
         }
     }
-    text?.let { Text(it, style = Type.heading.copy(shadow = TextShadow), color = LocalPalette.current.primary, modifier = Modifier.testTag("weather")) }
+    text?.let { Text(it, style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f), color = color, modifier = Modifier.testTag("weather")) }
 }
