@@ -92,9 +92,9 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val bluetooth = remember(active) { SystemControls.bluetoothOn() }
     val clock = rememberClock(cfg.clock24h, seconds = true)
     // The time sits straight on the art (no glass), so it follows the art behind it, not the theme.
-    val headerOnLight = LocalBackdrop.current.backdrop?.artLight(0.6f, 0f, 1f, 0.12f) == true
+    val headerOnLight = LocalBackdrop.current.backdrop?.artLight(0.72f, 0f, 0.98f, 0.09f) == true
     val headerColor = if (headerOnLight) Color(0xFF0E1015) else Color.White
-    val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium, shadow = if (headerOnLight) null else Type.shadow)
+    val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium, shadow = if (headerOnLight) null else Type.strongShadow)
     val textSteps = listOf(1f to "Default", 1.15f to "Large", 1.3f to "Larger")
     val textIndex = textSteps.indexOfFirst { it.first >= cfg.textScale - 0.01f }.coerceAtLeast(0)
     val dark = cfg.theme != ThemeMode.Light

@@ -50,15 +50,16 @@ class Backdrop(
 ) {
     /**
      * Whether the art behind a region (fractions of the screen) is light, so text placed straight on it
-     * (not on glass) should be dark. Uses the brightest cell: a light patch is what makes white text fail.
+     * (not on glass) should be dark. Uses the region's average: white text carries a shadow, so it holds
+     * up over a few bright patches, while dark text over mostly dark art (the brightest-cell rule) didn't.
      */
     fun artLight(left: Float, top: Float, right: Float, bottom: Float): Boolean {
         if (luma.isEmpty()) return isLight
-        var max = 0f
+        var sum = 0f; var n = 0
         val c0 = (left * LUMA_COLS).toInt().coerceIn(0, LUMA_COLS - 1); val c1 = (right * LUMA_COLS).toInt().coerceIn(c0, LUMA_COLS - 1)
         val r0 = (top * LUMA_ROWS).toInt().coerceIn(0, LUMA_ROWS - 1); val r1 = (bottom * LUMA_ROWS).toInt().coerceIn(r0, LUMA_ROWS - 1)
-        for (r in r0..r1) for (c in c0..c1) max = maxOf(max, luma[r * LUMA_COLS + c])
-        return max > 0.62f
+        for (r in r0..r1) for (c in c0..c1) { sum += luma[r * LUMA_COLS + c]; n++ }
+        return sum / n > 0.6f
     }
 
     companion object {

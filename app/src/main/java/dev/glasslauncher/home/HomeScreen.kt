@@ -688,6 +688,16 @@ private fun BackdropLayer(state: BackdropState, drawSharp: Boolean) {
         val alphaForMotion = if (drawSharp) 1f else ((blur - 0.05f) * 3f).coerceIn(0f, 1f)
         val previous = state.previous
         val current = state.backdrop ?: return@Canvas
+        // Mid-scroll, blend the two neighbouring blur steps so the blur (and its appearance wash) ramps
+        // continuously instead of stepping through the ladder. Two full-screen draws only while it moves.
+        val pos = blur * current.ladder.lastIndex
+        val lower = pos.toInt().coerceIn(0, current.ladder.lastIndex)
+        val frac = pos - lower
+        if (previous == null && drawSharp && frac > 0.04f && frac < 0.96f && lower < current.ladder.lastIndex) {
+            drawImage(current.ladder[lower], dstSize = dst, filterQuality = FilterQuality.Low)
+            drawImage(current.ladder[lower + 1], dstSize = dst, alpha = frac, filterQuality = FilterQuality.Low)
+            return@Canvas
+        }
         if (previous != null) drawImage(step(previous), dstSize = dst, alpha = alphaForMotion, filterQuality = FilterQuality.Low)
         drawImage(
             step(current),

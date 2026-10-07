@@ -94,6 +94,8 @@ object Type {
     val overline = TextStyle(fontFamily = InterFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
 
     val shadow = Shadow(Color.Black.copy(alpha = 0.45f), Offset(0f, 2f), 10f)
+    /** For white text straight on busy art: tighter and darker, so the letters keep an edge. */
+    val strongShadow = Shadow(Color.Black.copy(alpha = 0.75f), Offset(0f, 1.5f), 6f)
 }
 
 /** TV-safe insets: tvOS keeps critical content 60pt (30dp here) from every edge. */

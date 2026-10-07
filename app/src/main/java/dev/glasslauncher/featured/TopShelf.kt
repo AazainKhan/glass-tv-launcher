@@ -130,7 +130,7 @@ fun ExpandedShelf(
                 .fillMaxWidth()
                 .padding(bottom = 34.dp),
         ) {
-            Column(Modifier.padding(start = m.inset).widthIn(max = 520.dp)) {
+            Column(Modifier.padding(start = m.inset).widthIn(max = 640.dp)) {
                 Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
                     Column {
                         Wordmark(shown, height = 76.dp)
@@ -138,7 +138,8 @@ fun ExpandedShelf(
                             Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
                         }
                         shown.description?.let {
-                            Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                            // The whole synopsis in full screen (it was cut at two lines); five covers nearly all.
+                            Text(it, style = Type.secondary.copy(shadow = Type.strongShadow), color = Color.White.copy(alpha = 0.9f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
                 }

@@ -192,7 +192,9 @@ private class GlassNode(
         // it looks the same as its tint alone, so skip sampling the texture and draw flat. The glass was
         // most of the GPU time on the dock-to-grid scroll (25% janky frames before, ~1% after).
         // Flat while the backdrop is blurred or blurring; the texture fades back in after the scroll lands.
-        val texture = if (style.useOverlay) 1f else if (blur > 0f) 0f else state.textureIn.value
+        // Glass that carries text (overlays, Control Center) always keeps its texture: a flat tint fails
+        // contrast, and a tile drawn mid-scroll could stay see-through until something redrew it.
+        val texture = if (style.useOverlay || style.legible) 1f else if (blur > 0f) 0f else state.textureIn.value
         val overBlur = texture < 1f
         // Clear glass follows the blur behind it: light over the sharp hero, frosted once the grid is up.
         val clear = style.clear && !state.reduceTransparency
