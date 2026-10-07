@@ -7,6 +7,11 @@
 #   scripts/tv-type --submit "query"         then press the keyboard's action button (Done)
 #   scripts/tv-type --submit=3 "query"       action code: 2 Go, 3 Search, 5 Next, 6 Done
 #   scripts/tv-type --select "name"          press Select first, to start editing the focused row
+#   scripts/tv-type --stay "partial"         leave ADBKeyBoard active (more typing to come)
+#   scripts/tv-type --restore                switch back to Fire TV's keyboard
+#
+# Without --submit (or --stay), switching back while the field still has focus pops Fire TV's
+# full-screen keyboard open, so finish edits with --submit.
 #
 # The field must be focused, or use --select on a text row so editing starts after the IME switch
 # (otherwise Fire TV's full-screen keyboard opens first). The previous IME (Fire TV's
@@ -15,17 +20,19 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IME=com.android.adbkeyboard/.AdbIME
-CLEAR=1; SUBMIT=""; SELECT=0
+CLEAR=1; SUBMIT=""; SELECT=0; STAY=0
 while [ $# -gt 1 ] || [[ "${1:-}" == --* ]]; do
   case "$1" in
     --append) CLEAR=0; shift ;;
     --select) SELECT=1; shift ;;
+    --stay) STAY=1; shift ;;
+    --restore) adb shell ime set com.amazon.tv.ime/.FireTVIME >/dev/null; echo restored; exit 0 ;;
     --submit) SUBMIT=6; shift ;;
     --submit=*) SUBMIT="${1#--submit=}"; shift ;;
     *) break ;;
   esac
 done
-[ $# -eq 1 ] || { sed -n '2,14p' "$0"; exit 2; }
+[ $# -eq 1 ] || { sed -n '2,19p' "$0"; exit 2; }
 
 if ! adb shell pm path com.android.adbkeyboard >/dev/null 2>&1; then
   # Not vendored (GPL-2.0, and it's only a dev tool): fetched once from the project, pinned by hash.
@@ -40,7 +47,7 @@ fi
 prev="$(adb shell settings get secure default_input_method | tr -d '\r')"
 [ "$prev" = "$IME" ] && prev=com.amazon.tv.ime/.FireTVIME   # a previous run was interrupted
 restore() { adb shell ime set "$prev" >/dev/null; }
-trap restore EXIT
+[ "$STAY" = 1 ] || trap restore EXIT
 
 adb shell "ime enable $IME >/dev/null; ime set $IME >/dev/null"
 [ "$SELECT" = 1 ] && "$ROOT/scripts/key" select wait:300 >/dev/null
