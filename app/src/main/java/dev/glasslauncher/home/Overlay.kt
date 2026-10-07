@@ -38,9 +38,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 sealed interface Overlay {
-    data class AppMenu(val app: AppEntry, val inDock: Boolean, val folderId: String?) : Overlay
+    /** [anchor]: the tile's bounds in the window, so the menu opens beside it (tvOS context menu). */
+    data class AppMenu(val app: AppEntry, val inDock: Boolean, val folderId: String?, val anchor: androidx.compose.ui.geometry.Rect? = null) : Overlay
+    data class MoveTo(val app: AppEntry, val inDock: Boolean, val folderId: String?, val anchor: androidx.compose.ui.geometry.Rect?) : Overlay
     data class FolderMenu(val folder: Folder) : Overlay
-    data class FolderOpen(val folderId: String) : Overlay
+    /** [anchor]: the folder tile's bounds, so the panel grows out of it. */
+    data class FolderOpen(val folderId: String, val anchor: androidx.compose.ui.geometry.Rect? = null) : Overlay
     data class FolderPicker(val app: AppEntry) : Overlay
     data class IconPicker(val app: AppEntry) : Overlay
     data class TextInput(
@@ -84,15 +87,13 @@ fun Modifier.trapFocus(active: Boolean): Modifier =
 /** Right-hand glass panel that slides in, used for menus and settings. */
 @Composable
 fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
-    val enter = remember { Animatable(0f) }
-    // MOTION-02: system surfaces appear in well under 100 ms.
-    LaunchedEffect(Unit) { enter.animateTo(1f, tween(90)) }
+    val enter = rememberOverlayEnter()
+    // No dimming behind it (tvOS doesn't dim for these, and a full-screen scrim is an extra GPU pass).
     Box(
         Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = enter.value },
     ) {
-        Box(Modifier.fillMaxSize().background(Scrim))
         GlassBox(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -109,10 +110,7 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope
 /** Fades and scales a full-screen overlay in. */
 @Composable
 fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
-    val enter = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        launch { enter.animateTo(1f, tween(140)) }
-    }
+    val enter = rememberOverlayEnter()
     Box(
         Modifier
             .fillMaxSize()
@@ -127,6 +125,25 @@ fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
 }
 
 val Scrim = Color(0x59000000)
+
+/**
+ * True while an overlay is leaving: it stays composed, without focus, for its exit animation
+ * (tvOS: exits mirror entrances, nothing vanishes in one frame), then Home removes it.
+ */
+val LocalOverlayExiting = androidx.compose.runtime.compositionLocalOf { false }
+
+/** The last tile that asked for its menu: tiles write their bounds here just before opening one. */
+class MenuAnchor { var bounds: androidx.compose.ui.geometry.Rect? = null }
+val LocalMenuAnchor = androidx.compose.runtime.staticCompositionLocalOf { MenuAnchor() }
+
+/** 0 → 1 on entrance and back to 0 on exit, with the overlay curve (~130 ms each way). */
+@Composable
+fun rememberOverlayEnter(): Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
+    val enter = remember { Animatable(0f) }
+    val exiting = LocalOverlayExiting.current
+    LaunchedEffect(exiting) { enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay()) }
+    return enter
+}
 
 /** Scroll only as far as needed to reveal the focused row (Compose's TV default pivots every row to 30%). */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -180,5 +197,66 @@ fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Compos
                 }
             }
         }
+    }
+}
+
+/**
+ * A compact glass menu beside its tile, like the tvOS context menu: to the right of the tile when it
+ * fits, else to the left, vertically centred on it. It grows out of the tile edge (~130 ms) and
+ * shrinks back on close. No dimming behind it.
+ */
+@Composable
+fun AnchoredMenu(
+    active: Boolean,
+    anchor: androidx.compose.ui.geometry.Rect?,
+    width: Dp = 270.dp,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.(androidx.compose.ui.focus.FocusRequester) -> Unit,
+) {
+    val enter = rememberOverlayEnter()
+    val first = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(active) { if (active) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } } }
+    val originX = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    androidx.compose.ui.layout.Layout(
+        content = {
+            GlassBox(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
+                modifier = Modifier
+                    .width(width)
+                    .graphicsLayer {
+                        val s = 0.85f + 0.15f * enter.value
+                        scaleX = s; scaleY = s
+                        alpha = enter.value
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(originX.floatValue, 0.5f)
+                    }
+                    .trapFocus(active),
+            ) {
+                androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.padding(10.dp),
+                ) { content(first) }
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) { measurables, c ->
+        val panel = measurables.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = c.maxWidth, maxHeight = c.maxHeight))
+        val gap = 22.dp.roundToPx()
+        val margin = 24.dp.roundToPx()
+        // The focused tile is drawn 1.2x around its centre; keep clear of that, not the layout box.
+        val a = anchor?.let {
+            val dx = it.width * 0.1f; val dy = it.height * 0.1f
+            androidx.compose.ui.geometry.Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy)
+        }
+        val (x, y) = if (a == null) {
+            originX.floatValue = 0.5f
+            (c.maxWidth - panel.width) / 2 to (c.maxHeight - panel.height) / 2
+        } else {
+            val right = a.right.toInt() + gap
+            val fitsRight = right + panel.width <= c.maxWidth - margin
+            originX.floatValue = if (fitsRight) 0f else 1f
+            val px = if (fitsRight) right else (a.left.toInt() - gap - panel.width).coerceAtLeast(margin)
+            val py = (a.center.y - panel.height / 2f).toInt().coerceIn(margin, (c.maxHeight - margin - panel.height).coerceAtLeast(margin))
+            px to py
+        }
+        layout(c.maxWidth, c.maxHeight) { panel.place(x, y) }
     }
 }

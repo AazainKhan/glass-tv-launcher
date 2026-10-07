@@ -43,6 +43,22 @@ class AerialDreamService : DreamService() {
 class AerialActivity : Activity() {
     private var view: AerialView? = null
 
+    companion object {
+        /** Starts Aerials fading in over Home rather than cutting to black. */
+        fun start(context: android.content.Context) {
+            val options = android.app.ActivityOptions.makeCustomAnimation(context, dev.glasslauncher.R.anim.glass_fade_in, dev.glasslauncher.R.anim.glass_hold)
+            runCatching {
+                context.startActivity(android.content.Intent(context, AerialActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK), options.toBundle())
+            }
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        // Fade out to Home instead of the system's slide.
+        overridePendingTransition(dev.glasslauncher.R.anim.glass_hold, dev.glasslauncher.R.anim.glass_fade_out)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,6 +65,7 @@ import dev.glasslauncher.ui.SectionLabel
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.ToggleRow
 import dev.glasslauncher.ui.Type
+import dev.glasslauncher.ui.dissolve
 import dev.glasslauncher.widgets.NowPlayingSource
 import dev.glasslauncher.widgets.Weather
 import kotlinx.coroutines.delay
@@ -106,11 +107,30 @@ fun SettingsPanel(
     fun pop() { if (stack.size > 1) stack = stack.dropLast(1) else close() }
     BackHandler(enabled = active && stack.size > 1) { pop() }
 
-    key(stack.last()) {
-        val page = stack.last()
+    // tvOS page push: the new page slides in ~130 px from the right while fading in, the old one slides
+    // left; reversed going back. Focus appears only once the page has landed.
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    androidx.compose.animation.AnimatedContent(
+        targetState = stack,
+        transitionSpec = {
+            val forward = targetState.size >= initialState.size
+            val dist = 130
+            val ms = if (reduceMotion) 0 else dev.glasslauncher.ui.Motion.PAGE_MS
+            val ease = androidx.compose.animation.core.LinearOutSlowInEasing
+            (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(ms, easing = ease)) { if (forward) dist else -dist } +
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(ms, easing = ease))) togetherWith
+                (androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(ms, easing = ease)) { if (forward) -dist else dist } +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(ms / 2)))
+        },
+        contentKey = { it.last() },
+        label = "settings-page",
+    ) { pages ->
+        val page = pages.last()
+        val landed = transition.currentState == transition.targetState
+        val pageActive = active && landed && page == stack.last()
         if (page is Page.Wallpapers) {
-            WallpaperPage(page.dark, model, cfg, active, open)
-        } else MenuList(active) { first ->
+            WallpaperPage(page.dark, model, cfg, pageActive, open)
+        } else MenuList(pageActive) { first ->
             val f = Modifier.focusRequester(first)
             when (page) {
                 Page.Root -> RootPage(model, cfg, f, ::push, open)
@@ -191,20 +211,21 @@ private fun sourceName(id: FeaturedSourceId) = when (id) {
 
 @Composable
 private fun ColumnScope.AppearancePage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
     PanelTitle("Appearance")
     MenuRow("Theme", {
         val next = ThemeMode.entries[(cfg.theme.ordinal + 1) % ThemeMode.entries.size]
-        model.edit { it.copy(theme = next) }
+        screen.dissolve { model.edit { it.copy(theme = next) } }
     }, f, value = cfg.theme.name)
     MenuRow("Background", {
         val next = BackgroundMode.entries[(cfg.background.ordinal + 1) % BackgroundMode.entries.size]
-        model.edit { it.copy(background = next) }
+        screen.dissolve { model.edit { it.copy(background = next) } }
     }, value = when (cfg.background) { BackgroundMode.Featured -> "Featured"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" })
     Hint("Featured fills Home with artwork from your featured source; Motion plays Apple's Aerial videos behind your apps.")
     MenuRow("Text Size", {
         val steps = listOf(1f, 1.15f, 1.3f)
         val next = steps[(steps.indexOfFirst { it >= cfg.textScale - 0.01f }.coerceAtLeast(0) + 1) % steps.size]
-        model.edit { it.copy(textScale = next) }
+        screen.dissolve { model.edit { it.copy(textScale = next) } }
     }, value = when { cfg.textScale >= 1.3f -> "Largest"; cfg.textScale >= 1.15f -> "Large"; else -> "Default" })
     MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark), chevron = true)
     MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight), chevron = true)
@@ -405,7 +426,7 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     val canWrite = remember { Screensaver.canWriteSecureSettings(context) }
     val sc = cfg.screensaver
     PanelTitle("Screensaver")
-    MenuRow("Preview Aerials", { context.startActivity(Intent(context, AerialActivity::class.java)) }, f)
+    MenuRow("Preview Aerials", { AerialActivity.start(context) }, f)
     MenuRow(
         "Use as System Screensaver",
         { if (Screensaver.setAsSystemScreensaver(context)) refresh++ },
@@ -593,8 +614,9 @@ private fun ColumnScope.AccessibilityPage(model: HomeModel, cfg: LauncherConfig,
         val next = Auto.entries[(cfg.reduceMotion.ordinal + 1) % Auto.entries.size]
         model.edit { it.copy(reduceMotion = next) }
     }, f, value = when (cfg.reduceMotion) { Auto.Auto -> "Automatic"; Auto.On -> "On"; Auto.Off -> "Off" })
-    Hint("Turns off tilt, shimmer, wiggle and fades. Automatic follows the system's animation setting.")
-    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> model.edit { it.copy(reduceTransparency = v) } })
+    Hint("Turns off tilt, wiggle and movement; changes still dissolve. Automatic follows the system's animation setting.")
+    val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
+    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } })
     Hint("Makes glass panels solid for easier reading. Also used when the system's high-contrast text is on.")
     ToggleRow("Navigation Sounds", cfg.sounds, { v -> model.edit { it.copy(sounds = v) } })
     Hint("Plays the system focus and click sounds, if they're enabled in the TV's settings.")

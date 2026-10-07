@@ -52,7 +52,7 @@ Work cheapest-first. Most UI work never needs the device.
 - `scripts/clip <name> <keys…>`: records a transition and writes `build/clips/<name>.png`, 18 frames 33 ms apart starting at the first visible change, plus the mp4.
 - `scripts/tv-type [--select] [--submit] "text"`: types any Unicode through ADBKeyBoard, which is installed on first use and draws no UI, so the D-pad keeps working. Restores Fire TV's keyboard afterwards. Use `--select` on a text row so editing starts after the IME switch.
 - `scripts/dev-mode on|off`: keep the stick awake (stay-on + long timeouts), stop AT4K, wait for dexopt to finish; `off` restores the saved values.
-- **The first key after a few idle minutes only wakes the UI** (chrome fade); it doesn't move focus. Send one throwaway press, or `scripts/tv trigger-app-event config '{"idleFadeMinutes":0}'` on a debug build (restore it to 3 after).
+- **Idle chrome fade** doesn't swallow keys (`Idle.touch()` only records the time); tested 2026-10-07: Down after a 1-minute fade in full screen moved focus. If a key ever seems lost after idle, it's Fire OS (screen dim/wake), not Glass.
 - **Debug-build hooks:** `app/src/debug/.../DebugEventActivity.kt` handles `glassdev://event?name=…&payload=…`. Events: `config` (merge JSON into `LauncherConfig`) and `home`. Use `scripts/tv trigger-app-event <name> '<json>'`. Release builds don't contain it.
 
 - **Emulator for parallel work:** `scripts/emulator start` boots an Android TV (API 31) emulator on its own adb server, invisible to everything using the stick; `eval "$(scripts/emulator env)"` points `scripts/key`, `shot`, `tv` etc. at it, and `scripts/emulator install debug` puts the current build on it. Use it for functional and focus checks while someone else has the stick. It doesn't match the stick's GPU, Fire OS or speed, so judge looks and performance on the stick only.
@@ -108,7 +108,7 @@ To bisect, temporarily add a `DebugFlags` object that reads `getprop debug.glass
 
 ## Design source
 
-Follow the `tvos27-guidelines` skill (and `~/Documents/firestick-unlocked/tvos27-inspo/`). Geometry lives in `ui/Metrics.kt`, measured from tvOS 27 frames: 5:3 tiles, 45dp inset, 24dp gutters, tray at 368dp, 36dp tray-to-grid gap. Home's backdrop is a scene: featured art (`WallpaperLoader.fromUrl`), the wallpaper, or Aerial video (`MotionBackground`). It's swapped through `BackdropState.swap`, which cross-fades for only 550 ms. No focus shimmer: the user rejected it as tacky.
+Follow the `tvos27-guidelines` skill (and `~/Documents/firestick-unlocked/tvos27-inspo/`). Geometry lives in `ui/Metrics.kt`, measured from tvOS 27 frames: 5:3 tiles, 45dp inset, 24dp gutters, tray at 384dp, 36dp tray-to-grid gap. Home's backdrop is a scene: featured art (`WallpaperLoader.fromUrl`), the wallpaper, or Aerial video (`MotionBackground`). It's swapped through `BackdropState.swap`, which cross-fades for only 550 ms. No focus shimmer: the user rejected it as tacky. Motion curves live in `ui/Motion.kt`, fitted to the measured tvOS 27 timings (skill `references/motion-spec.md`); the stick's animation scales are 1.0x so they play at real speed.
 
 ## Layout
 

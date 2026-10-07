@@ -5,7 +5,7 @@ An open-source, Apple TV–style home screen for Android TV, Google TV and Fire 
 ## Features
 
 - **Liquid glass that's fast on cheap sticks.** Frosted panels, dock and folders without Android 12's blur APIs: one pre-blurred backdrop is mapped under every glass surface in a single GPU pass. Measured on a Fire TV Stick 4K (2nd gen): under 1% janky frames, roughly 0% CPU when idle.
-- **tvOS-style focus.** Spring lift and scale, a tilt in from the direction you pressed, a specular sweep, soft shadows, labels under the focused app. Navigation sounds follow the system setting.
+- **tvOS-style focus.** Spring lift and scale with tvOS 27's measured timing, a tilt in from the direction you pressed, soft shadows that lift with focus, labels under the focused app. Navigation sounds follow the system setting.
 - **Clean tiles for every app.** TV banners are used when an app has one. Phone-only apps get a generated full-bleed tile from their icon, so nothing looks like a stray square.
 - **Top Row (dock) of up to 6 apps** on a glass shelf, plus folders with a blurred backdrop and rename. Rearrange anything (Menu or hold Select → Move), hide apps, and pick custom icons (image file, web image, or any ADW/Nova icon pack).
 - **Featured shelf from the source you choose:**

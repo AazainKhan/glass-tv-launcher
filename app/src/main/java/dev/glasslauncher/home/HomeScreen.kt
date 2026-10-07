@@ -103,6 +103,7 @@ import dev.glasslauncher.glass.glass
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.KeyDirection
 import dev.glasslauncher.ui.LocalMetrics
+import dev.glasslauncher.ui.Motion
 import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.LocalUiPrefs
 import dev.glasslauncher.ui.Metrics
@@ -175,6 +176,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val expand = remember { Animatable(0f) }
     var expanded by remember { mutableStateOf(false) }
     var pillFocused by remember { mutableStateOf(false) }
+    val menuAnchor = remember { MenuAnchor() }
+    val dissolve = remember { dev.glasslauncher.ui.ScreenDissolve(context, scope) }
     var homeFocused by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val layer = rememberGraphicsLayer()
@@ -215,7 +218,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             overlays.add(overlay)
         }
     }
-    fun closeTop() { overlays.removeLastOrNull() }
+    // Overlays on their way out (exit animation), drawn above the rest until it finishes.
+    val exiting = remember { mutableStateListOf<Overlay>() }
+    fun dismiss(overlay: Overlay) {
+        exiting.add(overlay)
+        scope.launch { delay(Motion.OVERLAY_MS + 40L); exiting.remove(overlay) }
+    }
+    fun closeTop() { overlays.removeLastOrNull()?.let(::dismiss) }
+    /** Closes everything; only the top overlay is visible, so only it animates out. */
+    fun closeAll() { overlays.lastOrNull()?.let(::dismiss); overlays.clear() }
     fun firstKey(): String? = layout.dock.firstOrNull()?.let { appKey(it.packageName) } ?: layout.grid.firstOrNull()?.key
 
     fun exists(key: String) = key == SETTINGS_TILE_KEY ||
@@ -243,7 +254,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     suspend fun scrollToTop() {
         if (listState.firstVisibleItemIndex == 0) {
-            listState.animateScrollBy(-listState.firstVisibleItemScrollOffset.toFloat(), spring(stiffness = Spring.StiffnessMediumLow))
+            listState.animateScrollBy(-listState.firstVisibleItemScrollOffset.toFloat(), Motion.scroll())
         } else listState.animateScrollToItem(0)
     }
 
@@ -252,14 +263,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         scope.launch {
             launch {
                 val target = if (index >= 2) 1f else 0f
-                if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, tween(350))
+                // The blur rides the same decelerating curve as the scroll.
+                if (prefs.reduceMotion) backdrop.wallpaperBlur.snapTo(target) else backdrop.wallpaperBlur.animateTo(target, Motion.scroll())
             }
             if (index <= 1) scrollToTop() else {
                 // The focused row's tiles settle at the pivot; the first row has the tray gap above it.
                 val pad = if (index == 2) metrics.trayToGrid else 0.dp
                 val target = with(density) { (metrics.gridPivot - pad).toPx() }
                 val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
-                if (info != null) listState.animateScrollBy(info.offset - target, spring(stiffness = Spring.StiffnessMediumLow))
+                // tvOS: full speed on the first frame, then exponential deceleration (not a spring from rest).
+                if (info != null) listState.animateScrollBy(info.offset - target, Motion.scroll())
                 else listState.animateScrollToItem(index, -target.toInt())
             }
         }
@@ -304,6 +317,28 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // Coming back to Home (from an app, Aerials, a system screen): it settles in from slightly larger
+    // instead of appearing in one frame, while the closing app animates away above it.
+    val homeSettle = remember { Animatable(1f) }
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        var stopped = false
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> stopped = true
+                androidx.lifecycle.Lifecycle.Event.ON_START -> if (stopped) {
+                    stopped = false
+                    scope.launch {
+                        if (prefs.reduceMotion) return@launch
+                        homeSettle.snapTo(0f)
+                        homeSettle.animateTo(1f, spring(dampingRatio = 1f, stiffness = 260f))
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(cfg.aerialsOnIdleMinutes) {
         val limit = cfg.aerialsOnIdleMinutes * 60_000L
         if (limit <= 0) return@LaunchedEffect
@@ -312,7 +347,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             if (remaining > 0) delay(remaining)
             else {
                 if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty()) {
-                    context.startActivity(android.content.Intent(context, AerialActivity::class.java))
+                    AerialActivity.start(context)
                 }
                 idle.touch()
             }
@@ -321,8 +356,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(Unit) {
         snapshotFlow { overlays.isEmpty() }.collect { empty ->
             if (empty) {
-                backdrop.overlay = null
                 if (expanded) runCatching { cardRequester.requestFocus() } else focusKey(lastFocused ?: firstKey())
+                // The leaving overlay's glass still samples the snapshot until its exit finishes.
+                snapshotFlow { exiting.isEmpty() }.first { it }
+                if (overlays.isEmpty()) backdrop.overlay = null
             }
         }
     }
@@ -344,9 +381,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             moving = null
             when (request) {
                 HomeRequest.Home -> {
-                    overlays.clear()
+                    closeAll()
                     setExpanded(false)
-                    scrollToTop()
+                    // In its own coroutine: a scroll interrupted by another one is cancelled, and that
+                    // cancellation must not end this collector (Home would stop responding).
+                    scope.launch { runCatching { scrollToTop() } }
                     focusKey(firstKey())
                 }
                 // From remote buttons: pressing the same button again closes it.
@@ -357,7 +396,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         else -> Overlay.TvSettings
                     }
                     val reopen = overlays.lastOrNull() != target
-                    overlays.clear()
+                    closeAll()
                     if (reopen) open(target)
                 }
             }
@@ -370,13 +409,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             overlays.isNotEmpty() -> closeTop()
             expanded -> setExpanded(false)
             listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 -> scope.launch {
-                scrollToTop(); focusKey(firstKey())
+                runCatching { scrollToTop() }; focusKey(firstKey())
             }
         }
     }
 
     val scaledDensity = Density(density.density, density.fontScale * cfg.textScale)
     CompositionLocalProvider(
+        LocalMenuAnchor provides menuAnchor,
+        dev.glasslauncher.ui.LocalScreenDissolve provides dissolve,
         LocalBackdrop provides backdrop,
         LocalPalette provides palette,
         LocalUiPrefs provides prefs,
@@ -426,7 +467,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { translationX = idle.shift.x; translationY = idle.shift.y; alpha = reveal.value }
+                    .graphicsLayer {
+                        translationX = idle.shift.x; translationY = idle.shift.y; alpha = reveal.value
+                        val settle = 1.04f - 0.04f * homeSettle.value
+                        scaleX = settle; scaleY = settle
+                    }
                     .drawWithContent {
                         layer.record { this@drawWithContent.drawContent() }
                         drawLayer(layer)
@@ -468,8 +513,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                             if (row == 1) lastDockFocused = key
                         },
                         onRowFocused = ::onRowFocused,
-                        onAppMenu = { app, inDock -> open(Overlay.AppMenu(app, inDock, null)) },
-                        onFolderOpen = { open(Overlay.FolderOpen(it)) },
+                        onAppMenu = { app, inDock -> open(Overlay.AppMenu(app, inDock, null, menuAnchor.bounds)) },
+                        onFolderOpen = { open(Overlay.FolderOpen(it, menuAnchor.bounds)) },
                         onFolderMenu = { open(Overlay.FolderMenu(it)) },
                         onSettings = { open(Overlay.Settings) },
                         launch = { app, bounds -> model.launch(app, view, bounds) },
@@ -511,24 +556,38 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
             moving?.let { MoveBanner(it, layout, Modifier.align(Alignment.BottomCenter)) }
 
-            overlays.forEachIndexed { index, overlay ->
-                val top = index == overlays.lastIndex
-                Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (top || overlay is Overlay.FolderOpen) 1f else 0f }) {
-                    OverlayContent(
-                        overlay = overlay,
-                        model = model,
-                        layout = layout,
-                        cfg = cfg,
-                        active = top,
-                        open = ::open,
-                        close = ::closeTop,
-                        closeAll = { overlays.clear() },
-                        startMove = { key -> overlays.clear(); moving = key },
-                    )
+            // One loop over open and leaving overlays, keyed by identity, so an overlay keeps its state
+            // (and its animation) when it moves from open to leaving.
+            (overlays + exiting.filter { it !in overlays }).forEach { overlay ->
+                androidx.compose.runtime.key(System.identityHashCode(overlay)) {
+                    val leaving = overlay in exiting && overlay !in overlays
+                    val top = !leaving && overlay === overlays.lastOrNull()
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (top || leaving || overlay is Overlay.FolderOpen) 1f else 0f }) {
+                        androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
+                            OverlayContent(
+                                overlay = overlay,
+                                model = model,
+                                layout = layout,
+                                cfg = cfg,
+                                active = top,
+                                open = ::open,
+                                close = ::closeTop,
+                                closeAll = ::closeAll,
+                                startMove = { key -> closeAll(); moving = key },
+                            )
+                        }
+                    }
                 }
             }
 
             if (reveal.value < 1f) StartupMark(loading = !ready, alpha = { 1f - reveal.value })
+
+            // The frame before an appearance/background/text-size change, fading out over the new one.
+            dissolve.image?.let { frame ->
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    drawImage(frame, dstSize = IntSize(size.width.toInt(), size.height.toInt()), alpha = dissolve.alpha.value)
+                }
+            }
         }
     }
 }
@@ -771,6 +830,8 @@ fun AppCell(
     val art = rememberArt(model, app)
     val cfg by model.config.collectAsStateWithLifecycle()
     var bounds by remember { mutableStateOf<Rect?>(null) }
+    val anchorStore = LocalMenuAnchor.current
+    val launchView = LocalView.current
     TileWithLabel(
         label = app.label,
         tag = "app:${app.packageName}",
@@ -778,8 +839,12 @@ fun AppCell(
         isNew = model.isNew(app.packageName, cfg),
         focusRequester = focusRequester,
         onFocused = onFocused,
-        onClick = { if (launch != null) launch(app, bounds) else model.launch(app) },
-        onMenu = onMenu,
+        // Launch from the tile as drawn (focused, 1.2x), so the app zooms out of what you see.
+        onClick = {
+            val from = bounds?.let { val dx = it.width * 0.1f; val dy = it.height * 0.1f; Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy) }
+            if (launch != null) launch(app, from) else model.launch(app, launchView, from)
+        },
+        onMenu = { anchorStore.bounds = bounds; onMenu() },
         showLabel = showLabel,
         tileModifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
     ) {
@@ -797,6 +862,8 @@ private fun FolderCell(
     onOpen: () -> Unit,
     onMenu: () -> Unit,
 ) {
+    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val anchorStore = LocalMenuAnchor.current
     TileWithLabel(
         label = item.folder.name,
         tag = "folder:${item.folder.id}",
@@ -804,7 +871,8 @@ private fun FolderCell(
         isNew = false,
         focusRequester = focusRequester,
         onFocused = onFocused,
-        onClick = onOpen,
+        onClick = { anchorStore.bounds = bounds; onOpen() },
+        tileModifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
         onMenu = onMenu,
         glassBackground = true,
     ) {
@@ -874,7 +942,8 @@ fun TileWithLabel(
     val palette = LocalPalette.current
     val m = LocalMetrics.current
     var focused by remember { mutableStateOf(false) }
-    val labelAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(140), label = "label")
+    // Tile first, then name: the new label waits ~80 ms and fades in fast; the old one fades over ~130 ms.
+    val labelAlpha by animateFloatAsState(if (focused) 1f else 0f, if (focused) Motion.labelIn() else Motion.labelOut(), label = "label")
     Column {
     Box {
         FocusTile(

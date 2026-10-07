@@ -33,7 +33,7 @@ val LocalPalette = staticCompositionLocalOf { Palette(light = false) }
 
 /**
  * Comfort and accessibility switches resolved from the user's settings and the system's.
- * Reduce motion removes tilt, sheen, wiggle and cross-fades; reduce transparency makes glass
+ * Reduce motion removes tilt, wiggle and movement (dissolves stay); reduce transparency makes glass
  * nearly opaque (also the cheapest rendering path).
  */
 @Immutable

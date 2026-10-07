@@ -28,6 +28,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -50,6 +51,7 @@ import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.Type
+import dev.glasslauncher.ui.dissolve
 import dev.glasslauncher.widgets.rememberClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -79,6 +81,7 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val palette = LocalPalette.current
     val first = remember { FocusRequester() }
     LaunchedEffect(active) { if (active) { withFrameNanos { }; runCatching { first.requestFocus() } } }
+    val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
 
     val network by produceState("", active) { value = withContext(Dispatchers.IO) { SystemControls.network(context) } }
     val wifiOn = remember(active) { SystemControls.wifiConnected(context) }
@@ -90,11 +93,19 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
-    Box(Modifier.fillMaxSize().background(Scrim.copy(alpha = 0.18f))) {
+    // Grows out of the status pill (top right) and shrinks back into it, over the undimmed Home.
+    val enter = rememberOverlayEnter()
+    Box(Modifier.fillMaxSize()) {
         Column(
             verticalArrangement = Arrangement.spacedBy(Gap),
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .graphicsLayer {
+                    val s = 0.6f + 0.4f * enter.value
+                    scaleX = s; scaleY = s
+                    alpha = enter.value
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                }
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp)
                 .width(ColumnWidth)
                 .trapFocus(active)
@@ -121,16 +132,16 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                     PillContent(R.drawable.ic_tune, "Launcher", "Settings", fg, on = false, accent = fg)
                 }
                 CcTile("Text Size", textSteps[textIndex].second, Shapes.pill, PillWidth, Pill, onClick = {
-                    model.edit { it.copy(textScale = textSteps[(textIndex + 1) % textSteps.size].first) }
+                    screen.dissolve { model.edit { it.copy(textScale = textSteps[(textIndex + 1) % textSteps.size].first) } }
                 }) { fg -> PillContent(R.drawable.ic_format_size, "Text Size", textSteps[textIndex].second, fg, on = false, accent = fg) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(RoundGap)) {
                 Round(R.drawable.ic_sports_esports, "Game Controllers") { system { SystemControls.openGameControllers(context) } }
                 Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Appearance, Dark" else "Appearance, Light") {
-                    model.edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) }
+                    screen.dissolve { model.edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } }
                 }
                 Round(R.drawable.ic_landscape, "Screen Saver") {
-                    closeAll(); context.startActivity(Intent(context, AerialActivity::class.java))
+                    closeAll(); AerialActivity.start(context)
                 }
                 Round(R.drawable.ic_apps, "App Switcher") { closeAll(); open(Overlay.AppSwitcher) }
             }

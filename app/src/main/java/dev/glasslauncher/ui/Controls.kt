@@ -70,6 +70,8 @@ fun MenuRow(
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
     chevron: Boolean = false,
+    /** Red text (Uninstall, Delete): a warning in both states, as in tvOS menus. */
+    destructive: Boolean = false,
 ) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
@@ -77,10 +79,16 @@ fun MenuRow(
     val pressed = remember { booleanArrayOf(false) }
     val prefs = LocalUiPrefs.current
     val view = LocalView.current
-    val scale by animateFloatAsState(if (focused) 1.03f else 1f, spring(0.7f, 500f), label = "rowScale")
-    // SYS-02: rows rest on faint glass; the focused row is a solid white capsule.
-    val bg by animateColorAsState(if (focused) palette.focusFill else palette.primary.copy(alpha = if (palette.light) 0.06f else 0.08f), tween(90), label = "rowBg")
+    val scale by animateFloatAsState(if (focused) 1.02f else 1f, if (focused) Motion.focusIn() else Motion.focusOut(), label = "rowScale")
+    // SYS-02: rows rest on faint glass; the focused row is a solid white capsule. tvOS: the new row is
+    // white within a frame (the capsule doesn't slide), the old one fades over ~60 ms.
+    val bg by animateColorAsState(
+        if (focused) palette.focusFill else palette.primary.copy(alpha = if (palette.light) 0.06f else 0.08f),
+        if (focused) Motion.selectIn() else Motion.selectOut(),
+        label = "rowBg",
+    )
     val fg = when {
+        destructive -> Color(0xFFFF453A)
         focused -> palette.onFocusFill
         enabled -> palette.primary
         else -> palette.faint

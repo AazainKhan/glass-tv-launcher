@@ -2,7 +2,6 @@ package dev.glasslauncher.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -75,10 +74,16 @@ fun FocusTile(
             focused -> focusedScale
             else -> 1f
         },
-        if (prefs.reduceMotion) tween(120) else spring(dampingRatio = 0.62f, stiffness = 420f),
+        // tvOS 27: a quick, slightly springy arrival; a soft departure with no bounce.
+        when {
+            prefs.reduceMotion -> tween(120)
+            focused || pressed -> Motion.focusIn()
+            else -> Motion.focusOut()
+        },
         label = "scale",
     )
-    val lift by animateFloatAsState(if (focused) 1f else 0f, spring(stiffness = 300f), label = "lift")
+    // The shadow lifts in step with the tile.
+    val lift by animateFloatAsState(if (focused) 1f else 0f, if (focused) Motion.focusIn() else Motion.focusOut(), label = "lift")
     val tiltX = remember { Animatable(0f) }
     val tiltY = remember { Animatable(0f) }
     val wiggleAngle = remember { Animatable(0f) }
@@ -90,8 +95,9 @@ fun FocusTile(
     }
     LaunchedEffect(wiggle) {
         if (wiggle && !prefs.reduceMotion) {
-            wiggleAngle.snapTo(-1.6f)
-            wiggleAngle.animateTo(1.6f, infiniteRepeatable(tween(140), RepeatMode.Reverse))
+            // Edit mode: a gentle wobble (tvOS-like, subtler than iOS's jiggle).
+            wiggleAngle.snapTo(-0.8f)
+            wiggleAngle.animateTo(0.8f, infiniteRepeatable(tween(190, easing = androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse))
         }
         else wiggleAngle.animateTo(0f, tween(120))
     }

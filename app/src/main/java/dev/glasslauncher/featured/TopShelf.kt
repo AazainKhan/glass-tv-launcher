@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,9 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +42,7 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.request.transformations
 import dev.glasslauncher.home.stopAtRowEnds
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
@@ -75,13 +75,18 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
 @Composable
 private fun Wordmark(item: FeaturedItem, height: Dp) {
     if (item.logo != null) {
+        val context = LocalContext.current
+        val request = remember(item.logo) {
+            ImageRequest.Builder(context).data(item.logo).transformations(LogoLegibility()).build()
+        }
+        // The baked shadow pads the bitmap by a tenth of its height on each side; draw it that much
+        // larger and pull it back so the logo itself keeps its size and left edge.
         AsyncImage(
-            model = item.logo,
+            model = request,
             contentDescription = item.title,
             contentScale = ContentScale.Fit,
             alignment = Alignment.CenterStart,
-            colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
-            modifier = Modifier.height(height).fillMaxWidth(),
+            modifier = Modifier.height(height * 1.2f).fillMaxWidth().offset(x = -(height * 0.1f)),
         )
     } else {
         Text(item.title, style = Type.display.copy(shadow = Type.shadow), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)

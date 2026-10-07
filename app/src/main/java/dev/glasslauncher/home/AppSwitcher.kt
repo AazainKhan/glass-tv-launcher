@@ -24,6 +24,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -76,6 +80,8 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
             ) {
                 items(apps, key = { it.packageName }) { app ->
                     val art = rememberArt(model, app)
+                    val view = androidx.compose.ui.platform.LocalView.current
+                    var cardBounds by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             app.label,
@@ -87,11 +93,12 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                         )
                         FocusTile(
                             label = app.label,
-                            onClick = { closeAll(); model.launch(app) },
+                            onClick = { closeAll(); model.launch(app, view, cardBounds) },
                             shape = RoundedCornerShape(18.dp),
                             focusedScale = 1.08f,
                             modifier = Modifier
                                 .size(CARD_W.dp, (CARD_W * 3 / 5).dp)
+                                .then(androidx.compose.ui.Modifier.onGloballyPositioned { cardBounds = it.boundsInWindow() })
                                 .then(if (app == apps.first()) Modifier.focusRequester(first) else Modifier)
                                 .onPreviewKeyEvent { e ->
                                     val k = e.nativeKeyEvent

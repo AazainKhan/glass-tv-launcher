@@ -30,6 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -87,7 +91,8 @@ fun OverlayContent(
     startMove: (String) -> Unit,
 ) {
     when (overlay) {
-        is Overlay.AppMenu -> SidePanel(active) { MenuList(active) { first -> AppMenuBody(overlay, model, layout, first, open, close, closeAll, startMove) } }
+        is Overlay.AppMenu -> AnchoredMenu(active, overlay.anchor) { first -> AppMenuBody(overlay, model, first, open, closeAll, startMove) }
+        is Overlay.MoveTo -> AnchoredMenu(active, overlay.anchor) { first -> MoveToBody(overlay, model, layout, cfg, first, open, closeAll) }
         is Overlay.FolderMenu -> SidePanel(active) {
             MenuList(active) { first ->
                 PanelTitle(overlay.folder.name)
@@ -117,7 +122,7 @@ fun OverlayContent(
         is Overlay.TextInput -> SidePanel(active) { TextInputBody(overlay, active, close, open) }
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
-        is Overlay.FolderOpen -> FolderView(overlay.folderId, model, layout, active, open, close)
+        is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close)
         Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter(model, cfg, active, open, closeAll)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
@@ -182,38 +187,67 @@ private fun SettingsIcon() {
 private fun ColumnScope.AppMenuBody(
     overlay: Overlay.AppMenu,
     model: HomeModel,
-    layout: HomeLayout,
     first: FocusRequester,
     open: (Overlay) -> Unit,
-    close: () -> Unit,
     closeAll: () -> Unit,
     startMove: (String) -> Unit,
 ) {
     val app = overlay.app
-    val art = rememberArt(model, app)
-    Box(
-        Modifier
-            .padding(horizontal = 18.dp)
-            .width(200.dp)
-            .aspectRatio(16f / 9f)
-            .graphicsLayer { shape = Shapes.tile; clip = true },
-    ) { art?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) } }
-    PanelTitle(app.label)
-    MenuRow("Open", { closeAll(); model.launch(app) }, Modifier.focusRequester(first))
-    if (overlay.folderId == null) MenuRow("Move", { startMove(appKey(app.packageName)) })
+    // tvOS context menu: a short list beside the tile; Move to… opens a second list in the same place.
+    var firstRow = Modifier.focusRequester(first)
+    fun f(): Modifier = firstRow.also { firstRow = Modifier }
+    if (overlay.folderId == null) {
+        MenuRow("Edit Home Screen", { startMove(appKey(app.packageName)) }, f(), leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_tv) })
+    }
+    MenuRow("Move to…", { open(Overlay.MoveTo(app, overlay.inDock, overlay.folderId, overlay.anchor)) }, f(), chevron = true,
+        leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_drive_file_move) })
+    MenuRow("Change Icon", { open(Overlay.IconPicker(app)) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_image) })
+    MenuRow("Hide", { model.hide(app.packageName); closeAll() }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_visibility_off) })
+    MenuRow("App Info", { closeAll(); model.appInfo(app) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_info) })
+    MenuRow("Uninstall", { closeAll(); model.uninstall(app) }, destructive = true, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_do_not_disturb_on) })
+}
+
+/** Where an app can go: the App Dock, back to the home screen, an existing folder, or a new one. */
+@Composable
+private fun ColumnScope.MoveToBody(
+    overlay: Overlay.MoveTo,
+    model: HomeModel,
+    layout: HomeLayout,
+    cfg: dev.glasslauncher.data.LauncherConfig,
+    first: FocusRequester,
+    open: (Overlay) -> Unit,
+    closeAll: () -> Unit,
+) {
+    val app = overlay.app
+    var firstRow = Modifier.focusRequester(first)
+    fun f(): Modifier = firstRow.also { firstRow = Modifier }
     when {
-        overlay.inDock -> MenuRow("Remove from Top Row", { model.removeFromDock(app.packageName); closeAll() })
-        layout.dock.size < DOCK_SIZE -> MenuRow("Add to Top Row", { model.addToDock(app.packageName); closeAll() })
+        overlay.inDock -> MenuRow("Home Screen", { model.removeFromDock(app.packageName); closeAll() }, f())
+        overlay.folderId != null -> {
+            MenuRow("Home Screen", { model.removeFromFolder(app.packageName, overlay.folderId); closeAll() }, f())
+            if (layout.dock.size < DOCK_SIZE) MenuRow("App Dock", { model.addToDock(app.packageName); closeAll() })
+        }
+        layout.dock.size < DOCK_SIZE -> MenuRow("App Dock", { model.addToDock(app.packageName); closeAll() }, f())
+        else -> MenuRow("App Dock", {}, f(), value = "Full", enabled = false)
     }
-    if (overlay.folderId != null) {
-        MenuRow("Remove from Folder", { model.removeFromFolder(app.packageName, overlay.folderId); close() })
-    } else {
-        MenuRow("Move to Folder…", { open(Overlay.FolderPicker(app)) })
+    cfg.folders.filter { fo -> fo.id != overlay.folderId && layout.grid.any { it.key == folderKey(fo.id) } }.forEach { fo ->
+        MenuRow(fo.name, { model.addToFolder(app.packageName, fo.id); closeAll() }, value = "${fo.apps.size}")
     }
-    MenuRow("Change Icon…", { open(Overlay.IconPicker(app)) })
-    MenuRow("Hide", { model.hide(app.packageName); closeAll() })
-    MenuRow("App Info", { closeAll(); model.appInfo(app) })
-    MenuRow("Uninstall", { closeAll(); model.uninstall(app) })
+    MenuRow("New Folder", {
+        val id = model.newFolder(app.packageName, "New Folder")
+        closeAll()
+        open(Overlay.TextInput("Name Folder", "New Folder") { model.renameFolder(id, it); closeAll() })
+    })
+}
+
+@Composable
+private fun MenuIcon(@androidx.annotation.DrawableRes icon: Int) {
+    Image(
+        androidx.compose.ui.res.painterResource(icon),
+        contentDescription = null,
+        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.tv.material3.LocalContentColor.current),
+        modifier = Modifier.size(22.dp),
+    )
 }
 
 @Composable
@@ -326,6 +360,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
 @Composable
 private fun FolderView(
     folderId: String,
+    anchor: androidx.compose.ui.geometry.Rect?,
     model: HomeModel,
     layout: HomeLayout,
     active: Boolean,
@@ -353,9 +388,32 @@ private fun FolderView(
                 .fillMaxSize()
                 .glass(LocalBackdrop.current, RectangleShape, GlassStyle.overlay(palette.light).copy(highlight = 0f, rim = 0f)),
         )
+        // tvOS: the panel grows out of the folder tile (about 170 ms of travel, settled by ~500 ms) and
+        // shrinks back into it on close.
+        val morph = remember { Animatable(0f) }
+        val leaving = LocalOverlayExiting.current
+        LaunchedEffect(leaving) {
+            if (leaving) morph.animateTo(0f, tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            else morph.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 260f))
+        }
+        var panelBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(top = 22.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 22.dp)
+                .onGloballyPositioned { panelBounds = it.boundsInWindow() }
+                .graphicsLayer {
+                    val from = anchor; val to = panelBounds
+                    if (from != null && to != null && to.width > 0f) {
+                        val m = morph.value
+                        val s0 = (from.width / 500.dp.toPx()).coerceIn(0.15f, 1f)
+                        val sc = s0 + (1f - s0) * m
+                        scaleX = sc; scaleY = sc
+                        translationX = (from.center.x - to.center.x) * (1f - m)
+                        translationY = (from.center.y - to.center.y) * (1f - m)
+                    }
+                },
         ) {
             FocusTile(
                 label = "Folder name, ${folder.folder.name}",
@@ -386,6 +444,7 @@ private fun FolderView(
                     .padding(horizontal = 30.dp, vertical = 26.dp),
             ) {
                 Column {
+                    val folderAnchor = LocalMenuAnchor.current
                     folder.apps.chunked(3).forEachIndexed { rowIndex, row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(30.dp), modifier = Modifier.fillMaxWidth()) {
                             row.forEachIndexed { i, app ->
@@ -398,7 +457,7 @@ private fun FolderView(
                                         moving = false,
                                         focusRequester = req,
                                         onFocused = { lastFocused.value = key },
-                                        onMenu = { open(Overlay.AppMenu(app, inDock = false, folderId = folderId)) },
+                                        onMenu = { open(Overlay.AppMenu(app, inDock = false, folderId = folderId, anchor = folderAnchor.bounds)) },
                                     )
                                 }
                             }
