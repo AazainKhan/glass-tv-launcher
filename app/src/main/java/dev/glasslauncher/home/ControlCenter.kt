@@ -131,7 +131,7 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                 modifier = Modifier.fillMaxWidth().padding(end = 4.dp, bottom = 16.dp),
             ) {
                 cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor, headerStyle) }
-                Text(clock, style = headerStyle, color = headerColor, modifier = Modifier.testTag("cc-clock"))
+                Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, modifier = Modifier.testTag("cc-clock"))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.

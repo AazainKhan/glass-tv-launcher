@@ -87,7 +87,7 @@ The GPU affords only about **two full-screen blended passes per frame**. Target:
 - Appearance is baked: `WallpaperLoader` washes the blurred rungs and glass texture milky white in light appearance (dark art more) and towards charcoal in dark (light art only), growing per rung so the scroll fades into it. The palette follows the theme, not the art. Switching appearance re-bakes behind a dissolve.
 - Heavy content that scrolls in and out (the top shelf) lives **outside** the `LazyColumn` and moves with the scroll in `graphicsLayer`. Fades use `CompositingStrategy.ModulateAlpha`.
 - Animate only in layout/draw phases (`graphicsLayer {}`, `drawWithContent {}`); no per-frame recomposition.
-- Idle: no infinite animations. The clock and idle timer wake at most once a minute.
+- Idle: no infinite animations. The clock and idle timer wake at most once a minute (seconds on the status pill measured 1.2% idle CPU, over budget; Control Center's clock ticks seconds only while open).
 
 - Wallpaper blur transitions step through `Backdrop.ladder` (opaque, progressively blurred copies); never cross-fade two full-screen images.
 - Hero backdrops are baked at 1920x1080 (shown 1:1); every blurred copy comes from one 960x540 intermediate. 1080p vs 720p made no measurable frame difference. Blurs use RenderScript's ScriptIntrinsicBlur (deprecated, still on Fire OS 8; ~50x the Kotlin box blur, which stays as the JVM/test fallback): a bake is ~245 ms CPU, was ~640. Don't put a colour filter on bitmap draws that don't need one (forces Skia's slow path).
