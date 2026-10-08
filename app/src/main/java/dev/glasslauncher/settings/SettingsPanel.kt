@@ -275,6 +275,7 @@ private fun sourceName(id: FeaturedSourceId) = when (id) {
     FeaturedSourceId.Plex -> "Plex"
     FeaturedSourceId.ContinueWatching -> "Continue Watching"
     FeaturedSourceId.TvApp -> "App's Own Row"
+    FeaturedSourceId.JustWatch -> "JustWatch"
 }
 
 @Composable
@@ -376,11 +377,11 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     MenuRow("Off", { setFeatured { it.copy(mode = FeaturedMode.Off) } }, value = if (off) "✓" else null)
     if (off) return
     if (fc.mode == FeaturedMode.FocusedApp) {
-        Hint("The shelf shows the focused top-row app's content: Stremio, YouTube and Plex from their own catalogs; Netflix, Prime Video, Disney+, Apple TV, Max and Hulu from TMDB. Other apps, or services not set up below, show the default source.")
+        Hint("The shelf shows the focused top-row app's content: the rows an app publishes to the TV first; Stremio, YouTube and Plex from their own catalogs; Netflix, Prime Video, Disney+, Apple TV+, Max and Hulu from JustWatch's popular titles, each opening in its app. Other apps show their own logo.")
     }
     SectionLabel("Default Source")
     val tvRows = dev.glasslauncher.featured.TvRows.available(LocalContext.current)
-    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
+    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && it != FeaturedSourceId.JustWatch && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
         MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, value = if (fc.source == id) "✓" else null)
     }
     if (fc.mode == FeaturedMode.FocusedApp) {
@@ -439,7 +440,7 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
             Hint("Shows your On Deck items from the first Plex server that answers.")
         }
         FeaturedSourceId.ContinueWatching -> Hint("What you were watching in any app, from the rows apps publish to the TV (Watch Next and their own Continue Watching rows).")
-        FeaturedSourceId.Off, FeaturedSourceId.TvApp -> Unit
+        FeaturedSourceId.Off, FeaturedSourceId.TvApp, FeaturedSourceId.JustWatch -> Unit
     }
     MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
 }

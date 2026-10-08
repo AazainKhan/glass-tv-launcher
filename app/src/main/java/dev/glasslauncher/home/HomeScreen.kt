@@ -220,6 +220,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     var focusedRow by remember { mutableIntStateOf(1) }
     val expand = remember { Animatable(0f) }
     var expanded by remember { mutableStateOf(false) }
+    var shelfSheet by remember { mutableStateOf(false) }
     var pillFocused by remember { mutableStateOf(false) }
     val menuAnchor = remember { MenuAnchor() }
     val dissolve = remember { dev.glasslauncher.ui.ScreenDissolve(context, scope) }
@@ -591,6 +592,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     // Compose treats Back as "leave the focus group" first, so from the grid the first press
                     // only dropped focus and a second one went back up (found by e2e/test_home.py).
                     // Only a Back that went down on Home: the key-up of a Back that closed a menu isn't one.
+                    if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK && shelfSheet) return@onPreviewKeyEvent false
                     if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK) {
                         if (e.action == AndroidKeyEvent.ACTION_DOWN) backDownOnHome = e.repeatCount == 0 || backDownOnHome
                         if (e.action == AndroidKeyEvent.ACTION_UP && backDownOnHome) { backDownOnHome = false; homeBack() }
@@ -723,6 +725,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         onIndex = { heroIndex = it },
                         onExitDown = { setExpanded(false) },
                         modifier = Modifier.fillMaxSize(),
+                        onSheet = { shelfSheet = it },
                     )
                 }
             }

@@ -78,7 +78,7 @@ data class Folder(val id: String, val name: String, val apps: List<String>)
 
 @Serializable
 /** ContinueWatching and TvApp read other apps' TV rows (system-app Glass only); TvApp is internal to Focused App. */
-enum class FeaturedSourceId { Off, Stremio, Tmdb, YouTube, Plex, ContinueWatching, TvApp }
+enum class FeaturedSourceId { Off, Stremio, Tmdb, YouTube, Plex, ContinueWatching, TvApp, JustWatch }
 
 /** Featured Row: follow the focused top-row app (tvOS), always one source, or off. */
 enum class FeaturedMode { FocusedApp, OneSource, Off }
@@ -90,6 +90,8 @@ data class FeaturedConfig(
     val mode: FeaturedMode = FeaturedMode.OneSource,
     /** For [FeaturedSourceId.TvApp]: whose rows. */
     val appPackage: String = "",
+    /** For [FeaturedSourceId.JustWatch]: the service's JustWatch short name (nfx, amp, dnp…). */
+    val justWatchPackage: String = "",
     val stremioCatalog: String = "movie/top",
     val tmdbKey: String = "",
     /** TMDB watch provider: netflix, prime, appletv, disney, max, or trending. */

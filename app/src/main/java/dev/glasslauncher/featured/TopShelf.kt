@@ -30,9 +30,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -113,11 +122,18 @@ fun ExpandedShelf(
     onIndex: (Int) -> Unit,
     onExitDown: () -> Unit,
     modifier: Modifier = Modifier,
+    /** More Info is open: Home leaves Back to the sheet. */
+    onSheet: (Boolean) -> Unit = {},
 ) {
     val m = LocalMetrics.current
     val context = LocalContext.current
     val item = feed.items.getOrNull(index) ?: return
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (index - 1).coerceAtLeast(0))
+    var info by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<FeaturedItem?>(null) }
+    val infoRequester = remember { FocusRequester() }
+    val playRequester = remember { FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(info != null) { onSheet(info != null) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onSheet(false) } }
     Box(
         modifier.graphicsLayer {
             // Starts after the small title has faded, so the title never shows twice.
@@ -135,7 +151,7 @@ fun ExpandedShelf(
                 Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
                     Column {
                         Wordmark(shown, height = 76.dp)
-                        shown.subtitle?.let {
+                        shown.metaLine()?.let {
                             Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
                         }
                         shown.description?.let {
@@ -143,6 +159,11 @@ fun ExpandedShelf(
                             Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.7f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
+                }
+                // tvOS: Play (Resume when started) and More Info above the row; Up from the row reaches them.
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
+                    ShelfButton(if (item.progress != null) "Resume" else "Play", { item.open(context) }, Modifier.testTag("shelf-play").focusRequester(playRequester), progress = item.progress, play = true)
+                    ShelfButton("More Info", { info = item }, Modifier.testTag("shelf-info").focusRequester(infoRequester).focusProperties { right = FocusRequester.Cancel }, round = true)
                 }
                 // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).
                 Spacer(Modifier.height(18.dp))
@@ -158,7 +179,13 @@ fun ExpandedShelf(
                     .stopAtRowEnds()
                     .onPreviewKeyEvent { e ->
                         val k = e.nativeKeyEvent
-                        if (k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && k.action == AndroidKeyEvent.ACTION_DOWN) { onExitDown(); true } else false
+                        when {
+                            k.action != AndroidKeyEvent.ACTION_DOWN -> false
+                            k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN -> { onExitDown(); true }
+                            // Up from the row: Play first (spatial search could land on More Info).
+                            k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP -> runCatching { playRequester.requestFocus() }.isSuccess
+                            else -> false
+                        }
                     }
                     .testTag("featured-row"),
             ) {
@@ -181,6 +208,84 @@ fun ExpandedShelf(
                     }
                 }
             }
+        }
+        info?.let { InfoSheet(it, onClose = { info = null; runCatching { infoRequester.requestFocus() } }) }
+    }
+}
+
+/** A tvOS hero button: a capsule (Play, with a progress bar for Resume) or a round icon (More Info). */
+@Composable
+private fun ShelfButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    progress: Float? = null,
+    play: Boolean = false,
+    round: Boolean = false,
+) {
+    var focused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val pressed = remember { booleanArrayOf(false) }
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.08f else 1f, dev.glasslauncher.ui.Motion.focusIn(), label = "shelfButton")
+    val fg = if (focused) Color.Black else Color.White
+    Box(
+        modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(if (round) Modifier.size(44.dp) else Modifier.height(44.dp).widthIn(min = 150.dp))
+            .background(if (focused) Color.White else Color.White.copy(alpha = 0.2f), if (round) CircleShape else RoundedCornerShape(22.dp))
+            .onFocusChanged { focused = it.isFocused }
+            .onKeyEvent { e ->
+                val k = e.nativeKeyEvent
+                val select = k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER || k.keyCode == AndroidKeyEvent.KEYCODE_ENTER
+                if (select) {
+                    if (k.action == AndroidKeyEvent.ACTION_DOWN && k.repeatCount == 0) pressed[0] = true
+                    if (k.action == AndroidKeyEvent.ACTION_UP && pressed[0]) { pressed[0] = false; onClick() }
+                }
+                select
+            }
+            .semantics { contentDescription = label; role = androidx.compose.ui.semantics.Role.Button }
+            .focusable(),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (round) {
+            Text("i", style = Type.heading, color = fg)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 22.dp)) {
+                if (play) Text("▶", style = Type.body, color = fg, modifier = Modifier.padding(end = 8.dp))
+                Column {
+                    Text(label, style = Type.body, color = fg)
+                    if (progress != null) Box(Modifier.padding(top = 3.dp).width(64.dp).height(3.dp).background(fg.copy(alpha = 0.3f), CircleShape)) {
+                        Box(Modifier.fillMaxSize().graphicsLayer { scaleX = progress.coerceIn(0f, 1f); transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }.background(fg, CircleShape))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** More Info: the whole synopsis and details on a dark glass sheet over the dimmed shelf. Back closes it. */
+@Composable
+private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).testTag("shelf-info-sheet"), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier
+                .width(560.dp)
+                .background(Color(0xE61C1C1E), RoundedCornerShape(28.dp))
+                .padding(32.dp)
+                .focusRequester(focus)
+                .onKeyEvent { e ->
+                    val k = e.nativeKeyEvent
+                    // Back (and Select) close the sheet only; Home's own Back would also leave full screen.
+                    val close = k.keyCode == AndroidKeyEvent.KEYCODE_BACK || k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER
+                    if (close && k.action == AndroidKeyEvent.ACTION_UP) onClose()
+                    close
+                }
+                .focusable(),
+        ) {
+            Text(item.title, style = Type.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            item.metaLine()?.let { Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.65f), modifier = Modifier.padding(top = 8.dp)) }
+            item.description?.let { Text(it, style = Type.body, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 16.dp)) }
         }
     }
 }

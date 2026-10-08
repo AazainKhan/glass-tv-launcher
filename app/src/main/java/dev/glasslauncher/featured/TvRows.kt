@@ -66,6 +66,9 @@ object TvRows {
         val aspect = int("poster_art_aspect_ratio")
         val poster = str("poster_art_uri"); val thumb = str("thumbnail_uri")
         val image = if (aspect in 0..2) poster ?: thumb else thumb ?: poster
+        // The columns TvContract defines for details and progress (Watch Next and preview programs alike).
+        val durationMs = long("duration_millis")
+        val positionMs = long("last_playback_position_millis")
         return FeaturedItem(
             id = "tv:$pkg:${long("_id")}",
             title = title,
@@ -74,6 +77,12 @@ object TvRows {
             image = image,
             link = str("intent_uri"),
             packages = listOf(pkg),
+            year = str("release_date")?.take(4)?.toIntOrNull(),
+            rating = str("content_rating")?.substringAfterLast('/')?.substringAfterLast('_'),
+            genre = str("genre")?.split(',')?.firstOrNull()?.trim()?.lowercase()?.replaceFirstChar { it.uppercase() },
+            durationMin = (durationMs / 60_000).toInt().takeIf { it > 0 },
+            episode = if (season != null && episode != null) "S$season, E$episode" else null,
+            progress = if (durationMs > 0 && positionMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else null,
         )
     }
 

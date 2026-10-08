@@ -58,7 +58,8 @@ class HomeShots {
     }
 
     @Test fun controlCenter() = home {
-        compose.press(Button.Up, Button.Up)
+        // Up expands the shelf, Up again reaches Play, and Up once more the status pill.
+        compose.press(Button.Up, Button.Up, Button.Up)
         check(compose.focused() == "status-pill") { "focus is on ${compose.focused()}" }
         compose.press(Button.Select)
         compose.waitForTag("control-center")

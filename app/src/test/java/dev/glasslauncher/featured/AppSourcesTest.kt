@@ -17,16 +17,32 @@ class AppSourcesTest {
 
     @Test fun focusedAppUsesItsService() {
         val c = AppSources.effective(focused, "com.netflix.ninja")!!
-        assertEquals(FeaturedSourceId.Tmdb, c.source)
-        assertEquals("netflix", c.tmdbProvider)
+        assertEquals(FeaturedSourceId.JustWatch, c.source)
+        assertEquals("nfx", c.justWatchPackage)
     }
 
-    @Test fun serviceWithoutKeyFallsBackToDefault() {
-        assertEquals(focused, AppSources.effective(focused, "com.amazon.firetv.youtube"))
+    @Test fun streamingServicesNeedNoKey() {
+        val c = AppSources.effective(FeaturedConfig(mode = FeaturedMode.FocusedApp), "com.amazon.firebat")!!
+        assertEquals(FeaturedSourceId.JustWatch, c.source)
+        assertEquals("amp", c.justWatchPackage)
     }
 
-    @Test fun unknownAppFallsBack() {
-        assertEquals(focused, AppSources.effective(focused, "org.videolan.vlc"))
+    @Test fun primeLinksOpenInFireTvsPrimeApp() {
+        val link = "intent://app.primevideo.com/watch?gti=x#Intent;package=com.amazon.amazonvideo.livingroom;scheme=https;end"
+        assertEquals("intent://app.primevideo.com/watch?gti=x#Intent;package=com.amazon.firebat;scheme=https;end", JustWatch.forFireTv(link))
+    }
+
+    // tvOS: an app with nothing of its own to show keeps its hero (logo or screen), not another app's titles.
+    @Test fun serviceWithoutKeyKeepsTheAppHero() {
+        assertNull(AppSources.effective(focused, "com.amazon.firetv.youtube"))
+    }
+
+    @Test fun unknownAppKeepsTheAppHero() {
+        assertNull(AppSources.effective(focused, "org.videolan.vlc"))
+    }
+
+    @Test fun noFocusedAppUsesTheDefaultSource() {
+        assertEquals(focused, AppSources.effective(focused, null))
     }
 
     @Test fun offIsOff() {

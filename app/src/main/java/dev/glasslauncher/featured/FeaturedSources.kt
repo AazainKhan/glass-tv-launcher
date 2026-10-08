@@ -19,6 +19,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @Serializable
 data class FeaturedItem(
@@ -32,7 +34,23 @@ data class FeaturedItem(
     val link: String? = null,
     /** Apps that can open [link] or, failing that, are launched directly. Tried in order. */
     val packages: List<String> = emptyList(),
-)
+    val year: Int? = null,
+    /** Age rating as the service shows it (14+, TV-MA…). */
+    val rating: String? = null,
+    val genre: String? = null,
+    val durationMin: Int? = null,
+    /** "S2, E4" for an episode. */
+    val episode: String? = null,
+    /** How far it has been watched (0..1), for Resume; null if never started. */
+    val progress: Float? = null,
+) {
+    /** The details line under the title, in tvOS's order: rating · year · episode · duration · genre. */
+    fun metaLine(): String? {
+        val duration = durationMin?.takeIf { it > 0 }?.let { m -> if (m >= 60) "${m / 60} hr" + (if (m % 60 > 0) " ${m % 60} min" else "") else "$m min" }
+        val parts = listOfNotNull(rating, year?.toString(), episode, duration, genre)
+        return if (parts.isEmpty()) subtitle else parts.joinToString(" · ")
+    }
+}
 
 data class FeaturedFeed(val heading: String, val items: List<FeaturedItem>)
 
@@ -59,6 +77,7 @@ object Sources {
         FeaturedSourceId.Tmdb -> Tmdb
         FeaturedSourceId.YouTube -> YouTube
         FeaturedSourceId.Plex -> Plex
+        FeaturedSourceId.JustWatch -> JustWatch
         FeaturedSourceId.ContinueWatching, FeaturedSourceId.TvApp -> null // TvRows, which needs a Context
     }
 
@@ -304,4 +323,90 @@ fun FeaturedItem.open(context: Context): Boolean {
         if (runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return true
     }
     return false
+}
+
+/**
+ * JustWatch's popular titles for one streaming service, with the service's own Android TV deep link per
+ * title (Netflix, Prime Video, Disney+…): the shelf for apps that publish nothing to the TV themselves.
+ * JustWatch's public GraphQL API is unofficial, so failures fall back to the default source.
+ */
+object JustWatch : FeaturedSource {
+    class Service(val code: String, val name: String, val packages: List<String>)
+
+    val services = listOf(
+        Service("nfx", "Netflix", listOf("com.netflix.ninja", "com.netflix.mediaclient")),
+        Service("amp", "Prime Video", listOf("com.amazon.firebat", "com.amazon.avod", "com.amazon.amazonvideo.livingroom")),
+        Service("dnp", "Disney+", listOf("com.disney.disneyplus")),
+        Service("atp", "Apple TV+", listOf("com.apple.atve.amazon.appletv", "com.apple.atve.androidtv.appletv")),
+        Service("mxx", "Max", listOf("com.wbd.stream", "com.hbo.hbonow", "com.hbo.max.android.tv")),
+        Service("hlu", "Hulu", listOf("com.hulu.livingroomplus", "com.hulu.plus")),
+    )
+
+    private const val IMAGES = "https://images.justwatch.com"
+
+    private val genres = mapOf(
+        "act" to "Action", "ani" to "Animation", "cmy" to "Comedy", "crm" to "Crime", "doc" to "Documentary",
+        "drm" to "Drama", "fml" to "Family", "fnt" to "Fantasy", "hst" to "History", "hrr" to "Horror",
+        "msc" to "Music", "rma" to "Romance", "scf" to "Sci-Fi", "spt" to "Sport", "trl" to "Thriller",
+        "war" to "War", "wsn" to "Western", "rly" to "Reality", "eur" to "European",
+    )
+
+    /** JustWatch's Prime links target Amazon's Android TV app; on Fire TV, Prime Video is com.amazon.firebat. */
+    fun forFireTv(link: String): String = link.replace("package=com.amazon.amazonvideo.livingroom", "package=com.amazon.firebat")
+
+    private const val QUERY = """query P(${'$'}country: Country!, ${'$'}first: Int!, ${'$'}filter: TitleFilter, ${'$'}pkgs: [String!]) {
+  popularTitles(country: ${'$'}country, first: ${'$'}first, filter: ${'$'}filter) { edges { node {
+    id objectType
+    content(country: ${'$'}country, language: "en") {
+      title originalReleaseYear runtime shortDescription ageCertification
+      genres { shortName }
+      backdrops(profile: S1920, format: JPG) { backdropUrl }
+    }
+    offers(country: ${'$'}country, platform: ANDROID_TV, filter: {packages: ${'$'}pkgs}) { deeplinkURL(platform: ANDROID_TV) standardWebURL }
+  } } }
+}"""
+
+    override suspend fun load(http: OkHttpClient, cfg: FeaturedConfig) = withContext(Dispatchers.IO) {
+        val service = services.firstOrNull { it.code == cfg.justWatchPackage } ?: error("No JustWatch service")
+        val country = java.util.Locale.getDefault().country.takeIf { it.length == 2 } ?: "US"
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("query", kotlinx.serialization.json.JsonPrimitive(QUERY))
+            put("variables", kotlinx.serialization.json.buildJsonObject {
+                put("country", kotlinx.serialization.json.JsonPrimitive(country))
+                put("first", kotlinx.serialization.json.JsonPrimitive(15))
+                put("filter", kotlinx.serialization.json.buildJsonObject {
+                    put("packages", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(service.code))))
+                })
+                put("pkgs", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(service.code))))
+            })
+        }.toString()
+        val request = Request.Builder().url("https://apis.justwatch.com/graphql")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        val root = http.newCall(request).execute().use { r ->
+            check(r.isSuccessful) { "HTTP ${r.code}" }
+            json.parseToJsonElement(r.body.string())
+        }
+        val edges = root.jsonObject["data"]?.jsonObject?.get("popularTitles")?.jsonObject?.get("edges")?.jsonArray ?: error("JustWatch: no titles")
+        val items = edges.mapNotNull { e ->
+            val node = e.jsonObject["node"]?.jsonObject ?: return@mapNotNull null
+            val c = node["content"]?.jsonObject ?: return@mapNotNull null
+            val offer = node["offers"]?.jsonArray?.firstOrNull()?.jsonObject
+            val backdrop = c["backdrops"]?.jsonArray?.firstOrNull()?.jsonObject?.get("backdropUrl").str() ?: return@mapNotNull null
+            FeaturedItem(
+                id = "jw:${node["id"].str()}",
+                title = c["title"].str() ?: return@mapNotNull null,
+                description = c["shortDescription"].str(),
+                image = IMAGES + backdrop,
+                link = offer?.get("deeplinkURL").str()?.let(::forFireTv) ?: offer?.get("standardWebURL").str(),
+                packages = service.packages,
+                year = c["originalReleaseYear"].str()?.toIntOrNull(),
+                rating = c["ageCertification"].str(),
+                genre = c["genres"]?.jsonArray?.firstNotNullOfOrNull { genres[it.jsonObject["shortName"].str()] },
+                durationMin = c["runtime"].str()?.toIntOrNull(),
+            )
+        }
+        check(items.isNotEmpty()) { "JustWatch: no titles for ${service.name}" }
+        FeaturedFeed("Popular on ${service.name}", items)
+    }
 }
