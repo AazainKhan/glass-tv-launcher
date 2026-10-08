@@ -194,10 +194,6 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         delay(TITLES_AFTER_MS)
         dwelled = true
     }
-    LaunchedEffect(heroApp, cfg.featured.mode, cfg.topShelfTitles) {
-        if (cfg.featured.mode != dev.glasslauncher.data.FeaturedMode.FocusedApp || !cfg.topShelfTitles) return@LaunchedEffect
-        shelfApp = heroApp
-    }
     val appsWithRows by produceState(emptySet<String>(), layout.loaded) { value = dev.glasslauncher.featured.TvRows.packagesWithRows(context) }
     // Show Titles: Never means no title fetch at all (the shelf is only ever the app's hero).
     val featuredCfg = remember(cfg.featured, shelfApp, appsWithRows, cfg.topShelfTitles) {
@@ -242,6 +238,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // flip Home back and forth.
     val nowPlaying by graph.nowPlaying.state.collectAsStateWithLifecycle()
     var takeover by remember { mutableStateOf<dev.glasslauncher.widgets.NowPlaying?>(null) }
+    LaunchedEffect(heroApp, cfg.featured.mode, cfg.topShelfTitles, takeover != null) {
+        if (cfg.featured.mode != dev.glasslauncher.data.FeaturedMode.FocusedApp || !cfg.topShelfTitles) return@LaunchedEffect
+        // While Now Playing has the shelf, moving along the tray doesn't fetch each app's titles (perf: 19%
+        // janky frames browsing with music up); the shelf catches up when the music stops.
+        if (takeover != null) return@LaunchedEffect
+        shelfApp = heroApp
+    }
     LaunchedEffect(nowPlaying, cfg.showNowPlaying) {
         val np = nowPlaying
         val current = takeover
