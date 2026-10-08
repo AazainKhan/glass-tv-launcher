@@ -172,6 +172,17 @@ class Settings(Screen):
             self.tv.press("down")
         return seen
 
+    def toggle_state(self, row: str) -> bool | None:
+        """A switch row's state from the accessibility tree (checkable/checked), None if it isn't a switch."""
+        out = self.tv.sh("uiautomator dump /data/local/tmp/e2e.xml >/dev/null 2>&1; cat /data/local/tmp/e2e.xml")
+        import re as _re
+        for m in _re.finditer(r'<node [^>]*>', out):
+            node = m.group(0)
+            if f'content-desc="{row}' in node or f'text="{row}"' in node:
+                if 'checkable="true"' in node:
+                    return 'checked="true"' in node
+        return None
+
     def value_of(self, row: str) -> str:
         """The value shown at the right of a row (e.g. 'Appearance' → 'Dark')."""
         tree = self.tv.tree()

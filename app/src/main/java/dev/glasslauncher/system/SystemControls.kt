@@ -8,6 +8,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.provider.Settings
+import kotlinx.coroutines.launch
 
 /** What Control Center reads from the TV, and the system pages its tiles open. */
 object SystemControls {
@@ -64,13 +65,29 @@ object SystemControls {
         TvSettingsSection("Account & Profile Settings", "tv.my_account.MyAccountActivity", Settings.ACTION_SYNC_SETTINGS),
     )
 
-    fun openTvSettings(context: Context, section: TvSettingsSection): Boolean = runCatching {
-        context.startActivity(
-            Intent().setClassName(FIRE_SETTINGS, "$FIRE_SETTINGS.${section.fireActivity}")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-        )
-        true
-    }.getOrDefault(false) || open(context, section.fallbackAction)
+    /**
+     * Fire's own page for [section]. Display & Sounds, Preferences and Account & Profile are guarded by
+     * com.amazon.tv.permission.LAUNCHER_SETTINGS (signature|privileged, held by Amazon's launcher), so
+     * with root they open through `am start` as root; without it, the closest Android settings page.
+     * (Requesting the permission instead would need it in glass-system's privapp allowlist, and Fire OS
+     * won't boot with a privileged permission missing from it.)
+     */
+    fun openTvSettings(context: Context, section: TvSettingsSection): Boolean {
+        val component = "$FIRE_SETTINGS/.${section.fireActivity}"
+        val opened = runCatching {
+            context.startActivity(
+                Intent().setClassName(FIRE_SETTINGS, "$FIRE_SETTINGS.${section.fireActivity}")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            )
+        }.isSuccess
+        if (opened) return true
+        val app = context.applicationContext
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val ok = Root.available() && Root.run("am start -n $component -f 0x14000000").ok
+            if (!ok) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { open(app, section.fallbackAction) }
+        }
+        return true
+    }
 
     private const val FIRE_SETTINGS = "com.amazon.tv.settings.v2"
 

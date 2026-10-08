@@ -33,13 +33,25 @@ data class LauncherConfig(
     val background: BackgroundMode = BackgroundMode.Featured,
     /** Text Size, tvOS-style: 1.0 default, up to 1.3; tiles and gutters grow with it. */
     val textScale: Float = 1f,
+    /** Settings › Display & Text Size. */
+    val boldText: Boolean = false,
+    val increaseContrast: Boolean = false,
+    /** Control Center tiles turned off in Settings › Control Center (ids in CONTROL_CENTER_TILES). */
+    val ccHidden: Set<String> = emptySet(),
+    /** Which one-time "hide by default" additions have been applied to this install. */
+    val hiddenMigration: Int = 0,
+    /** Screensaver: Glass's Aerials, or Fire TV's own screensaver. */
+    val screensaverMode: ScreensaverMode = ScreensaverMode.Aerials,
     /** Packages seen before; anything not in here is new and gets the blue dot until opened. */
     val seenApps: Set<String> = emptySet(),
     /** Most recently opened first; the app switcher's fallback when usage access isn't granted. */
     val recentApps: List<String> = emptyList(),
     /** Remote button name (e.g. "KEYCODE_APP_1") -> action; see RemoteAction. Missing = Fire TV default. */
     val remoteButtons: Map<String, String> = emptyMap(),
-)
+) {
+    /** Minutes of idle Home before Aerials start (when Aerials is the screensaver); 0 stored means the default. */
+    val aerialsIdleMinutes: Int get() = aerialsOnIdleMinutes.takeIf { it > 0 } ?: 5
+}
 
 @Serializable
 enum class BackgroundMode { Featured, Wallpaper, Motion }
@@ -100,3 +112,5 @@ data class WeatherConfig(val city: String, val latitude: Double, val longitude: 
 
 fun appKey(pkg: String) = "app:$pkg"
 fun folderKey(id: String) = "folder:$id"
+
+enum class ScreensaverMode { Aerials, System }

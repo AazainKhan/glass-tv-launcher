@@ -5,6 +5,8 @@ import android.provider.Settings
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.geometry.Offset
@@ -24,8 +26,10 @@ data class Palette(val light: Boolean, val highContrast: Boolean = false) {
     // Secondary and faint text keep WCAG AA (4.5:1) on the glass and grid ranges set by Blur.legible.
     val secondary = if (light) Color(if (highContrast) 0xF00E1015 else 0xCC0E1015) else Color(if (highContrast) 0xF0FFFFFF else 0xDBFFFFFF)
     val faint = if (light) Color(0x990E1015) else Color(0x99FFFFFF)
-    val focusFill = if (light) Color(0xFF0E1015) else Color.White
-    val onFocusFill = if (light) Color.White else Color(0xFF0E1015)
+    // tvOS: focus is a white capsule in both appearances (a near-black one in light made buttons flip
+    // between dark and light as focus moved across them).
+    val focusFill = Color.White
+    val onFocusFill = Color(0xFF0E1015)
     val scrim = if (light) Color(0x33FFFFFF) else Color(0x66000000)
     val accent = Color(0xFF5AC8FA)
 }
@@ -56,7 +60,7 @@ data class UiPrefs(
                     Auto.Off -> false
                 },
                 reduceTransparency = cfg.reduceTransparency || systemHighContrast,
-                highContrast = systemHighContrast,
+                highContrast = systemHighContrast || cfg.increaseContrast,
                 sounds = cfg.sounds,
             )
         }
@@ -78,20 +82,31 @@ val InterFamily = FontFamily(
     Font(R.font.inter_semibold, FontWeight.SemiBold),
 )
 val InterDisplay = FontFamily(Font(R.font.inter_display_bold, FontWeight.Bold))
+/** Bold Text: the same weights mapped one step heavier (Medium draws SemiBold, SemiBold draws Bold). */
+val InterBold = FontFamily(
+    Font(R.font.inter_semibold, FontWeight.Medium),
+    Font(R.font.inter_display_bold, FontWeight.SemiBold),
+    Font(R.font.inter_display_bold, FontWeight.Bold),
+)
 
 /**
  * 10-foot type scale. The UI renders at 960x540dp on a 1080p panel, so 1sp = 2px:
  * body 16sp = 32px (tvOS minimum 29pt), secondary 14.5sp = 29px, titles >= 56px.
  */
 object Type {
-    val display = TextStyle(fontFamily = InterDisplay, fontSize = 38.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp, lineHeight = 42.sp)
-    val title = TextStyle(fontFamily = InterDisplay, fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
-    val heading = TextStyle(fontFamily = InterFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-    val body = TextStyle(fontFamily = InterFamily, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-    val secondary = TextStyle(fontFamily = InterFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp)
-    val caption = TextStyle(fontFamily = InterFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
-    val label = TextStyle(fontFamily = InterFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
-    val overline = TextStyle(fontFamily = InterFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+    /** Settings › Display & Text Size › Bold Text: every style one weight heavier. Snapshot state, so text recomposes. */
+    var bold by androidx.compose.runtime.mutableStateOf(false)
+    private val family get() = if (bold) InterBold else InterFamily
+    private val displayFamily get() = InterDisplay
+
+    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 38.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp, lineHeight = 42.sp)
+    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
+    val heading get() = TextStyle(fontFamily = family, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    val body get() = TextStyle(fontFamily = family, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+    val secondary get() = TextStyle(fontFamily = family, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp)
+    val caption get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
+    val label get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
+    val overline get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
 
     val shadow = Shadow(Color.Black.copy(alpha = 0.45f), Offset(0f, 2f), 10f)
     /** For white text straight on busy art: tighter and darker, so the letters keep an edge. */

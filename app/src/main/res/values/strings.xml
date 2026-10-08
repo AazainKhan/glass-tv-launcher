@@ -4,5 +4,5 @@
     <string name="home_guard_name">Glass Launcher Home Button</string>
     <string name="home_guard_description">Brings Glass Launcher back when the TV\'s built-in home screen opens. It only watches for the built-in launcher\'s window and does not read screen content or intercept buttons.</string>
     <string name="remote_keys_name">Glass Launcher Remote Buttons</string>
-    <string name="remote_keys_description">Lets you choose what the remote\'s app buttons, Recent Apps and Settings buttons do. Only those buttons are handled; other buttons pass through and screen content is never read.</string>
+    <string name="remote_keys_description">Lets you choose what the remote\'s app buttons, Recent Apps and Settings buttons do. Only those buttons are handled; other buttons pass through. It also keeps a small, blurred snapshot of the app in front for the app switcher\'s cards, stored only on this TV. Screen text is never read.</string>
 </resources>

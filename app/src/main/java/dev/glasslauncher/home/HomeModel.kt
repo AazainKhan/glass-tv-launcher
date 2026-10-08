@@ -197,6 +197,11 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun seedDefaults(installed: List<AppEntry>) {
+        // Hidden-by-default entries added after a launcher was already set up (seeding runs once).
+        if (config.value.seededDefaults && config.value.hiddenMigration < HIDDEN_MIGRATION) {
+            val have = installed.map { it.packageName }.toSet()
+            store.update { c -> c.copy(hidden = c.hidden + LATER_HIDDEN.filter { it in have }, hiddenMigration = HIDDEN_MIGRATION) }
+        }
         if (config.value.seededDefaults) return
         val have = installed.map { it.packageName }.toSet()
         val dock = DEFAULT_DOCK.filter { it in have }.distinct().take(DOCK_SIZE)
@@ -225,6 +230,10 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             "com.amazon.ftv.screensaver", "com.amazon.hedwig", "com.amazon.ssm", "com.amazon.tv.earlyaccess",
             "com.amazon.tv.ftvambient", "com.amazon.whasettings",
         )
+
+        /** Added to existing installs once (version [HIDDEN_MIGRATION]): Fire TV Early Access traps the remote. */
+        private val LATER_HIDDEN = listOf("com.amazon.tv.earlyaccess")
+        private const val HIDDEN_MIGRATION = 1
 
         fun buildLayout(apps: List<AppEntry>, cfg: LauncherConfig): HomeLayout {
             val byPkg = apps.associateBy { it.packageName }

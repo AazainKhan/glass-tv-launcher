@@ -187,6 +187,15 @@ class TV:
     def resumed_package(self) -> str:
         return self.resumed().split("/")[0]
 
+    def launch(self, pkg: str) -> None:
+        """Opens an app the way its launcher entry does (TV apps often have only a Leanback one)."""
+        for cat in ("LEANBACK_LAUNCHER", "LAUNCHER"):
+            comp = self.sh(f"cmd package resolve-activity --brief -c android.intent.category.{cat} {pkg}").strip().splitlines()[-1:]
+            if comp and "/" in comp[0]:
+                self.sh(f"am start -n {comp[0].strip()}")
+                return
+        raise AssertionError(f"{pkg} has no launcher entry")
+
     def home_intent(self) -> None:
         self.sh(f"am start -a android.intent.action.MAIN -c android.intent.category.HOME -n {PKG}/.MainActivity")
 
@@ -200,6 +209,20 @@ class TV:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             subprocess.run(["adb", "-s", self.serial, "exec-out", "screencap", "-p"], stdout=f, timeout=30)
+
+    def screen_image(self):
+        """The screen as a greyscale PIL image."""
+        import io
+        from PIL import Image
+        png = subprocess.run(["adb", "-s", self.serial, "exec-out", "screencap", "-p"], capture_output=True, timeout=30).stdout
+        return Image.open(io.BytesIO(png)).convert("L")
+
+    @staticmethod
+    def brightness(img, bounds) -> float:
+        """Mean brightness (0..1) of a node's bounds in a screen image."""
+        l, t, r, b = bounds
+        px = list(img.crop((l, t, r, b)).getdata())
+        return sum(px) / max(1, len(px)) / 255
 
     def region_brightness(self, left: float, top: float, right: float, bottom: float) -> float:
         """Mean brightness (0..1) of a region of the screen (fractions). For states the accessibility

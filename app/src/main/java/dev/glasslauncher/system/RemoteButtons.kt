@@ -50,10 +50,10 @@ object RemoteButtons {
      * power, Alexa and the TV button stay with the system.
      */
     val all = listOf(
-        RemoteButton("app1", "Netflix Button", setOf("KEYCODE_BUTTON_9", "KEYCODE_APP_1"), RemoteAction.OpenApp("com.netflix.ninja")),
-        RemoteButton("app2", "Prime Video Button", setOf("KEYCODE_BUTTON_10", "KEYCODE_APP_2"), RemoteAction.OpenApp("com.amazon.firebat")),
-        RemoteButton("app3", "Disney+ Button", setOf("KEYCODE_BUTTON_11", "KEYCODE_APP_3"), RemoteAction.OpenApp("com.disney.disneyplus")),
-        RemoteButton("app4", "Amazon Music Button", setOf("KEYCODE_BUTTON_12", "KEYCODE_APP_4"), RemoteAction.OpenApp("com.amazon.bueller.music")),
+        RemoteButton("app1", "Button 1", setOf("KEYCODE_BUTTON_9", "KEYCODE_APP_1"), RemoteAction.OpenApp("com.netflix.ninja")),
+        RemoteButton("app2", "Button 2", setOf("KEYCODE_BUTTON_10", "KEYCODE_APP_2"), RemoteAction.OpenApp("com.amazon.firebat")),
+        RemoteButton("app3", "Button 3", setOf("KEYCODE_BUTTON_11", "KEYCODE_APP_3"), RemoteAction.OpenApp("com.disney.disneyplus")),
+        RemoteButton("app4", "Button 4", setOf("KEYCODE_BUTTON_12", "KEYCODE_APP_4"), RemoteAction.OpenApp("com.amazon.bueller.music")),
         RemoteButton("recents", "Recent Apps Button", setOf("KEYCODE_BUTTON_13", "KEYCODE_RECENTS", "KEYCODE_APP_SWITCH"), RemoteAction.AppSwitcher),
         RemoteButton("settings", "Settings Button", emptySet(), RemoteAction.TvSettings, scanCodes = setOf(SETTINGS_SCAN_CODE)),
     )

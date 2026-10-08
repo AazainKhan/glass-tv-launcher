@@ -24,6 +24,7 @@ DISABLE=(
   com.amazon.media.recommendations          # recommendations for the (disabled) stock launcher
   com.amazon.whisperjoin.middleware.v2.np   # Wi-Fi setup of other Amazon devices
   com.amazon.whad                           # whole-home audio (multi-room Echo groups)
+  com.amazon.firetv.troubleshooting         # "FireTV Troubleshooting": a 23 KB stub whose only effect is an app icon
 )
 # Still usable when opened, just not running in the background.
 BACKGROUND=(

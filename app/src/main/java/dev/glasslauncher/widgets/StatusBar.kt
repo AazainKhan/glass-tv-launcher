@@ -59,7 +59,7 @@ fun StatusPill(
             .padding(top = m.chromeInset, end = m.chromeInset)
             .graphicsLayer { alpha = idle.chromeAlpha * fade() },
     ) {
-        if (cfg.showNowPlaying) NowPlayingPill()
+        // Now Playing is a Home takeover and a Control Center card now, not a pill.
         FocusTile(
             label = "Status and Control Center",
             onClick = onSelect,

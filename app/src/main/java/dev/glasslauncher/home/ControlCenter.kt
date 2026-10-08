@@ -6,6 +6,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.glasslauncher.app
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.produceState
@@ -60,16 +63,39 @@ import dev.glasslauncher.widgets.rememberClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val Gap = 8.dp
-private val Pill = 47.dp
-private val PillWidth = 128.dp
-private val Big = Pill * 2 + Gap
-// The big tile matches a pill's width so the second row of pills lines up under it.
-private val BigWidth = PillWidth
-private val ColumnWidth = PillWidth * 2 + Gap
-// Round buttons sit on the same four-across rhythm as tvOS, even when fewer are shown.
-private val RoundGap = (ColumnWidth - Pill * 4) / 3
 private val Blue = Color(0xFF0A84FF)
+
+/**
+ * Tile sizes grow with the text size (Settings › Display & Text Size), so labels keep fitting instead of
+ * being cut off: at Larger the Wi-Fi network name was truncated in a fixed 128 dp pill.
+ */
+private class CcSizes(k: Float) {
+    val gap = 8.dp
+    val pill = (47 * k).dp
+    val pillWidth = (128 * k).dp
+    val big = pill * 2 + gap
+    // The big tile matches a pill's width so the second row of pills lines up under it.
+    val bigWidth = pillWidth
+    val column = pillWidth * 2 + gap
+    // Round buttons sit on the same four-across rhythm as tvOS, even when fewer are shown.
+    val roundGap = (column - pill * 4) / 3
+    val disc = (28 * k).dp
+    val discGlyph = (17 * k).dp
+    val roundGlyph = (23 * k).dp
+    val bigGlyph = (46 * k).dp
+}
+
+private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
+
+/** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
+private val CC_BLEED = 16.dp
+
+/** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
+val CONTROL_CENTER_TILES = listOf(
+    "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
+    "controllers" to "Game Controllers", "appearance" to "Appearance", "screensaver" to "Screen Saver",
+    "switcher" to "App Switcher", "performance" to "Performance", "memory" to "Free Memory",
+)
 
 /**
  * SYS-01, laid out like tvOS 27 Control Center: the time over a right-hand column of glass tiles.
@@ -96,8 +122,10 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val headerOnLight = LocalBackdrop.current.backdrop?.artLight(0.72f, 0f, 0.98f, 0.09f) == true
     val headerColor = if (headerOnLight) Color(0xFF0E1015) else Color.White
     val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium, shadow = if (headerOnLight) null else Type.strongShadow)
-    val textSteps = listOf(1f to "Default", 1.15f to "Large", 1.3f to "Larger")
-    val textIndex = textSteps.indexOfFirst { it.first >= cfg.textScale - 0.01f }.coerceAtLeast(0)
+    val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
+    fun shown(id: String) = id !in cfg.ccHidden
+    // The focused round button's name, shown under the round buttons (they're icons only).
+    var roundLabel by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val dark = cfg.theme != ThemeMode.Light
     val airPlay = dev.glasslauncher.system.AirPlay.rememberState(active)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -112,10 +140,11 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     // Everything behind Control Center goes out of focus (the dock's soft blur of the screen). It fades
     // from a snapshot of Home taken as it opened to the blur, with Home itself not drawn meanwhile: two
     // cheap images instead of Home plus a blur over it (that made the open and close 80% janky).
+    androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz) {
     Box(Modifier.fillMaxSize()) {
         SnapshotBackdrop({ enter.value }, LocalBackdrop.current.overlaySoft)
         Column(
-            verticalArrangement = Arrangement.spacedBy(Gap),
+            horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .graphicsLayer {
@@ -124,8 +153,7 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                     alpha = enter.value
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
                 }
-                .padding(top = m.chromeInset, end = m.chromeInset + 14.dp)
-                .width(ColumnWidth)
+                .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
                 .testTag("control-center"),
         ) {
@@ -134,73 +162,95 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
                 horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
                 // Wider than the tile column: it grows to the left on one line rather than wrapping.
-                modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End, unbounded = true).padding(end = 4.dp, bottom = 16.dp),
+                modifier = Modifier.width(sz.column).wrapContentWidth(Alignment.End, unbounded = true).padding(end = CC_BLEED + 4.dp, bottom = 16.dp - CC_BLEED),
             ) {
                 cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor, headerStyle) }
                 Text(dev.glasslauncher.widgets.rememberDate(), style = headerStyle, color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-date"))
                 Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
+            // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
+            // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(sz.gap),
+                modifier = Modifier
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    .padding(CC_BLEED)
+                    .padding(bottom = m.chromeInset)
+                    .width(sz.column),
+            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
-                CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), BigWidth, Big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
+                CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), sz.bigWidth, sz.big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
                     BigIcon(R.drawable.ic_settings, "Settings", fg)
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(Gap)) {
-                    CcTile("Wi-Fi", network, Shapes.pill, PillWidth, Pill, onClick = { system { SystemControls.open(context, Settings.ACTION_WIFI_SETTINGS) } }) { fg ->
+                Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
+                    if (shown("wifi")) CcTile("Wi-Fi", network, Shapes.pill, sz.pillWidth, sz.pill, onClick = { system { SystemControls.open(context, Settings.ACTION_WIFI_SETTINGS) } }) { fg ->
                         PillContent(if (wifiOn) R.drawable.ic_wifi else R.drawable.ic_wifi_off, "Wi-Fi", network, fg, on = wifiOn, accent = Blue)
                     }
                     val btValue = when (bluetooth) { true -> "On"; false -> "Off"; null -> "Devices" }
-                    CcTile("Bluetooth", btValue, Shapes.pill, PillWidth, Pill, onClick = { system { SystemControls.openBluetooth(context) } }) { fg ->
+                    if (shown("bluetooth")) CcTile("Bluetooth", btValue, Shapes.pill, sz.pillWidth, sz.pill, onClick = { system { SystemControls.openBluetooth(context) } }) { fg ->
                         PillContent(if (bluetooth == false) R.drawable.ic_bluetooth_disabled else R.drawable.ic_bluetooth, "Bluetooth", btValue, fg, on = bluetooth == true, accent = Blue)
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(Gap)) {
-                CcTile("Launcher Settings", null, Shapes.pill, PillWidth, Pill, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
-                    PillContent(R.drawable.ic_tune, "Launcher", "Settings", fg, on = false, accent = fg)
-                }
-                CcTile("Text Size", textSteps[textIndex].second, Shapes.pill, PillWidth, Pill, onClick = {
-                    screen.dissolve { model.edit { it.copy(textScale = textSteps[(textIndex + 1) % textSteps.size].first) } }
-                }) { fg -> PillContent(R.drawable.ic_format_size, "Text Size", textSteps[textIndex].second, fg, on = false, accent = fg) }
+            if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
+                PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
             }
             // AirPlay receiving (PhairPlay, scripts/phairplay); only shown once it's installed. A toggle,
             // like Wi-Fi's on state: white disc, blue glyph. A connected Mac or iPhone is named.
-            airPlay?.let { (state, set) ->
+            if (shown("airplay")) airPlay?.let { (state, set) ->
                 val value = when {
                     state.sender != null -> "Connected to ${state.sender}"
                     state.on -> "On"
                     else -> "Off"
                 }
-                CcTile("AirPlay", value, Shapes.pill, ColumnWidth, Pill, onClick = { set(!state.on) }) { fg ->
+                CcTile("AirPlay", value, Shapes.pill, sz.column, sz.pill, onClick = { set(!state.on) }) { fg ->
                     PillContent(R.drawable.ic_airplay, "AirPlay", value, fg, on = state.on, accent = Blue)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(RoundGap)) {
-                Round(R.drawable.ic_sports_esports, "Game Controllers") { system { SystemControls.openGameControllers(context) } }
-                Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Appearance, Dark" else "Appearance, Light") {
-                    screen.dissolve { model.edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } }
+            // Round buttons, four to a row (tvOS), with the focused one's name in a caption underneath.
+            val rounds = buildList<@Composable () -> Unit> {
+                val label: (String?) -> Unit = { roundLabel = it }
+                if (shown("controllers")) add { Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label) { system { SystemControls.openGameControllers(context) } } }
+                if (shown("appearance")) add {
+                    Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Appearance, Dark" else "Appearance, Light", onLabel = label) {
+                        screen.dissolve { model.edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } }
+                    }
                 }
-                Round(R.drawable.ic_landscape, "Screen Saver") {
-                    closeAll(); AerialActivity.start(context)
+                if (shown("screensaver")) add { Round(R.drawable.ic_landscape, "Screen Saver", onLabel = label) { closeAll(); AerialActivity.start(context) } }
+                if (shown("switcher")) add { Round(R.drawable.ic_apps, "App Switcher", onLabel = label) { closeAll(); open(Overlay.AppSwitcher) } }
+                // Root only (Settings › Root has the details): Performance is a toggle, white while Fast is on;
+                // Free Memory ends background apps and says how much it freed.
+                if (rooted && shown("performance")) add {
+                    Round(R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label) {
+                        val next = !fast
+                        fast = next
+                        scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) }
+                    }
                 }
-                Round(R.drawable.ic_apps, "App Switcher") { closeAll(); open(Overlay.AppSwitcher) }
+                if (rooted && shown("memory")) add {
+                    Round(R.drawable.ic_cleaning_services, freed?.let { "Free Memory, $it MB freed" } ?: "Free Memory", onLabel = label) {
+                        scope.launch { freed = dev.glasslauncher.system.RootFeatures.freeMemory(context) }
+                    }
+                }
             }
-            // Root only (Settings › Root has the details): Performance is a toggle, white while Fast is on;
-            // Free Memory ends background apps and says how much it freed.
-            if (rooted) Row(horizontalArrangement = Arrangement.spacedBy(RoundGap)) {
-                Round(R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast) {
-                    val next = !fast
-                    fast = next
-                    scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) }
-                }
-                Round(R.drawable.ic_cleaning_services, freed?.let { "Free Memory, $it MB freed" } ?: "Free Memory") {
-                    scope.launch { freed = dev.glasslauncher.system.RootFeatures.freeMemory(context) }
-                }
+            rounds.chunked(4).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(sz.roundGap)) { row.forEach { it() } }
             }
-            freed?.let {
-                Text("$it MB freed", style = Type.caption, color = palette.secondary, modifier = Modifier.padding(start = 4.dp))
+            // Always takes its line, so the column doesn't jump as focus moves on and off the round buttons.
+            Text(
+                roundLabel?.replace(", ", " · ") ?: freed?.let { "$it MB freed" } ?: "",
+                style = Type.caption.copy(fontWeight = FontWeight.SemiBold, shadow = if (headerOnLight) null else Type.shadow),
+                color = headerColor,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
+            )
+            // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
+            val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
+            np?.let { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) }
             }
         }
+    }
     }
 }
 
@@ -212,7 +262,7 @@ private fun Glyph(@DrawableRes icon: Int, tint: Color, modifier: Modifier = Modi
 @Composable
 private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Glyph(icon, fg, Modifier.size(46.dp))
+        Glyph(icon, fg, Modifier.size(LocalCcSizes.current.bigGlyph))
         Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = fg)
     }
 }
@@ -228,13 +278,14 @@ private fun PillContent(
     accent: Color,
     disc: Boolean = true,
 ) {
+    val sz = LocalCcSizes.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 12.dp)) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(28.dp)
+                .size(sz.disc)
                 .then(if (disc) Modifier.background(if (on) Color.White else fg.copy(alpha = 0.16f), CircleShape) else Modifier),
-        ) { Glyph(icon, if (on) accent else fg, Modifier.size(17.dp)) }
+        ) { Glyph(icon, if (on) accent else fg, Modifier.size(sz.discGlyph)) }
         Column(Modifier.padding(start = 7.dp)) {
             Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             value?.let {
@@ -245,9 +296,16 @@ private fun PillContent(
 }
 
 @Composable
-private fun Round(@DrawableRes icon: Int, label: String, on: Boolean = false, onClick: () -> Unit) {
-    CcTile(label, null, CircleShape, Pill, Pill, onClick = onClick, on = on) { fg ->
-        Glyph(icon, fg, Modifier.size(23.dp))
+private fun Round(@DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {}, onClick: () -> Unit) {
+    val sz = LocalCcSizes.current
+    var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // The caption follows the button while focused, including its state (Appearance · Light → Dark).
+    LaunchedEffect(focused, label) { if (focused) onLabel(label) }
+    CcTile(label, null, CircleShape, sz.pill, sz.pill, onClick = onClick, on = on, onFocusChange = { f ->
+        focused = f
+        if (!f) onLabel(null)
+    }) { fg ->
+        Glyph(icon, fg, Modifier.size(sz.roundGlyph))
     }
 }
 
@@ -261,12 +319,14 @@ private fun CcTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     on: Boolean = false,
+    onFocusChange: (Boolean) -> Unit = {},
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalPalette.current
     FocusTile(
         label = if (value != null) "$title, $value" else title,
         onClick = onClick,
+        onFocusChange = onFocusChange,
         shape = shape,
         focusedScale = 1.06f,
         shadow = false,

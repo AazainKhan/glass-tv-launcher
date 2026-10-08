@@ -2,7 +2,7 @@
 
 import pytest
 
-ROWS = ["Appearance", "Set Up from Phone", "Featured Row", "Hidden Apps", "Icon Pack", "Screensaver",
+ROWS = ["Appearance", "Display & Text Size", "Control Center", "Set Up from Phone", "Featured Row", "Hidden Apps", "Icon Pack", "Screensaver",
         "Widgets", "Accessibility", "Home Button", "Remote Buttons", "Updates", "Backup & Restore", "About"]
 
 
@@ -11,7 +11,7 @@ def test_opens_from_control_center_with_every_section(tv, home, settings, rooted
     rows = settings.all_rows()
     for row in ROWS:
         assert row in rows, f"Settings has no '{row}' row (saw {sorted(rows)})"
-    assert ("Root" in rows) == rooted, "the Root section should show exactly when root is granted"
+    assert "Root" in rows, "the Root section is always listed (its first row says whether root is there)"
 
 
 def test_page_push_and_back(tv, home, settings):
@@ -38,7 +38,7 @@ def test_root_page_shows_state(tv, home, settings, rooted):
         pytest.skip("needs root")
     settings.open_from_control_center()
     settings.open_page("Root")
-    assert settings.value_of("Home Takeover") == "On", "Glass is Home, so Home Takeover should read On"
+    assert settings.toggle_state("Home Takeover") is True, "Glass is Home, so the Home Takeover switch should be on"
     rows = settings.all_rows()
     for row in ["System App", "Home Takeover", "Balanced", "Fast", "Memory Tuning", "Free Memory", "App Freezer", "Restart Now", "Root Log"]:
         assert row in rows, f"Root page has no '{row}'"
@@ -53,3 +53,88 @@ def test_root_log_lists_actions(tv, home, settings, rooted):
     settings.open_page("Root Log")
     assert any(":  " not in n.text and ("ok" in n.text or "failed" in n.text) for n in tv.tree().nodes() if n.text), \
         "Root Log is empty"
+
+
+def test_display_and_text_size_page(tv, home, settings):
+    settings.open_from_control_center()
+    settings.open_page("Display & Text Size")
+    rows = settings.all_rows()
+    for row in ["Bold Text", "Text Size", "Increase Contrast", "Reduce Transparency", "Fire TV Accessibility"]:
+        assert row in rows, f"Display & Text Size has no '{row}'"
+    for row in ["Bold Text", "Increase Contrast", "Reduce Transparency"]:
+        assert settings.toggle_state(row) is not None, f"'{row}' isn't a switch"
+
+
+def test_text_size_slider_grows_control_center_without_cutting_text(tv, home, settings, cc):
+    """At the largest size the Control Center tiles grow (Wi-Fi's network name was cut off at Large)."""
+    small = cc.tile(cc.open(), "Wi-Fi").bounds
+    home.reset()
+    settings.open_from_control_center()
+    settings.open_page("Display & Text Size")
+    settings.open_page("Text Size")
+    slider = tv.wait_for(lambda t: t.find(rid="text-size-slider"), 4, "the slider")
+    settings.focus(lambda n: n.rid == "text-size-slider", "the slider")
+    tv.press(*["right"] * 5)
+    try:
+        tv.wait_for(lambda t: t.find(desc="Text Size, Largest"), 4, "the largest size")
+        home.reset()
+        tree = cc.open()
+        big = cc.tile(tree, "Wi-Fi").bounds
+        assert (big[3] - big[1]) > (small[3] - small[1]) * 1.25, f"the Wi-Fi tile didn't grow: {small} → {big}"
+        # Everything still fits on screen.
+        assert all(n.bounds[3] <= 1080 and n.bounds[0] >= 0 for n in tree.nodes() if n.desc), "Control Center runs off screen"
+    finally:
+        home.reset()
+        settings.open_from_control_center()
+        settings.open_page("Display & Text Size")
+        settings.open_page("Text Size")
+        settings.focus(lambda n: n.rid == "text-size-slider", "the slider")
+        tv.press(*["left"] * 5)
+        tv.wait_for(lambda t: t.find(desc="Text Size, Default"), 4, "default size again")
+        home.reset()
+
+
+@pytest.mark.root
+def test_root_page_first_row_reports_superuser(tv, home, settings, rooted):
+    settings.open_from_control_center()
+    settings.open_page("Root")
+    tv.wait_for(lambda t: t.find(desc_prefix="Superuser, ") and "Checking" not in t.find(desc_prefix="Superuser, ").desc, 8, "the Superuser row")
+    want = "Detected" if rooted else "Not detected"
+    assert tv.tree().find(desc=f"Superuser, {want}"), f"Superuser should read {want}"
+
+
+def test_about_has_a_privacy_section(tv, home, settings):
+    settings.open_from_control_center()
+    settings.open_page("About", "Glass Launcher")
+    rows = settings.all_rows()
+    assert "Glass Launcher Collects No Data" in rows
+
+
+def test_on_off_items_are_switches(tv, home, settings):
+    settings.open_from_control_center()
+    settings.open_page("Widgets")
+    assert settings.toggle_state("24-Hour Time") is not None, "24-Hour Time should be a switch"
+    if tv.tree().has_text("Show Weather"):
+        assert settings.toggle_state("Show Weather") is True
+
+
+def test_remote_buttons_are_a_2x2_grid(tv, home, settings):
+    """The remote's four app buttons, laid out as they sit on the remote: Button 1 and 2 on top, 3 and 4 below."""
+    settings.open_from_control_center()
+    settings.open_page("Remote Buttons")
+    tree = tv.tree()
+    assert not tree.has_text("Learn a Button…")
+    cells = {i: tree.find(rid=f"remote-button-{i}") for i in range(1, 5)}
+    assert all(cells.values()), f"missing grid cells: {[i for i, c in cells.items() if not c]}"
+    for i, c in cells.items():
+        assert c.label.startswith(f"Button {i}, "), f"cell {i} should be 'Button {i}' with its action ({c.label!r})"
+    (x1, y1), (x2, y2), (x3, y3), (x4, y4) = (cells[i].center for i in range(1, 5))
+    assert abs(y1 - y2) < 10 and abs(y3 - y4) < 10 and y3 > y1, "two rows"
+    assert x1 < x2 and x3 < x4 and abs(x1 - x3) < 10, "two columns"
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == "remote-button-1", 4, "focus on Button 1")
+    tv.press("right")
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == "remote-button-2", 4, "Right to Button 2")
+    tv.press("down")
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == "remote-button-4", 4, "Down to Button 4")
+    settings.select()
+    tv.wait_for(lambda t: any(n.text == "Button 4" for n in t.nodes()) and t.has_text("Open Another App…"), 6, "Button 4's page")

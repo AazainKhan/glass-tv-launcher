@@ -165,9 +165,15 @@ fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
 fun SnapshotBackdrop(enter: () -> Float, blurred: ImageBitmap?, fallbackGlass: Boolean = false) {
     val state = dev.glasslauncher.glass.LocalBackdrop.current
     val sharp = state.overlaySharp
-    androidx.compose.runtime.DisposableEffect(sharp, blurred) {
-        if (sharp != null && blurred != null) state.homeHidden = true
-        onDispose { state.homeHidden = false; if (state.overlaySharp === sharp) state.overlaySharp = null }
+    // Separate effects: swapping [blurred] (a darkened copy arriving a frame later) must not drop the
+    // snapshot, or Home would be drawn under the overlay for the rest of its life.
+    androidx.compose.runtime.DisposableEffect(sharp) {
+        onDispose { if (state.overlaySharp === sharp) state.overlaySharp = null }
+    }
+    val hide = sharp != null && blurred != null
+    androidx.compose.runtime.DisposableEffect(hide) {
+        if (hide) state.homeHidden = true
+        onDispose { state.homeHidden = false }
     }
     if (blurred == null) {
         // No capture (it failed, or the JVM test harness): frosted glass over the live Home, as before.

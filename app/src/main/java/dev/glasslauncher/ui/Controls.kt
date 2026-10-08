@@ -36,6 +36,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,6 +74,8 @@ fun MenuRow(
     chevron: Boolean = false,
     /** Red text (Uninstall, Delete): a warning in both states, as in tvOS menus. */
     destructive: Boolean = false,
+    /** An on/off row: drawn as a switch and reported as one to accessibility (checked state). */
+    checked: Boolean? = null,
 ) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
@@ -124,7 +128,11 @@ fun MenuRow(
             }
             .semantics {
                 contentDescription = if (value != null) "$title, $value" else title
-                role = Role.Button
+                if (checked != null) {
+                    role = Role.Switch
+                    toggleableState = androidx.compose.ui.state.ToggleableState(checked)
+                } else role = Role.Button
+                if (!enabled) disabled()
                 onClick { if (enabled) onClick(); enabled }
             }
             .focusable()
@@ -135,14 +143,32 @@ fun MenuRow(
             Text(title, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (value != null) Text(value, style = Type.secondary, color = if (focused) fg.copy(alpha = 0.7f) else palette.secondary, maxLines = 1)
             trailing?.invoke(this)
+            if (checked != null) Switch(checked, focused)
             if (chevron) Text("›", style = Type.heading, color = if (focused) fg.copy(alpha = 0.6f) else palette.faint)
         }
     }
 }
 
 @Composable
-fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-    MenuRow(title, onClick = { onChange(!checked) }, modifier = modifier, value = if (checked) "On" else "Off")
+fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    MenuRow(title, onClick = { onChange(!checked) }, modifier = modifier, checked = checked, enabled = enabled)
+}
+
+/** A tvOS-style switch: a capsule track with a knob, green when on. Drawn in one Canvas (no animation cost at rest). */
+@Composable
+fun Switch(checked: Boolean, focused: Boolean, modifier: Modifier = Modifier) {
+    val palette = LocalPalette.current
+    val t by animateFloatAsState(if (checked) 1f else 0f, Motion.focusOut(), label = "switch")
+    androidx.compose.foundation.Canvas(modifier.size(46.dp, 28.dp)) {
+        val off = if (focused) Color(0x330E1015) else palette.primary.copy(alpha = 0.22f)
+        val on = Color(0xFF30D158)
+        val track = androidx.compose.ui.graphics.lerp(off, on, t)
+        drawRoundRect(track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+        val r = size.height / 2 - 2.5.dp.toPx()
+        val x = size.height / 2 + (size.width - size.height) * t
+        drawCircle(Color.Black.copy(alpha = 0.18f), r, androidx.compose.ui.geometry.Offset(x, size.height / 2 + 1.dp.toPx()))
+        drawCircle(Color.White, r, androidx.compose.ui.geometry.Offset(x, size.height / 2))
+    }
 }
 
 @Composable

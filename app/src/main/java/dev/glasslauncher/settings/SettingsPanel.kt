@@ -1,5 +1,21 @@
 package dev.glasslauncher.settings
 
+import dev.glasslauncher.data.ScreensaverMode
+import dev.glasslauncher.system.SystemControls
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.platform.testTag
 import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -72,6 +88,8 @@ import dev.glasslauncher.widgets.Weather
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
+import androidx.compose.ui.text.style.TextOverflow
+import dev.glasslauncher.ui.FocusTile
 
 private sealed interface Page {
     data object Root : Page
@@ -91,10 +109,18 @@ private sealed interface Page {
     data object Accessibility : Page
     data object RemoteButtons : Page
     data object RootTools : Page
+    data object DisplayText : Page
+    data object TextSize : Page
+    data object ControlCenterTiles : Page
     data object Freezer : Page
     data object RootLog : Page
     data class ButtonAction(val id: String) : Page
     data class ButtonApp(val id: String) : Page
+}
+
+/** A selected row that removes itself takes focus with it; focus goes back to the page's first row. */
+private fun refocus(first: androidx.compose.ui.focus.FocusRequester) {
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ runCatching { first.requestFocus() } }, 50)
 }
 
 @Composable
@@ -141,8 +167,8 @@ fun SettingsPanel(
                 Page.Appearance -> AppearancePage(model, cfg, f, ::push)
                 Page.Featured -> FeaturedPage(model, cfg, f, open, ::push)
                 Page.PlexLink -> PlexLinkPage(model, cfg, f, ::pop)
-                Page.Hidden -> HiddenPage(model, cfg, layout, f, ::push)
-                Page.HideMore -> HideMorePage(model, layout, f)
+                Page.Hidden -> HiddenPage(model, cfg, layout, f, ::push) { refocus(first) }
+                Page.HideMore -> HideMorePage(model, layout, f) { refocus(first) }
                 Page.IconPack -> IconPackPage(model, cfg, f)
                 Page.Screensaver -> ScreensaverPage(model, cfg, f)
                 Page.Widgets -> WidgetsPage(model, cfg, f, open)
@@ -153,6 +179,9 @@ fun SettingsPanel(
                 Page.Accessibility -> AccessibilityPage(model, cfg, f)
                 Page.RemoteButtons -> RemoteButtonsPage(cfg, f, ::push)
                 Page.RootTools -> RootToolsPage(f, ::push)
+                Page.DisplayText -> DisplayTextPage(model, cfg, f, ::push)
+                Page.TextSize -> TextSizePage(model, cfg, f)
+                Page.ControlCenterTiles -> ControlCenterTilesPage(model, cfg, f)
                 Page.Freezer -> FreezerPage(f)
                 Page.RootLog -> RootLogPage(f)
                 is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
@@ -170,6 +199,8 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     val scope = rememberCoroutineScope()
     PanelTitle("Settings")
     MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name, chevron = true)
+    MenuRow("Display & Text Size", { push(Page.DisplayText) }, value = textSizeName(cfg.textScale), chevron = true)
+    MenuRow("Control Center", { push(Page.ControlCenterTiles) }, chevron = true)
     MenuRow("Set Up from Phone", {
         open(Overlay.PhoneSetup(
             "Glass Launcher Setup",
@@ -205,7 +236,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Remote Buttons", { push(Page.RemoteButtons) }, chevron = true)
     // Only on rooted devices (su present and granted).
     val rooted by androidx.compose.runtime.produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
-    if (rooted) MenuRow("Root", { push(Page.RootTools) }, chevron = true)
+    MenuRow("Root", { push(Page.RootTools) }, value = if (rooted) "Detected" else "Not detected", chevron = true)
     MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
     MenuRow("Backup & Restore", { push(Page.Backup) }, chevron = true)
     MenuRow("About", { push(Page.About) }, chevron = true)
@@ -240,11 +271,6 @@ private fun ColumnScope.AppearancePage(model: HomeModel, cfg: LauncherConfig, f:
         screen.dissolve { model.edit { it.copy(background = next) } }
     }, value = when (cfg.background) { BackgroundMode.Featured -> "Featured"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" })
     Hint("Featured fills Home with artwork from your featured source; Motion plays Apple's Aerial videos behind your apps.")
-    MenuRow("Text Size", {
-        val steps = listOf(1f, 1.15f, 1.3f)
-        val next = steps[(steps.indexOfFirst { it >= cfg.textScale - 0.01f }.coerceAtLeast(0) + 1) % steps.size]
-        screen.dissolve { model.edit { it.copy(textScale = next) } }
-    }, value = when { cfg.textScale >= 1.3f -> "Largest"; cfg.textScale >= 1.15f -> "Large"; else -> "Default" })
     MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark), chevron = true)
     MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight), chevron = true)
     val fadeOptions = listOf(1, 3, 5, 10, 0)
@@ -425,16 +451,16 @@ private fun ColumnScope.PlexLinkPage(model: HomeModel, cfg: LauncherConfig, f: M
 }
 
 @Composable
-private fun ColumnScope.HiddenPage(model: HomeModel, cfg: LauncherConfig, layout: HomeLayout, f: Modifier, push: (Page) -> Unit) {
+private fun ColumnScope.HiddenPage(model: HomeModel, cfg: LauncherConfig, layout: HomeLayout, f: Modifier, push: (Page) -> Unit, refocus: () -> Unit) {
     PanelTitle("Hidden Apps")
     MenuRow("Hide Apps…", { push(Page.HideMore) }, f)
     val hidden = layout.installed.filter { it.packageName in cfg.hidden }
     if (hidden.isEmpty()) Hint("No apps are hidden.") else SectionLabel("Select to show again")
-    hidden.forEach { app -> MenuRow(app.label, { model.unhide(app.packageName) }, value = "Show") }
+    hidden.forEach { app -> MenuRow(app.label, { model.unhide(app.packageName); refocus() }, value = "Show") }
 }
 
 @Composable
-private fun ColumnScope.HideMorePage(model: HomeModel, layout: HomeLayout, f: Modifier) {
+private fun ColumnScope.HideMorePage(model: HomeModel, layout: HomeLayout, f: Modifier, refocus: () -> Unit) {
     PanelTitle("Hide Apps")
     val visible = layout.dock + layout.grid.flatMap {
         when (it) {
@@ -443,7 +469,7 @@ private fun ColumnScope.HideMorePage(model: HomeModel, layout: HomeLayout, f: Mo
         }
     }
     visible.sortedBy { it.label.lowercase() }.forEachIndexed { i, app ->
-        MenuRow(app.label, { model.hide(app.packageName) }, if (i == 0) f else Modifier, value = "Hide")
+        MenuRow(app.label, { model.hide(app.packageName); refocus() }, if (i == 0) f else Modifier, value = "Hide")
     }
 }
 
@@ -456,7 +482,13 @@ private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: M
     packs.forEach { pack ->
         MenuRow(pack.label, { model.edit { it.copy(iconPack = pack.packageName) } }, value = if (cfg.iconPack == pack.packageName) "✓" else null)
     }
-    Hint(if (packs.isEmpty()) "No icon packs installed. Any ADW or Nova compatible icon pack works." else "Apps the pack doesn't cover keep their normal tile.")
+    Hint(if (packs.isEmpty()) "No icon packs installed yet." else "Apps the pack doesn't cover keep their normal tile.")
+    SectionLabel("Get an Icon Pack")
+    val context = LocalContext.current
+    MenuRow("Search the Appstore", {
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("amzn://apps/android?s=icon%20pack")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }, chevron = true)
+    Hint("Icon packs are separate apps made for Android launchers: any pack labelled ADW or Nova compatible works. Install one (from the Appstore, or its APK with Downloader), then pick it here. Most packs are made for phones, so expect square icons on your tiles rather than TV banners.")
 }
 
 @Composable
@@ -467,7 +499,22 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     val canWrite = remember { Screensaver.canWriteSecureSettings(context) }
     val sc = cfg.screensaver
     PanelTitle("Screensaver")
-    MenuRow("Preview Aerials", { AerialActivity.start(context) }, f)
+    // Glass's Aerials (started by Glass after Home has been idle), or Fire TV's own screensaver.
+    SectionLabel("Screensaver")
+    MenuRow("Aerials", {
+        model.edit { it.copy(screensaverMode = ScreensaverMode.Aerials) }
+    }, f, value = if (cfg.screensaverMode == ScreensaverMode.Aerials) "✓" else null)
+    MenuRow("Fire TV Screensaver", {
+        model.edit { it.copy(screensaverMode = ScreensaverMode.System) }
+    }, value = if (cfg.screensaverMode == ScreensaverMode.System) "✓" else null)
+    if (cfg.screensaverMode == ScreensaverMode.System) {
+        MenuRow("Fire TV Screensaver Settings", {
+            SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Display & Sounds" })
+        }, chevron = true)
+        Hint("Fire TV's own screensaver runs after the delay set in its Display settings.")
+        return
+    }
+    MenuRow("Preview Aerials", { AerialActivity.start(context) })
     MenuRow(
         "Use as System Screensaver",
         { if (Screensaver.setAsSystemScreensaver(context)) refresh++ },
@@ -482,17 +529,17 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     if (HomeSetup.isFireTv) {
         Hint("Fire OS only runs Amazon's own screensavers. Use \"Start Aerials on Home After\" below to get Aerials on this TV.")
     }
-    SectionLabel("Options")
+    SectionLabel("Aerials Options")
     MenuRow("Quality", {
         model.edit { it.copy(screensaver = sc.copy(quality = if (sc.quality == AerialQuality.Hd1080) AerialQuality.Uhd4k else AerialQuality.Hd1080)) }
     }, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K")
     ToggleRow("Show Location", sc.showLocation, { v -> model.edit { it.copy(screensaver = sc.copy(showLocation = v)) } })
     ToggleRow("Show Clock", sc.showClock, { v -> model.edit { it.copy(screensaver = sc.copy(showClock = v)) } })
-    val idleOptions = listOf(0, 3, 5, 10, 15, 30)
+    val idleOptions = listOf(3, 5, 10, 15, 30)
     MenuRow("Start Aerials on Home After", {
-        val next = idleOptions[(idleOptions.indexOf(cfg.aerialsOnIdleMinutes).coerceAtLeast(0) + 1) % idleOptions.size]
+        val next = idleOptions[(idleOptions.indexOf(cfg.aerialsIdleMinutes).coerceAtLeast(0) + 1) % idleOptions.size]
         model.edit { it.copy(aerialsOnIdleMinutes = next) }
-    }, value = if (cfg.aerialsOnIdleMinutes == 0) "System decides" else "${cfg.aerialsOnIdleMinutes} min")
+    }, value = "${cfg.aerialsIdleMinutes} min")
     Hint("Aerial videos stream from Apple and are cached (up to 600 MB) so they replay offline.")
 }
 
@@ -503,7 +550,7 @@ private fun ColumnScope.WidgetsPage(model: HomeModel, cfg: LauncherConfig, f: Mo
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     PanelTitle("Widgets")
-    MenuRow("Clock", { model.edit { it.copy(clock24h = !it.clock24h) } }, f, value = if (cfg.clock24h) "24-hour" else "12-hour")
+    ToggleRow("24-Hour Time", cfg.clock24h, { v -> model.edit { it.copy(clock24h = v) } }, f)
     SectionLabel("Weather")
     MenuRow("Location", {
         open(Overlay.TextInput("Weather Location", cfg.weather?.city?.substringBefore(',') ?: "", "City name, e.g. Toronto") { q ->
@@ -513,14 +560,16 @@ private fun ColumnScope.WidgetsPage(model: HomeModel, cfg: LauncherConfig, f: Mo
                 if (w != null) { model.edit { it.copy(weather = w) }; status = null } else status = "Couldn't find \"$q\"."
             }
         })
-    }, value = cfg.weather?.city ?: "Off")
+    }, value = cfg.weather?.city ?: "Not set")
     cfg.weather?.let { w ->
-        MenuRow("Units", { model.edit { it.copy(weather = w.copy(fahrenheit = !w.fahrenheit)) } }, value = if (w.fahrenheit) "°F" else "°C")
-        MenuRow("Turn Off Weather", { model.edit { it.copy(weather = null) } })
+        ToggleRow("Fahrenheit", w.fahrenheit, { v -> model.edit { it.copy(weather = w.copy(fahrenheit = v)) } })
+        ToggleRow("Show Weather", true, { model.edit { it.copy(weather = null) } })
     }
+    if (cfg.weather == null) Hint("Set a location to show the weather next to the time.")
     status?.let { Hint(it) }
     SectionLabel("Now Playing")
-    ToggleRow("Show Now Playing", cfg.showNowPlaying, { v -> model.edit { it.copy(showNowPlaying = v) } })
+    ToggleRow("Show on Home", cfg.showNowPlaying, { v -> model.edit { it.copy(showNowPlaying = v) } })
+    Hint("While music plays, Home shows the album art and track. Control Center always shows playback controls.")
     if (!NowPlayingSource.isAllowed(context)) {
         Hint("Needs media access. From a computer: adb shell cmd notification allow_listener ${context.packageName}/${dev.glasslauncher.widgets.NowPlayingService::class.java.name}")
     }
@@ -542,15 +591,10 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
     }
     if (HomeSetup.isFireTv || !isDefault) {
         SectionLabel("Fallback")
-        MenuRow("Home Button Takeover", {
-            val enable = !cfg.homeGuard
+        ToggleRow("Home Button Takeover", cfg.homeGuard, { enable ->
             model.edit { it.copy(homeGuard = enable) }
             if (canWrite) HomeSetup.setGuardEnabled(context, enable)
             refresh++
-        }, value = when {
-            cfg.homeGuard && guardOn -> "On"
-            cfg.homeGuard -> "Needs permission"
-            else -> "Off"
         })
         Hint("When the stock home screen appears, Glass Launcher takes over. It only watches for the stock launcher's window and never intercepts buttons.")
         if (cfg.homeGuard && !guardOn) {
@@ -645,6 +689,9 @@ private fun ColumnScope.AboutPage(f: Modifier) {
     MenuRow("Version", {}, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})")
     Hint("Open source under the Apache License 2.0. github.com/${BuildConfig.UPDATE_REPO}")
     Hint("Aerial videos are streamed from Apple. Featured content from Stremio Cinemeta, TMDB, YouTube or Plex using your own keys. This product uses the TMDB API but is not endorsed or certified by TMDB. Weather by Open-Meteo.")
+    SectionLabel("Privacy")
+    MenuRow("Glass Launcher Collects No Data", {})
+    Hint("No accounts, analytics, ads or tracking. Nothing about you, your apps or what you watch leaves this TV. Settings and caches (including the app switcher's blurred previews) stay on the device. The launcher only contacts the services you turn on (featured artwork, weather, Aerials, update checks), and sends them nothing but the request itself, such as your weather city or your own API keys.")
     Box(Modifier.size(1.dp))
 }
 
@@ -656,9 +703,7 @@ private fun ColumnScope.AccessibilityPage(model: HomeModel, cfg: LauncherConfig,
         model.edit { it.copy(reduceMotion = next) }
     }, f, value = when (cfg.reduceMotion) { Auto.Auto -> "Automatic"; Auto.On -> "On"; Auto.Off -> "Off" })
     Hint("Turns off tilt, wiggle and movement; changes still dissolve. Automatic follows the system's animation setting.")
-    val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
-    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } })
-    Hint("Makes glass panels solid for easier reading. Also used when the system's high-contrast text is on.")
+    Hint("Text size, bold text, contrast and transparency are in Display & Text Size.")
     ToggleRow("Navigation Sounds", cfg.sounds, { v -> model.edit { it.copy(sounds = v) } })
     Hint("Plays the system focus and click sounds, if they're enabled in the TV's settings.")
 }
@@ -668,9 +713,38 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     val context = LocalContext.current
     val active = remember { RemoteButtons.takeoverActive() }
     val apps = remember { context.packageManager }
+    val palette = LocalPalette.current
     PanelTitle("Remote Buttons")
-    RemoteButtons.all.forEachIndexed { i, b ->
-        MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, if (i == 0) f else Modifier, value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
+    // The four app buttons, laid out as they sit on the remote.
+    val (grid, others) = RemoteButtons.all.partition { it.id.startsWith("app") }
+    grid.chunked(2).forEachIndexed { r, pair ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+            pair.forEachIndexed { c, b ->
+                val n = r * 2 + c + 1
+                val action = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps)
+                FocusTile(
+                    label = "${b.label}, $action",
+                    onClick = { push(Page.ButtonAction(b.id)) },
+                    shape = Shapes.pill,
+                    focusedScale = 1.03f,
+                    shadow = false,
+                    modifier = (if (n == 1) f else Modifier).weight(1f).height(72.dp).testTag("remote-button-$n"),
+                ) { focused ->
+                    Column(
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxSize()
+                            .background(if (focused) palette.focusFill else palette.primary.copy(alpha = if (palette.light) 0.06f else 0.08f))
+                            .padding(horizontal = 20.dp),
+                    ) {
+                        Text(b.label, style = Type.body, color = if (focused) palette.onFocusFill else palette.primary, maxLines = 1)
+                        Text(action, style = Type.secondary, color = if (focused) palette.onFocusFill.copy(alpha = 0.7f) else palette.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+    others.forEach { b ->
+        MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
     }
     if (!active) {
         Hint("Fire TV keeps these buttons to itself. On a rooted TV, run this once from a computer, then restart the TV: ${RemoteButtons.INSTALL_COMMAND}")
@@ -738,31 +812,37 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
         busy = what
         scope.launch { block(); busy = null; tick++ }
     }
+    // Root isn't assumed: the first row says whether su is there and grants Glass root; without it,
+    // everything below is greyed out.
+    var rootCheck by remember { mutableStateOf(0) }
+    val rooted by androidx.compose.runtime.produceState<Boolean?>(null, rootCheck) { value = dev.glasslauncher.system.Root.recheck() }
+    val on = rooted == true
     PanelTitle("Root")
-    Hint("Root changes are reversible and logged. Some need a restart.")
+    MenuRow("Superuser", { rootCheck++ }, f, value = when (rooted) { null -> "Checking…"; true -> "Detected"; false -> "Not detected" })
+    Hint(if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select Superuser to check again after granting Glass Launcher root.")
     SectionLabel("System")
     MenuRow("System App", {
         act("system") { if (system == dev.glasslauncher.system.RootFeatures.SystemApp.Off || system == dev.glasslauncher.system.RootFeatures.SystemApp.Removing) rf.installSystemApp(context) else rf.removeSystemApp(context) }
-    }, f, value = when (system) {
+    }, enabled = on, value = when (system) {
         dev.glasslauncher.system.RootFeatures.SystemApp.On -> "On"
         dev.glasslauncher.system.RootFeatures.SystemApp.Pending -> "On after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Removing -> "Off after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Off -> "Off"
     })
     Hint("Runs Glass as a privileged system app: it can read other apps' TV rows (Continue Watching) and is harder for the system to stop.")
-    ToggleRow("Home Takeover", takeover, { on -> act("home") { rf.setHomeTakeover(context, on) } })
+    ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on)
     Hint("Turns off Fire TV's own launcher and makes Glass the Home screen. Off brings Fire TV's back.")
     SectionLabel("Performance")
-    MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null)
-    MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null)
+    MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null, enabled = on)
+    MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on)
     Hint("Fast turns off system window animations, so switching apps is instant (Glass keeps its own motion), and holds the GPU and CPU at higher minimum clocks, which runs the stick warmer.")
-    ToggleRow("Memory Tuning", memory == true, { on -> act("memory") { rf.setMemoryTuning(context, on) } })
+    ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on)
     Hint("Keeps more apps ready to resume: 1.2 GB compressed swap, and up to 12 background apps instead of 4. Takes effect after a restart.")
-    MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" })
-    MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true)
+    MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)
+    MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true, enabled = on)
     SectionLabel("Device")
-    MenuRow("Restart Now", { act("restart") { rf.restart(context) } })
-    MenuRow("Root Log", { push(Page.RootLog) }, chevron = true)
+    MenuRow("Restart Now", { act("restart") { rf.restart(context) } }, enabled = on)
+    MenuRow("Root Log", { push(Page.RootLog) }, chevron = true, enabled = on)
 }
 
 @Composable
@@ -776,11 +856,7 @@ private fun ColumnScope.FreezerPage(f: Modifier) {
     Hint("Turned-off apps stop running and disappear until turned back on. Nothing is uninstalled.")
     rf.freezable.forEachIndexed { i, app ->
         val off = frozen?.contains(app.pkg) == true
-        MenuRow(app.label, { scope.launch { rf.setFrozen(context, app.pkg, !off); tick++ } }, if (i == 0) f else Modifier, value = when {
-            frozen == null -> "…"
-            off -> "Off"
-            else -> "On"
-        })
+        ToggleRow(app.label, !off, { on -> scope.launch { rf.setFrozen(context, app.pkg, !on); tick++ } }, if (i == 0) f else Modifier, enabled = frozen != null)
         Hint(app.note)
     }
 }
@@ -792,5 +868,90 @@ private fun ColumnScope.RootLogPage(f: Modifier) {
     PanelTitle("Root Log")
     if (lines.isEmpty()) MenuRow("Nothing yet", {}, f)
     lines.forEachIndexed { i, line -> MenuRow(line, {}, if (i == 0) f else Modifier) }
+}
+
+private val TEXT_SIZES = listOf(1f to "Default", 1.1f to "Large", 1.2f to "Larger", 1.3f to "Extra Large", 1.4f to "Largest")
+
+private fun textSizeName(scale: Float) = TEXT_SIZES.minByOrNull { kotlin.math.abs(it.first - scale) }!!.second
+
+/** tvOS 27's Display & Text Size page: Bold Text and Text Size, then Contrast. Fire TV's own options are linked, not copied. */
+@Composable
+private fun ColumnScope.DisplayTextPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
+    PanelTitle("Display & Text Size")
+    SectionLabel("Text")
+    ToggleRow("Bold Text", cfg.boldText, { v -> screen.dissolve { model.edit { it.copy(boldText = v) } } }, f)
+    MenuRow("Text Size", { push(Page.TextSize) }, value = textSizeName(cfg.textScale), chevron = true)
+    SectionLabel("Contrast")
+    ToggleRow("Increase Contrast", cfg.increaseContrast, { v -> screen.dissolve { model.edit { it.copy(increaseContrast = v) } } })
+    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } })
+    Hint("Reduce Transparency makes glass solid for easier reading.")
+    SectionLabel("Fire TV")
+    MenuRow("Fire TV Accessibility", {
+        SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Accessibility" })
+    }, chevron = true)
+    Hint("High Contrast Text, Screen Magnifier and captions are Fire TV settings and apply to every app.")
+}
+
+/** A five-step slider: Left/Right changes the size, and the page grows with it as you go. */
+@Composable
+private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    val palette = LocalPalette.current
+    val index = TEXT_SIZES.indexOfFirst { it.first == textSizeName(cfg.textScale).let { n -> TEXT_SIZES.first { s -> s.second == n }.first } }
+    fun set(i: Int) { model.edit { it.copy(textScale = TEXT_SIZES[i.coerceIn(0, TEXT_SIZES.lastIndex)].first) } }
+    PanelTitle("Text Size")
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = f
+            .fillMaxWidth()
+            .background(if (focused) palette.focusFill else palette.primary.copy(alpha = 0.08f), Shapes.pill)
+            .padding(horizontal = 22.dp, vertical = 16.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .onKeyEvent { e ->
+                val k = e.nativeKeyEvent
+                if (k.action != android.view.KeyEvent.ACTION_DOWN) return@onKeyEvent false
+                when (k.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { set(index - 1); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { set(index + 1); true }
+                    else -> false
+                }
+            }
+            .semantics {
+                contentDescription = "Text Size, ${TEXT_SIZES[index].second}"
+                progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(index.toFloat(), 0f..TEXT_SIZES.lastIndex.toFloat(), TEXT_SIZES.size - 2)
+                setProgress { v -> set(v.toInt()); true }
+            }
+            .focusable()
+            .testTag("text-size-slider"),
+    ) {
+        val fg = if (focused) palette.onFocusFill else palette.primary
+        Text("A", style = Type.caption, color = fg)
+        androidx.compose.foundation.Canvas(Modifier.weight(1f).height(24.dp)) {
+            val y = size.height / 2
+            drawLine(fg.copy(alpha = 0.3f), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 4.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+            val step = size.width / TEXT_SIZES.lastIndex
+            for (i in TEXT_SIZES.indices) drawCircle(fg.copy(alpha = if (i <= index) 0.9f else 0.35f), 4.dp.toPx(), androidx.compose.ui.geometry.Offset(step * i, y))
+            drawLine(fg, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(step * index, y), 4.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+            drawCircle(fg, 11.dp.toPx(), androidx.compose.ui.geometry.Offset(step * index, y))
+        }
+        Text("A", style = Type.title, color = fg)
+    }
+    Text(TEXT_SIZES[index].second, style = Type.heading, color = palette.primary, modifier = Modifier.padding(start = 18.dp, top = 10.dp))
+    Hint("Press left or right. Text and the layout around it grow together, here and across the launcher.")
+}
+
+/** Settings › Control Center: which tiles show. */
+@Composable
+private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    PanelTitle("Control Center")
+    Hint("Choose what appears in Control Center. Settings is always there.")
+    dev.glasslauncher.home.CONTROL_CENTER_TILES.forEachIndexed { i, (id, label) ->
+        ToggleRow(label, id !in cfg.ccHidden, { on ->
+            model.edit { it.copy(ccHidden = if (on) it.ccHidden - id else it.ccHidden + id) }
+        }, if (i == 0) f else Modifier)
+    }
 }
 

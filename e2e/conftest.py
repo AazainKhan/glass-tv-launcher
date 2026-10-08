@@ -38,6 +38,8 @@ def rooted(tv: TV) -> bool:
 @pytest.fixture
 def home(tv: TV) -> Home:
     """Every test starts on Home, at the top, with nothing open, and is checked for crashes after."""
+    # adb commands don't count as activity, so Fire TV's sleep timer can run out during a long run.
+    tv.sh("input keyevent KEYCODE_WAKEUP")
     marker = tv.now_marker()
     pid = tv.glass_pid()
     h = Home(tv)

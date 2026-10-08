@@ -47,6 +47,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     val tileArt by lazy { TileArt(this, iconPacks) }
     val wallpapers by lazy { WallpaperLoader(this, http) }
     val featured by lazy { FeaturedRepository(this, http) }
+    val weather by lazy { dev.glasslauncher.widgets.WeatherRepository(http, scope) }
+    val nowPlaying by lazy { dev.glasslauncher.widgets.NowPlayingRepository(this, scope) }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader.Builder(context)

@@ -129,6 +129,8 @@ private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
 /** Focus rests this long on a top-row app before the shelf switches to its content. */
 private const val SHELF_FOLLOW_MS = 450L
+/** Now Playing stays on Home this long after playback stops (track changes, short pauses). */
+private const val NOW_PLAYING_LINGER_MS = 3_000L
 /** Glass texture fade-in after a scroll back to the top lands. */
 private const val TEXTURE_IN_MS = 220
 
@@ -163,6 +165,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val palette = remember(backdrop.backdrop, dark, prefs) { Palette(light = !dark, highContrast = prefs.highContrast) }
     backdrop.reduceTransparency = prefs.reduceTransparency
     backdrop.light = !dark
+    Type.bold = cfg.boldText
 
     var lastDockFocused by remember { mutableStateOf<String?>(null) }
     // Featured content drives the live backdrop. In "Focused app" mode the shelf follows the focused
@@ -204,10 +207,25 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val cardRequester = remember { FocusRequester() }
     val idle = rememberIdleState(cfg.idleFadeMinutes)
 
+    // Now Playing takes over the top shelf while music plays: the artwork becomes the backdrop (baked
+    // like any slide) and the track replaces the shelf title. A pause or gap shorter than 3 s doesn't
+    // flip Home back and forth.
+    val nowPlaying by graph.nowPlaying.state.collectAsStateWithLifecycle()
+    var takeover by remember { mutableStateOf<dev.glasslauncher.widgets.NowPlaying?>(null) }
+    LaunchedEffect(nowPlaying, cfg.showNowPlaying) {
+        val np = nowPlaying
+        if (cfg.showNowPlaying && np != null && np.playing) takeover = np
+        else if (takeover != null) { delay(NOW_PLAYING_LINGER_MS); takeover = null }
+    }
     val sceneUrl = if (cfg.background == BackgroundMode.Featured) hero?.image else null
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
-    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark) {
+    val takeoverArt = takeover?.art
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt) {
+        if (takeoverArt != null) {
+            backdrop.swap(graph.wallpapers.fromImage(dev.glasslauncher.widgets.backdropArt(takeoverArt), light = !dark), animate = backdrop.backdrop != null)
+            return@LaunchedEffect
+        }
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
         // baking the wallpaper only to throw it away (the two bakes used to run in parallel at startup).
@@ -237,7 +255,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     fun open(overlay: Overlay) {
         scope.launch {
-            if (overlays.isEmpty()) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay is Overlay.FolderOpen).let {
+            if (overlays.isEmpty()) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay == Overlay.AppSwitcher || overlay is Overlay.FolderOpen).let {
                 backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft; backdrop.overlaySharp = it.sharp
             }
             overlays.add(overlay)
@@ -343,8 +361,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Paused while Home is hidden (an app is in front): no bakes behind the app, and Home comes back on
     // the slide it left on, which is what the app-close animation's blurred picture shows.
     val homeVisible = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background, focusedRow >= 2, homeVisible) {
-        if (!homeVisible) return@LaunchedEffect
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background, focusedRow >= 2, homeVisible, takeover != null) {
+        if (!homeVisible || takeover != null) return@LaunchedEffect
         if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
         delay(SLIDE_MS)
         while (idle.millisSinceInput() < SLIDE_QUIET_MS) delay(SLIDE_QUIET_MS - idle.millisSinceInput() + 50)
@@ -384,14 +402,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(cfg.aerialsOnIdleMinutes) {
-        val limit = cfg.aerialsOnIdleMinutes * 60_000L
+    LaunchedEffect(cfg.aerialsIdleMinutes, cfg.screensaverMode) {
+        val limit = if (cfg.screensaverMode == dev.glasslauncher.data.ScreensaverMode.Aerials) cfg.aerialsIdleMinutes * 60_000L else 0L
         if (limit <= 0) return@LaunchedEffect
         while (true) {
             val remaining = limit - idle.millisSinceInput()
             if (remaining > 0) delay(remaining)
             else {
-                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty()) {
+                // Not over Now Playing: the album art is Home's screensaver while music plays.
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty() && takeover == null) {
                     AerialActivity.start(context)
                 }
                 idle.touch()
@@ -424,6 +443,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(Unit) {
         homePresses.collect { request ->
             moving = null
+            // A Home press (or a remote button) is activity too: Aerials wait for real idle time.
+            idle.touch()
             when (request) {
                 HomeRequest.Home -> {
                     closeAll()
@@ -512,7 +533,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     when {
                         e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { open(Overlay.ControlCenter); true }
                         // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
-                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null -> { setExpanded(true); true }
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && takeover == null -> { setExpanded(true); true }
                         // Down always leaves full screen, wherever focus is (even mid-transition); from the
                         // status pill it goes back down to the titles instead.
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded -> when {
@@ -545,8 +566,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
                 BackdropLayer(backdrop, drawSharp = cfg.background != BackgroundMode.Motion)
 
-                // Title of the current featured item, top left, above the tray.
-                if (hero != null) {
+                if (hero != null && takeover == null) {
                     ShelfTitle(
                         item = hero,
                         expanded = { expand.value },
@@ -568,7 +588,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         model = model,
                         listState = listState,
                         moving = moving,
-                        showHint = feed != null,
+                        showHint = feed != null && takeover == null,
                         hintAlpha = { (1f - backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f) * (1f - expand.value) * idle.chromeAlpha },
                         requester = ::requester,
                         onFocused = { key, row ->
@@ -592,6 +612,25 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                             // Focus on the tray or grid means full screen is over, however it got there.
                             .onFocusChanged { homeFocused = it.hasFocus; if (it.hasFocus && expanded) setExpanded(false) },
                     )
+                }
+                // While music plays, the Now Playing hero takes the featured title's place (dissolving both
+                // ways, in step with the backdrop). Drawn after the list: the list is full screen (empty up
+                // here), and Compose leaves anything a later sibling covers out of the accessibility tree.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = takeover != null,
+                    enter = androidx.compose.animation.fadeIn(tween(550)),
+                    exit = androidx.compose.animation.fadeOut(tween(450)),
+                    modifier = Modifier.graphicsLayer {
+                        alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
+                        translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
+                    },
+                ) {
+                    val shown = takeover ?: nowPlaying
+                    if (shown != null) {
+                        // Live position and play state while it's up; the takeover itself lingers through gaps.
+                        val live = nowPlaying?.takeIf { it.key == shown.key } ?: shown
+                        dev.glasslauncher.widgets.NowPlayingHero(live, Modifier.padding(start = metrics.inset, top = metrics.chromeInset + 14.dp))
+                    }
                 }
 
                 if (feed != null && (expanded || expand.value > 0f)) {

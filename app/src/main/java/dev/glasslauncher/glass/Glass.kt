@@ -267,6 +267,9 @@ private class GlassNode(
             // took frames to 23 ms, so text-carrying clear glass keeps the texture and rim only.
             if (clear && !style.legible) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)
         } else if (!overBlur) {
+            // Nothing to sample yet (backdrop baking, layout not measured): glass that carries text draws a
+            // solid frosted tint rather than its 6-20% tint alone, which read as a see-through tile.
+            if (style.legible || style.useOverlay) drawOutline(outline, solidTint(style.tint))
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }
         if (texture < 0.5f) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))

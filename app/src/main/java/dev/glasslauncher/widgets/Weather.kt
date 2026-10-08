@@ -14,6 +14,8 @@ import dev.glasslauncher.ui.Type
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
@@ -74,14 +76,35 @@ object Weather {
     }
 }
 
-@Composable
-fun WeatherLabel(cfg: WeatherConfig, color: androidx.compose.ui.graphics.Color = LocalPalette.current.primary, style: androidx.compose.ui.text.TextStyle = Type.body.copy(fontSize = Type.body.fontSize * 0.86f)) {
-    val http = LocalContext.current.app.http
-    val text by produceState<String?>(null, cfg) {
-        while (true) {
-            Weather.current(http, cfg)?.let { value = it }
-            delay(if (value == null) 120_000 else 30 * 60_000L)
+/**
+ * One reading for the whole launcher: the status pill and Control Center used to fetch separately (each
+ * on its own 30-minute loop), so they could show different temperatures. Refreshed every 30 minutes while
+ * anything shows it, every 2 minutes after a failure, and right away when the city or units change.
+ */
+class WeatherRepository(private val http: OkHttpClient, private val scope: kotlinx.coroutines.CoroutineScope) {
+    private val _reading = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val reading: kotlinx.coroutines.flow.StateFlow<String?> = _reading
+    private var cfg: WeatherConfig? = null
+    private var job: kotlinx.coroutines.Job? = null
+
+    fun follow(next: WeatherConfig) {
+        if (next == cfg && job?.isActive == true) return
+        cfg = next
+        _reading.value = null
+        job?.cancel()
+        job = scope.launch {
+            while (true) {
+                Weather.current(http, next)?.let { _reading.value = it }
+                delay(if (_reading.value == null) 120_000 else 30 * 60_000L)
+            }
         }
     }
+}
+
+@Composable
+fun WeatherLabel(cfg: WeatherConfig, color: androidx.compose.ui.graphics.Color = LocalPalette.current.primary, style: androidx.compose.ui.text.TextStyle = Type.body.copy(fontSize = Type.body.fontSize * 0.86f)) {
+    val repo = LocalContext.current.app.weather
+    androidx.compose.runtime.LaunchedEffect(cfg) { repo.follow(cfg) }
+    val text by repo.reading.collectAsState()
     text?.let { Text(it, style = style, color = color, modifier = Modifier.testTag("weather")) }
 }

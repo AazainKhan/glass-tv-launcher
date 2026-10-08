@@ -98,3 +98,30 @@ def test_app_button_opens_its_app(tv, home):
     finally:
         tv.sh("am force-stop com.netflix.ninja")
         tv.home_intent()
+
+
+EARLY_ACCESS = "com.amazon.tv.earlyaccess"
+
+
+def test_early_access_is_not_on_home(tv, home):
+    """Fire TV Early Access is a beta sign-up that trapped the remote; Glass hides it (Hidden Apps can show it)."""
+    tv.press("down", "down")
+    assert not tv.tree().find(rid=f"app:{EARLY_ACCESS}"), "Fire TV Early Access should be hidden"
+    home.reset()
+
+
+@pytest.mark.slow
+def test_holding_back_escapes_any_app(tv, home):
+    """Holding Back for 1.5 s goes Home from any app, even one that swallows Back, Home and Recents."""
+    if "RemoteKeysService" not in tv.sh("settings get secure enabled_accessibility_services"):
+        pytest.skip("Glass Launcher Remote Buttons (accessibility) is off")
+    tv.launch(EARLY_ACCESS)
+    try:
+        tv.wait_until(lambda: tv.resumed_package() == EARLY_ACCESS, 10, "Early Access in front")
+        tv.press("wait:1")  # makes sure scripts/key has pushed glass-press
+        tv.sh("/data/local/tmp/glass-press 120 158:1900")  # KEY_BACK held 1.9 s on the virtual remote
+        tv.wait_until(lambda: tv.resumed_package() == GLASS, 6, "Glass after holding Back")
+    finally:
+        tv.sh(f"am force-stop {EARLY_ACCESS}")
+        if tv.resumed_package() != GLASS:
+            tv.home_intent()

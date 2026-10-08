@@ -85,14 +85,33 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
             exo.repeatMode = Player.REPEAT_MODE_ALL
             exo.setMediaItems(videos.map { MediaItem.Builder().setUri(it.url(cfg.quality)).setMediaId(it.id).build() })
             exo.addListener(object : Player.Listener {
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = showCurrent()
-                override fun onRenderedFirstFrame() {
-                    fade.animate().alpha(0f).setDuration(1200).start()
+                // The next clip's first frame is on screen (still under black): fade it in.
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    fadingOut = false
+                    updateLabel()
+                    // Not every decoder reports a first frame per item: fade in anyway shortly after.
+                    postDelayed({ if (fade.alpha > 0.99f) fadeIn() }, 500)
                 }
+                override fun onRenderedFirstFrame() { fadeIn() }
             })
             exo.prepare()
             exo.play()
-            showCurrent()
+            updateLabel()
+            // Clips used to hard-cut to black when the next one had already started. Now the current one
+            // dims to black over its last 1.4 s, the switch happens in the dark, and the next fades up from
+            // its first rendered frame. The clip's end is watched four times a second.
+            launch {
+                while (true) {
+                    delay(250)
+                    val p = player ?: break
+                    val left = p.duration - p.currentPosition
+                    if (!fadingOut && p.duration > 0 && left in 1..FADE_OUT_MS) {
+                        fadingOut = true
+                        fade.animate().cancel()
+                        fade.animate().alpha(1f).setDuration(left.coerceAtMost(FADE_OUT_MS)).setStartDelay(0).start()
+                    }
+                }
+            }
         }
     }
 
@@ -102,11 +121,17 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         player = null
     }
 
-    private fun showCurrent() {
+    private var fadingOut = false
+
+    private fun updateLabel() {
         val id = player?.currentMediaItem?.mediaId
         location.text = videos.firstOrNull { it.id == id }?.label.orEmpty()
+    }
+
+    private fun fadeIn() {
+        fade.animate().cancel()
         fade.alpha = 1f
-        fade.animate().alpha(0f).setDuration(1200).setStartDelay(200).start()
+        fade.animate().alpha(0f).setDuration(1400).setStartDelay(150).start()
     }
 
     private fun label(size: Float, alpha: Float) = TextView(context).apply {
@@ -122,6 +147,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     companion object {
+        private const val FADE_OUT_MS = 1_400L
         private var cache: SimpleCache? = null
 
         @Synchronized

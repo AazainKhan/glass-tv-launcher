@@ -29,6 +29,9 @@ object Root {
         return ok
     }
 
+    /** Checks again, ignoring the cached answer (root granted or revoked since). */
+    suspend fun recheck(): Boolean { granted = null; return available() }
+
     /** Last known result of [available] without checking (false until checked). */
     val known: Boolean get() = granted == true
 
