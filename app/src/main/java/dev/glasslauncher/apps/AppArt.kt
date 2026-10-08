@@ -21,9 +21,18 @@ object AppArt {
     private val mutex = Mutex()
     private var icons: Map<String, String>? = null
 
+    /** Apps that are another service's client use that service's art (TizenTube and SmartTube are YouTube). */
+    val ALIASES = mapOf(
+        "io.gh.reisxd.tizentube.cobalt" to "com.amazon.firetv.youtube",
+        "com.teamsmart.videomanager.tv" to "com.amazon.firetv.youtube",
+        "com.liskovsoft.smarttubetv.beta" to "com.amazon.firetv.youtube",
+        "com.google.android.youtube.tv" to "com.amazon.firetv.youtube",
+    )
+
     /** The Fire TV icon URL for [pkg], or null. The Appstore's records are read once per process. */
     suspend fun url(context: Context, pkg: String): String? = mutex.withLock {
-        (icons ?: readAmazon(context).also { icons = it })[pkg]
+        val all = icons ?: readAmazon(context).also { icons = it }
+        all[pkg] ?: ALIASES[pkg]?.let { all[it] }
     }
 
     /** One Appstore tile record (JSON) → its package and Fire TV icon, if it has one. */

@@ -105,9 +105,9 @@ def test_root_page_first_row_reports_superuser(tv, home, settings, rooted):
 
 def test_about_has_a_privacy_section(tv, home, settings):
     settings.open_from_control_center()
-    settings.open_page("About", "Glass Launcher")
+    settings.open_page("About", "Glass TV Launcher")
     rows = settings.all_rows()
-    assert "Glass Launcher Collects No Data" in rows
+    assert "Glass TV Launcher Collects No Data" in rows
 
 
 def test_on_off_items_are_switches(tv, home, settings):

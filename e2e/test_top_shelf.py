@@ -183,3 +183,67 @@ def test_app_heroes_are_the_apps_logo_sharp(tv, home, pkg):
     edges = sorted(tv.screen_image().crop((0, 120, 1920, 700)).filter(ImageFilter.FIND_EDGES).getdata())
     crisp = edges[int(len(edges) * 0.999)]
     assert crisp > 220, f"{pkg}'s hero is soft (edge strength {crisp}); it should be crisp logo art"
+
+
+TIZENTUBE = "io.gh.reisxd.tizentube.cobalt"
+
+
+def _show_hero(tv, home, pkg):
+    tray_y = tv.tree().focused().center[1]
+    node = home.focus_app(pkg)
+    if abs(node.center[1] - tray_y) > 20:
+        pytest.skip(f"{pkg} isn't in the top row")
+    last = home.dock_apps()[-1].rid == node.rid
+    tv.press("left" if last else "right")
+    tv.press("right" if last else "left")
+    tv.wait_for(lambda t: t.find(rid=f"app-art:{pkg}"), 8, f"{pkg}'s hero")
+
+
+def test_stremio_hero_has_no_rounded_corners(tv, home):
+    """The banner's transparent corners must not show: the hero is one full-screen piece of art."""
+    _show_hero(tv, home, STREMIO)
+    img = tv.screen_image(colour=True)
+    corner, inside = img.getpixel((4, 4)), img.getpixel((60, 60))
+    assert sum(abs(a - b) for a, b in zip(corner, inside)) < 40, f"the hero's corner {corner} differs from its edge {inside}"
+
+
+def test_tizentube_uses_youtubes_art(tv, home):
+    """TizenTube is a YouTube client: its hero is YouTube's sharp official art, not its own small banner."""
+    from PIL import ImageFilter
+    _show_hero(tv, home, TIZENTUBE)
+    edges = sorted(tv.screen_image().crop((0, 120, 1920, 700)).filter(ImageFilter.FIND_EDGES).getdata())
+    assert edges[int(len(edges) * 0.999)] > 220, "TizenTube's hero is soft"
+
+
+def test_pill_stands_out_on_light_art(tv, home):
+    """On a light hero (Netflix's white icon) the status pill must still read as a surface."""
+    _show_hero(tv, home, NETFLIX)
+    tree = tv.tree()
+    pill = tree.find(rid="status-pill")
+    img = tv.screen_image()
+    l, t, r, b = pill.bounds
+    # A strip inside the pill above its text, against the same rows of art just left of it.
+    body = img.crop((l + 30, t + 5, r - 70, t + 11))
+    beside = img.crop((l - 80, t + 5, l - 20, t + 11))
+    from PIL import ImageStat
+    step = ImageStat.Stat(beside).mean[0] - ImageStat.Stat(body).mean[0]
+    assert step >= 12, f"the pill barely differs from the light art beside it ({step:.0f}/255)"
+
+
+def test_titles_show_their_official_logo(tv, home, focused_app):
+    """Titles carry their real title treatment (a logo image), not one generic font."""
+    tray_y = tv.tree().focused().center[1]
+    if abs(home.focus_app(NETFLIX).center[1] - tray_y) > 20:
+        pytest.skip("Netflix isn't in the top row")
+    tree = tv.wait_for(lambda t: t.find(rid="shelf-logo") and t, 12, "a title logo at rest")
+    assert not tree.find(rid="shelf-title").texts, "the title should be a logo image, not text"
+
+
+def test_play_and_more_info_are_slim(tv, home, focused_app):
+    tray_y = tv.tree().focused().center[1]
+    if abs(home.focus_app(NETFLIX).center[1] - tray_y) > 20:
+        pytest.skip("Netflix isn't in the top row")
+    tree = _expand(tv, home, NETFLIX)
+    play = tree.find(rid="shelf-play")
+    height = play.bounds[3] - play.bounds[1]
+    assert height <= 76, f"Play is {height}px tall; the slim buttons are 36 dp (72 px)"

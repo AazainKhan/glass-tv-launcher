@@ -86,14 +86,16 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
             // dissolve into each other in step with the backdrop.
             // Only a real logo shows at rest: a plain-text title would be one generic font for every
             // service. The name appears in full screen (Up), with its details.
-            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { if (it.logo != null) Wordmark(it, height = 72.dp) }
+            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { if (it.logo != null) Wordmark(it, height = 72.dp, textFallback = false) }
         }
     }
 }
 
 @Composable
-private fun Wordmark(item: FeaturedItem, height: Dp) {
-    if (item.logo != null) {
+private fun Wordmark(item: FeaturedItem, height: Dp, textFallback: Boolean = true) {
+    // A logo that can't load (a few titles have none) falls back to the name where text is allowed.
+    var failed by androidx.compose.runtime.remember(item.logo) { androidx.compose.runtime.mutableStateOf(false) }
+    if (item.logo != null && !failed) {
         val context = LocalContext.current
         val request = remember(item.logo) { logoRequest(context, item.logo) }
         // The baked shadow pads the bitmap by a tenth of its height on each side; draw it that much
@@ -103,9 +105,10 @@ private fun Wordmark(item: FeaturedItem, height: Dp) {
             contentDescription = item.title,
             contentScale = ContentScale.Fit,
             alignment = Alignment.CenterStart,
-            modifier = Modifier.height(height * 1.2f).fillMaxWidth().offset(x = -(height * 0.1f)),
+            onError = { failed = true },
+            modifier = Modifier.height(height * 1.2f).fillMaxWidth().offset(x = -(height * 0.1f)).testTag("shelf-logo"),
         )
-    } else {
+    } else if (textFallback) {
         Text(item.title, style = Type.display, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -232,8 +235,9 @@ private fun ShelfButton(
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(if (round) Modifier.size(44.dp) else Modifier.height(44.dp).widthIn(min = 150.dp))
-            .background(if (focused) Color.White else Color.White.copy(alpha = 0.2f), if (round) CircleShape else RoundedCornerShape(22.dp))
+            // Slim, as on tvOS's hero: 36 dp capsules.
+            .then(if (round) Modifier.size(36.dp) else Modifier.height(36.dp).widthIn(min = 120.dp))
+            .background(if (focused) Color.White else Color.White.copy(alpha = 0.2f), if (round) CircleShape else RoundedCornerShape(18.dp))
             .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { e ->
                 val k = e.nativeKeyEvent
@@ -249,12 +253,12 @@ private fun ShelfButton(
         contentAlignment = Alignment.Center,
     ) {
         if (round) {
-            Text("i", style = Type.heading, color = fg)
+            Text("i", style = Type.label, color = fg)
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 22.dp)) {
-                if (play) Text("▶", style = Type.body, color = fg, modifier = Modifier.padding(end = 8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
+                if (play) Text("▶", style = Type.label, color = fg, modifier = Modifier.padding(end = 6.dp))
                 Column {
-                    Text(label, style = Type.body, color = fg)
+                    Text(label, style = Type.label, color = fg)
                     if (progress != null) Box(Modifier.padding(top = 3.dp).width(64.dp).height(3.dp).background(fg.copy(alpha = 0.3f), CircleShape)) {
                         Box(Modifier.fillMaxSize().graphicsLayer { scaleX = progress.coerceIn(0f, 1f); transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }.background(fg, CircleShape))
                     }

@@ -222,7 +222,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Control Center", { push(Page.ControlCenterTiles) }, chevron = true)
     MenuRow("Set Up from Phone", {
         open(Overlay.PhoneSetup(
-            "Glass Launcher Setup",
+            "Glass TV Launcher Setup",
             listOf(
                 PhoneField("tmdb", "TMDB API key or read token", cfg.featured.tmdbKey, "For Netflix, Prime Video, Apple TV+… rows", secret = true),
                 PhoneField("youtube", "YouTube Data API key", cfg.featured.youtubeKey, "For the YouTube row", secret = true),
@@ -773,9 +773,9 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
     val canWrite = remember { Screensaver.canWriteSecureSettings(context) }
     val requestIntent = remember(refresh) { HomeSetup.requestDefaultHomeIntent(context) }
     PanelTitle("Home Button")
-    MenuRow("Default Home App", { refresh++ }, f, value = if (isDefault) "Glass Launcher" else "Another app")
+    MenuRow("Default Home App", { refresh++ }, f, value = if (isDefault) "Glass TV Launcher" else "Another app")
     if (!isDefault && requestIntent != null) {
-        MenuRow("Make Glass Launcher the Default", { runCatching { context.startActivity(requestIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+        MenuRow("Make Glass TV Launcher the Default", { runCatching { context.startActivity(requestIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
     }
     if (HomeSetup.isFireTv || !isDefault) {
         SectionLabel("Fallback")
@@ -787,7 +787,7 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
                 refresh++
             }
             // Turning it off can leave the stock home screen in charge: ask first.
-            if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, Glass Launcher won't take over again.", "Turn Off", destructive = true) { apply() })
+            if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, Glass TV Launcher won't take over again.", "Turn Off", destructive = true) { apply() })
         }, help = "When the stock home screen appears, Glass takes over. It never intercepts buttons.")
         if (cfg.homeGuard && !guardOn) {
             Hint(if (canWrite) "Couldn't enable the accessibility service." else "Grant once from a computer: ${Screensaver.GRANT_COMMAND}, then toggle again. Or enable it in Accessibility settings.")
@@ -822,10 +822,10 @@ private fun ColumnScope.UpdatesPage(f: Modifier) {
     })
     release?.let { r ->
         val askUpdate = dev.glasslauncher.home.LocalConfirm.current
-        MenuRow("Install ${r.version}", { askUpdate(dev.glasslauncher.home.Overlay.Confirm("Glass Launcher ${r.version}", "Download and install it now? Glass restarts when it's done.", "Download and Install") {
+        MenuRow("Install ${r.version}", { askUpdate(dev.glasslauncher.home.Overlay.Confirm("Glass TV Launcher ${r.version}", "Download and install it now? Glass restarts when it's done.", "Download and Install") {
             if (!Updater.canInstall(context)) {
                 runCatching { context.startActivity(Updater.unknownSourcesIntent(context)) }
-                status = "Allow Glass Launcher to install apps, then select Install again."
+                status = "Allow Glass TV Launcher to install apps, then select Install again."
             } else scope.launch {
                 runCatching {
                     Updater.downloadAndInstall(context, graph.http, r) { p -> status = "Downloading… ${(p * 100).toInt()}%" }
@@ -846,7 +846,7 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             val text = Backup.readUri(context, uri)
-            status = if (text != null && runCatching { graph.config.import(text) }.isSuccess) "Restored." else "That file isn't a Glass Launcher backup."
+            status = if (text != null && runCatching { graph.config.import(text) }.isSuccess) "Restored." else "That file isn't a Glass TV Launcher backup."
         }
     }
     val canBrowse = remember {
@@ -875,13 +875,13 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
 
 @Composable
 private fun ColumnScope.AboutPage(f: Modifier) {
-    PanelTitle("Glass Launcher")
+    PanelTitle("Glass TV Launcher")
     MenuRow("Version", {}, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})",
         help = "Open source under the Apache License 2.0. github.com/${BuildConfig.UPDATE_REPO}")
     MenuRow("Content Sources", {},
         help = "Aerials from Apple; titles from the apps, JustWatch, Stremio, TMDB, YouTube or Plex; weather by Open-Meteo. Uses the TMDB API but isn't endorsed by TMDB.")
     SectionLabel("Privacy")
-    MenuRow("Glass Launcher Collects No Data", {},
+    MenuRow("Glass TV Launcher Collects No Data", {},
         help = "No accounts, analytics, ads or tracking. It only contacts the services you turn on, and sends nothing but the request.")
     Box(Modifier.size(1.dp))
 }
@@ -938,7 +938,7 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     }
     Hint(when {
         !active -> "Fire TV keeps these buttons to itself. On a rooted TV, run once from a computer, then restart: ${RemoteButtons.INSTALL_COMMAND}"
-        !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on Glass Launcher Remote Buttons in the TV's Accessibility settings."
+        !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings."
         else -> "Home, Back, volume, power, Alexa and the TV button keep working as usual."
     })
 }
@@ -1008,7 +1008,7 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     val on = rooted == true
     PanelTitle("Root")
     MenuRow("Superuser", { rootCheck++ }, f, value = when (rooted) { null -> "Checking…"; true -> "Detected"; false -> "Not detected" },
-        help = if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select to check again after granting Glass Launcher root.")
+        help = if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select to check again after granting Glass TV Launcher root.")
     SectionLabel("System")
     val askSystem = dev.glasslauncher.home.LocalConfirm.current
     MenuRow("System App", {

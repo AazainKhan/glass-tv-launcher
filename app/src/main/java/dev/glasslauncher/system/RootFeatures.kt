@@ -65,7 +65,7 @@ object RootFeatures {
             cat > ${'$'}M/system/etc/permissions/privapp-permissions-${context.packageName}.xml <<'GLASSXML'
             ${xml.trimEnd()}
             GLASSXML
-            printf 'id=glass-system\nname=Glass Launcher as a system app\nversion=1\nversionCode=1\nauthor=Glass Launcher\ndescription=Installs Glass Launcher as a privileged system app (Continue Watching from other apps, secure settings). Remove to revert.\n' > ${'$'}M/module.prop
+            printf 'id=glass-system\nname=Glass TV Launcher as a system app\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=Installs Glass TV Launcher as a privileged system app (Continue Watching from other apps, secure settings). Remove to revert.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/system/priv-app/GlassLauncher
             chmod 644 ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk ${'$'}M/system/etc/permissions/*.xml
             rm -f ${'$'}M/remove ${'$'}M/disable
@@ -171,7 +171,7 @@ object RootFeatures {
             stop lmkd; start lmkd
             settings put global activity_manager_constants max_cached_processes=12
             GLASSSH
-            printf 'id=glass-tuning\nname=Glass Memory Tuning\nversion=1\nversionCode=1\nauthor=Glass Launcher\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
+            printf 'id=glass-tuning\nname=Glass Memory Tuning\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/service.sh; chmod 644 ${'$'}M/system/vendor/etc/fstab.enableswap
             rm -f ${'$'}M/remove ${'$'}M/disable
         """.trimIndent().lines().joinToString("\n") { it.trimStart() })

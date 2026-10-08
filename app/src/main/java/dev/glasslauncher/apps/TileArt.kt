@@ -59,6 +59,11 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
             banner.setBounds((w - dw) / 2, (h - dh) / 2, (w - dw) / 2 + dw, (h - dh) / 2 + dh)
             (banner as? android.graphics.drawable.BitmapDrawable)?.paint?.isFilterBitmap = true
             banner.draw(canvas)
+            // Banners often have transparent rounded corners: fill behind with the banner's own edge colour
+            // (sampled mid-edge, where it's opaque), so the hero reads as one full-screen piece.
+            val edge = out.getPixel((w * 0.02f).toInt(), h / 2)
+            if (Color.alpha(edge) > 200) canvas.drawColor(edge or 0xFF000000.toInt(), android.graphics.PorterDuff.Mode.DST_OVER)
+            else canvas.drawColor(Color.rgb(20, 22, 28), android.graphics.PorterDuff.Mode.DST_OVER)
             return out
         }
         val icon = hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: run { out.recycle(); return null }

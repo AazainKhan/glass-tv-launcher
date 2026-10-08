@@ -22,7 +22,7 @@ def _needs_remote_keys(tv):
     if "BUTTON_9" not in tv.sh(f"cat {REMOTE_LAYOUT}"):
         pytest.skip("remote-keys module not installed")
     if "RemoteKeysService" not in tv.sh("settings get secure enabled_accessibility_services"):
-        pytest.skip("Glass Launcher Remote Buttons (accessibility) is off")
+        pytest.skip("Glass TV Launcher Remote Buttons (accessibility) is off")
 
 
 def _shot(tv) -> Image.Image:

@@ -15,7 +15,7 @@ import dev.glasslauncher.app
 
 /**
  * Optional fallback for devices that never let a third-party launcher become Home (Fire TV):
- * when the stock launcher's home screen comes to the front, bring Glass Launcher back.
+ * when the stock launcher's home screen comes to the front, bring Glass TV Launcher back.
  * It only watches window changes of known stock launchers and never filters keys.
  */
 class HomeGuardService : AccessibilityService() {

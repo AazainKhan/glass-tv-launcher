@@ -88,7 +88,7 @@ def test_accessibility_navigation_sounds_switch(tv, home, settings):
 def test_home_button_page_reports_glass_as_home(tv, home, settings):
     settings.open_from_control_center()
     settings.open_page("Home Button")
-    assert settings.value_of("Default Home App") == "Glass Launcher"
+    assert settings.value_of("Default Home App") == "Glass TV Launcher"
     assert settings.toggle_state("Home Button Takeover") is not None, "Home Button Takeover should be a switch"
 
 
@@ -109,6 +109,6 @@ def test_save_backup_writes_a_file(tv, home, settings):
 
 def test_about_shows_the_installed_version(tv, home, settings):
     settings.open_from_control_center()
-    settings.open_page("About", "Glass Launcher")
+    settings.open_page("About", "Glass TV Launcher")
     installed = re.search(r"versionName=(\S+)", tv.sh("dumpsys package dev.glasslauncher | grep -m1 versionName")).group(1)
     assert installed in settings.value_of("Version"), f"About should show {installed}"

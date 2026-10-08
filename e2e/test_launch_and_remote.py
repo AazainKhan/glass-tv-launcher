@@ -114,7 +114,7 @@ def test_early_access_is_not_on_home(tv, home):
 def test_holding_back_escapes_any_app(tv, home):
     """Holding Back for 1.5 s goes Home from any app, even one that swallows Back, Home and Recents."""
     if "RemoteKeysService" not in tv.sh("settings get secure enabled_accessibility_services"):
-        pytest.skip("Glass Launcher Remote Buttons (accessibility) is off")
+        pytest.skip("Glass TV Launcher Remote Buttons (accessibility) is off")
     tv.launch(EARLY_ACCESS)
     try:
         tv.wait_until(lambda: tv.resumed_package() == EARLY_ACCESS, 10, "Early Access in front")

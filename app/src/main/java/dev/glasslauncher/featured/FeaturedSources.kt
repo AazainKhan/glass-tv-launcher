@@ -236,7 +236,7 @@ object YouTube : FeaturedSource {
 }
 
 object Plex : FeaturedSource {
-    const val PRODUCT = "Glass Launcher"
+    const val PRODUCT = "Glass TV Launcher"
 
     fun headers(clientId: String, token: String? = null) = buildMap {
         put("Accept", "application/json")
@@ -358,7 +358,7 @@ object JustWatch : FeaturedSource {
   popularTitles(country: ${'$'}country, first: ${'$'}first, filter: ${'$'}filter) { edges { node {
     id objectType
     content(country: ${'$'}country, language: "en") {
-      title originalReleaseYear runtime shortDescription ageCertification
+      title originalReleaseYear runtime shortDescription ageCertification externalIds { imdbId }
       genres { shortName }
       backdrops(profile: S1920, format: JPG) { backdropUrl }
     }
@@ -398,6 +398,8 @@ object JustWatch : FeaturedSource {
                 title = c["title"].str() ?: return@mapNotNull null,
                 description = c["shortDescription"].str(),
                 image = IMAGES + backdrop,
+                // The official title treatment, from Stremio's metahub by IMDb id (keyless; a few titles have none).
+                logo = c["externalIds"]?.jsonObject?.get("imdbId").str()?.let { "https://images.metahub.space/logo/medium/$it/img" },
                 link = offer?.get("deeplinkURL").str()?.let(::forFireTv) ?: offer?.get("standardWebURL").str(),
                 packages = service.packages,
                 year = c["originalReleaseYear"].str()?.toIntOrNull(),

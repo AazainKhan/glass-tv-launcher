@@ -73,20 +73,21 @@ fun StatusPill(
                 // Control Center grows out of exactly this capsule.
                 .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
         ) { focused ->
+            // Clear glass shows the art through it, so the text follows the art (dark on bright art).
+            val onLight = LocalBackdrop.current.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 modifier = Modifier
-                    // Exactly the tray's clear glass, so the two read as one material. Glass stays put
-                    // under the focus fill.
-                    .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.shelf(palette.light))
+                    // The tray's clear glass, so the two read as one material; over light art (a white logo
+                    // hero) clear glass vanishes, so it takes a smoky tint there, as tvOS's does. Glass stays
+                    // put under the focus fill.
+                    .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(palette.light).copy(tint = Color.Black.copy(alpha = 0.16f)) else GlassStyle.shelf(palette.light))
                     .then(
                         if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                     )
                     .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
             ) {
-                // Clear glass shows the art through it, so the text follows the art (dark on bright art).
-                val onLight = LocalBackdrop.current.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
                 val rest = if (onLight) Color(0xFF0E1015) else Color.White
                 val text = if (focused) palette.onFocusFill else rest
                 Text(rememberClock(cfg.clock24h), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"), color = text, modifier = Modifier.testTag("clock"))

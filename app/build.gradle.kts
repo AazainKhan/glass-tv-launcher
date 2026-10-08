@@ -16,7 +16,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "0.2.0"
-        buildConfigField("String", "UPDATE_REPO", "\"AazainKhan/glass-launcher\"")
+        buildConfigField("String", "UPDATE_REPO", "\"AazainKhan/glass-tv-launcher\"")
     }
 
     signingConfigs {

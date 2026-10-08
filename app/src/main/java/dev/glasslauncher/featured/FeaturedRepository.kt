@@ -15,6 +15,12 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.io.File
 
+/** Bump when FeaturedItem gains data a cached feed wouldn't have. */
+private const val FEED_VERSION = 2
+
+/** The cache key for [cfg]'s feed, versioned so a feed cached before items gained a field (logos) is fetched again. */
+fun cacheKey(cfg: FeaturedConfig) = "$FEED_VERSION:$cfg"
+
 data class FeaturedState(val feed: FeaturedFeed? = null, val error: String? = null)
 
 /** Loads the selected source, keeps the last good result on disk so the shelf is filled instantly at boot. */
@@ -37,7 +43,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
     }
 
     suspend fun refresh(cfg: FeaturedConfig, force: Boolean = false) = mutex.withLock {
-        val key = cfg.toString()
+        val key = cacheKey(cfg)
         val now = SystemClock.elapsedRealtime()
         memory[key]?.let { (feed, at) ->
             _state.value = FeaturedState(feed)

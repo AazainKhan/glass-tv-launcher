@@ -145,7 +145,7 @@ object TvHarness {
             val image = File(fixtures(), "featured${i + 1}.jpg").toURI().toString()
             """{"id":"fixture-$i","title":"$title","subtitle":"2026 · ${90 + i * 7} min","description":"$description","image":"$image"}"""
         }
-        val key = FeaturedConfig().toString().replace("\"", "\\\"")
+        val key = dev.glasslauncher.featured.cacheKey(FeaturedConfig()).replace("\"", "\\\"")
         File(context.cacheDir, "featured.json").writeText(
             """{"key":"$key","heading":"Popular Movies","items":[${items.joinToString(",")}]}""",
         )

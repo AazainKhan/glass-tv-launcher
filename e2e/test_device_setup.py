@@ -17,7 +17,7 @@ def test_only_one_glass_activity(tv, home):
 
 def test_remote_buttons_service_is_on(tv):
     assert f"{GLASS}/{GLASS}.system.RemoteKeysService" in tv.setting("secure", "enabled_accessibility_services")
-    assert "Glass Launcher Remote" in tv.sh("dumpsys accessibility | grep 'Bound services'"), "service enabled but not bound"
+    assert "Glass TV Launcher Remote" in tv.sh("dumpsys accessibility | grep 'Bound services'"), "service enabled but not bound"
 
 
 def test_uninstall_permission_is_granted(tv):
