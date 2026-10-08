@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import dev.glasslauncher.app
 import dev.glasslauncher.data.ScreensaverConfig
 import dev.glasslauncher.dream.AerialCatalog
+import dev.glasslauncher.dream.playable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -46,7 +47,7 @@ fun MotionBackground(cfg: ScreensaverConfig, state: BackdropState, light: Boolea
     }
     DisposableEffect(player) { onDispose { player.release() } }
     LaunchedEffect(Unit) {
-        val videos = AerialCatalog(context, app.http).videos().shuffled()
+        val videos = AerialCatalog(context, app.http).videos().playable(cfg.hiddenAerials).shuffled()
         if (videos.isEmpty()) return@LaunchedEffect
         player.setMediaItems(videos.map { MediaItem.fromUri(it.url(cfg.quality)) })
         player.prepare()

@@ -175,7 +175,11 @@ class Settings(Screen):
         self.tv.wait_for(lambda t: t.top_overlay() == "Settings" and t.has_text("Appearance"), 8, "Launcher Settings open")
 
     def open_page(self, row: str, title: str | None = None) -> None:
-        self.focus_text(row)
+        # The row titled `row`, not a row that only shows it as its value (Current Selection › Aerials).
+        if any(n.focusable and n.texts[:1] == [row] for n in self.tv.tree().nodes()):
+            self.focus(lambda n: n.texts[:1] == [row], f"row '{row}'")
+        else:
+            self.focus_text(row)
         self.select()
         self.tv.wait_for(lambda t: t.has_text(title or row), 6, f"page '{title or row}'")
 

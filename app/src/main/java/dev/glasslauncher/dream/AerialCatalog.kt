@@ -15,14 +15,35 @@ import java.io.File
 import java.io.InputStream
 
 @Serializable
-data class AerialVideo(val id: String, val label: String, val hd: String, val uhd: String?) {
+data class AerialVideo(
+    val id: String,
+    val label: String,
+    val hd: String,
+    val uhd: String?,
+    val shotId: String? = null,
+    val categories: List<String> = emptyList(),
+) {
     fun url(quality: AerialQuality) = if (quality == AerialQuality.Uhd4k) uhd ?: hd else hd
+
+    /** Apple's still of the clip (~400 KB JPEG), for Choose Aerials. */
+    val thumbnail: String? get() = shotId?.let { "${AerialCatalog.SNAPSHOTS}$it.jpg" }
 }
+
+/** Choose Aerials' categories, in tvOS's order: names as tvOS shows them, ids from Apple's feed. */
+enum class AerialCategory(val label: String, val id: String) {
+    Cityscape("Cityscape", "5EF41171-4862-4F93-800C-AD86CE5E6891"),
+    Earth("Earth", "55B7C95D-CEAF-4FD8-ADEF-F5BC657D8F6D"),
+    Landscape("Landscape", "A33A55D9-EDEA-4596-A850-6C10B54FBBB5"),
+    Underwater("Underwater", "8BE8B524-6EAE-43F5-A3E8-01DCFA1BCD4B"),
+}
+
+/** The clips to play: all but the hidden ones (all of them if every clip is hidden). */
+fun List<AerialVideo>.playable(hidden: Set<String>) = filterNot { it.id in hidden }.ifEmpty { this }
 
 /** Apple's public tvOS Aerial catalog: a tar whose entries.json lists each video and its URLs. */
 class AerialCatalog(private val context: Context, private val http: OkHttpClient) {
 
-    private val cache = File(context.filesDir, "aerials.json")
+    private val cache = File(context.filesDir, "aerials-v2.json") // v2: with shot ids and categories
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun videos(): List<AerialVideo> = withContext(Dispatchers.IO) {
@@ -32,6 +53,7 @@ class AerialCatalog(private val context: Context, private val http: OkHttpClient
         val fresh = runCatching { download() }.getOrNull()
         if (!fresh.isNullOrEmpty()) {
             cache.writeText(json.encodeToString(fresh))
+            File(context.filesDir, "aerials.json").delete() // v1, without categories
             fresh
         } else cached.orEmpty()
     }
@@ -50,6 +72,8 @@ class AerialCatalog(private val context: Context, private val http: OkHttpClient
                     label = o["accessibilityLabel"]?.jsonPrimitive?.content ?: "",
                     hd = hd,
                     uhd = o["url-4K-SDR"]?.jsonPrimitive?.content,
+                    shotId = o["shotID"]?.jsonPrimitive?.content,
+                    categories = o["categories"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty(),
                 )
             }
         }
@@ -89,5 +113,6 @@ class AerialCatalog(private val context: Context, private val http: OkHttpClient
 
     companion object {
         const val FEED = "https://sylvan.apple.com/Aerials/resources-16.tar"
+        const val SNAPSHOTS = "https://sylvan.apple.com/Aerials/jjGqDwCNrOsVJ4of6uSVr/snapshots/"
     }
 }

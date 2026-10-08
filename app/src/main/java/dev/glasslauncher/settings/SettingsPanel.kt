@@ -3,6 +3,8 @@ package dev.glasslauncher.settings
 import dev.glasslauncher.data.ScreensaverMode
 import dev.glasslauncher.system.SystemControls
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -101,6 +103,12 @@ private sealed interface Page {
     data object HideMore : Page
     data object IconPack : Page
     data object Screensaver : Page
+    data object ScreensaverChoice : Page
+    data object StartAfter : Page
+    data object AerialsPrefs : Page
+    data object ChooseAerials : Page
+    data object SlideshowPrefs : Page
+    data object ChoosePhotos : Page
     data object Widgets : Page
     data object HomeButton : Page
     data object Updates : Page
@@ -160,6 +168,8 @@ fun SettingsPanel(
         val pageActive = active && landed && page == stack.last()
         if (page is Page.Wallpapers) {
             WallpaperPage(page.dark, model, cfg, pageActive, open)
+        } else if (page == Page.ChooseAerials) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
+            ChooseAerialsPage(model, cfg, pageActive)
         } else androidx.compose.runtime.CompositionLocalProvider(
             dev.glasslauncher.home.LocalPageKey provides page,
             dev.glasslauncher.home.LocalConfirm provides { c -> open(c) },
@@ -173,7 +183,13 @@ fun SettingsPanel(
                 Page.Hidden -> HiddenPage(model, cfg, layout, f, ::push) { refocus(first) }
                 Page.HideMore -> HideMorePage(model, layout, f) { refocus(first) }
                 Page.IconPack -> IconPackPage(model, cfg, f)
-                Page.Screensaver -> ScreensaverPage(model, cfg, f)
+                Page.Screensaver -> ScreensaverPage(model, cfg, f, ::push)
+                Page.ScreensaverChoice -> ScreensaverChoicePage(model, cfg, f)
+                Page.StartAfter -> StartAfterPage(model, cfg, f)
+                Page.AerialsPrefs -> AerialsPrefsPage(model, cfg, f, ::push)
+                Page.SlideshowPrefs -> SlideshowPrefsPage(model, cfg, f, ::push)
+                Page.ChoosePhotos -> ChoosePhotosPage(model, cfg, f)
+                Page.ChooseAerials -> Unit
                 Page.Widgets -> WidgetsPage(model, cfg, f, open)
                 Page.HomeButton -> HomeButtonPage(model, cfg, f)
                 Page.Updates -> UpdatesPage(f)
@@ -232,7 +248,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
     MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
-    MenuRow("Screensaver", { push(Page.Screensaver) }, chevron = true)
+    MenuRow("Screen Saver", { push(Page.Screensaver) }, chevron = true)
     MenuRow("Widgets", { push(Page.Widgets) }, chevron = true)
     MenuRow("Accessibility", { push(Page.Accessibility) }, chevron = true)
     MenuRow("Home Button", { push(Page.HomeButton) }, chevron = true)
@@ -504,30 +520,70 @@ private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: M
     Hint("Icon packs are separate apps made for Android launchers: any pack labelled ADW or Nova compatible works. Install one (from the Appstore, or its APK with Downloader), then pick it here. Most packs are made for phones, so expect square icons on your tiles rather than TV banners.")
 }
 
+private fun screensaverName(mode: ScreensaverMode) = when (mode) {
+    ScreensaverMode.Aerials -> "Aerials"
+    ScreensaverMode.Slideshow -> "Slideshow"
+    ScreensaverMode.System -> "Fire TV Screensaver"
+}
+
+private val START_AFTER_MINUTES = listOf(3, 5, 10, 15, 30)
+
+/** tvOS Settings › Screen Saver: what plays and when, then each screensaver's own preferences. */
 @Composable
-private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
     val context = LocalContext.current
-    var refresh by remember { mutableStateOf(0) }
-    val isSystem = remember(refresh) { Screensaver.isSystemScreensaver(context) }
-    val canWrite = remember { Screensaver.canWriteSecureSettings(context) }
-    val sc = cfg.screensaver
-    PanelTitle("Screensaver")
-    // Glass's Aerials (started by Glass after Home has been idle), or Fire TV's own screensaver.
-    SectionLabel("Screensaver")
-    MenuRow("Aerials", {
-        model.edit { it.copy(screensaverMode = ScreensaverMode.Aerials) }
-    }, f, value = if (cfg.screensaverMode == ScreensaverMode.Aerials) "✓" else null)
-    MenuRow("Fire TV Screensaver", {
-        model.edit { it.copy(screensaverMode = ScreensaverMode.System) }
-    }, value = if (cfg.screensaverMode == ScreensaverMode.System) "✓" else null)
+    PanelTitle("Screen Saver")
+    MenuRow("Current Selection", { push(Page.ScreensaverChoice) }, f, value = screensaverName(cfg.screensaverMode), chevron = true)
     if (cfg.screensaverMode == ScreensaverMode.System) {
         MenuRow("Fire TV Screensaver Settings", {
             SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Display & Sounds" })
         }, chevron = true)
         Hint("Fire TV's own screensaver runs after the delay set in its Display settings.")
-        return
+    } else {
+        MenuRow("Start After", { push(Page.StartAfter) }, value = "${cfg.aerialsIdleMinutes} Minutes", chevron = true)
+        ToggleRow("Show During Music", cfg.screensaverDuringMusic, { v -> model.edit { it.copy(screensaverDuringMusic = v) } })
+        Hint("The screen saver starts when Home has been idle this long. While music plays, Home shows the album art instead, unless Show During Music is on.")
     }
-    MenuRow("Preview Aerials", { AerialActivity.start(context) })
+    SectionLabel("Screen Saver Preferences")
+    MenuRow("Aerials", { push(Page.AerialsPrefs) }, chevron = true)
+    MenuRow("Slideshow", { push(Page.SlideshowPrefs) }, chevron = true)
+}
+
+@Composable
+private fun ColumnScope.ScreensaverChoicePage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    PanelTitle("Current Selection")
+    ScreensaverMode.entries.forEachIndexed { i, mode ->
+        MenuRow(screensaverName(mode), { model.edit { it.copy(screensaverMode = mode) } }, if (i == 0) f else Modifier,
+            value = if (cfg.screensaverMode == mode) "✓" else null)
+    }
+}
+
+@Composable
+private fun ColumnScope.StartAfterPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    PanelTitle("Start After")
+    START_AFTER_MINUTES.forEachIndexed { i, m ->
+        MenuRow("$m Minutes", { model.edit { it.copy(aerialsOnIdleMinutes = m) } }, if (i == 0) f else Modifier,
+            value = if (cfg.aerialsIdleMinutes == m) "✓" else null)
+    }
+}
+
+@Composable
+private fun ColumnScope.AerialsPrefsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    var refresh by remember { mutableStateOf(0) }
+    val isSystem = remember(refresh) { Screensaver.isSystemScreensaver(context) }
+    val canWrite = remember { Screensaver.canWriteSecureSettings(context) }
+    val sc = cfg.screensaver
+    PanelTitle("Aerials")
+    MenuRow("Quality", {
+        model.edit { it.copy(screensaver = sc.copy(quality = if (sc.quality == AerialQuality.Hd1080) AerialQuality.Uhd4k else AerialQuality.Hd1080)) }
+    }, f, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K")
+    ToggleRow("Show Location", sc.showLocation, { v -> model.edit { it.copy(screensaver = sc.copy(showLocation = v)) } })
+    ToggleRow("Show Clock", sc.showClock, { v -> model.edit { it.copy(screensaver = sc.copy(showClock = v)) } })
+    MenuRow("Choose Aerials", { push(Page.ChooseAerials) },
+        value = if (sc.hiddenAerials.isEmpty()) "All" else "${sc.hiddenAerials.size} Hidden", chevron = true)
+    MenuRow("Preview", { AerialActivity.start(context, slideshow = false) })
+    SectionLabel("System")
     MenuRow(
         "Use as System Screensaver",
         { if (Screensaver.setAsSystemScreensaver(context)) refresh++ },
@@ -538,22 +594,145 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
         },
         enabled = canWrite || isSystem,
     )
-    if (!canWrite && !isSystem) Hint("One-time setup from a computer: ${Screensaver.GRANT_COMMAND}")
-    if (HomeSetup.isFireTv) {
-        Hint("Fire OS only runs Amazon's own screensavers. Use \"Start Aerials on Home After\" below to get Aerials on this TV.")
-    }
-    SectionLabel("Aerials Options")
-    MenuRow("Quality", {
-        model.edit { it.copy(screensaver = sc.copy(quality = if (sc.quality == AerialQuality.Hd1080) AerialQuality.Uhd4k else AerialQuality.Hd1080)) }
-    }, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K")
-    ToggleRow("Show Location", sc.showLocation, { v -> model.edit { it.copy(screensaver = sc.copy(showLocation = v)) } })
-    ToggleRow("Show Clock", sc.showClock, { v -> model.edit { it.copy(screensaver = sc.copy(showClock = v)) } })
-    val idleOptions = listOf(3, 5, 10, 15, 30)
-    MenuRow("Start Aerials on Home After", {
-        val next = idleOptions[(idleOptions.indexOf(cfg.aerialsIdleMinutes).coerceAtLeast(0) + 1) % idleOptions.size]
-        model.edit { it.copy(aerialsOnIdleMinutes = next) }
-    }, value = "${cfg.aerialsIdleMinutes} min")
     Hint("Aerial videos stream from Apple and are cached (up to 600 MB) so they replay offline.")
+    if (!canWrite && !isSystem) Hint("One-time setup from a computer: ${Screensaver.GRANT_COMMAND}")
+    if (HomeSetup.isFireTv) Hint("Fire OS only runs Amazon's own screensavers as the system screensaver; Glass starts its own after Home is idle.")
+}
+
+/** tvOS Choose Aerials: categories on the left, the category's clips as a grid; Select hides or shows one. */
+@Composable
+private fun ChooseAerialsPage(model: HomeModel, cfg: LauncherConfig, active: Boolean) {
+    val context = LocalContext.current
+    val graph = context.app
+    val sink = dev.glasslauncher.home.LocalTitleSink.current
+    val pageKey = dev.glasslauncher.home.LocalPageKey.current
+    androidx.compose.runtime.DisposableEffect(sink, pageKey) {
+        sink?.wide = pageKey
+        onDispose { if (sink != null && sink.wide == pageKey) sink.wide = null }
+    }
+    PanelTitle("Choose Aerials")
+    val videos by androidx.compose.runtime.produceState<List<dev.glasslauncher.dream.AerialVideo>?>(null) {
+        value = dev.glasslauncher.dream.AerialCatalog(context, graph.http).videos()
+    }
+    var category by remember { mutableStateOf(dev.glasslauncher.dream.AerialCategory.Cityscape) }
+    val hidden = cfg.screensaver.hiddenAerials
+    fun setHidden(h: Set<String>) = model.edit { it.copy(screensaver = it.screensaver.copy(hiddenAerials = h)) }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(active) { if (active) { delay(16); runCatching { first.requestFocus() } } }
+    val clips = videos.orEmpty().filter { category.id in it.categories }
+
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.width(220.dp).padding(top = 44.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            dev.glasslauncher.dream.AerialCategory.entries.forEachIndexed { i, c ->
+                val count = videos.orEmpty().count { c.id in it.categories }
+                MenuRow(
+                    c.label, { category = c },
+                    (if (i == 0) Modifier.focusRequester(first) else Modifier)
+                        .onFocusChanged { if (it.isFocused) category = c },
+                    value = if (category == c) "✓" else count.takeIf { it > 0 }?.toString(),
+                )
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            val ids = clips.map { it.id }.toSet()
+            val allHidden = ids.isNotEmpty() && hidden.containsAll(ids)
+            Row(Modifier.fillMaxWidth().padding(end = 12.dp), horizontalArrangement = Arrangement.End) {
+                Box(Modifier.width(150.dp)) {
+                    MenuRow(if (allHidden) "Show All" else "Hide All", { setHidden(if (allHidden) hidden - ids else hidden + ids) })
+                }
+            }
+            when {
+                videos == null -> Hint("Loading Aerials…")
+                videos!!.isEmpty() -> Hint("Connect to the internet to download Aerial videos.")
+            }
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 30.dp, end = 18.dp, top = 14.dp, bottom = 30.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(clips.size, key = { clips[it].id }) { i ->
+                    val v = clips[i]
+                    val isHidden = v.id in hidden
+                    AerialThumb(v, isHidden) { setHidden(if (isHidden) hidden - v.id else hidden + v.id) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AerialThumb(v: dev.glasslauncher.dream.AerialVideo, hidden: Boolean, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val palette = dev.glasslauncher.ui.LocalPalette.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        dev.glasslauncher.ui.FocusTile(
+            label = if (hidden) "${v.label}, Hidden" else v.label,
+            onClick = onClick,
+            focusedScale = 1.1f,
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("aerial:${v.id}"),
+        ) {
+            coil3.compose.AsyncImage(
+                model = coil3.request.ImageRequest.Builder(context).data(v.thumbnail).size(384, 216).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) 0.35f else 1f },
+            )
+            if (hidden) Image(
+                androidx.compose.ui.res.painterResource(dev.glasslauncher.R.drawable.ic_visibility_off), null,
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.9f)),
+                modifier = Modifier.align(Alignment.Center).size(30.dp).testTag("aerial-hidden:${v.id}"),
+            )
+        }
+        Text(
+            v.label.ifEmpty { "Aerial" }, style = dev.glasslauncher.ui.Type.caption,
+            color = if (hidden) palette.faint else palette.secondary, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+private val PHOTO_SECONDS = listOf(5, 8, 12, 20)
+
+@Composable
+private fun ColumnScope.SlideshowPrefsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    val sc = cfg.screensaver
+    PanelTitle("Slideshow")
+    MenuRow("Choose Photos", { push(Page.ChoosePhotos) }, f, value = sc.album ?: "All Photos", chevron = true)
+    MenuRow("Duration", {
+        val next = PHOTO_SECONDS[(PHOTO_SECONDS.indexOf(sc.photoSeconds).coerceAtLeast(0) + 1) % PHOTO_SECONDS.size]
+        model.edit { it.copy(screensaver = it.screensaver.copy(photoSeconds = next)) }
+    }, value = "${sc.photoSeconds} Seconds")
+    ToggleRow("Pan and Zoom", sc.kenBurns, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(kenBurns = v)) } })
+    MenuRow("Preview", { AerialActivity.start(context, slideshow = true) })
+    Hint("Photos on this TV: copy them to Pictures or Downloads (for example with a USB drive or Downloader), then choose an album.")
+}
+
+@Composable
+private fun ColumnScope.ChoosePhotosPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    val context = LocalContext.current
+    val permission = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    var granted by remember {
+        mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+    }
+    val request = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted = it }
+    val album = cfg.screensaver.album
+    fun choose(a: String?) = model.edit { it.copy(screensaver = it.screensaver.copy(album = a)) }
+    PanelTitle("Choose Photos")
+    MenuRow("All Photos", { choose(null) }, f, value = if (album == null) "✓" else null)
+    if (!granted) {
+        MenuRow("Allow Access to Photos", { request.launch(permission) })
+        Hint("The slideshow needs access to the photos on this TV.")
+        return
+    }
+    val albums by androidx.compose.runtime.produceState<List<Pair<String, Int>>?>(null) { value = dev.glasslauncher.dream.SlideshowView.albums(context) }
+    SectionLabel("Albums")
+    albums?.forEach { (name, count) ->
+        MenuRow(name, { choose(name) }, value = if (album == name) "✓" else "$count")
+    }
+    if (albums?.isEmpty() == true) Hint("No photos found. Copy some to Pictures or Downloads (for example with Downloader or a USB drive).")
 }
 
 @Composable

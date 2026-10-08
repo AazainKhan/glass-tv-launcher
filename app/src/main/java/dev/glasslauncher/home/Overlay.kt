@@ -242,7 +242,12 @@ private val SETTINGS_ICONS = mapOf(
     "Hidden Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
     "Hide Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
     "Icon Pack" to dev.glasslauncher.R.drawable.ic_apps,
-    "Screensaver" to dev.glasslauncher.R.drawable.ic_landscape,
+    "Screen Saver" to dev.glasslauncher.R.drawable.ic_landscape,
+    "Current Selection" to dev.glasslauncher.R.drawable.ic_landscape,
+    "Start After" to dev.glasslauncher.R.drawable.ic_landscape,
+    "Aerials" to dev.glasslauncher.R.drawable.ic_landscape,
+    "Slideshow" to dev.glasslauncher.R.drawable.ic_photo_library,
+    "Choose Photos" to dev.glasslauncher.R.drawable.ic_photo_library,
     "Widgets" to dev.glasslauncher.R.drawable.ic_widgets,
     "Accessibility" to dev.glasslauncher.R.drawable.ic_accessibility,
     "Home Button" to dev.glasslauncher.R.drawable.ic_home,
@@ -288,6 +293,8 @@ class TitleSink {
     var title by androidx.compose.runtime.mutableStateOf("")
     var page by androidx.compose.runtime.mutableStateOf<Any?>(null)
     val captions = androidx.compose.runtime.mutableStateListOf<Pair<Any?, String>>()
+    /** A page that needs the whole width (Choose Aerials): the frame drops the icon column while it shows. */
+    var wide by androidx.compose.runtime.mutableStateOf<Any?>(null)
 }
 
 /** The Settings page a composable belongs to (its captions are kept apart from the page it replaces). */
@@ -323,9 +330,10 @@ fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Compos
             color = palette.secondary,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
         )
+        val wide = sink.wide != null && sink.wide == sink.page
         androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(top = 70.dp, start = 45.dp, end = 45.dp, bottom = 20.dp)) {
             // tvOS 27: the page's muted icon, and under it the page's explanations; only rows on the right.
-            androidx.compose.foundation.layout.Column(
+            if (!wide) androidx.compose.foundation.layout.Column(
                 Modifier.weight(0.42f).fillMaxHeight().padding(end = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -341,7 +349,7 @@ fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Compos
                     }
                 }
             }
-            Box(Modifier.weight(0.58f).fillMaxHeight()) {
+            Box(Modifier.weight(if (wide) 1f else 0.58f).fillMaxHeight()) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalTitleSink provides sink) {
                     Box(Modifier.fillMaxSize().trapFocus(active), content = content)
                 }

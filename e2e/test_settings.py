@@ -2,7 +2,7 @@
 
 import pytest
 
-ROWS = ["Appearance", "Display & Text Size", "Control Center", "Set Up from Phone", "Top Shelf Content", "Hidden Apps", "Icon Pack", "Screensaver",
+ROWS = ["Appearance", "Display & Text Size", "Control Center", "Set Up from Phone", "Top Shelf Content", "Hidden Apps", "Icon Pack", "Screen Saver",
         "Widgets", "Accessibility", "Home Button", "Remote Buttons", "Updates", "Backup & Restore", "About"]
 
 

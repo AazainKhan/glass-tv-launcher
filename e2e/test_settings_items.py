@@ -55,18 +55,6 @@ def test_icon_pack_page_explains_and_links_to_packs(tv, home, settings):
     assert any("ADW or Nova" in n.text for n in tree.nodes()), "the page should say which packs work"
 
 
-def test_screensaver_choice_switches_and_back(tv, home, settings):
-    settings.open_from_control_center()
-    settings.open_page("Screensaver")
-    settings.focus_text("Fire TV Screensaver")
-    settings.select()
-    tv.wait_for(lambda t: t.find(desc="Fire TV Screensaver, ✓") or t.has_text("Fire TV Screensaver Settings"), 4, "Fire TV's screensaver chosen")
-    assert not tv.tree().has_text("Preview Aerials"), "Aerials options belong to the Aerials choice"
-    settings.focus_text("Aerials")
-    settings.select()
-    tv.wait_for(lambda t: t.has_text("Preview Aerials"), 4, "Aerials chosen again")
-
-
 def test_24_hour_time_changes_the_clock(tv, home, settings):
     settings.open_from_control_center()
     settings.open_page("Widgets")

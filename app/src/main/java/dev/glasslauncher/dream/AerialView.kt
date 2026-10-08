@@ -36,7 +36,7 @@ import java.util.Date
  * Apple's aerial videos, caches them on disk for offline replay, and shows the location and time.
  */
 @OptIn(UnstableApi::class)
-class AerialView(context: Context, private val cfg: ScreensaverConfig, private val nearEndMs: Long = 0L) : FrameLayout(context) {
+class AerialView(context: Context, private val cfg: ScreensaverConfig, private val nearEndMs: Long = 0L) : FrameLayout(context), Saver {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val surface = SurfaceView(context)
@@ -68,7 +68,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
         clock.visibility = if (cfg.showClock) View.VISIBLE else View.GONE
     }
 
-    fun start() {
+    override fun start() {
         val app = context.app
         scope.launch {
             launch {
@@ -77,7 +77,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
                     delay(60_000L - System.currentTimeMillis() % 60_000L + 50)
                 }
             }
-            videos = AerialCatalog(context, app.http).videos().shuffled()
+            videos = AerialCatalog(context, app.http).videos().playable(cfg.hiddenAerials).shuffled()
             if (videos.isEmpty()) {
                 location.text = "Connect to the internet to download Aerial videos"
                 location.visibility = View.VISIBLE
@@ -129,7 +129,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
         }
     }
 
-    fun stop() {
+    override fun stop() {
         scope.cancel()
         player?.release()
         player = null

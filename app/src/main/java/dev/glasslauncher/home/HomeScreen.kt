@@ -463,15 +463,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(cfg.aerialsIdleMinutes, cfg.screensaverMode) {
-        val limit = if (cfg.screensaverMode == dev.glasslauncher.data.ScreensaverMode.Aerials) cfg.aerialsIdleMinutes * 60_000L else 0L
+    LaunchedEffect(cfg.aerialsIdleMinutes, cfg.screensaverMode, cfg.screensaverDuringMusic) {
+        val limit = if (cfg.screensaverMode != dev.glasslauncher.data.ScreensaverMode.System) cfg.aerialsIdleMinutes * 60_000L else 0L
         if (limit <= 0) return@LaunchedEffect
         while (true) {
             val remaining = limit - idle.millisSinceInput()
             if (remaining > 0) delay(remaining)
             else {
-                // Not over Now Playing: the album art is Home's screensaver while music plays.
-                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty() && !ControlCenterWindow.open && takeover == null) {
+                // Not over Now Playing (the album art is Home's screensaver while music plays), unless Show
+                // During Music is on.
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty() && !ControlCenterWindow.open &&
+                    (takeover == null || cfg.screensaverDuringMusic)) {
                     AerialActivity.start(context)
                 }
                 idle.touch()

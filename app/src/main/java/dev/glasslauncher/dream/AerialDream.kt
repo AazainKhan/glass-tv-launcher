@@ -11,15 +11,25 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import dev.glasslauncher.app
 
+/** The view for the chosen screensaver: the photo slideshow, or Aerials. */
+internal fun saverView(context: Context, slideshow: Boolean, nearEndMs: Long = 0L): android.view.View {
+    val cfg = context.app.config.config.value.screensaver
+    return if (slideshow) SlideshowView(context, cfg) else AerialView(context, cfg, nearEndMs)
+}
+
+private fun Context.slideshowChosen() = app.config.config.value.screensaverMode == dev.glasslauncher.data.ScreensaverMode.Slideshow
+
 class AerialDreamService : DreamService() {
-    private var view: AerialView? = null
+    private var view: Saver? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         isInteractive = false
         isFullscreen = true
         isScreenBright = true
-        view = AerialView(this, app.config.config.value.screensaver).also { setContentView(it) }
+        val v = saverView(this, slideshowChosen())
+        setContentView(v)
+        view = v as Saver
     }
 
     override fun onDreamingStarted() {
@@ -41,17 +51,19 @@ class AerialDreamService : DreamService() {
 
 /** Plays the screensaver on demand (preview, or the launcher's own idle fallback). Any key exits. */
 class AerialActivity : Activity() {
-    private var view: AerialView? = null
+    private var view: Saver? = null
 
     companion object {
         const val EXTRA_NEAR_END_MS = "dev.glasslauncher.extra.NEAR_END_MS"
+        /** Which screensaver to show (a preview); without it, the one chosen in Settings. */
+        const val EXTRA_SLIDESHOW = "dev.glasslauncher.extra.SLIDESHOW"
 
-        /** Starts Aerials fading in over Home rather than cutting to black. */
-        fun start(context: android.content.Context) {
+        /** Starts the screensaver fading in over Home rather than cutting to black. */
+        fun start(context: android.content.Context, slideshow: Boolean? = null) {
             val options = android.app.ActivityOptions.makeCustomAnimation(context, dev.glasslauncher.R.anim.glass_fade_in, dev.glasslauncher.R.anim.glass_hold)
-            runCatching {
-                context.startActivity(android.content.Intent(context, AerialActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK), options.toBundle())
-            }
+            val intent = android.content.Intent(context, AerialActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (slideshow != null) intent.putExtra(EXTRA_SLIDESHOW, slideshow)
+            runCatching { context.startActivity(intent, options.toBundle()) }
         }
     }
 
@@ -67,7 +79,10 @@ class AerialActivity : Activity() {
         // Device tests: start the first clip this many ms before its end, so a clip change can be checked
         // without waiting minutes for one (`am start … --el dev.glasslauncher.extra.NEAR_END_MS 6000`).
         val nearEnd = intent.getLongExtra(EXTRA_NEAR_END_MS, 0L)
-        view = AerialView(this, app.config.config.value.screensaver, nearEnd).also { setContentView(it) }
+        val slideshow = if (intent.hasExtra(EXTRA_SLIDESHOW)) intent.getBooleanExtra(EXTRA_SLIDESHOW, false) else slideshowChosen()
+        val v = saverView(this, slideshow, nearEnd)
+        setContentView(v)
+        view = v as Saver
     }
 
     private val sleepAfter = Runnable { finish() }

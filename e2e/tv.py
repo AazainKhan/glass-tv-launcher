@@ -221,12 +221,12 @@ class TV:
         with open(path, "wb") as f:
             subprocess.run(["adb", "-s", self.serial, "exec-out", "screencap", "-p"], stdout=f, timeout=30)
 
-    def screen_image(self):
-        """The screen as a greyscale PIL image."""
+    def screen_image(self, colour: bool = False):
+        """The screen as a greyscale PIL image (RGB with [colour])."""
         import io
         from PIL import Image
         png = subprocess.run(["adb", "-s", self.serial, "exec-out", "screencap", "-p"], capture_output=True, timeout=30).stdout
-        return Image.open(io.BytesIO(png)).convert("L")
+        return Image.open(io.BytesIO(png)).convert("RGB" if colour else "L")
 
     @staticmethod
     def brightness(img, bounds) -> float:
