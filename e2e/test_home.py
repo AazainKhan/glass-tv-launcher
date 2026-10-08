@@ -79,18 +79,10 @@ def test_full_screen_shelf_has_no_dots_and_ends_at_the_last_card(tv, home):
     tv.press("down")
 
 
-def test_focused_top_row_app_shows_its_name(tv, home):
-    """HOME-04: the focused app's name appears under it, in the tray too (not only in the grid)."""
-    from PIL import ImageStat
+def test_tray_apps_have_no_name_under_them(tv, home):
+    """The top row shows icons only: no name under the focused tray app (the grid keeps its labels)."""
+    # (Checked in the tree: a pixel check under the tile is confounded by the focused tile's scale and shadow.)
     tree = tv.tree()
-    dock = home.dock_apps()
-    assert len(dock) >= 2
     focused = tree.focused()
-    other = next(n for n in dock if n.rid != focused.rid)
-    img = tv.screen_image()
-    def label_detail(n):
-        l, t, r, b = n.bounds
-        region = img.crop((l, b + 8, r, b + 52)).convert("L")
-        return ImageStat.Stat(region).stddev[0]
-    assert label_detail(focused) > label_detail(other) + 8, \
-        f"no name under the focused tray app ({label_detail(focused):.1f} vs {label_detail(other):.1f})"
+    assert focused and focused.rid.startswith("app:"), "focus should start on a tray app"
+    assert not tree.has_text(focused.desc), f"'{focused.desc}' is written under the tray icon"

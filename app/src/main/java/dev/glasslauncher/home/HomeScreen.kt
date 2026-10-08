@@ -1024,8 +1024,9 @@ private fun DockTray(
                         onFocused = { onFocused(key) },
                         onMenu = { onAppMenu(app) },
                         launch = launch,
+                        // The top row is icons only (no name under the focused app).
                         showLabel = false,
-                        floatingLabel = true,
+                        floatingLabel = false,
                     )
                 }
             }
@@ -1208,7 +1209,7 @@ fun TileWithLabel(
                     },
             ) {
                 if (isNew) Box(Modifier.size(6.dp).background(palette.accent, CircleShape))
-                Text(
+                if (showLabel || floatingLabel) Text(
                     text = label,
                     style = Type.caption.copy(fontSize = Type.caption.fontSize * 0.98f),
                     color = palette.secondary,
