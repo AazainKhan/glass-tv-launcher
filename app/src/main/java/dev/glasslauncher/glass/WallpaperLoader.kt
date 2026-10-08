@@ -191,6 +191,18 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma)
     }
 
+    /**
+     * Glass textures only, for Control Center's overlay window (a capture of the screen behind it): the
+     * tray's clear texture, one small blur instead of the full ladder (~550 ms
+     * there, which cost frames while Control Center opened). Nothing here is drawn full screen.
+     */
+    suspend fun glassOnly(source: Bitmap): Backdrop = withContext(Dispatchers.Default) {
+        blurReady
+        val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { it.setHasAlpha(false) }
+        val gpuClear = (clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear).asImageBitmap()
+        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = false)
+    }
+
     /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */
     private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene, wash: Float) {
         val w = bitmap.width.toFloat()

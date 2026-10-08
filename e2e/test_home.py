@@ -91,3 +91,10 @@ def test_tray_apps_have_no_name_under_them(tv, home):
 def test_tray_always_holds_six_apps(tv, home):
     """With fewer than six chosen for the top row, the first grid apps move up to fill it."""
     assert len(home.dock_apps()) == 6, f"the tray holds {len(home.dock_apps())} apps"
+
+
+def test_tray_icons_are_vertically_centred(tv, home):
+    tree = tv.tree()
+    tray, row = tree.find(rid="tray"), tree.find(rid="dock")
+    above, below = row.bounds[1] - tray.bounds[1], tray.bounds[3] - row.bounds[3]
+    assert abs(above - below) <= 4, f"the tray's icons sit off centre ({above}px above, {below}px below)"

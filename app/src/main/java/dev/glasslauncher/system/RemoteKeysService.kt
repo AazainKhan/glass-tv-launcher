@@ -81,6 +81,8 @@ class RemoteKeysService : AccessibilityService() {
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var front: String? = null
+    /** The app in front (null when it's Glass), for Control Center's glass. */
+    val frontApp: String? get() = front
     private val launchable = HashMap<String, Boolean>()
 
     private val capture = object : Runnable {

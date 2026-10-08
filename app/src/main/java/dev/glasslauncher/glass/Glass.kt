@@ -80,6 +80,9 @@ class BackdropState {
         }
     }
 
+    /** Drops the scene (Control Center's capture of the screen, when it closes). */
+    fun clear() { previous = null; backdrop = null }
+
     var rootSize by mutableStateOf(IntSize.Zero)
     /** 0 = sharp wallpaper, 1 = fully blurred (grid scrolled). Animated by the home screen. */
     val wallpaperBlur = Animatable(0f)
@@ -117,6 +120,8 @@ data class GlassStyle(
     val clear: Boolean = false,
     /** Clear glass that carries text: samples the text-safe copy of the clear texture. */
     val legible: Boolean = false,
+    /** The refracted edge band on clear glass (off for Control Center's dozen small tiles: frame cost). */
+    val edge: Boolean = true,
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
@@ -240,7 +245,12 @@ private class GlassNode(
         if (overBlur) {
             // Flat tint: over a blurred backdrop this is what frosted glass looks like (tvOS's grid tray is
             // a flat translucent slab), and texture shaders here tipped the GPU over budget.
-            val flat = if (state.reduceTransparency) solidTint(style.tint) else Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f)
+            val flat = when {
+                state.reduceTransparency -> solidTint(style.tint)
+                // Control Center's overlay before its glass fades in: the smoky fill over the live screen.
+                state.translucentWindow -> Color(0x7A2A2E37)
+                else -> Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f)
+            }
             drawOutline(outline, flat, alpha = 1f - texture)
         }
         if (source != null && root != IntSize.Zero && texture > 0f) {
@@ -272,11 +282,12 @@ private class GlassNode(
             }
             // The refracted edge is one stroke on the big tray; on a dozen small Control Center tiles it
             // took frames to 23 ms, so text-carrying clear glass keeps the texture and rim only.
-            if (clear && !style.legible) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)
+            if (clear && !style.legible && style.edge) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)
         } else if (!overBlur) {
             // Nothing to sample yet (backdrop baking, layout not measured): glass that carries text draws a
             // solid frosted tint rather than its 6-20% tint alone, which read as a see-through tile.
-            if (state.translucentWindow) drawOutline(outline, if (style.tint.luminance() > 0.5f) Color.White.copy(alpha = 0.24f) else Color(0x7A2A2E37))
+            // (The tint's own alpha counts: the tray's 3% white is clear glass, not a milky white fill.)
+            if (state.translucentWindow) drawOutline(outline, if (style.tint.luminance() * style.tint.alpha > 0.1f) Color.White.copy(alpha = 0.24f) else Color(0x7A2A2E37))
             else if (style.legible || style.useOverlay) drawOutline(outline, solidTint(style.tint))
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }

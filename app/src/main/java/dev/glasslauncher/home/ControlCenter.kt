@@ -54,6 +54,7 @@ import dev.glasslauncher.dream.AerialActivity
 import dev.glasslauncher.system.SystemControls
 import dev.glasslauncher.glass.GlassStyle
 import dev.glasslauncher.glass.LocalBackdrop
+import kotlinx.coroutines.flow.first
 import dev.glasslauncher.glass.glass
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
@@ -110,7 +111,9 @@ object CcMorph {
 private val CC_BLEED = 16.dp
 
 /** The tray's clear glass (its text-safe texture, and no refracted edge per tile), for every Control Center surface. */
-private val CC_GLASS = GlassStyle.shelf(false).copy(legible = true)
+// The tray's clear glass, the same in either theme (its text-safe copy washed milky in light theme), with
+// a faint darkening for the labels; no edge band on a dozen small tiles (frame cost).
+private val CC_GLASS = GlassStyle.shelf(false).copy(tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.10f), edge = false)
 
 /** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
 private val CC_DIM = Color.Black.copy(alpha = 0.42f)
@@ -180,6 +183,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val enter = remember { androidx.compose.animation.core.Animatable(0f) }
     val exiting = LocalOverlayExiting.current
     LaunchedEffect(exiting) { enter.animateTo(if (exiting) 0f else 1f, androidx.compose.animation.core.tween(CcMorph.MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    // The tiles' glass (a capture of the screen behind, or Home's own) fades in once they have landed:
+    // sampled through the fade and rise it cost a fifth of the frames, and the moving tiles hide it anyway.
+    // Until then, and while closing, they draw the overlay's smoky fill.
+    val glassState = LocalBackdrop.current
+    LaunchedEffect(exiting) {
+        glassState.textureIn.snapTo(0f)
+        if (exiting) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { enter.value >= 1f }.first { it }
+        androidx.compose.runtime.snapshotFlow { glassState.backdrop != null }.first { it }
+        glassState.textureIn.animateTo(1f, androidx.compose.animation.core.tween(180))
+    }
     var panel by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val pill = ControlCenterWindow.pillBounds
     val capsule = if (palette.light) Color.White.copy(alpha = 0.24f) else Color(0x7A2A2E37)

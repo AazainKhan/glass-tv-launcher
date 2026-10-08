@@ -34,6 +34,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import androidx.compose.ui.layout.onSizeChanged
 import dev.glasslauncher.MainActivity
 import dev.glasslauncher.app
 import dev.glasslauncher.data.ThemeMode
@@ -58,6 +59,14 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     private var cached: ComposeView? = null
     private var exiting by mutableStateOf(false)
     private var shownAt = 0L
+    /**
+     * The overlay can't sample the screen behind it, so each open captures it (the accessibility
+     * screenshot, ~100 ms) and bakes it into the same clear-glass textures as the tray. Until then (or
+     * without the capture) the tiles draw a smoky translucent tint over the live app.
+     */
+    private val backdrop = BackdropState().apply { translucentWindow = true }
+    private var capture: kotlinx.coroutines.Job? = null
+    private val app get() = service.app
 
     val showing: Boolean get() = view != null && !exiting
 
@@ -65,6 +74,11 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         /** True while the overlay is up, so Home hides its status pill (Control Center has its own clock). */
         var open by mutableStateOf(false)
             private set
+
+        /** Home's baked scene while Home is on screen: Control Center's glass over Home samples it directly. */
+        private const val CAPTURE_WAIT_MS = 120L
+
+        @Volatile var homeBackdrop: dev.glasslauncher.glass.Backdrop? = null
 
         /** Where Home's status pill is, so Control Center can grow out of it (Home keeps this current). */
         @Volatile var pillBounds: androidx.compose.ui.geometry.Rect? = null
@@ -96,10 +110,18 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         ).apply { title = "Glass Control Center" }
-        runCatching { windows.addView(v, params) }.onFailure { return }
-        view = v
-        open = true
-        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+        fun attach() {
+            if (view != null) return
+            runCatching { windows.addView(v, params) }.onFailure { return }
+            view = v
+            open = true
+            lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+        }
+        val home = homeBackdrop
+        if (home != null) {
+            app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(home, animate = false) }
+            attach()
+        } else captureThenAttach(::attach)
     }
 
     /** Plays the exit (the same curve as the entrance), then removes the window. */
@@ -111,12 +133,66 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             if (view === v && exiting) {
                 runCatching { windows.removeView(v) }
                 view = null
+                capture?.cancel()
+                backdrop.clear()
                 exiting = false
                 // Home's pill comes back as the capsule lands on it, not while it's still shrinking.
                 open = false
                 lifecycleRegistry.currentState = Lifecycle.State.CREATED
             }
         }, CcMorph.MS + 20L)
+    }
+
+    private fun apply(baked: dev.glasslauncher.glass.Backdrop) {
+        if (view == null || exiting) return
+        app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(baked, animate = false) }
+    }
+
+    /** The app's last preview (already on the CPU, no readback), when a fresh capture isn't possible. */
+    private fun usePreview() {
+        val pkg = (service as? dev.glasslauncher.system.RemoteKeysService)?.frontApp ?: return
+        capture?.cancel()
+        capture = app.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            val baked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                dev.glasslauncher.system.AppPreviews.load(service, pkg)?.let { runCatching { app.wallpapers.glassOnly(it) }.getOrNull() }
+            } ?: return@launch
+            if (backdrop.backdrop == null) apply(baked)
+        }
+    }
+
+    /**
+     * Over another app: capture the screen, and copy it off the GPU before the window appears. That copy
+     * runs on the render thread, so made during the opening it cost frames (perf: 20% janky vs 6%). The
+     * open waits for it at most [CAPTURE_WAIT_MS]; past that, or if the capture fails (rate-limited to one
+     * a second, shared with the app switcher's previews), the app's last preview stands in.
+     */
+    private fun captureThenAttach(attach: () -> Unit) {
+        var attached = false
+        val go = { if (!attached) { attached = true; attach() } }
+        if (android.os.Build.VERSION.SDK_INT < 30) { go(); return }
+        handler.postDelayed({ if (!attached) { go(); usePreview() } }, CAPTURE_WAIT_MS)
+        val ok = runCatching {
+            service.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, service.mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val shot = android.graphics.Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                    buffer.close()
+                    if (shot == null || attached) { shot?.recycle(); return }
+                    val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                    shot.recycle()
+                    go()
+                    capture?.cancel()
+                    capture = app.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        val baked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                            runCatching { app.wallpapers.glassOnly(soft) }.getOrNull().also { soft.recycle() }
+                        } ?: return@launch
+                        apply(baked)
+                    }
+                }
+                override fun onFailure(errorCode: Int) { go(); usePreview() }
+            })
+        }.isSuccess
+        if (!ok) { go(); usePreview() }
     }
 
     /** Another app (or Home) came forward: Control Center belongs to what was on screen when it opened. */
@@ -164,7 +240,6 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val prefs = remember(cfg) { dev.glasslauncher.ui.UiPrefs.resolve(context, cfg) }
         val metrics = remember(cfg.textScale) { dev.glasslauncher.ui.Metrics(cfg.textScale) }
         val palette = remember(dark, prefs) { dev.glasslauncher.ui.Palette(light = !dark, highContrast = prefs.highContrast) }
-        val backdrop = remember { BackdropState().apply { translucentWindow = true } }
         val density = LocalDensity.current
         dev.glasslauncher.ui.Type.bold = cfg.boldText
         CompositionLocalProvider(
@@ -180,6 +255,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                     .fillMaxSize()
                     .semantics { testTagsAsResourceId = true }
                     .testTag("overlay-top:ControlCenter")
+                    // Glass maps the captured screen onto itself by its position in this full-screen window.
+                    .onSizeChanged { backdrop.rootSize = it }
                     .onPreviewKeyEvent { e ->
                         val k = e.nativeKeyEvent
                         if (k.keyCode == KeyEvent.KEYCODE_BACK || k.keyCode == KeyEvent.KEYCODE_HOME) {

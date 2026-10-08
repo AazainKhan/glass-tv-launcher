@@ -85,8 +85,7 @@ object AppArt {
                     }
                 }
             }
-        }.onFailure { android.util.Log.w("GlassArt", "Appstore read failed", it) }.getOrDefault(emptyMap())
-            .also { android.util.Log.i("GlassArt", "Appstore backgrounds: ${it.size}"); dir.deleteRecursively() }
+        }.getOrDefault(emptyMap()).also { dir.deleteRecursively() }
     }
 
     private fun fetch(http: OkHttpClient, url: String): String {

@@ -429,6 +429,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Paused while Home is hidden (an app is in front): no bakes behind the app, and Home comes back on
     // the slide it left on, which is what the app-close animation's blurred picture shows.
     val homeVisible = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+    // Control Center over Home reuses Home's own glass (no screen capture needed).
+    val homeScene = backdrop.backdrop
+    LaunchedEffect(homeVisible, homeScene) { ControlCenterWindow.homeBackdrop = homeScene.takeIf { homeVisible } }
     LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown) {
         // Only while titles show: an app's own hero never advances or bakes slides.
         if (!homeVisible || takeover != null || appHeroShown) return@LaunchedEffect
@@ -1008,9 +1011,9 @@ private fun DockTray(
             .fillMaxWidth()
             .padding(horizontal = m.trayMargin)
             .glass(LocalBackdrop.current, RoundedCornerShape(m.trayRadius), GlassStyle.shelf(palette.light))
-            // The focused app's name (HOME-04) sits in the bottom padding: the tiles move up to make room
-            // and the tray keeps its height, so the next row still peeks in under it.
-            .padding(start = m.inset - m.trayMargin, end = m.inset - m.trayMargin, top = m.trayPadVertical - m.trayLabel / 2, bottom = m.trayPadVertical + m.trayLabel / 2),
+            .testTag("tray")
+            // Icons only (no names under them), so they sit centred: equal space above and below.
+            .padding(horizontal = m.inset - m.trayMargin, vertical = m.trayPadVertical),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().stopAtRowEnds().testTag("dock")) {
             apps.take(m.columns).forEach { app ->
