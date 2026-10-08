@@ -30,8 +30,6 @@ data class TileSpec(val app: AppEntry, val customIcon: String?, val iconPack: St
  * Produces a full-bleed 16:9 tile for every app: a custom image, the TV banner, or a generated
  * tile so phone-style square icons never look out of place.
  */
-/** See [TileArt.heroLogo]: [background] is the banner's solid colour, or null for full-bleed art. */
-class HeroLogo(val background: Int?, val image: Bitmap)
 
 class TileArt(context: Context, private val iconPacks: IconPacks) {
 
@@ -44,48 +42,34 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
     fun peek(spec: TileSpec): ImageBitmap? = cache.get(spec)
 
     /**
-     * The Top Shelf's own hero for an app (tvOS's "logo only" shelf, e.g. Peacock's logo on black): when
-     * the TV banner is a logo on one solid colour, that colour and the logo cut out of it; otherwise
-     * (full-bleed art) the banner as it is, with no background. Null when the app ships no banner.
+     * The app's logo art, full screen, for its Top Shelf hero when Amazon has no Fire TV icon for it: the TV
+     * banner rendered straight at [w]×[h] (vector banners stay crisp at any size), cropped to fill; without a
+     * banner, the launcher icon large and centred on its own edge colour. Never a screenshot.
      */
-    fun heroLogo(app: AppEntry): HeroLogo? {
-        val banner = hiResBanner(app)
-            ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
+    fun heroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val banner = hiResBanner(app) ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
-            ?: return null
-        val iw = banner.intrinsicWidth.takeIf { it > 0 } ?: WIDTH
-        val ih = banner.intrinsicHeight.takeIf { it > 0 } ?: HEIGHT
-        val scale = min(1f, 1280f / iw).coerceAtLeast(960f / iw)
-        val src = Bitmap.createBitmap((iw * scale).toInt().coerceAtLeast(1), (ih * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-        banner.setBounds(0, 0, src.width, src.height)
-        banner.draw(Canvas(src))
-        val bg = edgeColor(src)
-        val box = bg?.let { contentBounds(src, it) }
-        if (bg == null || box == null) return HeroLogo(null, src)
-        val pad = (box.height() * 0.06f).toInt()
-        val crop = android.graphics.Rect(
-            (box.left - pad).coerceAtLeast(0), (box.top - pad).coerceAtLeast(0),
-            (box.right + pad).coerceAtMost(src.width), (box.bottom + pad).coerceAtMost(src.height),
-        )
-        val logo = Bitmap.createBitmap(src, crop.left, crop.top, crop.width(), crop.height()).copy(Bitmap.Config.ARGB_8888, true)
-        src.recycle()
-        keyOut(logo, bg)
-        return HeroLogo(bg, logo)
-    }
-
-    /** The banner's background colour made transparent (soft at the edges), so the logo sits on the hero's colour. */
-    private fun keyOut(b: Bitmap, bg: Int) {
-        val px = IntArray(b.width * b.height)
-        b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
-        val br = (bg shr 16) and 0xFF; val bgG = (bg shr 8) and 0xFF; val bb = bg and 0xFF
-        for (i in px.indices) {
-            val c = px[i]
-            val dr = ((c shr 16) and 0xFF) - br; val dg = ((c shr 8) and 0xFF) - bgG; val db = (c and 0xFF) - bb
-            val d = kotlin.math.sqrt((dr * dr + dg * dg + db * db).toFloat())
-            val a = ((d - 18f) / 40f).coerceIn(0f, 1f)
-            px[i] = (c and 0x00FFFFFF) or ((((c ushr 24) * a).toInt()) shl 24)
+        if (banner != null) {
+            val iw = banner.intrinsicWidth.takeIf { it > 0 } ?: w
+            val ih = banner.intrinsicHeight.takeIf { it > 0 } ?: h
+            val scale = maxOf(w / iw.toFloat(), h / ih.toFloat())
+            val dw = (iw * scale).toInt(); val dh = (ih * scale).toInt()
+            banner.setBounds((w - dw) / 2, (h - dh) / 2, (w - dw) / 2 + dw, (h - dh) / 2 + dh)
+            (banner as? android.graphics.drawable.BitmapDrawable)?.paint?.isFilterBitmap = true
+            banner.draw(canvas)
+            return out
         }
-        b.setPixels(px, 0, b.width, 0, 0, b.width, b.height)
+        val icon = hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: run { out.recycle(); return null }
+        // The icon's own edge colour fills the screen, so the logo reads as one piece of art.
+        val probe = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).also { icon.setBounds(0, 0, 64, 64); icon.draw(Canvas(it)) }
+        canvas.drawColor(edgeColor(probe) ?: Color.rgb(20, 22, 28))
+        probe.recycle()
+        val size = (h * 0.56f).toInt()
+        icon.setBounds((w - size) / 2, (h - size) / 2, (w + size) / 2, (h + size) / 2)
+        icon.draw(canvas)
+        return out
     }
 
     /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */

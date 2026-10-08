@@ -56,6 +56,8 @@ class BackdropState {
     var previous by mutableStateOf<Backdrop?>(null)
         private set
     val fade = Animatable(1f)
+    /** Glass surfaces cross-fade with the backdrop; off for quick scene changes (they snap: half the drawing). */
+    var glassFades by mutableStateOf(true)
 
     /** Swaps in a new scene. The old one fades out (two passes) only for the short cross-fade. */
     /** [fadeMs]: the slow dissolve for title slides; app heroes, which change as focus moves, use a short one. */
@@ -263,7 +265,7 @@ private class GlassNode(
             backdropShader!!.setLocalMatrix(matrix)
             // While the backdrop cross-fades to a new slide, the glass does too, on the same clock: the
             // old picture underneath, the new one fading in over it. Otherwise the tray switches first.
-            val previous = state.previous
+            val previous = state.previous.takeIf { state.glassFades }
             val fade = state.fade.value
             val previousSource = previous?.let { if (style.useOverlay) null else if (clear) (if (style.legible) it.clearLegible else it.clearSoftware) else it.blurredSoftware }
             if (previousSource != null && fade < 1f) {

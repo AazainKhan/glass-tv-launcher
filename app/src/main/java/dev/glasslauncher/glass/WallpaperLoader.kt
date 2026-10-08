@@ -94,21 +94,22 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         }
 
     /**
-     * A cheap backdrop for an app's own Top Shelf hero: from a small, already soft image (the app's blurred
-     * screenshot, or a wash of its banner), darkened and baked at 480×270 rather than 1080p. The sharp
-     * layer is drawn stretched, which is invisible on a blurred picture, so it costs ~5 MB, not ~14.
+     * An app's logo art as its Top Shelf hero, sharp: kept at 1280×720 (Amazon's Fire TV icons are that size,
+     * and logo art drawn stretched to 1080p stays crisp), which is 3.7 MB of sharp layer instead of 8.3, so a
+     * few heroes can stay baked while browsing the tray. Baked at background priority.
      */
-    suspend fun fromAppArt(image: Bitmap, light: Boolean = false, darken: Boolean = true): Backdrop = withContext(BakeDispatcher) {
-        val small = Bitmap.createBitmap(APP_HERO_W, APP_HERO_H, Bitmap.Config.ARGB_8888)
-        val scale = max(APP_HERO_W / image.width.toFloat(), APP_HERO_H / image.height.toFloat())
-        val w = (APP_HERO_W / scale).toInt(); val h = (APP_HERO_H / scale).toInt()
-        val x = (image.width - w) / 2; val y = (image.height - h) / 2
-        Canvas(small).apply {
-            drawBitmap(image, android.graphics.Rect(x, y, x + w, y + h), android.graphics.Rect(0, 0, APP_HERO_W, APP_HERO_H), Paint(Paint.FILTER_BITMAP_FLAG))
-            if (darken) drawColor(Color.argb(90, 0, 0, 0))
-        }
+    suspend fun fromHeroArt(image: Bitmap, light: Boolean = false): Backdrop = withContext(BakeDispatcher) {
         val job = coroutineContext[kotlinx.coroutines.Job]
-        bake(small, Scene.Hero, light) { job?.isActive != false }
+        bake(cropToScreen(image, recycleSource = false, outW = HERO_W, outH = HERO_H), Scene.Wallpaper, light) { job?.isActive != false }
+    }
+
+    /** [fromHeroArt] from a URL (Coil's disk cache; nothing kept in memory). */
+    suspend fun heroFromUrl(url: String, light: Boolean = false): Backdrop? {
+        val request = coil3.request.ImageRequest.Builder(context).data(url).size(HERO_W, HERO_H).allowHardware(false)
+            .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
+        val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: return null
+        val bitmap = image.toBitmap()
+        return fromHeroArt(bitmap, light).also { bitmap.recycle() }
     }
 
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
@@ -287,14 +288,14 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         return cropToScreen(decoded)
     }
 
-    private fun cropToScreen(src: Bitmap, recycleSource: Boolean = true): Bitmap {
-        val out = Bitmap.createBitmap(SHARP_W, SHARP_H, Bitmap.Config.ARGB_8888)
-        val scale = max(SHARP_W / src.width.toFloat(), SHARP_H / src.height.toFloat())
-        val w = (SHARP_W / scale).toInt()
-        val h = (SHARP_H / scale).toInt()
+    private fun cropToScreen(src: Bitmap, recycleSource: Boolean = true, outW: Int = SHARP_W, outH: Int = SHARP_H): Bitmap {
+        val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        val scale = max(outW / src.width.toFloat(), outH / src.height.toFloat())
+        val w = (outW / scale).toInt()
+        val h = (outH / scale).toInt()
         val left = (src.width - w) / 2
         val top = (src.height - h) / 2
-        Canvas(out).drawBitmap(src, Rect(left, top, left + w, top + h), Rect(0, 0, SHARP_W, SHARP_H), Paint(Paint.FILTER_BITMAP_FLAG))
+        Canvas(out).drawBitmap(src, Rect(left, top, left + w, top + h), Rect(0, 0, outW, outH), Paint(Paint.FILTER_BITMAP_FLAG))
         if (recycleSource && src != out) src.recycle()
         return out
     }
@@ -322,13 +323,13 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "glass-bake")
         }.asCoroutineDispatcher()
 
+        const val HERO_W = 1280
+        const val HERO_H = 720
         const val SHARP_W = 1920
         const val SHARP_H = 1080
         const val BLUR_W = 192
         const val BLUR_H = 108
         const val CLEAR_W = 480
-        const val APP_HERO_W = 480
-        const val APP_HERO_H = 270
         const val CLEAR_H = 270
 
         val presets = listOf(

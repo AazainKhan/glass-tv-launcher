@@ -164,3 +164,22 @@ def test_titles_without_a_logo_stay_hidden_at_rest(tv, home, focused_app):
     assert not tree.find(rid="shelf-title").texts, f"a plain-text title shows at rest: {tree.find(rid='shelf-title').texts}"
     tv.press("up")
     tv.wait_for(lambda t: t.find(rid="featured-row") and any(len(n.text) > 2 for n in t.nodes() if n.center[1] < 700 and n.center[0] < 900), 4, "the title in full screen")
+
+
+APPSTORE = "com.amazon.venezia"
+
+
+@pytest.mark.parametrize("pkg", [STREMIO, APPSTORE])
+def test_app_heroes_are_the_apps_logo_sharp(tv, home, pkg):
+    """An app's hero is its logo art full screen and crisp (vector banner, Amazon's icon), never a soft
+    upscale or a screenshot of the app."""
+    from PIL import ImageFilter
+    tray_y = tv.tree().focused().center[1]
+    if abs(home.focus_app(pkg).center[1] - tray_y) > 20:
+        pytest.skip(f"{pkg} isn't in the top row")
+    tv.press("left" if pkg == APPSTORE else "right")
+    tv.press("right" if pkg == APPSTORE else "left")
+    tv.wait_for(lambda t: t.find(rid=f"app-art:{pkg}"), 8, f"{pkg}'s hero")
+    edges = sorted(tv.screen_image().crop((0, 120, 1920, 700)).filter(ImageFilter.FIND_EDGES).getdata())
+    crisp = edges[int(len(edges) * 0.999)]
+    assert crisp > 220, f"{pkg}'s hero is soft (edge strength {crisp}); it should be crisp logo art"

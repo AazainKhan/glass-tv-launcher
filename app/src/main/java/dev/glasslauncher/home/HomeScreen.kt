@@ -133,6 +133,7 @@ private const val SLIDE_QUIET_MS = 3_000L
 private const val SHELF_FOLLOW_MS = 450L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
 private const val APP_HERO_MS = 250L
+private const val GPU_TRIM_AFTER_MS = 4_000L
 private const val APP_HERO_FADE_MS = 200
 /** ...and this long shows its titles (tvOS 27: the shelf moves with the user first). */
 private const val TITLES_AFTER_MS = 1_500L
@@ -275,21 +276,26 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val takeoverArt = takeover?.art
     LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg) {
         if (takeoverArt != null) {
+            backdrop.glassFades = true
             backdrop.swap(graph.wallpapers.fromImage(dev.glasslauncher.widgets.backdropArt(takeoverArt), light = !dark), animate = backdrop.backdrop != null)
             return@LaunchedEffect
         }
         if (appHeroPkg != null) {
             val key = "$appHeroPkg|$dark"
             val baked = appHeroes[key] ?: run {
-                // Full-screen art first (Amazon's Fire TV background, else the store screenshot), else the logo plate.
-                val art = dev.glasslauncher.apps.AppArt.url(context, graph.http, appHeroPkg)
-                    ?.let { runCatching { graph.wallpapers.fromUrl(it, background = true, light = !dark) }.getOrNull() }
+                // The app's logo art full screen: Amazon's Fire TV icon, else its own banner (or icon) drawn sharp.
+                val art = dev.glasslauncher.apps.AppArt.url(context, appHeroPkg)
+                    ?.let { runCatching { graph.wallpapers.heroFromUrl(it, light = !dark) }.getOrNull() }
+                    ?: appHeroBackdrop(graph, layout, appHeroPkg, dark)
                 artApps[appHeroPkg] = art != null
-                art ?: appHeroBackdrop(context, graph, layout, model, appHeroPkg, dark)
+                art
             }?.also { appHeroes[key] = it }
             // A short fade: during one the backdrop and every glass surface draw twice, and this changes as
             // focus moves along the row.
-            if (baked != null) { backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); return@LaunchedEffect }
+            if (baked != null) { // The tray and pill snap to the new hero's glass while the backdrop dissolves: cross-fading them
+            // too drew every glass surface twice per frame (perf-gate p90 14 ms vs 11).
+            backdrop.glassFades = false
+            backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); return@LaunchedEffect }
         }
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
@@ -298,9 +304,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         val ready = prebaked[0]?.takeIf { it.first == sceneUrl }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
         if (ready == null && expanded) delay(220) // let quick left/right browsing settle before re-baking the glass
+        backdrop.glassFades = true
         val next = ready ?: sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it, light = !dark) }.getOrNull() } ?: graph.wallpapers.load(wallpaper, light = !dark)
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement.
         backdrop.swap(next, animate = backdrop.backdrop != null)
+    }
+
+    // Once Home has settled on a scene, the renderer's copies of the scenes it has left are released
+    // (see GpuCaches): they otherwise pile up while browsing titles and app heroes.
+    LaunchedEffect(backdrop.backdrop, expanded, overlays.size, ControlCenterWindow.open) {
+        delay(GPU_TRIM_AFTER_MS)
+        dev.glasslauncher.ui.GpuCaches.trim()
     }
 
     // Loading state: Home stays hidden until its first backdrop is baked and the app list is in, then
@@ -656,10 +670,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
                 if (appHeroPkg != null && artApps[appHeroPkg] == true) {
                     Box(Modifier.testTag("top-shelf-app-hero:$appHeroPkg")) { Box(Modifier.size(1.dp).testTag("app-art:$appHeroPkg")) }
-                } else if (appHeroPkg != null && artApps.containsKey(appHeroPkg)) AppHeroLogo(appHeroPkg, layout, model, Modifier.graphicsLayer {
-                    alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
-                    translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
-                })
+                }
                 if (hero != null && takeover == null && !appHeroShown) {
                     ShelfTitle(
                         item = hero,
@@ -1244,65 +1255,13 @@ fun rememberArt(model: HomeModel, app: AppEntry): ImageBitmap? {
  * large and centred on its own brand colour (the backdrop), or for full-bleed banners the banner itself
  * over a blurred wash of it.
  */
-@Composable
-private fun AppHeroLogo(pkg: String, layout: HomeLayout, model: HomeModel, modifier: Modifier) {
-    val context = LocalContext.current
-    val m = LocalMetrics.current
-    val app = layout.installed.firstOrNull { it.packageName == pkg } ?: return
-    val hero by produceState(heroLogos[pkg], pkg) {
-        val cached = heroLogos[pkg]
-        value = cached ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            context.app.tileArt.heroLogo(app)?.let { it.background to it.image.asImageBitmap() }
-        }?.also { heroLogos[pkg] = it }
-    }
-    Box(
-        // The space above the tray (the chevron sits at its foot).
-        Modifier.fillMaxWidth().padding(top = m.chromeInset).height(m.trayTopAtRest - m.chromeInset - 30.dp).then(modifier).testTag("top-shelf-app-hero:$pkg"),
-        contentAlignment = Alignment.Center,
-    ) {
-        val h = hero
-        when {
-            h == null -> rememberArt(model, app)?.let {
-                Image(it, app.label, contentScale = ContentScale.Fit, modifier = Modifier.size(420.dp, 252.dp).clip(RoundedCornerShape(24.dp)))
-            }
-            // A logo on its brand colour: just the logo, no plate (the colour is the whole backdrop).
-            h.first != null -> Image(h.second, app.label, contentScale = ContentScale.Fit, modifier = Modifier.size(440.dp, 150.dp))
-            else -> Image(h.second, app.label, contentScale = ContentScale.Fit, modifier = Modifier.size(400.dp, 240.dp).clip(RoundedCornerShape(26.dp)))
-        }
-    }
-}
-
-/** Hero logos for the few apps in the tray. */
-private val heroLogos = object : LinkedHashMap<String, Pair<Int?, androidx.compose.ui.graphics.ImageBitmap>>(8, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Int?, androidx.compose.ui.graphics.ImageBitmap>>?) = size > 6
-}
-
-/**
- * The app hero's backdrop: the banner's brand colour when it has one (with a soft light in the middle),
- * else the app's blurred last screen, else a wash of its banner.
- */
+/** The app's own logo art (banner or icon, drawn sharp) as its hero, for apps Amazon has no Fire TV icon for. */
 private suspend fun appHeroBackdrop(
-    context: android.content.Context, graph: dev.glasslauncher.GlassApp, layout: HomeLayout, model: HomeModel, pkg: String, dark: Boolean,
-): dev.glasslauncher.glass.Backdrop? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    graph: dev.glasslauncher.GlassApp, layout: HomeLayout, pkg: String, dark: Boolean,
+): dev.glasslauncher.glass.Backdrop? = kotlinx.coroutines.withContext(dev.glasslauncher.glass.WallpaperLoader.BakeDispatcher) {
     val app = layout.installed.firstOrNull { it.packageName == pkg } ?: return@withContext null
-    val logo = graph.tileArt.heroLogo(app)
-    val bg = logo?.background
-    if (bg != null) {
-        logo.image.recycle()
-        val flat = android.graphics.Bitmap.createBitmap(480, 270, android.graphics.Bitmap.Config.ARGB_8888)
-        android.graphics.Canvas(flat).apply {
-            drawColor(bg)
-            // A faint light behind the logo, so the colour isn't a dead flat fill.
-            drawRect(0f, 0f, 480f, 270f, android.graphics.Paint().apply {
-                shader = android.graphics.RadialGradient(240f, 120f, 300f, android.graphics.Color.argb(28, 255, 255, 255), android.graphics.Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
-            })
-        }
-        return@withContext runCatching { graph.wallpapers.fromAppArt(flat, light = !dark, darken = false) }.getOrNull()
-    }
-    val source = dev.glasslauncher.system.AppPreviews.load(context, pkg)
-        ?: logo?.image?.let { b -> dev.glasslauncher.widgets.backdropArt(b).also { b.recycle() } }
-        ?: return@withContext null
-    runCatching { graph.wallpapers.fromAppArt(source, light = !dark) }.getOrNull()
+    val art = graph.tileArt.heroArt(app) ?: return@withContext null
+    runCatching { graph.wallpapers.fromHeroArt(art, light = !dark) }.getOrNull().also { art.recycle() }
 }
 
 /** tvOS shows guidance while rearranging; without it the wiggle mode feels like a dead end. */
