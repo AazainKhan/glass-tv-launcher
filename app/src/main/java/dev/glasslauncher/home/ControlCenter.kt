@@ -95,7 +95,7 @@ private val CC_DIM = Color.Black.copy(alpha = 0.42f)
 
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
 val CONTROL_CENTER_TILES = listOf(
-    "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
+    "alexa" to "Alexa Page", "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
     "controllers" to "Game Controllers", "appearance" to "Theme", "screensaver" to "Screen Saver",
     "switcher" to "App Switcher", "performance" to "Performance", "memory" to "Free Memory",
 )
@@ -126,6 +126,9 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
     val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium)
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     fun shown(id: String) = id !in cfg.ccHidden
+    // Pages (tvOS 27's icons along the top): 0 = Controls, 1 = Alexa. Opening always shows Controls.
+    var page by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
+    val alexaPage = shown("alexa")
     // The focused round button's name, shown under the round buttons (they're icons only).
     var roundLabel by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val dark = cfg.theme != ThemeMode.Light
@@ -158,6 +161,14 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
                 .trapFocus(active)
                 .testTag("control-center"),
         ) {
+            // The page icons, right-aligned above the time; focusing one shows its page.
+            if (alexaPage) Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(end = CC_BLEED + 4.dp, bottom = 10.dp),
+            ) {
+                PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
+                PageIcon(R.drawable.ic_home, "Alexa", selected = page == 1) { page = 1 }
+            }
             // tvOS 27: the time with seconds, the date under it, then the weather, right-aligned where
             // the status pill was.
             Column(
@@ -178,6 +189,11 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
                     .padding(bottom = m.chromeInset)
                     .width(sz.column),
             ) {
+            androidx.compose.animation.Crossfade(page, animationSpec = androidx.compose.animation.core.tween(140), label = "cc-page") { shownPage ->
+            Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
+            if (shownPage == 1) {
+                AlexaPage(sz, closeAll)
+            } else {
             Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
                 CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), sz.bigWidth, sz.big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
@@ -243,6 +259,9 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
                 maxLines = 1,
                 modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
             )
+            }
+            }
+            }
             // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
             val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
             np?.let { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) }
@@ -262,6 +281,49 @@ private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Glyph(icon, fg, Modifier.size(LocalCcSizes.current.bigGlyph))
         Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = fg)
+    }
+}
+
+/** One of the page icons along the top: a small glass disc, white while its page shows or it's focused. */
+@Composable
+private fun PageIcon(@DrawableRes icon: Int, label: String, selected: Boolean, onShow: () -> Unit) {
+    val palette = LocalPalette.current
+    FocusTile(
+        label = label, onClick = onShow, shape = CircleShape, focusedScale = 1.08f, shadow = false,
+        onFocusChange = { if (it) onShow() },
+        modifier = Modifier.size(40.dp),
+    ) { focused ->
+        val lit = focused || selected
+        Box(
+            Modifier.fillMaxSize().glass(LocalBackdrop.current, CircleShape, GlassStyle.control(palette.light))
+                .then(if (lit) Modifier.background(palette.focusFill, CircleShape) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (lit) palette.onFocusFill else palette.primary), modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+/** Alexa shortcuts, in the same tiles as the Controls page. Each opens Amazon's own screen and closes. */
+@Composable
+private fun AlexaPage(sz: CcSizes, closeAll: () -> Unit) {
+    val context = LocalContext.current
+    fun go(open: (android.content.Context) -> Boolean) { closeAll(); open(context) }
+    Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
+        CcTile("Smart Home", null, RoundedCornerShape(26.dp), sz.bigWidth, sz.big, onClick = { go(SystemControls::openSmartHome) }) { fg ->
+            BigIcon(R.drawable.ic_home, "Smart Home", fg)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
+            CcTile("Ask Alexa", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { go(SystemControls::askAlexa) }) { fg ->
+                PillContent(R.drawable.ic_mic, "Ask Alexa", null, fg, on = false, accent = fg)
+            }
+            CcTile("Cameras", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { go(SystemControls::openSmartHome) }) { fg ->
+                PillContent(R.drawable.ic_videocam, "Cameras", null, fg, on = false, accent = fg)
+            }
+        }
+    }
+    CcTile("Alexa Settings", null, Shapes.pill, sz.column, sz.pill, onClick = { go(SystemControls::openAlexaSettings) }) { fg ->
+        PillContent(R.drawable.ic_settings, "Alexa Settings", null, fg, on = false, accent = fg)
     }
 }
 

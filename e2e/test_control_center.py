@@ -233,3 +233,51 @@ def test_control_center_tiles_can_be_turned_off_in_settings(tv, home, cc, settin
         if settings.toggle_state("Game Controllers") is False:
             settings.select()
         home.reset()
+
+
+ALEXA_TILES = ["Smart Home", "Ask Alexa", "Cameras", "Alexa Settings"]
+
+
+def test_alexa_page_shows_its_shortcuts(tv, home, cc):
+    """A row of page icons at the top of Control Center: Controls (the tiles) and Alexa (shortcuts)."""
+    tree = cc.open()
+    assert cc.tile(tree, "Controls") and cc.tile(tree, "Alexa"), "no page switcher"
+    assert not any(cc.tile(tree, t) for t in ALEXA_TILES), "Control Center should open on Controls"
+    cc.focus_desc("Alexa")
+    tree = tv.wait_for(lambda t: all(cc.tile(t, n) for n in ALEXA_TILES) and t, 4, "the Alexa page")
+    assert not cc.tile(tree, "Wi-Fi"), "the Controls tiles should give way"
+    cc.focus_desc("Controls")
+    tv.wait_for(lambda t: cc.tile(t, "Wi-Fi"), 4, "back to Controls")
+
+
+@pytest.mark.slow
+def test_smart_home_opens_its_app(tv, home, cc):
+    cc.open()
+    cc.focus_desc("Alexa")
+    tv.wait_for(lambda t: cc.tile(t, "Smart Home"), 4, "the Alexa page")
+    cc.press_tile("Smart Home")
+    try:
+        tv.wait_until(lambda: tv.resumed_package() == "com.amazon.smarthomemapviewapp", 10, "the Smart Home dashboard")
+    finally:
+        tv.sh("am force-stop com.amazon.smarthomemapviewapp")
+
+
+def test_alexa_page_can_be_turned_off_in_settings(tv, home, cc, settings):
+    settings.open_from_control_center()
+    settings.open_page("Control Center")
+    settings.focus_text("Alexa Page")
+    assert settings.toggle_state("Alexa Page") is True
+    settings.select()
+    try:
+        tv.wait_until(lambda: settings.toggle_state("Alexa Page") is False, 4, "the switch to turn off")
+        home.reset()
+        tree = cc.open()
+        assert not cc.tile(tree, "Alexa"), "the page switcher should go with the Alexa page"
+    finally:
+        home.reset()
+        settings.open_from_control_center()
+        settings.open_page("Control Center")
+        settings.focus_text("Alexa Page")
+        if settings.toggle_state("Alexa Page") is False:
+            settings.select()
+        home.reset()

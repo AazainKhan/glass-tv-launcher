@@ -91,6 +91,17 @@ object SystemControls {
 
     private const val FIRE_SETTINGS = "com.amazon.tv.settings.v2"
 
+    // Control Center's Alexa page: Amazon's own screens (resolved on Fire OS 8, Fire TV Stick 4K).
+    fun openSmartHome(context: Context): Boolean = runCatching {
+        context.startActivity(Intent().setClassName("com.amazon.smarthomemapviewapp", "com.amazon.smarthomemapviewapp.SmartHomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.isSuccess || runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("com.amazon.smarthomemapviewapp://smarthomedashboard")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.isSuccess
+
+    fun askAlexa(context: Context): Boolean = open(context, Intent.ACTION_ASSIST)
+
+    fun openAlexaSettings(context: Context): Boolean = open(context, "amazon.intent.action.ALEXA_SETTING")
+
     fun openGameControllers(context: Context): Boolean =
         open(context, "com.amazon.device.settings.action.GAMEPADS") || openBluetooth(context)
 }

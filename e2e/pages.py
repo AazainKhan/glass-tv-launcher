@@ -140,8 +140,19 @@ class ControlCenter(Screen):
 
     def open(self) -> Tree:
         self.tv.intent(CONTROL_CENTER)
-        return self.tv.wait_for(lambda t: t.top_overlay() == "ControlCenter" and t.find(rid="control-center")
+        tree = self.tv.wait_for(lambda t: t.top_overlay() == "ControlCenter" and t.find(rid="control-center")
                                 and (t.focused() or None) and t, 8, "Control Center open")
+        # It grows in from the pill: wait until it has landed (fast tree reads catch it mid-animation).
+        last = [tree.find(rid="control-center").bounds]
+
+        def settled(t):
+            cc = t.find(rid="control-center")
+            if not cc:
+                return None
+            same = cc.bounds == last[0]
+            last[0] = cc.bounds
+            return t if same else None
+        return self.tv.wait_for(settled, 4, "Control Center to finish opening")
 
     def tile(self, tree: Tree, prefix: str) -> Node | None:
         return tree.find(desc_prefix=prefix)
