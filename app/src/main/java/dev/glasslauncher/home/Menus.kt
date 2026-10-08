@@ -128,10 +128,10 @@ fun OverlayContent(
         is Overlay.Confirm -> FullOverlay(active) { ConfirmCard(overlay, active, close) }
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close)
-        Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
+        Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
-        Overlay.TvSettings -> SettingsPage(active, icon = { SettingsIcon() }) {
+        Overlay.TvSettings -> SettingsPage(active) {
             val context = androidx.compose.ui.platform.LocalContext.current
             MenuList(active) { first ->
                 PanelTitle("Settings")
@@ -176,18 +176,6 @@ fun PanelTitle(text: String) {
         return
     }
     Text(text, style = Type.title, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 18.dp, bottom = 12.dp, top = 4.dp))
-}
-
-/** The big glass tile in the left third of Settings. */
-@Composable
-private fun SettingsIcon() {
-    val palette = LocalPalette.current
-    Box(
-        Modifier
-            .size(200.dp)
-            .glass(LocalBackdrop.current, RoundedCornerShape(44.dp), GlassStyle.panel(palette.light)),
-        contentAlignment = Alignment.Center,
-    ) { dev.glasslauncher.widgets.GearIcon(palette.primary.copy(alpha = 0.85f), size = 96.dp) }
 }
 
 @Composable

@@ -104,3 +104,19 @@ def test_left_column_holds_one_short_text(tv, home, settings):
         home.back()
         tv.wait_for(lambda t: t.has_text("Appearance"), 4, "back on the main list")
     assert not piles, f"pages with too much text on the left: {piles}"
+
+
+def test_page_icon_has_no_tile_behind_it(tv, home, settings):
+    """Just the muted icon on the left: no glass tile or border around it."""
+    settings.open_from_control_center()
+    settings.open_page("Accessibility")
+    node = tv.wait_for(lambda t: t.find(rid="settings-icon:Accessibility"), 4, "the page icon")
+    width = node.bounds[2] - node.bounds[0]
+    assert width <= 260, f"the icon area is {width}px wide: the 200 dp glass tile is still behind it"
+
+
+def test_main_settings_gear_matches_the_other_page_icons(tv, home, settings):
+    settings.open_from_control_center()
+    node = tv.wait_for(lambda t: t.find(rid="settings-icon:Settings"), 4, "the main page's gear")
+    width = node.bounds[2] - node.bounds[0]
+    assert width <= 260, f"the gear sits on a {width}px tile; it should be the muted icon alone"

@@ -216,21 +216,17 @@ val LocalMenuAnchor = androidx.compose.runtime.staticCompositionLocalOf { MenuAn
 
 /** The muted icon in Settings' left column, one per page (Settings' own gear for the main list). */
 @Composable
-private fun SettingsPageIcon(title: String, fallback: @Composable () -> Unit) {
+private fun SettingsPageIcon(title: String) {
     val palette = dev.glasslauncher.ui.LocalPalette.current
-    val res = SETTINGS_ICONS[title]
+    // Pages without their own (the main page, Fire TV's) get the gear, drawn the same muted way.
+    val res = SETTINGS_ICONS[title] ?: dev.glasslauncher.R.drawable.ic_settings
     Box(Modifier.testTag("settings-icon:${title.ifEmpty { "Settings" }}")) {
-        if (res == null) { fallback(); return@Box }
-        Box(
-            Modifier.size(200.dp).glass(dev.glasslauncher.glass.LocalBackdrop.current, androidx.compose.foundation.shape.RoundedCornerShape(44.dp), dev.glasslauncher.glass.GlassStyle.panel(palette.light)),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.foundation.Image(
-                androidx.compose.ui.res.painterResource(res), null,
-                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary.copy(alpha = 0.55f)),
-                modifier = Modifier.size(96.dp),
-            )
-        }
+        // Just the icon, muted: no tile or border behind it.
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(res), null,
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary.copy(alpha = 0.35f)),
+            modifier = Modifier.size(120.dp),
+        )
     }
 }
 
@@ -312,7 +308,7 @@ val LocalTitleSink = androidx.compose.runtime.staticCompositionLocalOf<TitleSink
  * the left third, and the list on the right.
  */
 @Composable
-fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Composable BoxScope.() -> Unit) {
+fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val palette = dev.glasslauncher.ui.LocalPalette.current
     val sink = remember { TitleSink() }
     FullOverlay(active) {
@@ -340,7 +336,7 @@ fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Compos
                 Modifier.weight(0.42f).fillMaxHeight().padding(end = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { SettingsPageIcon(sink.title, icon) }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { SettingsPageIcon(sink.title) }
                 // One purposeful line: the focused row's help, else the page's own caption. Never a pile.
                 val words = sink.help?.takeIf { it.first == sink.page }?.second
                     ?: sink.captions.firstOrNull { it.first == sink.page }?.second
