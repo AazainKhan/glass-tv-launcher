@@ -50,8 +50,8 @@ class Backdrop(
 ) {
     /**
      * Whether the art behind a region (fractions of the screen) is light, so text placed straight on it
-     * (not on glass) should be dark. Uses the region's average: white text carries a shadow, so it holds
-     * up over a few bright patches, while dark text over mostly dark art (the brightest-cell rule) didn't.
+     * (not on glass) should be dark. Uses the region's average (dark text over mostly dark art, the
+     * brightest-cell rule, read worse). White text is flat (tvOS 27, no shadow), so mid-bright art counts.
      */
     fun artLight(left: Float, top: Float, right: Float, bottom: Float): Boolean {
         if (luma.isEmpty()) return isLight
@@ -59,7 +59,7 @@ class Backdrop(
         val c0 = (left * LUMA_COLS).toInt().coerceIn(0, LUMA_COLS - 1); val c1 = (right * LUMA_COLS).toInt().coerceIn(c0, LUMA_COLS - 1)
         val r0 = (top * LUMA_ROWS).toInt().coerceIn(0, LUMA_ROWS - 1); val r1 = (bottom * LUMA_ROWS).toInt().coerceIn(r0, LUMA_ROWS - 1)
         for (r in r0..r1) for (c in c0..c1) { sum += luma[r * LUMA_COLS + c]; n++ }
-        return sum / n > 0.6f
+        return sum / n > 0.55f
     }
 
     companion object {
@@ -186,7 +186,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
                 shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, Color.argb((120 * scrim).toInt(), 0, 0, 0), Shader.TileMode.CLAMP)
             })
             canvas.drawRect(0f, 0f, w, h, Paint().apply {
-                shader = android.graphics.LinearGradient(0f, 0f, w * 0.5f, 0f, Color.argb((95 * scrim).toInt(), 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                shader = android.graphics.LinearGradient(0f, 0f, w * 0.5f, 0f, Color.argb((115 * scrim).toInt(), 0, 0, 0), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
         } else {
             val end = if (light) Color.argb(38, 255, 255, 255) else Color.argb(102, 0, 0, 0)

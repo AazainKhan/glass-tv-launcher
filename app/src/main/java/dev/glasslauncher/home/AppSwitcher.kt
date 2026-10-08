@@ -61,18 +61,22 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
     val context = LocalContext.current
     val palette = LocalPalette.current
     val backdrop = LocalBackdrop.current
-    // Taken before SnapshotBackdrop lets go of it.
-    val homeShot = remember { backdrop.overlaySharp }
-    val apps = remember { mutableStateListOf<AppEntry>() }
-    var selected by remember { mutableIntStateOf(-1) }
+    // Home's own baked art (no screen capture): the sharp slide for Home's card, the blurred one behind.
+    val homeShot = remember { backdrop.backdrop?.sharp }
+    // Last time's list straight away (so the cards are laid out on the first frame), refreshed below.
+    val apps = remember { mutableStateListOf<AppEntry>().apply { addAll(lastApps) } }
+    var selected by remember { mutableIntStateOf(lastApps.lastIndex) }
     LaunchedEffect(layout.loaded) {
         // Reading usage events covers days of history: off the main thread, or opening stutters.
         val recent = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             RecentApps.list(context, layout.installed, cfg.recentApps).reversed() // oldest … newest
         }
-        apps.clear()
-        apps += recent
-        selected = apps.lastIndex
+        lastApps = recent
+        if (recent != apps.toList()) {
+            apps.clear()
+            apps += recent
+            selected = apps.lastIndex
+        }
     }
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(id: String) = requesters.getOrPut(id) { FocusRequester() }
@@ -82,21 +86,22 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
     }
     val enter = rememberOverlayEnter()
     Box(Modifier.fillMaxSize().trapFocus(active)) {
-        // The blurred Home, darkened once (a 480×270 copy, off the main thread): a scrim layer or a colour
-        // filter on the full-screen draw each cost a full-screen pass per frame on this GPU.
-        val soft = backdrop.overlaySoft
-        val dimmed by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, soft) {
-            value = soft?.let { s ->
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    runCatching {
-                        val b = s.asAndroidBitmap().copy(android.graphics.Bitmap.Config.ARGB_8888, true)
-                        android.graphics.Canvas(b).drawColor(android.graphics.Color.argb(72, 0, 0, 0))
-                        b.asImageBitmap()
-                    }.getOrNull()
-                }
-            }
+        // Behind the cards: Home's already-baked blurred wallpaper, dimmed. No screen capture (capturing
+        // and blurring Home on every open made it ~47% janky), and once the switcher is fully up Home
+        // itself isn't drawn, so the switcher is one full-screen image plus its cards.
+        val blurred = backdrop.backdrop?.blurred
+        // The background is there from the first frame (tvOS overlays pop in): Home stops drawing at once,
+        // so opening and closing draw one full-screen image plus the cards, never Home underneath too.
+        val leaving = LocalOverlayExiting.current
+        androidx.compose.runtime.DisposableEffect(blurred, leaving) {
+            backdrop.homeHidden = blurred != null && !leaving
+            onDispose { backdrop.homeHidden = false }
         }
-        SnapshotBackdrop({ enter.value }, dimmed ?: soft, fallbackGlass = true)
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val e = if (leaving) enter.value else 1f
+            if (blurred != null) drawImage(blurred, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()), alpha = e)
+            drawRect(Color.Black.copy(alpha = 0.32f * e))
+        }
         if (apps.isEmpty()) {
             Text(
                 "Apps you open will appear here.",
@@ -223,7 +228,9 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
 @Composable
 private fun AppCard(model: HomeModel, app: AppEntry) {
     val context = LocalContext.current
-    val preview by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, app.packageName) {
+    val preview by androidx.compose.runtime.produceState(
+        dev.glasslauncher.system.AppPreviews.cached(context, app.packageName)?.asImageBitmap(), app.packageName,
+    ) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             dev.glasslauncher.system.AppPreviews.load(context, app.packageName)?.asImageBitmap()
         }
@@ -250,6 +257,9 @@ private fun AppCard(model: HomeModel, app: AppEntry) {
 }
 
 private const val HOME_ID = "home"
+
+/** The switcher's list from last time, shown at once next time while the fresh one loads. */
+private var lastApps: List<AppEntry> = emptyList()
 private const val CENTRE_X = 480
 private const val CARD_W = 500
 private const val CARD_H = CARD_W * 9 / 16

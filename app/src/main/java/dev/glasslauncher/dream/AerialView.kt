@@ -51,6 +51,13 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
         setBackgroundColor(Color.BLACK)
         addView(surface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(fade, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        // tvOS text is flat (no shadows): the labels read on a soft darkening at the top and bottom edges.
+        addView(android.view.View(context).apply {
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.argb(90, 0, 0, 0), Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(110, 0, 0, 0)),
+            )
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(location, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
             setMargins(dp(46), 0, 0, dp(36)) // text sits at 56/44 after the shadow padding
         })
@@ -137,8 +144,6 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
     private fun label(size: Float, alpha: Float) = TextView(context).apply {
         setTextColor(Color.argb((alpha * 255).toInt(), 255, 255, 255))
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-        setShadowLayer(dp(3).toFloat(), 0f, 1f, Color.argb(70, 0, 0, 0))
-        // TextView measures the glyphs only; leave room so the shadow isn't cut off at the sides.
         setPadding(dp(10), dp(4), dp(10), dp(8))
         typeface = runCatching { androidx.core.content.res.ResourcesCompat.getFont(context, dev.glasslauncher.R.font.inter_medium) }.getOrNull()
             ?: android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)

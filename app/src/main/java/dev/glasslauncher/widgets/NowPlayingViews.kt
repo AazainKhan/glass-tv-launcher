@@ -50,6 +50,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 
 /** The playing app's name ("Spotify"), for the "Now Playing" line. */
 @Composable
@@ -108,27 +111,45 @@ private fun Artwork(item: NowPlaying, size: Dp, radius: Dp) {
 }
 
 /**
- * Home's top shelf while music plays: the artwork (also the blurred full-bleed backdrop, baked like any
- * slide), the track large beside it, the artist, the app and the progress. Display only; Control Center
- * has the controls.
+ * Home's top shelf while music plays, centred above the tray: the artwork, then the track, the artist,
+ * the progress and ⏮ ⏯ ⏭. The blurred art is the backdrop (baked once per track). Text is flat (no
+ * shadow, tvOS 27): white over dark art, dark over light art, secondary lines at reduced opacity.
  */
 @Composable
-fun NowPlayingHero(item: NowPlaying, modifier: Modifier = Modifier) {
+fun NowPlayingHero(item: NowPlaying, onLight: Boolean, playFocus: FocusRequester, up: FocusRequester, modifier: Modifier = Modifier) {
+    val fg = if (onLight) Color(0xFF0E1015) else Color.White
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.testTag("now-playing-hero")) {
-        Artwork(item, 220.dp, 18.dp)
-        Column(Modifier.padding(start = 36.dp).widthIn(max = 640.dp)) {
+        Artwork(item, 200.dp, 16.dp)
+        Column(Modifier.padding(start = 36.dp).width(470.dp)) {
             Text(
                 ("Now Playing" + appName(item.packageName).takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()).uppercase(),
-                style = Type.overline.copy(shadow = Type.strongShadow), color = Color.White.copy(alpha = 0.8f),
+                style = Type.overline, color = fg.copy(alpha = 0.6f),
             )
-            Text(item.title, style = Type.display.copy(shadow = Type.strongShadow), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+            Text(item.title, style = Type.title, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             item.artist?.let {
-                Text(it, style = Type.heading.copy(shadow = Type.strongShadow), color = Color.White.copy(alpha = 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(it, style = Type.body, color = fg.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             }
-            item.album?.takeIf { it != item.title }?.let {
-                Text(it, style = Type.secondary.copy(shadow = Type.strongShadow), color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            Progress(item, fg, showTimes = true, modifier = Modifier.padding(top = 16.dp).fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 10.dp)) {
+                HeroButton(R.drawable.ic_skip_previous, "Previous Track", onLight, Modifier.focusProperties { this.up = up }) { item.previous() }
+                HeroButton(
+                    if (item.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow, if (item.playing) "Pause" else "Play", onLight,
+                    Modifier.focusRequester(playFocus).focusProperties { this.up = up },
+                ) { item.playPause() }
+                HeroButton(R.drawable.ic_skip_next, "Next Track", onLight, Modifier.focusProperties { this.up = up }) { item.next() }
             }
-            Progress(item, Color.White, showTimes = true, modifier = Modifier.padding(top = 22.dp).width(420.dp))
+        }
+    }
+}
+
+/** A round control on the art: a faint disc at rest, solid (white, or dark over light art) when focused. */
+@Composable
+private fun HeroButton(@DrawableRes icon: Int, label: String, onLight: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val fg = if (onLight) Color(0xFF0E1015) else Color.White
+    val bg = if (onLight) Color.White else Color(0xFF0E1015)
+    FocusTile(label = label, onClick = onClick, shape = CircleShape, focusedScale = 1.12f, shadow = false, modifier = modifier.size(50.dp)) { focused ->
+        Box(Modifier.size(50.dp).background(if (focused) fg else fg.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
+            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) bg else fg), modifier = Modifier.size(28.dp))
         }
     }
 }
@@ -147,31 +168,32 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
             .glass(LocalBackdrop.current, shape, GlassStyle.control(palette.light)).padding((12 * scale).dp).testTag("now-playing-card"),
     ) {
+        // One row (art, track and progress, then the controls), so Control Center fits on screen with it.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Artwork(item, (52 * scale).dp, (10 * scale).dp)
+            Artwork(item, (46 * scale).dp, (9 * scale).dp)
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                item.artist?.let { Text(it, style = Type.caption, color = palette.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                Progress(item, palette.primary, showTimes = false, modifier = Modifier.padding(top = 6.dp))
             }
-        }
-        Progress(item, palette.primary, showTimes = false, modifier = Modifier.padding(top = 10.dp))
-        Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            Transport(R.drawable.ic_skip_previous, "Previous Track", scale) { item.previous() }
-            Transport(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow, if (item.playing) "Pause" else "Play", scale) { item.playPause() }
-            Transport(R.drawable.ic_skip_next, "Next Track", scale) { item.next() }
+            Row(modifier = Modifier.padding(start = 6.dp)) {
+                Transport(R.drawable.ic_skip_previous, "Previous Track", scale, 34) { item.previous() }
+                Transport(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow, if (item.playing) "Pause" else "Play", scale, 34) { item.playPause() }
+                Transport(R.drawable.ic_skip_next, "Next Track", scale, 34) { item.next() }
+            }
         }
     }
 }
 
 @Composable
-private fun Transport(@DrawableRes icon: Int, label: String, scale: Float, onClick: () -> Unit) {
+private fun Transport(@DrawableRes icon: Int, label: String, scale: Float, size: Int = 40, onClick: () -> Unit) {
     val palette = LocalPalette.current
-    FocusTile(label = label, onClick = onClick, shape = CircleShape, focusedScale = 1.1f, shadow = false, modifier = Modifier.size((40 * scale).dp)) { focused ->
+    FocusTile(label = label, onClick = onClick, shape = CircleShape, focusedScale = 1.1f, shadow = false, modifier = Modifier.size((size * scale).dp)) { focused ->
         Box(
-            Modifier.size((40 * scale).dp).background(if (focused) palette.focusFill else Color.Transparent, CircleShape),
+            Modifier.size((size * scale).dp).background(if (focused) palette.focusFill else Color.Transparent, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) palette.onFocusFill else palette.primary), modifier = Modifier.size((24 * scale).dp))
+            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) palette.onFocusFill else palette.primary), modifier = Modifier.size((size * 0.58f * scale).dp))
         }
     }
 }

@@ -80,11 +80,11 @@ def test_recents_button_opens_the_app_switcher(tv, home):
 
 
 @pytest.mark.root
-def test_settings_button_opens_tv_settings(tv, home):
+def test_settings_button_opens_control_center(tv, home):
     if "BUTTON_9" not in tv.sh("cat /system/usr/keylayout/Vendor_0171_Product_0427.kl"):
         pytest.skip("remote-keys module not installed")
     _virtual_press(tv, 185)  # what glass-keymap turns the Settings button's 249 into
-    tv.wait_for(lambda t: t.top_overlay() == "TvSettings", 6, "TV Settings from the Settings button")
+    tv.wait_for(lambda t: t.find(rid="control-center"), 6, "Control Center from the Settings button")
 
 
 @pytest.mark.slow

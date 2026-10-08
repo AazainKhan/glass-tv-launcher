@@ -10,7 +10,7 @@ from pages import clock_ok, date_ok
 def test_opens_with_every_control(tv, home, cc, rooted):
     tree = cc.open()
     for prefix in ["Settings, Fire TV", "Wi-Fi", "Bluetooth", "Launcher Settings",
-                   "Game Controllers", "Appearance, ", "Screen Saver", "App Switcher"]:
+                   "Game Controllers", "Theme, ", "Screen Saver", "App Switcher"]:
         assert cc.tile(tree, prefix), f"Control Center has no '{prefix}' control"
     if "com.phairplay" in tv.sh("pm list packages com.phairplay"):
         assert cc.tile(tree, "AirPlay"), "PhairPlay is installed but there's no AirPlay toggle"
@@ -58,12 +58,12 @@ def test_status_pill_opens_it(tv, home):
 def test_appearance_toggles_and_back(tv, home, cc):
     before = cc.appearance(cc.open())
     try:
-        cc.press_tile("Appearance, ")
+        cc.press_tile("Theme, ")
         tv.wait_for(lambda t: cc.appearance(t) != before, 8, "appearance to change")
     finally:
         now = cc.appearance()
         if now != before:
-            cc.press_tile("Appearance, ")
+            cc.press_tile("Theme, ")
             tv.wait_for(lambda t: cc.appearance(t) == before, 8, "appearance to be restored")
 
 
@@ -114,8 +114,8 @@ def test_performance_profile_applies_and_restores(tv, home, cc, rooted):
 # ── Round of fixes: state, labels, weather, customisation ─────────────────────────────────────────
 
 TILE_PREFIXES = ["Settings, Fire TV", "Wi-Fi", "Bluetooth", "Launcher Settings", "Game Controllers",
-                 "Appearance, ", "Screen Saver", "App Switcher"]
-ROUND = ["Game Controllers", "Appearance, ", "Screen Saver", "App Switcher"]
+                 "Theme, ", "Screen Saver", "App Switcher"]
+ROUND = ["Game Controllers", "Theme, ", "Screen Saver", "App Switcher"]
 
 
 def _tile_brightness(tv, cc, prefixes, skip_focused=True):
@@ -137,7 +137,7 @@ def _theme(tv, home, cc, want):
     """Runs the block in Light or Dark appearance, then puts the original back."""
     start = cc.appearance(cc.open())
     if start != want:
-        cc.press_tile("Appearance, ")
+        cc.press_tile("Theme, ")
         tv.wait_for(lambda t: cc.appearance(t) == want, 8, f"{want} appearance")
     home.reset()
     try:
@@ -145,7 +145,7 @@ def _theme(tv, home, cc, want):
     finally:
         home.reset()
         if cc.appearance(cc.open()) != start:
-            cc.press_tile("Appearance, ")
+            cc.press_tile("Theme, ")
             tv.wait_for(lambda t: cc.appearance(t) == start, 8, "appearance restored")
         home.reset()
 
@@ -199,7 +199,7 @@ def _check_round_focus(tv, cc):
 
 def test_every_control_has_a_label_when_focused(tv, home, cc):
     cc.open()
-    for name, label in [("Game Controllers", "Game Controllers"), ("Appearance, ", "Appearance"),
+    for name, label in [("Game Controllers", "Game Controllers"), ("Theme, ", "Theme"),
                         ("Screen Saver", "Screen Saver"), ("App Switcher", "App Switcher")]:
         cc.focus_desc_prefix(name)
         tv.wait_for(lambda t: any(n.text.startswith(label) for n in t.nodes()), 3, f"the '{label}' label")
@@ -210,8 +210,8 @@ def test_pill_and_control_center_show_the_same_weather(tv, home, cc):
     if not pill:
         pytest.skip("no weather city set")
     tree = cc.open()
-    weathers = [n.text for n in tree.nodes() if n.rid == "weather"]
-    assert pill.text in weathers, f"pill says {pill.text!r}, Control Center says {weathers}"
+    weathers = [n.label for n in tree.nodes() if n.rid == "weather"]
+    assert pill.label and pill.label in weathers, f"pill says {pill.label!r}, Control Center says {weathers}"
 
 
 def test_text_size_is_not_in_control_center(tv, home, cc):

@@ -29,6 +29,8 @@ data class Metrics(val textScale: Float = 1f) {
     /** Dock tray: nearly full width, ~225px tall, radius ~60px, ~40px vertical padding. */
     val trayMargin: Dp = 22.dp
     val trayPadVertical: Dp = (20 * textScale).dp
+    /** How far the tray's tiles move up to make room under them for the focused app's name. */
+    val trayLabel: Dp = (16 * textScale).dp
     val trayRadius: Dp = 30.dp
     /** Where the tray's top edge sits when Home is at rest, leaving the top shelf above it. */
     val trayTopAtRest: Dp = 384.dp

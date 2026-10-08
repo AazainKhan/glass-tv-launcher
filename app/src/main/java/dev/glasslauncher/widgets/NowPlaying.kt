@@ -50,7 +50,7 @@ data class NowPlaying(
     fun previous() = controller.transportControls.skipToPrevious()
 
     /** Identity of the track and its state, for animations and backdrop keys (not the per-update position). */
-    val key: String get() = "$packageName|$title|$artist|${art?.generationId}"
+    val key: String get() = "$packageName|$title|$artist|$album"
 }
 
 object NowPlayingSource {
@@ -65,7 +65,9 @@ object NowPlayingSource {
         return callbackFlow {
             val handler = Handler(Looper.getMainLooper())
             val watched = HashMap<MediaController, MediaController.Callback>()
-            var artFor: MediaMetadata? = null
+            // Each playback update hands back a new MediaMetadata object, so the art is kept per track
+            // (by its text), not per object: otherwise every pause re-scaled it and re-baked Home's backdrop.
+            var artFor: String? = null
             var art: Bitmap? = null
 
             fun publish() {
@@ -75,8 +77,9 @@ object NowPlayingSource {
                 val meta = c?.metadata
                 val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
                 if (c == null || meta == null || title == null) { trySend(null); return }
-                if (meta !== artFor) {
-                    artFor = meta
+                val track = "${c.packageName}|$title|${meta.getString(MediaMetadata.METADATA_KEY_ARTIST)}|${meta.getString(MediaMetadata.METADATA_KEY_ALBUM)}"
+                if (track != artFor || art == null) {
+                    artFor = track
                     val raw = meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
                         ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                         ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)

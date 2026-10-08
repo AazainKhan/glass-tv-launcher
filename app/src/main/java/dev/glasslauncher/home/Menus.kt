@@ -124,7 +124,7 @@ fun OverlayContent(
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close)
         Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
-        Overlay.ControlCenter -> ControlCenter(model, cfg, active, open, closeAll)
+        Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
         Overlay.TvSettings -> SettingsPage(active, icon = { SettingsIcon() }) {
             val context = androidx.compose.ui.platform.LocalContext.current
@@ -151,7 +151,8 @@ fun MenuList(active: Boolean, content: @Composable ColumnScope.(FocusRequester) 
     }
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides MinimalScroll) {
         Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            // tvOS 27: slim rows (about 35 dp) with a clear gap between them.
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())

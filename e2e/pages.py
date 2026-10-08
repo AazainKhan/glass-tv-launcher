@@ -136,8 +136,8 @@ class ControlCenter(Screen):
         return tree.find(desc_prefix=prefix)
 
     def appearance(self, tree: Tree | None = None) -> str:
-        n = (tree or self.tv.tree()).find(desc_prefix="Appearance, ")
-        assert n, "Appearance button missing"
+        n = (tree or self.tv.tree()).find(desc_prefix="Theme, ")
+        assert n, "Theme button missing"
         return n.desc.split(", ", 1)[1]
 
     def press_tile(self, prefix: str) -> None:

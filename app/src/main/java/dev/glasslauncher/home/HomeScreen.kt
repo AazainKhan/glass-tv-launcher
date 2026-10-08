@@ -123,7 +123,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings }
+enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings }
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
@@ -131,6 +131,7 @@ private const val SLIDE_QUIET_MS = 3_000L
 private const val SHELF_FOLLOW_MS = 450L
 /** Now Playing stays on Home this long after playback stops (track changes, short pauses). */
 private const val NOW_PLAYING_LINGER_MS = 3_000L
+private const val NOW_PLAYING_PAUSED_MS = 10 * 60_000L
 /** Glass texture fade-in after a scroll back to the top lands. */
 private const val TEXTURE_IN_MS = 220
 
@@ -205,6 +206,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     val cardRequester = remember { FocusRequester() }
+    // Now Playing: Up from the tray reaches its controls, Up again the status pill (Control Center).
+    val heroPlay = remember { FocusRequester() }
+    var heroFocused by remember { mutableStateOf(false) }
+    val pillRequester = remember { FocusRequester() }
     val idle = rememberIdleState(cfg.idleFadeMinutes)
 
     // Now Playing takes over the top shelf while music plays: the artwork becomes the backdrop (baked
@@ -214,8 +219,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     var takeover by remember { mutableStateOf<dev.glasslauncher.widgets.NowPlaying?>(null) }
     LaunchedEffect(nowPlaying, cfg.showNowPlaying) {
         val np = nowPlaying
-        if (cfg.showNowPlaying && np != null && np.playing) takeover = np
-        else if (takeover != null) { delay(NOW_PLAYING_LINGER_MS); takeover = null }
+        val current = takeover
+        when {
+            cfg.showNowPlaying && np != null && np.playing -> takeover = np
+            // Paused from the hero (or anywhere): the same track keeps Home for a while, controls and all.
+            cfg.showNowPlaying && np != null && current != null && np.key == current.key -> {
+                takeover = np
+                delay(NOW_PLAYING_PAUSED_MS)
+                takeover = null
+            }
+            current != null -> { delay(NOW_PLAYING_LINGER_MS); takeover = null }
+        }
     }
     val sceneUrl = if (cfg.background == BackgroundMode.Featured) hero?.image else null
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
@@ -255,7 +269,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     fun open(overlay: Overlay) {
         scope.launch {
-            if (overlays.isEmpty()) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay == Overlay.AppSwitcher || overlay is Overlay.FolderOpen).let {
+            // The app switcher draws Home's baked blur instead; capturing the screen was most of its open cost.
+            if (overlays.isEmpty() && overlay != Overlay.AppSwitcher) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay is Overlay.FolderOpen).let {
                 backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft; backdrop.overlaySharp = it.sharp
             }
             overlays.add(overlay)
@@ -278,6 +293,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     fun closeTop() { overlays.removeLastOrNull()?.let(::dismiss) }
     /** Closes everything; only the top overlay is visible, so only it animates out. */
     fun closeAll() { overlays.lastOrNull()?.let(::dismiss); overlays.clear() }
+    /** Control Center: the overlay window when Remote Buttons (accessibility) is on, else in Glass. */
+    fun openControlCenter() {
+        val window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter
+        if (window != null) window.toggle() else open(Overlay.ControlCenter)
+    }
     fun firstKey(): String? = layout.dock.firstOrNull()?.let { appKey(it.packageName) } ?: layout.grid.firstOrNull()?.key
 
     fun exists(key: String) = key == SETTINGS_TILE_KEY ||
@@ -361,9 +381,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Paused while Home is hidden (an app is in front): no bakes behind the app, and Home comes back on
     // the slide it left on, which is what the app-close animation's blurred picture shows.
     val homeVisible = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), cfg.background, focusedRow >= 2, homeVisible, takeover != null) {
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null) {
         if (!homeVisible || takeover != null) return@LaunchedEffect
-        if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
+        // Paused under Control Center too: its translucent tiles would change colour with every slide.
+        if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || ControlCenterWindow.open || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
         delay(SLIDE_MS)
         while (idle.millisSinceInput() < SLIDE_QUIET_MS) delay(SLIDE_QUIET_MS - idle.millisSinceInput() + 50)
         val next = (heroIndex + 1) % feed.items.size
@@ -410,7 +431,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             if (remaining > 0) delay(remaining)
             else {
                 // Not over Now Playing: the album art is Home's screensaver while music plays.
-                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty() && takeover == null) {
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && overlays.isEmpty() && !ControlCenterWindow.open && takeover == null) {
                     AerialActivity.start(context)
                 }
                 idle.touch()
@@ -440,6 +461,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             captureOverlay(view, backdrop.light).let { backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft }
         }
     }
+    // The hero leaving with focus inside it would leave nothing focused: back to the tray.
+    LaunchedEffect(takeover == null) { if (takeover == null && heroFocused) { heroFocused = false; focusKey(firstKey()) } }
     LaunchedEffect(Unit) {
         homePresses.collect { request ->
             moving = null
@@ -447,6 +470,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             idle.touch()
             when (request) {
                 HomeRequest.Home -> {
+                    dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter?.hide()
                     closeAll()
                     setExpanded(false)
                     // In its own coroutine: a scroll interrupted by another one is cancelled, and that
@@ -455,10 +479,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     focusKey(firstKey())
                 }
                 // From remote buttons: pressing the same button again closes it.
-                HomeRequest.ControlCenter, HomeRequest.AppSwitcher, HomeRequest.TvSettings -> {
+                HomeRequest.ControlCenter -> { closeAll(); openControlCenter() }
+                HomeRequest.AppSwitcher, HomeRequest.TvSettings, HomeRequest.Settings -> {
                     val target = when (request) {
-                        HomeRequest.ControlCenter -> Overlay.ControlCenter
                         HomeRequest.AppSwitcher -> Overlay.AppSwitcher
+                        HomeRequest.Settings -> Overlay.Settings
                         else -> Overlay.TvSettings
                     }
                     val reopen = overlays.lastOrNull() != target
@@ -531,9 +556,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     }
                     if (e.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                     when {
-                        e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { open(Overlay.ControlCenter); true }
+                        e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { openControlCenter(); true }
                         // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && takeover == null -> { setExpanded(true); true }
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && takeover != null && !pillFocused && !heroFocused ->
+                            runCatching { heroPlay.requestFocus() }.isSuccess
+                        // From the status pill, Down goes back to the Now Playing controls.
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && pillFocused && takeover != null && !expanded ->
+                            runCatching { heroPlay.requestFocus() }.isSuccess
                         // Down always leaves full screen, wherever focus is (even mid-transition); from the
                         // status pill it goes back down to the titles instead.
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded -> when {
@@ -562,7 +592,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     },
             ) {
                 if (cfg.background == BackgroundMode.Motion) {
-                    MotionBackground(cfg.screensaver, backdrop, light = !dark, paused = overlays.isNotEmpty() || idle.idle)
+                    MotionBackground(cfg.screensaver, backdrop, light = !dark, paused = overlays.isNotEmpty() || ControlCenterWindow.open || idle.idle)
                 }
                 BackdropLayer(backdrop, drawSharp = cfg.background != BackgroundMode.Motion)
 
@@ -629,7 +659,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     if (shown != null) {
                         // Live position and play state while it's up; the takeover itself lingers through gaps.
                         val live = nowPlaying?.takeIf { it.key == shown.key } ?: shown
-                        dev.glasslauncher.widgets.NowPlayingHero(live, Modifier.padding(start = metrics.inset, top = metrics.chromeInset + 14.dp))
+                        val onLight = backdrop.backdrop?.artLight(0.12f, 0.15f, 0.88f, 0.65f) == true
+                        Box(Modifier.fillMaxWidth().padding(top = metrics.chromeInset + 70.dp).onFocusChanged { heroFocused = it.hasFocus }, contentAlignment = Alignment.TopCenter) {
+                            dev.glasslauncher.widgets.NowPlayingHero(live, onLight, heroPlay, pillRequester)
+                        }
                     }
                 }
 
@@ -649,11 +682,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             StatusPill(
                 cfg = cfg,
                 idle = idle,
-                focusable = expanded || feed == null,
-                onSelect = { open(Overlay.ControlCenter) },
-                modifier = Modifier.align(Alignment.TopEnd).onFocusChanged { pillFocused = it.hasFocus },
+                focusable = expanded || feed == null || takeover != null,
+                onSelect = { openControlCenter() },
+                modifier = Modifier.align(Alignment.TopEnd).focusRequester(pillRequester).onFocusChanged { pillFocused = it.hasFocus },
                 // Control Center draws its own clock in this corner.
-                fade = { if (overlays.lastOrNull() == Overlay.ControlCenter) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },
+                fade = { if (overlays.lastOrNull() == Overlay.ControlCenter || ControlCenterWindow.open) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },
             )
 
             moving?.let { MoveBanner(it, layout, Modifier.align(Alignment.BottomCenter)) }
@@ -880,16 +913,16 @@ private fun HomeList(
 /** tvOS shows "⌃ Swipe up for full screen" just above the tray. */
 @Composable
 private fun ShelfHint(alpha: () -> Float) {
-    // On the art itself (no glass): white with a shadow unless the art just above the tray is light.
+    // On the art itself (no glass, no shadow: tvOS text is flat): the baked scrim darkens the art above
+    // the tray; dark text where the art is light anyway.
     val onLight = LocalBackdrop.current.backdrop?.artLight(0.35f, 0.6f, 0.65f, 0.7f) == true
     val color = if (onLight) Color(0xFF0E1015) else Color.White
-    val shadow = if (onLight) null else Type.shadow
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(bottom = 10.dp).graphicsLayer { this.alpha = alpha() },
     ) {
-        Text("⌃", style = Type.secondary.copy(shadow = shadow), color = color.copy(alpha = 0.9f))
-        Text("Press up for full screen", style = Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, shadow = shadow), color = color.copy(alpha = 0.9f))
+        Text("⌃", style = Type.secondary, color = color.copy(alpha = 0.7f))
+        Text("Press up for full screen", style = Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = color.copy(alpha = 0.7f))
     }
 }
 
@@ -912,7 +945,9 @@ private fun DockTray(
             .fillMaxWidth()
             .padding(horizontal = m.trayMargin)
             .glass(LocalBackdrop.current, RoundedCornerShape(m.trayRadius), GlassStyle.shelf(palette.light))
-            .padding(start = m.inset - m.trayMargin, end = m.inset - m.trayMargin, top = m.trayPadVertical, bottom = m.trayPadVertical),
+            // The focused app's name (HOME-04) sits in the bottom padding: the tiles move up to make room
+            // and the tray keeps its height, so the next row still peeks in under it.
+            .padding(start = m.inset - m.trayMargin, end = m.inset - m.trayMargin, top = m.trayPadVertical - m.trayLabel / 2, bottom = m.trayPadVertical + m.trayLabel / 2),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().stopAtRowEnds().testTag("dock")) {
             apps.take(m.columns).forEach { app ->
@@ -927,6 +962,7 @@ private fun DockTray(
                         onMenu = { onAppMenu(app) },
                         launch = launch,
                         showLabel = false,
+                        floatingLabel = true,
                     )
                 }
             }
@@ -945,6 +981,7 @@ fun AppCell(
     onMenu: () -> Unit,
     launch: ((AppEntry, Rect?) -> Unit)? = null,
     showLabel: Boolean = true,
+    floatingLabel: Boolean = false,
 ) {
     val art = rememberArt(model, app)
     val cfg by model.config.collectAsStateWithLifecycle()
@@ -970,6 +1007,7 @@ fun AppCell(
         },
         onMenu = { anchorStore.bounds = bounds; onMenu() },
         showLabel = showLabel,
+        floatingLabel = floatingLabel,
         tileModifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
     ) {
         art?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
@@ -1060,6 +1098,8 @@ fun TileWithLabel(
     onMenu: () -> Unit,
     glassBackground: Boolean = false,
     showLabel: Boolean = true,
+    /** In the tray: the name still shows on focus, in the tray's own bottom padding (no row gap to reserve). */
+    floatingLabel: Boolean = false,
     tileModifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -1091,7 +1131,7 @@ fun TileWithLabel(
                 Box(Modifier.fillMaxSize().glass(LocalBackdrop.current, RoundedCornerShape(m.tileRadius), GlassStyle.shelf(palette.light).copy(clear = false))) { content() }
             } else content()
         }
-        if (showLabel || isNew) {
+        if (showLabel || floatingLabel || isNew) {
             // Sits in the row gap below the tile so labels never change the layout.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1100,7 +1140,7 @@ fun TileWithLabel(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .graphicsLayer {
-                        translationY = 12.dp.toPx() + size.height
+                        translationY = (if (floatingLabel) 7.dp else 12.dp).toPx() + size.height
                         alpha = labelAlpha
                     },
             ) {

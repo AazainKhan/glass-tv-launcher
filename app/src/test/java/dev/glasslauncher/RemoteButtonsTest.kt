@@ -11,7 +11,7 @@ class RemoteButtonsTest {
         assertEquals(RemoteAction.OpenApp("com.netflix.ninja"), RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap()))
         assertEquals(RemoteAction.OpenApp("com.amazon.firebat"), RemoteButtons.actionFor("KEYCODE_BUTTON_10", emptyMap()))
         assertEquals(RemoteAction.AppSwitcher, RemoteButtons.actionFor("KEYCODE_BUTTON_13", emptyMap()))
-        assertEquals(RemoteAction.TvSettings, RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 185))
+        assertEquals(RemoteAction.ControlCenter, RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 185))
         assertNull(RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 999))
     }
 

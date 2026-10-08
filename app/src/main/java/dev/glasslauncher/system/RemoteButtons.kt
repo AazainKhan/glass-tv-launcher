@@ -43,8 +43,8 @@ object RemoteButtons {
      * Fire OS handles the app and Recent Apps buttons inside the system (KeyMapManager), so no app ever
      * sees them. The optional root key layout (tools/magisk/glass-remote-keys, `scripts/remote-keys
      * install`) gives them spare gamepad codes instead, BUTTON_9..13, which reach RemoteKeysService.
-     * Defaults match what Fire TV does with each, except Settings, which opens the full TV Settings page
-     * instead of Fire's quick menu. Fire's key policy catches Settings by its kernel key code (and also
+     * Defaults match what Fire TV does with each, except Settings, which opens Control Center over any app
+     * (tvOS-style) instead of Fire's quick menu. Fire's key policy catches Settings by its kernel key code (and also
      * swallows BUTTON_16), so the module rewrites the remote's kernel keymap to send 185, a code the key
      * layout doesn't name; it arrives as KEYCODE_UNKNOWN with scan code 185. Home, Back, volume, mute,
      * power, Alexa and the TV button stay with the system.
@@ -55,7 +55,7 @@ object RemoteButtons {
         RemoteButton("app3", "Button 3", setOf("KEYCODE_BUTTON_11", "KEYCODE_APP_3"), RemoteAction.OpenApp("com.disney.disneyplus")),
         RemoteButton("app4", "Button 4", setOf("KEYCODE_BUTTON_12", "KEYCODE_APP_4"), RemoteAction.OpenApp("com.amazon.bueller.music")),
         RemoteButton("recents", "Recent Apps Button", setOf("KEYCODE_BUTTON_13", "KEYCODE_RECENTS", "KEYCODE_APP_SWITCH"), RemoteAction.AppSwitcher),
-        RemoteButton("settings", "Settings Button", emptySet(), RemoteAction.TvSettings, scanCodes = setOf(SETTINGS_SCAN_CODE)),
+        RemoteButton("settings", "Settings Button", emptySet(), RemoteAction.ControlCenter, scanCodes = setOf(SETTINGS_SCAN_CODE)),
     )
 
     fun actionFor(keyName: String, config: Map<String, String>, scanCode: Int = 0): RemoteAction? {

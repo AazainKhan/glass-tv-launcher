@@ -57,6 +57,33 @@ def test_music_takes_over_home(tv, home, playing):
     assert b > r + 25, f"the backdrop isn't the album art (average colour {r},{g},{b})"
 
 
+def test_hero_is_centred_with_playback_controls(tv, home, playing):
+    tree = tv.wait_for(lambda t: t.find(rid="now-playing-hero") and t, 10, "the Now Playing hero")
+    hero = tree.find(rid="now-playing-hero")
+    l, t, r, b = hero.bounds
+    assert abs((l + r) / 2 - 960) < 60, f"the hero should be centred ({hero.bounds})"
+    for label in ("Previous Track", "Pause", "Next Track"):
+        btn = tree.find(desc=label)
+        assert btn and l <= btn.center[0] <= r and t <= btn.center[1] <= b, f"no '{label}' control in the hero"
+
+
+def test_up_from_the_tray_reaches_the_controls_then_control_center(tv, home, playing):
+    tv.wait_for(lambda t: t.find(rid="now-playing-hero"), 10, "the Now Playing hero")
+    tv.press("up")
+    tv.wait_for(lambda t: t.focused() and t.focused().desc == "Pause", 4, "Up from the tray onto Pause")
+    home.select()
+    tv.wait_for(lambda t: t.focused() and t.focused().desc == "Play", 6, "the hero's button pausing playback")
+    home.select()
+    tv.wait_for(lambda t: t.focused() and t.focused().desc == "Pause", 6, "playing again")
+    tv.press("up")
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 4, "Up again onto the status pill")
+    home.select()
+    tv.wait_for(lambda t: t.find(rid="control-center"), 6, "Control Center from the pill while music plays")
+    card = tv.wait_for(lambda t: t.find(rid="now-playing-card"), 4, "the Now Playing card")
+    assert card.bounds[3] <= 1080 - 30, f"the card should keep a margin above the bottom edge ({card.bounds})"
+    home.back()
+
+
 def test_control_center_card_controls_playback(tv, home, cc, playing):
     # Music already playing when Control Center opens, as it would be for a viewer.
     tv.wait_for(lambda t: t.find(rid="now-playing-hero"), 10, "the Now Playing hero")

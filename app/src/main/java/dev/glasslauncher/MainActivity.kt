@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private fun request(intent: Intent?) {
         when (intent?.action) {
             ACTION_CONTROL_CENTER -> requests.trySend(HomeRequest.ControlCenter)
+            ACTION_SETTINGS -> requests.trySend(HomeRequest.Settings)
             ACTION_APP_SWITCHER -> requests.trySend(HomeRequest.AppSwitcher)
             ACTION_TV_SETTINGS -> requests.trySend(HomeRequest.TvSettings)
         }
@@ -84,5 +85,6 @@ class MainActivity : ComponentActivity() {
         const val ACTION_CONTROL_CENTER = "dev.glasslauncher.action.CONTROL_CENTER"
         const val ACTION_APP_SWITCHER = "dev.glasslauncher.action.APP_SWITCHER"
         const val ACTION_TV_SETTINGS = "dev.glasslauncher.action.TV_SETTINGS"
+        const val ACTION_SETTINGS = "dev.glasslauncher.action.SETTINGS"
     }
 }

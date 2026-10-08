@@ -90,23 +90,25 @@ private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { C
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
 private val CC_BLEED = 16.dp
 
+/** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
+private val CC_DIM = Color.Black.copy(alpha = 0.42f)
+
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
 val CONTROL_CENTER_TILES = listOf(
     "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
-    "controllers" to "Game Controllers", "appearance" to "Appearance", "screensaver" to "Screen Saver",
+    "controllers" to "Game Controllers", "appearance" to "Theme", "screensaver" to "Screen Saver",
     "switcher" to "App Switcher", "performance" to "Performance", "memory" to "Free Memory",
 )
 
 /**
  * SYS-01, laid out like tvOS 27 Control Center: the time over a right-hand column of glass tiles.
  * A large Settings tile for the TV's own settings (white when focused, focused first), two-line pills
- * for Wi-Fi, Bluetooth, the launcher's settings and Text Size, a wide AirPlay toggle when PhairPlay is
- * installed, then round buttons for game
- * controllers, Light/Dark, the screen saver and the app switcher. Glass tiles
+ * for Wi-Fi, Bluetooth and the launcher's settings, then round buttons for game controllers, the theme,
+ * the screen saver, the app switcher and AirPlay (when PhairPlay is installed). Glass tiles
  * take their tint from the content behind them; a pill's icon sits in a white disc while it's on.
  */
 @Composable
-fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
+fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
     val context = LocalContext.current
     val m = LocalMetrics.current
     val palette = LocalPalette.current
@@ -118,10 +120,10 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     val wifiOn = remember(active) { SystemControls.wifiConnected(context) }
     val bluetooth = remember(active) { SystemControls.bluetoothOn() }
     val clock = rememberClock(cfg.clock24h, seconds = true)
-    // The time sits straight on the art (no glass), so it follows the art behind it, not the theme.
-    val headerOnLight = LocalBackdrop.current.backdrop?.artLight(0.72f, 0f, 0.98f, 0.09f) == true
-    val headerColor = if (headerOnLight) Color(0xFF0E1015) else Color.White
-    val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium, shadow = if (headerOnLight) null else Type.strongShadow)
+    // The time sits on the dark wash, so it's white whatever is behind (no shadow: tvOS text is flat).
+    val headerOnLight = false
+    val headerColor = Color.White
+    val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium)
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     fun shown(id: String) = id !in cfg.ccHidden
     // The focused round button's name, shown under the round buttons (they're icons only).
@@ -135,14 +137,13 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
-    // Grows out of the status pill (top right) and shrinks back into it, over the undimmed Home.
+    // Grows out of the status pill (top right) and shrinks back into it.
     val enter = rememberOverlayEnter()
-    // Everything behind Control Center goes out of focus (the dock's soft blur of the screen). It fades
-    // from a snapshot of Home taken as it opened to the blur, with Home itself not drawn meanwhile: two
-    // cheap images instead of Home plus a blur over it (that made the open and close 80% janky).
     androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz) {
     Box(Modifier.fillMaxSize()) {
-        SnapshotBackdrop({ enter.value }, LocalBackdrop.current.overlaySoft)
+        // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent layer,
+        // and over another app (an overlay window) the system composites it without redrawing anything.
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter.value }.background(CC_DIM))
         Column(
             horizontalAlignment = Alignment.End,
             modifier = Modifier
@@ -196,29 +197,27 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
             if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
                 PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
             }
-            // AirPlay receiving (PhairPlay, scripts/phairplay); only shown once it's installed. A toggle,
-            // like Wi-Fi's on state: white disc, blue glyph. A connected Mac or iPhone is named.
-            if (shown("airplay")) airPlay?.let { (state, set) ->
-                val value = when {
-                    state.sender != null -> "Connected to ${state.sender}"
-                    state.on -> "On"
-                    else -> "Off"
-                }
-                CcTile("AirPlay", value, Shapes.pill, sz.column, sz.pill, onClick = { set(!state.on) }) { fg ->
-                    PillContent(R.drawable.ic_airplay, "AirPlay", value, fg, on = state.on, accent = Blue)
-                }
-            }
             // Round buttons, four to a row (tvOS), with the focused one's name in a caption underneath.
             val rounds = buildList<@Composable () -> Unit> {
                 val label: (String?) -> Unit = { roundLabel = it }
                 if (shown("controllers")) add { Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label) { system { SystemControls.openGameControllers(context) } } }
                 if (shown("appearance")) add {
-                    Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Appearance, Dark" else "Appearance, Light", onLabel = label) {
-                        screen.dissolve { model.edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } }
+                    Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label) {
+                        screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } }
                     }
                 }
                 if (shown("screensaver")) add { Round(R.drawable.ic_landscape, "Screen Saver", onLabel = label) { closeAll(); AerialActivity.start(context) } }
                 if (shown("switcher")) add { Round(R.drawable.ic_apps, "App Switcher", onLabel = label) { closeAll(); open(Overlay.AppSwitcher) } }
+                // AirPlay receiving (PhairPlay, scripts/phairplay), once it's installed: a round toggle, white
+                // while on, so Control Center stays short enough for the Now Playing card.
+                if (shown("airplay")) airPlay?.let { (state, set) ->
+                    val value = when {
+                        state.sender != null -> "Connected to ${state.sender}"
+                        state.on -> "On"
+                        else -> "Off"
+                    }
+                    add { Round(R.drawable.ic_airplay, "AirPlay, $value", on = state.on, onLabel = label) { set(!state.on) } }
+                }
                 // Root only (Settings › Root has the details): Performance is a toggle, white while Fast is on;
                 // Free Memory ends background apps and says how much it freed.
                 if (rooted && shown("performance")) add {
@@ -240,7 +239,7 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
             // Always takes its line, so the column doesn't jump as focus moves on and off the round buttons.
             Text(
                 roundLabel?.replace(", ", " · ") ?: freed?.let { "$it MB freed" } ?: "",
-                style = Type.caption.copy(fontWeight = FontWeight.SemiBold, shadow = if (headerOnLight) null else Type.shadow),
+                style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
                 color = headerColor,
                 maxLines = 1,
                 modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
@@ -299,7 +298,7 @@ private fun PillContent(
 private fun Round(@DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {}, onClick: () -> Unit) {
     val sz = LocalCcSizes.current
     var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
-    // The caption follows the button while focused, including its state (Appearance · Light → Dark).
+    // The caption follows the button while focused, including its state (Theme · Light → Dark).
     LaunchedEffect(focused, label) { if (focused) onLabel(label) }
     CcTile(label, null, CircleShape, sz.pill, sz.pill, onClick = onClick, on = on, onFocusChange = { f ->
         focused = f

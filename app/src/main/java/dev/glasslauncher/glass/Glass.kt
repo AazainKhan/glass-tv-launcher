@@ -44,6 +44,12 @@ private val EDGE_SHIFT = 9.dp
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
 @Stable
 class BackdropState {
+    /**
+     * Drawn in a translucent window over another app (Control Center's overlay): there's nothing to
+     * sample, but the window really is see-through, so glass draws a translucent tint and the system
+     * composites the app behind it.
+     */
+    var translucentWindow = false
     var backdrop by mutableStateOf<Backdrop?>(null)
         private set
     /** The backdrop being faded out after a scene change; only non-null for the duration of [fade]. */
@@ -269,7 +275,8 @@ private class GlassNode(
         } else if (!overBlur) {
             // Nothing to sample yet (backdrop baking, layout not measured): glass that carries text draws a
             // solid frosted tint rather than its 6-20% tint alone, which read as a see-through tile.
-            if (style.legible || style.useOverlay) drawOutline(outline, solidTint(style.tint))
+            if (state.translucentWindow) drawOutline(outline, if (style.tint.luminance() > 0.5f) Color.White.copy(alpha = 0.24f) else Color(0x7A2A2E37))
+            else if (style.legible || style.useOverlay) drawOutline(outline, solidTint(style.tint))
             drawOutline(outline, ShaderBrush(overlayShader!!))
         }
         if (texture < 0.5f) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))

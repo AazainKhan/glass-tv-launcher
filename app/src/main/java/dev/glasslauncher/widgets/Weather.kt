@@ -26,6 +26,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import kotlin.math.roundToInt
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 
 /** Open-Meteo: free, no API key. */
 object Weather {
@@ -46,7 +51,7 @@ object Weather {
         }.getOrNull()
     }
 
-    suspend fun current(http: OkHttpClient, cfg: WeatherConfig): String? = withContext(Dispatchers.IO) {
+    suspend fun current(http: OkHttpClient, cfg: WeatherConfig): WeatherReading? = withContext(Dispatchers.IO) {
         runCatching {
             val url = "https://api.open-meteo.com/v1/forecast".toHttpUrl().newBuilder()
                 .addQueryParameter("latitude", cfg.latitude.toString())
@@ -59,22 +64,37 @@ object Weather {
                 val temp = current["temperature_2m"]!!.jsonPrimitive.double.roundToInt()
                 val code = current["weather_code"]!!.jsonPrimitive.int
                 val day = current["is_day"]?.jsonPrimitive?.int != 0
-                "${symbol(code, day)}  $temp°"
+                WeatherReading(condition(code, day), temp)
             }
         }.getOrNull()
     }
 
-    private fun symbol(code: Int, day: Boolean) = when (code) {
-        0 -> if (day) "☀" else "☾"
-        1, 2 -> if (day) "⛅" else "☁"
-        3 -> "☁"
-        45, 48 -> "≋"
-        in 51..67, in 80..82 -> "☂"
-        in 71..77, 85, 86 -> "❄"
-        in 95..99 -> "⚡"
-        else -> "☁"
+    private fun condition(code: Int, day: Boolean) = when (code) {
+        0 -> if (day) WeatherCondition.ClearDay else WeatherCondition.ClearNight
+        1, 2 -> if (day) WeatherCondition.PartlyDay else WeatherCondition.PartlyNight
+        3 -> WeatherCondition.Cloudy
+        45, 48 -> WeatherCondition.Fog
+        in 51..67, in 80..82 -> WeatherCondition.Rain
+        in 71..77, 85, 86 -> WeatherCondition.Snow
+        in 95..99 -> WeatherCondition.Storm
+        else -> WeatherCondition.Cloudy
     }
 }
+
+/** Open-Meteo's WMO codes, folded into the conditions that have an icon. */
+enum class WeatherCondition(@androidx.annotation.DrawableRes val icon: Int, val label: String) {
+    ClearDay(dev.glasslauncher.R.drawable.ic_weather_clear_day, "Clear"),
+    ClearNight(dev.glasslauncher.R.drawable.ic_weather_clear_night, "Clear"),
+    PartlyDay(dev.glasslauncher.R.drawable.ic_weather_partly_day, "Partly Cloudy"),
+    PartlyNight(dev.glasslauncher.R.drawable.ic_weather_partly_night, "Partly Cloudy"),
+    Cloudy(dev.glasslauncher.R.drawable.ic_weather_cloudy, "Cloudy"),
+    Fog(dev.glasslauncher.R.drawable.ic_weather_fog, "Fog"),
+    Rain(dev.glasslauncher.R.drawable.ic_weather_rain, "Rain"),
+    Snow(dev.glasslauncher.R.drawable.ic_weather_snow, "Snow"),
+    Storm(dev.glasslauncher.R.drawable.ic_weather_storm, "Thunderstorms"),
+}
+
+data class WeatherReading(val condition: WeatherCondition, val temperature: Int)
 
 /**
  * One reading for the whole launcher: the status pill and Control Center used to fetch separately (each
@@ -82,8 +102,8 @@ object Weather {
  * anything shows it, every 2 minutes after a failure, and right away when the city or units change.
  */
 class WeatherRepository(private val http: OkHttpClient, private val scope: kotlinx.coroutines.CoroutineScope) {
-    private val _reading = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-    val reading: kotlinx.coroutines.flow.StateFlow<String?> = _reading
+    private val _reading = kotlinx.coroutines.flow.MutableStateFlow<WeatherReading?>(null)
+    val reading: kotlinx.coroutines.flow.StateFlow<WeatherReading?> = _reading
     private var cfg: WeatherConfig? = null
     private var job: kotlinx.coroutines.Job? = null
 
@@ -105,6 +125,20 @@ class WeatherRepository(private val http: OkHttpClient, private val scope: kotli
 fun WeatherLabel(cfg: WeatherConfig, color: androidx.compose.ui.graphics.Color = LocalPalette.current.primary, style: androidx.compose.ui.text.TextStyle = Type.body.copy(fontSize = Type.body.fontSize * 0.86f)) {
     val repo = LocalContext.current.app.weather
     androidx.compose.runtime.LaunchedEffect(cfg) { repo.follow(cfg) }
-    val text by repo.reading.collectAsState()
-    text?.let { Text(it, style = style, color = color, modifier = Modifier.testTag("weather")) }
+    val reading by repo.reading.collectAsState()
+    val r = reading ?: return
+    // A clean glyph (SF Symbols style) tinted like the text, then the temperature.
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        // One description for the pair, the same wherever it's read ("Clear, 10°").
+        modifier = Modifier.testTag("weather").clearAndSetSemantics { contentDescription = "${r.condition.label}, ${r.temperature}°" },
+    ) {
+        val size = with(androidx.compose.ui.platform.LocalDensity.current) { (style.fontSize * 1.05f).toDp() }
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(r.condition.icon), r.condition.label,
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color),
+            modifier = Modifier.size(size),
+        )
+        Text("${r.temperature}°", style = style, color = color, modifier = Modifier.padding(start = 7.dp))
+    }
 }

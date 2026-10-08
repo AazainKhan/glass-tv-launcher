@@ -17,7 +17,11 @@ import kotlinx.coroutines.launch
  */
 class RemoteKeysService : AccessibilityService() {
 
+    /** Control Center as an overlay over any app (and over Home). */
+    val controlCenter by lazy { dev.glasslauncher.home.ControlCenterWindow(this) }
+
     override fun onServiceConnected() {
+        instance = this
         // Some builds drop the XML flag; asking again at runtime turns key filtering on.
         serviceInfo = serviceInfo.apply { flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS }
         Log.i(TAG, "connected, flags=${serviceInfo.flags} caps=${serviceInfo.capabilities}")
@@ -57,7 +61,7 @@ class RemoteKeysService : AccessibilityService() {
                     ?: Intent(Intent.ACTION_VIEW, android.net.Uri.parse("amzn://apps/android?p=${action.pkg}"))
                 runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
-            RemoteAction.ControlCenter -> home(MainActivity.ACTION_CONTROL_CENTER)
+            RemoteAction.ControlCenter -> controlCenter.toggle()
             RemoteAction.AppSwitcher -> home(MainActivity.ACTION_APP_SWITCHER)
             RemoteAction.TvSettings -> home(MainActivity.ACTION_TV_SETTINGS)
             RemoteAction.Home -> performGlobalAction(GLOBAL_ACTION_HOME)
@@ -83,7 +87,8 @@ class RemoteKeysService : AccessibilityService() {
         override fun run() {
             val pkg = front ?: return
             val power = getSystemService(android.os.PowerManager::class.java)
-            if (android.os.Build.VERSION.SDK_INT >= 30 && power?.isInteractive == true) {
+            // Not while Control Center is over the app: the preview would show it instead of the app.
+            if (android.os.Build.VERSION.SDK_INT >= 30 && power?.isInteractive == true && !controlCenter.showing) {
                 runCatching {
                     takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                         override fun onSuccess(result: ScreenshotResult) {
@@ -104,6 +109,10 @@ class RemoteKeysService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
+        // Glass's own windows other than Home (the Control Center overlay itself) aren't an app change.
+        val glassHome = pkg == packageName && event.className?.toString() == MainActivity::class.java.name
+        if (pkg == packageName && !glassHome) return
+        if (pkg != front || glassHome) controlCenter.onAppChanged()
         if (pkg == front) return
         // Only apps with a launcher entry count; dialogs, the keyboard and system overlays don't change "front".
         val isApp = launchable.getOrPut(pkg) {
@@ -116,6 +125,8 @@ class RemoteKeysService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
+        controlCenter.hide()
         handler.removeCallbacks(capture)
         super.onDestroy()
     }
@@ -123,6 +134,9 @@ class RemoteKeysService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     companion object {
+        /** The connected service, for Glass to open Control Center as an overlay. */
+        @Volatile var instance: RemoteKeysService? = null
+            private set
         private const val PREVIEW_FIRST_MS = 3_000L
         private const val PREVIEW_EVERY_MS = 30_000L
         const val ESCAPE_HOLD_MS = 1_500L

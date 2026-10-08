@@ -144,7 +144,12 @@ class TV:
         """The accessibility tree. uiautomator refuses while a window never goes idle; retry briefly."""
         last = ""
         for _ in range(4):
-            out = self.sh("uiautomator dump /data/local/tmp/e2e.xml >/dev/null 2>&1; cat /data/local/tmp/e2e.xml")
+            # Glass's Control Center overlay first (uiautomator can't see accessibility overlays), else the
+            # active window. The old dump is removed first: a failed dump used to return the previous one.
+            out = self.sh(
+                "r=$(am broadcast -n dev.glasslauncher/.system.DebugDumpReceiver 2>/dev/null); "
+                "case \"$r\" in *'<hierarchy'*) echo \"$r\" ;; "
+                "*) rm -f /data/local/tmp/e2e.xml; uiautomator dump /data/local/tmp/e2e.xml >/dev/null 2>&1; cat /data/local/tmp/e2e.xml 2>/dev/null ;; esac")
             start = out.find("<?xml")
             if start >= 0 and "</hierarchy>" in out:
                 root = ET.fromstring(out[start:out.rindex("</hierarchy>") + len("</hierarchy>")])

@@ -175,5 +175,10 @@
         <receiver
             android:name=".system.InstallResultReceiver"
             android:exported="false" />
+        <!-- Device tests only: the Control Center overlay's tree (uiautomator can't see overlays). -->
+        <receiver
+            android:name=".system.DebugDumpReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>

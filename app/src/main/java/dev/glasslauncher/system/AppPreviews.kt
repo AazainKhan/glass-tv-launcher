@@ -8,13 +8,14 @@ import java.util.concurrent.Executors
 
 /**
  * The app switcher's card previews: a small, blurred snapshot of each app as it was last on screen,
- * taken by RemoteKeysService (AccessibilityService.takeScreenshot) and kept in the cache as a ~10 KB JPEG.
+ * taken by RemoteKeysService (AccessibilityService.takeScreenshot) and kept in the cache as a ~25 KB JPEG.
  * Blurred on purpose: it reads as the app at a glance, costs nothing to draw, and keeps what was on
  * screen (a message, an account page) unreadable. Nothing leaves the TV.
  */
 object AppPreviews {
-    private const val W = 320
-    private const val H = 180
+    private const val W = 480
+    private const val H = 270
+    private const val RADIUS = 5
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "glass-previews").apply { priority = Thread.MIN_PRIORITY } }
 
     private fun dir(context: Context) = File(context.cacheDir, "previews").apply { mkdirs() }
@@ -26,16 +27,16 @@ object AppPreviews {
         worker.execute {
             runCatching {
                 val soft = if (shot.config == Bitmap.Config.HARDWARE) shot.copy(Bitmap.Config.ARGB_8888, false) else shot
-                // Down to 80 px wide and back up in steps: a soft blur, done once per snapshot.
-                var b = Bitmap.createScaledBitmap(soft, 80, 45, true)
+                // A real (Gaussian) blur at half the card's size: smooth when drawn at 1000 px, unlike the
+                // stepped downscale it replaced, which looked blocky. Still recognisable at a glance.
+                val probe = Bitmap.createScaledBitmap(soft, 64, 36, true)
+                val blank = isMostlyBlack(probe)
+                probe.recycle()
+                if (blank) { if (soft !== shot) soft.recycle(); return@runCatching } // DRM video or a blank frame: keep the last one
+                val b = dev.glasslauncher.glass.Blur.backdrop(soft, W, H, radius = RADIUS, saturation = 1.1f)
                 if (soft !== shot) soft.recycle()
-                if (isMostlyBlack(b)) { b.recycle(); return@runCatching } // DRM video or a blank frame: keep the last one
-                for ((w, h) in listOf(160 to 90, W to H)) {
-                    val next = Bitmap.createScaledBitmap(b, w, h, true)
-                    b.recycle(); b = next
-                }
                 val tmp = File(dir(app), "$pkg.tmp")
-                tmp.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 80, it) }
+                tmp.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 85, it) }
                 tmp.renameTo(file(app, pkg))
                 b.recycle()
             }
@@ -43,8 +44,26 @@ object AppPreviews {
         }
     }
 
-    fun load(context: Context, pkg: String): Bitmap? =
-        file(context, pkg).takeIf { it.exists() }?.let { runCatching { BitmapFactory.decodeFile(it.path) }.getOrNull() }
+    // Decoded previews, kept while the file is unchanged: the switcher's cards are complete on its first
+    // frame instead of decoding mid-animation on every open (~0.5 MB each, six at most).
+    private val decoded = android.util.LruCache<String, Pair<Long, Bitmap>>(6)
+
+    /** Under memory pressure: they decode again from disk on the next open. */
+    fun trim() = decoded.evictAll()
+
+    /** A preview already decoded and still current, for drawing without waiting. */
+    fun cached(context: Context, pkg: String): Bitmap? {
+        val f = file(context, pkg)
+        return decoded.get(pkg)?.takeIf { it.first == f.lastModified() }?.second
+    }
+
+    fun load(context: Context, pkg: String): Bitmap? {
+        val f = file(context, pkg).takeIf { it.exists() } ?: return null
+        cached(context, pkg)?.let { return it }
+        val b = runCatching { BitmapFactory.decodeFile(f.path) }.getOrNull() ?: return null
+        decoded.put(pkg, f.lastModified() to b)
+        return b
+    }
 
     private fun isMostlyBlack(b: Bitmap): Boolean {
         val tiny = Bitmap.createScaledBitmap(b, 8, 8, true)

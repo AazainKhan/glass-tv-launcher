@@ -73,8 +73,9 @@ fun StatusPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 modifier = Modifier
-                    // Glass stays put under the focus fill (a swapped-in glass node can draw before it's positioned).
-                    .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
+                    // The tray's clear glass, so the two read as one material (the text-safe copy of its
+                    // texture, since this carries text). Glass stays put under the focus fill.
+                    .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.shelf(palette.light).copy(legible = true))
                     .then(
                         if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                     )
@@ -95,7 +96,7 @@ fun StatusPill(
     }
 }
 
-val TextShadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), Offset(0f, 2f), 10f)
+
 
 @Composable
 fun rememberClock(h24: Boolean, seconds: Boolean = false): String {

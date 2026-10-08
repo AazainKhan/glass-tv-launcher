@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
@@ -102,7 +103,7 @@ fun MenuRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 46.dp)
+            .heightIn(min = 38.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .background(bg, Shapes.pill)
             .onFocusChanged {
@@ -136,7 +137,7 @@ fun MenuRow(
                 onClick { if (enabled) onClick(); enabled }
             }
             .focusable()
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 4.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
             leading?.invoke()
@@ -144,7 +145,8 @@ fun MenuRow(
             if (value != null) Text(value, style = Type.secondary, color = if (focused) fg.copy(alpha = 0.7f) else palette.secondary, maxLines = 1)
             trailing?.invoke(this)
             if (checked != null) Switch(checked, focused)
-            if (chevron) Text("›", style = Type.heading, color = if (focused) fg.copy(alpha = 0.6f) else palette.faint)
+            // A tight line height: in the heading style the chevron set the row's height (48 dp, not tvOS's ~35).
+            if (chevron) Text("›", style = Type.heading.copy(lineHeight = 18.sp), color = if (focused) fg.copy(alpha = 0.6f) else palette.faint)
         }
     }
 }

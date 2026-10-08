@@ -27,6 +27,10 @@ Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination G
 
 ## Device end-to-end tests
 
+- Control Center is an accessibility overlay window (`home/ControlCenterWindow.kt`, owned by `RemoteKeysService`), so it opens over any app. uiautomator can't see accessibility overlays: `tv.tree()` first asks `system/DebugDumpReceiver` (guarded by `android.permission.DUMP`) for the overlay's semantics tree as uiautomator XML, then falls back to `uiautomator dump`. The same hook could serve Home's state in ~50 ms if the suite needs speeding up.
+- Compose pads accessibility bounds up to the 48 dp minimum touch target: measure drawn sizes from a screenshot, not from node bounds.
+- Perf measurements: open overlays from the grid (Home's featured slideshow cross-fades every few seconds and lands at random in the window), warm up once (first open decodes and composes), and don't read the tree inside the measured window (uiautomator makes Glass build its accessibility tree mid-animation).
+
 `scripts/e2e` (pytest in `e2e/`, see its README): 43 tests over every main flow on the real stick, real remote presses, state from the accessibility tree. Run it after changes to navigation, overlays, Control Center, Settings, app launching or Fire OS integration. `uiautomator dump` refuses while something animates (move mode's wiggle), so those checks read the screen instead.
 
 ## Dev loop: see it, check it, measure it

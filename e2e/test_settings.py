@@ -138,3 +138,24 @@ def test_remote_buttons_are_a_2x2_grid(tv, home, settings):
     tv.wait_for(lambda t: t.focused() and t.focused().rid == "remote-button-4", 4, "Down to Button 4")
     settings.select()
     tv.wait_for(lambda t: any(n.text == "Button 4" for n in t.nodes()) and t.has_text("Open Another App…"), 6, "Button 4's page")
+
+
+def test_rows_are_slim_with_a_gap_between_them(tv, home, settings):
+    """tvOS 27 Settings: rows about 35 dp tall with a clear gap between them (Display & Text Size).
+    Measured on screen: accessibility bounds are padded up to the 48 dp minimum touch target."""
+    settings.open_from_control_center()
+    tree = tv.tree()
+    focused = tree.focused()
+    rows = sorted((n for n in tree.nodes() if n.focusable and n.bounds[0] > 700), key=lambda n: n.bounds[1])
+    img = tv.screen_image()
+    x, y = focused.center
+    top = y
+    while top > 0 and img.getpixel((x, top - 1)) > 225:
+        top -= 1
+    bottom = y
+    while bottom < img.height - 1 and img.getpixel((x, bottom + 1)) > 225:
+        bottom += 1
+    height = bottom - top + 1
+    assert height <= 84, f"the focused row draws {height}px tall (want about 72)"
+    pitch = rows[2].center[1] - rows[1].center[1]
+    assert pitch - height / 1.02 >= 12, f"rows {pitch}px apart, {height}px tall: no visible gap"

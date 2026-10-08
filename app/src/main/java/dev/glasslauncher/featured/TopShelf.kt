@@ -95,7 +95,7 @@ private fun Wordmark(item: FeaturedItem, height: Dp) {
             modifier = Modifier.height(height * 1.2f).fillMaxWidth().offset(x = -(height * 0.1f)),
         )
     } else {
-        Text(item.title, style = Type.display.copy(shadow = Type.shadow), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.title, style = Type.display, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -136,18 +136,18 @@ fun ExpandedShelf(
                     Column {
                         Wordmark(shown, height = 76.dp)
                         shown.subtitle?.let {
-                            Text(it, style = Type.secondary.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
+                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
                         }
                         shown.description?.let {
                             // The whole synopsis in full screen (it was cut at two lines); five covers nearly all.
-                            Text(it, style = Type.secondary.copy(shadow = Type.strongShadow), color = Color.White.copy(alpha = 0.9f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.7f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
                 }
                 // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).
                 Spacer(Modifier.height(18.dp))
             }
-            Text(feed.heading, style = Type.label.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 10.dp))
+            Text(feed.heading, style = Type.label, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 10.dp))
             LazyRow(
                 state = listState,
                 contentPadding = PaddingValues(horizontal = m.inset),
