@@ -16,6 +16,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -58,6 +60,14 @@ sealed interface Overlay {
     data object AppSwitcher : Overlay
     /** Fire TV's own settings, as a top-level list (the stock home screen normally provides it). */
     data object TvSettings : Overlay
+    /** tvOS's confirmation card: [confirm] first and focused (red when [destructive]), then Cancel. */
+    data class Confirm(
+        val title: String,
+        val message: String,
+        val confirm: String,
+        val destructive: Boolean = false,
+        val onConfirm: () -> Unit,
+    ) : Overlay
     data class PhoneSetup(
         val title: String,
         val fields: List<dev.glasslauncher.system.PhoneField>,
@@ -203,6 +213,48 @@ val LocalOverlayExiting = androidx.compose.runtime.compositionLocalOf { false }
 class MenuAnchor { var bounds: androidx.compose.ui.geometry.Rect? = null }
 val LocalMenuAnchor = androidx.compose.runtime.staticCompositionLocalOf { MenuAnchor() }
 
+/** The muted icon in Settings' left column, one per page (Settings' own gear for the main list). */
+@Composable
+private fun SettingsPageIcon(title: String, fallback: @Composable () -> Unit) {
+    val palette = dev.glasslauncher.ui.LocalPalette.current
+    val res = SETTINGS_ICONS[title]
+    Box(Modifier.testTag("settings-icon:${title.ifEmpty { "Settings" }}")) {
+        if (res == null) { fallback(); return@Box }
+        Box(
+            Modifier.size(200.dp).glass(dev.glasslauncher.glass.LocalBackdrop.current, androidx.compose.foundation.shape.RoundedCornerShape(44.dp), dev.glasslauncher.glass.GlassStyle.panel(palette.light)),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.foundation.Image(
+                androidx.compose.ui.res.painterResource(res), null,
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary.copy(alpha = 0.55f)),
+                modifier = Modifier.size(96.dp),
+            )
+        }
+    }
+}
+
+private val SETTINGS_ICONS = mapOf(
+    "Appearance" to dev.glasslauncher.R.drawable.ic_dark_mode,
+    "Display & Text Size" to dev.glasslauncher.R.drawable.ic_format_size,
+    "Text Size" to dev.glasslauncher.R.drawable.ic_format_size,
+    "Control Center" to dev.glasslauncher.R.drawable.ic_tune,
+    "Top Shelf Content" to dev.glasslauncher.R.drawable.ic_tv,
+    "Hidden Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
+    "Hide Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
+    "Icon Pack" to dev.glasslauncher.R.drawable.ic_apps,
+    "Screensaver" to dev.glasslauncher.R.drawable.ic_landscape,
+    "Widgets" to dev.glasslauncher.R.drawable.ic_widgets,
+    "Accessibility" to dev.glasslauncher.R.drawable.ic_accessibility,
+    "Home Button" to dev.glasslauncher.R.drawable.ic_home,
+    "Remote Buttons" to dev.glasslauncher.R.drawable.ic_settings_remote,
+    "Updates" to dev.glasslauncher.R.drawable.ic_system_update,
+    "Backup & Restore" to dev.glasslauncher.R.drawable.ic_backup,
+    "Glass Launcher" to dev.glasslauncher.R.drawable.ic_info,
+    "Root" to dev.glasslauncher.R.drawable.ic_code,
+    "App Freezer" to dev.glasslauncher.R.drawable.ic_code,
+    "Root Log" to dev.glasslauncher.R.drawable.ic_code,
+)
+
 /** 0 → 1 on entrance and back to 0 on exit, with the overlay curve (~130 ms each way). */
 @Composable
 fun rememberOverlayEnter(): Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
@@ -227,7 +279,22 @@ object MinimalScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
 }
 
 /** Collects the current page's title so a full-page layout can centre it at the top (SYS-02). */
-class TitleSink { var title by androidx.compose.runtime.mutableStateOf("") }
+/**
+ * What a Settings page tells its frame: the title (centred at the top) and its explanations, which tvOS
+ * puts on the left under the page's icon (the right side is only rows). Keyed by page, so during a page
+ * push only the arriving page's words show.
+ */
+class TitleSink {
+    var title by androidx.compose.runtime.mutableStateOf("")
+    var page by androidx.compose.runtime.mutableStateOf<Any?>(null)
+    val captions = androidx.compose.runtime.mutableStateListOf<Pair<Any?, String>>()
+}
+
+/** The Settings page a composable belongs to (its captions are kept apart from the page it replaces). */
+val LocalPageKey = androidx.compose.runtime.staticCompositionLocalOf<Any?> { null }
+
+/** Settings pages ask for a confirmation card (Restart, Restore…) through this. */
+val LocalConfirm = androidx.compose.runtime.staticCompositionLocalOf<(Overlay.Confirm) -> Unit> { {} }
 val LocalTitleSink = androidx.compose.runtime.staticCompositionLocalOf<TitleSink?> { null }
 
 /**
@@ -257,7 +324,23 @@ fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Compos
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
         )
         androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(top = 70.dp, start = 45.dp, end = 45.dp, bottom = 20.dp)) {
-            Box(Modifier.weight(0.42f).fillMaxHeight(), contentAlignment = Alignment.Center) { icon() }
+            // tvOS 27: the page's muted icon, and under it the page's explanations; only rows on the right.
+            androidx.compose.foundation.layout.Column(
+                Modifier.weight(0.42f).fillMaxHeight().padding(end = 36.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { SettingsPageIcon(sink.title, icon) }
+                val words = sink.captions.filter { it.first == sink.page }.map { it.second }
+                if (words.isNotEmpty()) androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(bottom = 18.dp),
+                ) {
+                    words.forEach {
+                        androidx.tv.material3.Text(it, style = dev.glasslauncher.ui.Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+            }
             Box(Modifier.weight(0.58f).fillMaxHeight()) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalTitleSink provides sink) {
                     Box(Modifier.fillMaxSize().trapFocus(active), content = content)

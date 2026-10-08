@@ -99,14 +99,15 @@ object Type {
     private val family get() = if (bold) InterBold else InterFamily
     private val displayFamily get() = InterDisplay
 
-    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 38.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp, lineHeight = 42.sp)
-    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
-    val heading get() = TextStyle(fontFamily = family, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-    val body get() = TextStyle(fontFamily = family, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-    val secondary get() = TextStyle(fontFamily = family, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp)
-    val caption get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
-    val label get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
-    val overline get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+    // Sized to tvOS 27's measured type at 1080p (body ~28 px, secondary ~25 px): smaller than before.
+    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp, lineHeight = 38.sp)
+    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 24.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
+    val heading get() = TextStyle(fontFamily = family, fontSize = 17.5.sp, fontWeight = FontWeight.SemiBold)
+    val body get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    val secondary get() = TextStyle(fontFamily = family, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
+    val caption get() = TextStyle(fontFamily = family, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, lineHeight = 15.sp)
+    val label get() = TextStyle(fontFamily = family, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
+    val overline get() = TextStyle(fontFamily = family, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
 
 
     /** For white text straight on busy art: tighter and darker, so the letters keep an edge. */

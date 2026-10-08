@@ -185,6 +185,17 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun Hint(text: String, modifier: Modifier = Modifier) {
+    // In a full Settings page the words go to its left column (tvOS); the right side keeps only rows.
+    val sink = dev.glasslauncher.home.LocalTitleSink.current
+    if (sink != null) {
+        val page = dev.glasslauncher.home.LocalPageKey.current
+        androidx.compose.runtime.DisposableEffect(sink, page, text) {
+            val entry = page to text
+            sink.captions.add(entry)
+            onDispose { sink.captions.remove(entry) }
+        }
+        return
+    }
     Text(text, style = Type.secondary, color = LocalPalette.current.secondary, modifier = modifier.padding(horizontal = 18.dp, vertical = 6.dp))
 }
 

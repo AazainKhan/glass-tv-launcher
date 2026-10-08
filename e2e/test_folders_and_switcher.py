@@ -67,7 +67,10 @@ def _switcher(tv):
 def test_app_switcher_is_laid_out_like_tvos(tv, home, two_recent_apps):
     """tvOS: the newest app's card large in the centre with its icon and name above it, earlier apps stacked
     and overlapping to its left, Home peeking in on the right."""
-    tree = _switcher(tv)
+    _switcher(tv)
+    # Last time's list shows at once and the fresh one can re-centre a beat later: wait for it to land.
+    tree = tv.wait_for(lambda t: t.focused() and t.focused().rid == f"switcher-card:{NEWER}"
+                       and abs(sum(t.focused().bounds[::2]) / 2 - 960) < 40 and t, 3, "the newest card centred")
     focused = tree.focused()
     assert focused and focused.rid == f"switcher-card:{NEWER}", f"focus should start on the newest app, not {focused}"
     assert tree.find(rid="switcher-title").label == "VLC", "the focused app's name sits above its card"

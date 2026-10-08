@@ -101,7 +101,11 @@ fun OverlayContent(
                     open(Overlay.TextInput("Rename Folder", overlay.folder.name) { model.renameFolder(overlay.folder.id, it); closeAll() })
                 })
                 MenuRow("Move", { startMove(folderKey(overlay.folder.id)) })
-                MenuRow("Remove Folder", { model.deleteFolder(overlay.folder.id); closeAll() })
+                MenuRow("Remove Folder", {
+                    open(Overlay.Confirm("Remove “${overlay.folder.name}”?", "Its apps go back to Home; nothing is uninstalled.", "Remove Folder", destructive = true) {
+                        model.deleteFolder(overlay.folder.id); closeAll()
+                    })
+                })
                 Hint("Removing a folder puts its apps back on the home screen.")
             }
         }
@@ -121,6 +125,7 @@ fun OverlayContent(
         is Overlay.IconPicker -> SidePanel(active, width = 520.dp) { IconPickerBody(overlay.app, model, active, open, closeAll) }
         is Overlay.TextInput -> SidePanel(active) { TextInputBody(overlay, active, close, open) }
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
+        is Overlay.Confirm -> FullOverlay(active) { ConfirmCard(overlay, active, close) }
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close)
         Overlay.Settings -> SettingsPage(active, icon = { SettingsIcon() }) { SettingsPanel(model, cfg, layout, active, open, close) }
@@ -152,7 +157,7 @@ fun MenuList(active: Boolean, content: @Composable ColumnScope.(FocusRequester) 
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides MinimalScroll) {
         Column(
             // tvOS 27: slim rows (about 35 dp) with a clear gap between them.
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -165,8 +170,9 @@ fun MenuList(active: Boolean, content: @Composable ColumnScope.(FocusRequester) 
 fun PanelTitle(text: String) {
     val sink = LocalTitleSink.current
     if (sink != null) {
-        // Full-page layouts show the title centred at the top instead.
-        LaunchedEffect(text) { sink.title = text }
+        // Full-page layouts show the title centred at the top instead, and this page's captions on the left.
+        val page = LocalPageKey.current
+        LaunchedEffect(text, page) { sink.title = text; sink.page = page }
         return
     }
     Text(text, style = Type.title, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 18.dp, bottom = 12.dp, top = 4.dp))
@@ -531,6 +537,28 @@ private fun TipsCard(active: Boolean, dismiss: () -> Unit) {
                 Tip("📱", "Long text like API keys can be typed on your phone. Look for \"Type on Your Phone\".")
                 Spacer(Modifier.height(6.dp))
                 MenuRow("Get Started", dismiss, Modifier.focusRequester(first))
+            }
+        }
+    }
+}
+
+/**
+ * tvOS's confirmation card (the logic, not tvOS 26's look): a compact glass card over a dim, the title and
+ * what will happen, then the action first and focused (red when destructive) and Cancel under it.
+ */
+@Composable
+private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) {
+    val palette = LocalPalette.current
+    val first = remember { FocusRequester() }
+    LaunchedEffect(active) { if (active) { withFrameNanos { }; runCatching { first.requestFocus() } } }
+    Box(Modifier.fillMaxSize().background(Scrim), contentAlignment = Alignment.Center) {
+        GlassBoxCard(Modifier.width(380.dp)) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(c.title, style = Type.heading, color = palette.primary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(c.message, style = Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(Modifier.height(6.dp))
+                MenuRow(c.confirm, { close(); c.onConfirm() }, Modifier.focusRequester(first), destructive = c.destructive)
+                MenuRow("Cancel", close)
             }
         }
     }

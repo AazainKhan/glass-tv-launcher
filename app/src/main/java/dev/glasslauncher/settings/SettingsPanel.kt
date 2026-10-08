@@ -160,7 +160,10 @@ fun SettingsPanel(
         val pageActive = active && landed && page == stack.last()
         if (page is Page.Wallpapers) {
             WallpaperPage(page.dark, model, cfg, pageActive, open)
-        } else MenuList(pageActive) { first ->
+        } else androidx.compose.runtime.CompositionLocalProvider(
+            dev.glasslauncher.home.LocalPageKey provides page,
+            dev.glasslauncher.home.LocalConfirm provides { c -> open(c) },
+        ) { MenuList(pageActive) { first ->
             val f = Modifier.focusRequester(first)
             when (page) {
                 Page.Root -> RootPage(model, cfg, f, ::push, open)
@@ -188,7 +191,7 @@ fun SettingsPanel(
                 is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); pop() }
                 is Page.Wallpapers -> Unit
             }
-        }
+        } }
     }
 }
 
@@ -374,7 +377,10 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
             open(Overlay.TextInput("YouTube Data API Key", fc.youtubeKey, "Create one in Google Cloud Console with YouTube Data API v3 enabled.") { k -> setFeatured { it.copy(youtubeKey = k) } })
         }, value = mask(fc.youtubeKey))
         if (fc.plexToken.isBlank()) MenuRow("Plex", { push(Page.PlexLink) }, value = "Sign In")
-        else MenuRow("Plex", { setFeatured { it.copy(plexToken = "") } }, value = "Sign Out")
+        else {
+            val askPlex = dev.glasslauncher.home.LocalConfirm.current
+            MenuRow("Plex", { askPlex(dev.glasslauncher.home.Overlay.Confirm("Sign Out of Plex?", "The Top Shelf stops showing your Plex titles until you sign in again.", "Sign Out", destructive = true) { setFeatured { it.copy(plexToken = "") } }) }, value = "Sign Out")
+        }
     }
     when (fc.source) {
         FeaturedSourceId.Stremio -> {
@@ -410,7 +416,10 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         FeaturedSourceId.Plex -> {
             SectionLabel("Plex")
             if (fc.plexToken.isBlank()) MenuRow("Sign In", { push(Page.PlexLink) })
-            else MenuRow("Sign Out", { setFeatured { it.copy(plexToken = "") } }, value = "Signed in")
+            else {
+                val askPlex = dev.glasslauncher.home.LocalConfirm.current
+                MenuRow("Sign Out", { askPlex(dev.glasslauncher.home.Overlay.Confirm("Sign Out of Plex?", "The Top Shelf stops showing your Plex titles until you sign in again.", "Sign Out", destructive = true) { setFeatured { it.copy(plexToken = "") } }) }, value = "Signed in")
+            }
             Hint("Shows your On Deck items from the first Plex server that answers.")
         }
         FeaturedSourceId.ContinueWatching -> Hint("What you were watching in any app, from the rows apps publish to the TV (Watch Next and their own Continue Watching rows).")
@@ -595,10 +604,15 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
     }
     if (HomeSetup.isFireTv || !isDefault) {
         SectionLabel("Fallback")
+        val askGuard = dev.glasslauncher.home.LocalConfirm.current
         ToggleRow("Home Button Takeover", cfg.homeGuard, { enable ->
-            model.edit { it.copy(homeGuard = enable) }
-            if (canWrite) HomeSetup.setGuardEnabled(context, enable)
-            refresh++
+            val apply = {
+                model.edit { it.copy(homeGuard = enable) }
+                if (canWrite) HomeSetup.setGuardEnabled(context, enable)
+                refresh++
+            }
+            // Turning it off can leave the stock home screen in charge: ask first.
+            if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, Glass Launcher won't take over again.", "Turn Off", destructive = true) { apply() })
         })
         Hint("When the stock home screen appears, Glass Launcher takes over. It only watches for the stock launcher's window and never intercepts buttons.")
         if (cfg.homeGuard && !guardOn) {
@@ -634,18 +648,17 @@ private fun ColumnScope.UpdatesPage(f: Modifier) {
         }
     })
     release?.let { r ->
-        MenuRow("Install ${r.version}", {
+        val askUpdate = dev.glasslauncher.home.LocalConfirm.current
+        MenuRow("Install ${r.version}", { askUpdate(dev.glasslauncher.home.Overlay.Confirm("Glass Launcher ${r.version}", "Download and install it now? Glass restarts when it's done.", "Download and Install") {
             if (!Updater.canInstall(context)) {
                 runCatching { context.startActivity(Updater.unknownSourcesIntent(context)) }
                 status = "Allow Glass Launcher to install apps, then select Install again."
-                return@MenuRow
-            }
-            scope.launch {
+            } else scope.launch {
                 runCatching {
                     Updater.downloadAndInstall(context, graph.http, r) { p -> status = "Downloading… ${(p * 100).toInt()}%" }
                 }.onSuccess { status = "Installing…" }.onFailure { status = it.message ?: "Update failed." }
             }
-        })
+        }) })
         if (r.notes.isNotBlank()) Hint(r.notes.take(400))
     }
     status?.let { Hint(it) }
@@ -672,7 +685,8 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
     MenuRow("Save Backup", {
         scope.launch { status = runCatching { "Saved to " + Backup.export(context, graph.config.export()) }.getOrElse { it.message ?: "Couldn't save." } }
     }, f)
-    MenuRow("Restore from Downloads", {
+    val askRestore = dev.glasslauncher.home.LocalConfirm.current
+    MenuRow("Restore from Downloads", { askRestore(dev.glasslauncher.home.Overlay.Confirm("Restore from Downloads?", "Your current layout, folders and settings are replaced by the backup's.", "Restore", destructive = true) {
         scope.launch {
             val text = runCatching { Backup.read(context) }.getOrNull()
             status = when {
@@ -681,8 +695,10 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
                 else -> "The backup file couldn't be read."
             }
         }
+    }) })
+    if (canBrowse) MenuRow("Restore from File…", {
+        askRestore(dev.glasslauncher.home.Overlay.Confirm("Restore from a File?", "Your current layout, folders and settings are replaced by the file's.", "Choose File", destructive = true) { pick.launch(arrayOf("application/json", "*/*")) })
     })
-    if (canBrowse) MenuRow("Restore from File…", { pick.launch(arrayOf("application/json", "*/*")) })
     status?.let { Hint(it) }
     Hint("Backups include your layout, folders, hidden apps and settings. Custom images stay on this TV.")
 }
@@ -825,8 +841,14 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     MenuRow("Superuser", { rootCheck++ }, f, value = when (rooted) { null -> "Checking…"; true -> "Detected"; false -> "Not detected" })
     Hint(if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select Superuser to check again after granting Glass Launcher root.")
     SectionLabel("System")
+    val askSystem = dev.glasslauncher.home.LocalConfirm.current
     MenuRow("System App", {
-        act("system") { if (system == dev.glasslauncher.system.RootFeatures.SystemApp.Off || system == dev.glasslauncher.system.RootFeatures.SystemApp.Removing) rf.installSystemApp(context) else rf.removeSystemApp(context) }
+        val install = system == dev.glasslauncher.system.RootFeatures.SystemApp.Off || system == dev.glasslauncher.system.RootFeatures.SystemApp.Removing
+        askSystem(dev.glasslauncher.home.Overlay.Confirm(
+            if (install) "Install as a System App?" else "Remove the System App?",
+            if (install) "Glass becomes a privileged system app after the next restart (a Magisk module; removing it reverts)." else "Glass goes back to a regular app after the next restart.",
+            if (install) "Install" else "Remove", destructive = !install,
+        ) { act("system") { if (install) rf.installSystemApp(context) else rf.removeSystemApp(context) } })
     }, enabled = on, value = when (system) {
         dev.glasslauncher.system.RootFeatures.SystemApp.On -> "On"
         dev.glasslauncher.system.RootFeatures.SystemApp.Pending -> "On after restart"
@@ -845,7 +867,10 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)
     MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true, enabled = on)
     SectionLabel("Device")
-    MenuRow("Restart Now", { act("restart") { rf.restart(context) } }, enabled = on)
+    val ask = dev.glasslauncher.home.LocalConfirm.current
+    MenuRow("Restart Now", {
+        ask(dev.glasslauncher.home.Overlay.Confirm("Restart Now?", "The TV restarts to apply root changes. Anything playing stops.", "Restart", destructive = true) { act("restart") { rf.restart(context) } })
+    }, enabled = on)
     MenuRow("Root Log", { push(Page.RootLog) }, chevron = true, enabled = on)
 }
 
@@ -905,6 +930,8 @@ private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: M
     val index = TEXT_SIZES.indexOfFirst { it.first == textSizeName(cfg.textScale).let { n -> TEXT_SIZES.first { s -> s.second == n }.first } }
     fun set(i: Int) { model.edit { it.copy(textScale = TEXT_SIZES[i.coerceIn(0, TEXT_SIZES.lastIndex)].first) } }
     PanelTitle("Text Size")
+    // The size's name above the slider (tvOS 27).
+    Text(TEXT_SIZES[index].second, style = Type.heading, color = palette.primary, modifier = Modifier.padding(start = 18.dp, bottom = 6.dp).testTag("text-size-name"))
     var focused by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -943,7 +970,6 @@ private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: M
         }
         Text("A", style = Type.title, color = fg)
     }
-    Text(TEXT_SIZES[index].second, style = Type.heading, color = palette.primary, modifier = Modifier.padding(start = 18.dp, top = 10.dp))
     Hint("Press left or right. Text and the layout around it grow together, here and across the launcher.")
 }
 

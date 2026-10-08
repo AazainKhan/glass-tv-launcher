@@ -30,10 +30,17 @@ class HomeShots {
         ActivityScenario.launch(MainActivity::class.java).use { compose.waitForHome(); block(it) }
     }
 
-    private fun capture(name: String, tolerance: Float = 0f) {
+    /**
+     * [tolerance]: the share of pixels that may differ; [colourNoise]: how far each pixel's colour may
+     * drift (glass over the JVM harness's blurred Home varies faintly everywhere between runs).
+     */
+    private fun capture(name: String, tolerance: Float = 0f, colourNoise: Float = 0f) {
         compose.settle()
-        val options = if (tolerance > 0f) com.github.takahirom.roborazzi.RoborazziOptions(
-            compareOptions = com.github.takahirom.roborazzi.RoborazziOptions.CompareOptions(changeThreshold = tolerance),
+        val options = if (tolerance > 0f || colourNoise > 0f) com.github.takahirom.roborazzi.RoborazziOptions(
+            compareOptions = com.github.takahirom.roborazzi.RoborazziOptions.CompareOptions(
+                changeThreshold = tolerance,
+                imageComparator = com.dropbox.differ.SimpleImageComparator(maxDistance = colourNoise.coerceAtLeast(0.007f)),
+            ),
         ) else com.github.takahirom.roborazzi.RoborazziOptions()
         compose.stableImage().captureRoboImage(shot(name), roborazziOptions = options)
     }
@@ -77,7 +84,7 @@ class HomeShots {
     @Test fun settings() = home {
         compose.focusTag("settings-tile")
         compose.press(Button.Select)
-        capture("settings")
+        capture("settings", colourNoise = 0.03f)
     }
 
     @Test fun lightDock() = home(config = { it.copy(theme = ThemeMode.Light) }) { capture("home-dock-light") }
