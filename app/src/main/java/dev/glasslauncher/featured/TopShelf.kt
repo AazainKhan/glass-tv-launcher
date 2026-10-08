@@ -84,7 +84,9 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
         ) {
             // At rest tvOS shows only the big wordmark; details wait for the full-screen view. Titles
             // dissolve into each other in step with the backdrop.
-            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { Wordmark(it, height = 72.dp) }
+            // Only a real logo shows at rest: a plain-text title would be one generic font for every
+            // service. The name appears in full screen (Up), with its details.
+            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { if (it.logo != null) Wordmark(it, height = 72.dp) }
         }
     }
 }

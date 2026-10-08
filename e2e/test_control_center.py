@@ -310,3 +310,45 @@ def test_alexa_page_can_be_turned_off_in_settings(tv, home, cc, settings):
         if settings.toggle_state("Alexa Page") is False:
             settings.select()
         home.reset()
+
+
+def test_tiles_keep_one_grid_when_focused(tv, home, cc):
+    """The focused Settings tile still lines up with the Wi-Fi/Bluetooth stack beside it (focus may lift it
+    a touch, not push it past the grid)."""
+    cc.open()
+    import time
+    time.sleep(0.6)
+    tree = tv.tree()
+    settings, bluetooth = tree.find(desc_prefix="Settings, Fire TV"), tree.find(desc_prefix="Bluetooth")
+    assert tree.focused() and tree.focused().desc.startswith("Settings, Fire TV"), "Settings should have focus"
+    wifi = tree.find(desc_prefix="Wi-Fi")
+    img = tv.screen_image()
+    # The focused tile is solid white: its drawn top and bottom, against the pill stack's layout edges.
+    x = settings.bounds[0] + 70  # past the rounded corner (26 dp)
+    white = [y for y in range(settings.bounds[1] - 20, settings.bounds[3] + 20) if img.getpixel((x, y)) > 235]
+    drawn = (white[0], white[-1])
+    stack = (wifi.bounds[1], bluetooth.bounds[3])
+    assert abs(drawn[0] - stack[0]) <= 4 and abs(drawn[1] - stack[1]) <= 4, \
+        f"the focused Settings tile spills past the grid: drawn {drawn} vs the pills {stack}"
+
+
+def test_header_lines_are_evenly_spaced(tv, home, cc):
+    """Time, date and weather: three lines with equal air between them (measured on the drawn text)."""
+    cc.open()
+    import time
+    time.sleep(0.8)
+    tree = tv.tree()
+    clock, weather = tree.find(rid="cc-clock"), tree.find(rid="weather")
+    if weather is None:
+        pytest.skip("no weather location set")
+    img = tv.screen_image()
+    x0, x1 = clock.bounds[0], clock.bounds[0] + 160
+    rows = [y for y in range(clock.bounds[1] - 10, weather.bounds[3] + 10) if max(img.getpixel((x, y)) for x in range(x0, x1, 2)) > 150]
+    bands, start = [], rows[0]
+    for a, b in zip(rows, rows[1:]):
+        if b - a > 2:
+            bands.append((start, a)); start = b
+    bands.append((start, rows[-1]))
+    assert len(bands) == 3, f"expected three lines of text, found {bands}"
+    gaps = [bands[1][0] - bands[0][1], bands[2][0] - bands[1][1]]
+    assert min(gaps) >= 8 and abs(gaps[0] - gaps[1]) <= 3, f"uneven header spacing: gaps {gaps} px"

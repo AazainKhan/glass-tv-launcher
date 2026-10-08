@@ -238,8 +238,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
-                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp).testTag("cc-date"))
-                    cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) }
+                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-date"))
+                    // Equal air between the three lines as drawn: the clock's own leading already sits under it,
+                    // so the weather line gets the matching gap above (e2e measures the ink).
+                    cfg.weather?.let { Box(Modifier.padding(top = 5.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) } }
                 }
                 if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
                     PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
@@ -455,7 +457,8 @@ private fun CcTile(
         onClick = onClick,
         onFocusChange = onFocusChange,
         shape = shape,
-        focusedScale = 1.06f,
+        // A touch of lift only: at 1.06 the focused Settings tile spilled past the pills' grid.
+        focusedScale = 1.02f,
         shadow = false,
         modifier = modifier.size(width, height),
     ) { focused ->

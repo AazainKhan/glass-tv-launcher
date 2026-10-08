@@ -152,3 +152,15 @@ def test_every_tray_app_has_a_full_screen_hero(tv, home, pkg):
     tv.press("right")
     tv.press("left")
     tv.wait_for(lambda t: t.find(rid=f"app-art:{pkg}"), 8, f"{pkg}'s full-screen art")
+
+
+def test_titles_without_a_logo_stay_hidden_at_rest(tv, home, focused_app):
+    """A title with no logo art would be plain text in one generic font: at rest the shelf shows only the
+    art (the name appears in full screen). JustWatch titles (Netflix) carry no logos."""
+    tray_y = tv.tree().focused().center[1]
+    if abs(home.focus_app(NETFLIX).center[1] - tray_y) > 20:
+        pytest.skip("Netflix isn't in the top row")
+    tree = tv.wait_for(lambda t: t.find(rid="shelf-title") and t, 10, "Netflix's titles")
+    assert not tree.find(rid="shelf-title").texts, f"a plain-text title shows at rest: {tree.find(rid='shelf-title').texts}"
+    tv.press("up")
+    tv.wait_for(lambda t: t.find(rid="featured-row") and any(len(n.text) > 2 for n in t.nodes() if n.center[1] < 700 and n.center[0] < 900), 4, "the title in full screen")
