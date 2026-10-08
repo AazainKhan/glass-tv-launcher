@@ -93,6 +93,24 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             bake(cropToScreen(image, recycleSource = false), scene, light) { job?.isActive != false }
         }
 
+    /**
+     * A cheap backdrop for an app's own Top Shelf hero: from a small, already soft image (the app's blurred
+     * screenshot, or a wash of its banner), darkened and baked at 480×270 rather than 1080p. The sharp
+     * layer is drawn stretched, which is invisible on a blurred picture, so it costs ~5 MB, not ~14.
+     */
+    suspend fun fromAppArt(image: Bitmap, light: Boolean = false, darken: Boolean = true): Backdrop = withContext(BakeDispatcher) {
+        val small = Bitmap.createBitmap(APP_HERO_W, APP_HERO_H, Bitmap.Config.ARGB_8888)
+        val scale = max(APP_HERO_W / image.width.toFloat(), APP_HERO_H / image.height.toFloat())
+        val w = (APP_HERO_W / scale).toInt(); val h = (APP_HERO_H / scale).toInt()
+        val x = (image.width - w) / 2; val y = (image.height - h) / 2
+        Canvas(small).apply {
+            drawBitmap(image, android.graphics.Rect(x, y, x + w, y + h), android.graphics.Rect(0, 0, APP_HERO_W, APP_HERO_H), Paint(Paint.FILTER_BITMAP_FLAG))
+            if (darken) drawColor(Color.argb(90, 0, 0, 0))
+        }
+        val job = coroutineContext[kotlinx.coroutines.Job]
+        bake(small, Scene.Hero, light) { job?.isActive != false }
+    }
+
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
     fun prewarm() {
         blurReady
@@ -297,6 +315,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         const val BLUR_W = 192
         const val BLUR_H = 108
         const val CLEAR_W = 480
+        const val APP_HERO_W = 480
+        const val APP_HERO_H = 270
         const val CLEAR_H = 270
 
         val presets = listOf(

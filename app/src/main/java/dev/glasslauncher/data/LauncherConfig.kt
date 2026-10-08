@@ -48,6 +48,8 @@ data class LauncherConfig(
     val recentApps: List<String> = emptyList(),
     /** Remote button name (e.g. "KEYCODE_APP_1") -> action; see RemoteAction. Missing = Fire TV default. */
     val remoteButtons: Map<String, String> = emptyMap(),
+    /** Top Shelf: show the focused app's titles after a dwell (else only its hero). */
+    val topShelfTitles: Boolean = true,
 ) {
     /** Minutes of idle Home before Aerials start (when Aerials is the screensaver); 0 stored means the default. */
     val aerialsIdleMinutes: Int get() = aerialsOnIdleMinutes.takeIf { it > 0 } ?: 5

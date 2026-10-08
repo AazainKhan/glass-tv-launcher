@@ -50,9 +50,9 @@ def test_back_from_the_grid_returns_to_the_top(tv, home):
 
 
 def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
-    if not tv.tree().find(text="Press up for full screen"):
+    if not tv.tree().find(rid="shelf-chevron"):
         import pytest
-        pytest.skip("no featured content (Featured Row off or offline)")
+        pytest.skip("no Top Shelf titles (Top Shelf Content off, Show Titles Never, or offline)")
     tv.press("up")
     shelf = tv.wait_for(lambda t: t.find(rid="featured-row"), 6, "the full-screen shelf's row")
     assert shelf
@@ -62,9 +62,9 @@ def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
 
 def test_full_screen_shelf_has_no_dots_and_ends_at_the_last_card(tv, home):
     """The page dots stopped at 12 while cards kept going; the dots are gone, and Right stops at the last card."""
-    if not tv.tree().find(text="Press up for full screen"):
+    if not tv.tree().find(rid="shelf-chevron"):
         import pytest
-        pytest.skip("no featured content")
+        pytest.skip("no Top Shelf titles")
     tv.press("up")
     tv.wait_for(lambda t: t.find(rid="featured-row"), 6, "the full-screen shelf")
     assert not tv.tree().find(rid="shelf-dots"), "the page dots are still shown"

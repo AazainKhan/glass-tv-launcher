@@ -26,9 +26,9 @@ def test_set_up_from_phone_shows_a_link(tv, home, settings):
 
 def test_featured_row_page_explains_its_sources(tv, home, settings):
     settings.open_from_control_center()
-    settings.open_page("Featured Row")
+    settings.open_page("Top Shelf Content")
     for row in ["Focused App", "One Source", "Off"]:
-        assert tv.tree().has_text(row) or any(row in n.label for n in tv.tree().nodes()), f"Featured Row has no '{row}'"
+        assert tv.tree().has_text(row) or any(row in n.label for n in tv.tree().nodes()), f"Top Shelf Content has no '{row}'"
 
 
 def test_hidden_apps_show_and_hide_again(tv, home, settings):

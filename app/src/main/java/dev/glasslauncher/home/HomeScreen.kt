@@ -50,6 +50,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
@@ -129,6 +131,11 @@ private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
 /** Focus rests this long on a top-row app before the shelf switches to its content. */
 private const val SHELF_FOLLOW_MS = 450L
+/** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
+private const val APP_HERO_MS = 250L
+private const val APP_HERO_FADE_MS = 200
+/** ...and this long shows its titles (tvOS 27: the shelf moves with the user first). */
+private const val TITLES_AFTER_MS = 1_500L
 /** Now Playing stays on Home this long after playback stops (track changes, short pauses). */
 private const val NOW_PLAYING_LINGER_MS = 3_000L
 private const val NOW_PLAYING_PAUSED_MS = 10 * 60_000L
@@ -172,13 +179,30 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Featured content drives the live backdrop. In "Focused app" mode the shelf follows the focused
     // top-row app once focus rests on it (browsing along the row doesn't fetch and bake every app).
     var shelfApp by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(lastDockFocused, cfg.featured.mode) {
-        if (cfg.featured.mode != dev.glasslauncher.data.FeaturedMode.FocusedApp) return@LaunchedEffect
-        delay(SHELF_FOLLOW_MS)
-        shelfApp = lastDockFocused?.removePrefix("app:")
+    // tvOS 27's Top Shelf moves with the user: the focused tray app's own hero within a beat (cached,
+    // cheap), its titles only once focus has rested there. Browsing along the row never bakes titles.
+    var heroApp by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(lastDockFocused) {
+        val pkg = lastDockFocused?.removePrefix("app:") ?: return@LaunchedEffect
+        delay(APP_HERO_MS)
+        heroApp = pkg
+    }
+    var dwelled by remember { mutableStateOf(false) }
+    LaunchedEffect(heroApp) {
+        dwelled = false
+        if (heroApp == null) return@LaunchedEffect
+        delay(TITLES_AFTER_MS)
+        dwelled = true
+    }
+    LaunchedEffect(heroApp, cfg.featured.mode, cfg.topShelfTitles) {
+        if (cfg.featured.mode != dev.glasslauncher.data.FeaturedMode.FocusedApp || !cfg.topShelfTitles) return@LaunchedEffect
+        shelfApp = heroApp
     }
     val appsWithRows by produceState(emptySet<String>(), layout.loaded) { value = dev.glasslauncher.featured.TvRows.packagesWithRows(context) }
-    val featuredCfg = remember(cfg.featured, shelfApp, appsWithRows) { dev.glasslauncher.featured.AppSources.effective(cfg.featured, shelfApp, appsWithRows) }
+    // Show Titles: Never means no title fetch at all (the shelf is only ever the app's hero).
+    val featuredCfg = remember(cfg.featured, shelfApp, appsWithRows, cfg.topShelfTitles) {
+        if (!cfg.topShelfTitles) null else dev.glasslauncher.featured.AppSources.effective(cfg.featured, shelfApp, appsWithRows)
+    }
     LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
     val feed = featuredState.feed?.takeIf { featuredCfg != null && it.items.isNotEmpty() }
@@ -231,14 +255,29 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             current != null -> { delay(NOW_PLAYING_LINGER_MS); takeover = null }
         }
     }
-    val sceneUrl = if (cfg.background == BackgroundMode.Featured) hero?.image else null
+    // The app's own hero shows until its titles are due: after a dwell, with titles on, and some to show.
+    val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded)
+    val appHeroShown = cfg.background == BackgroundMode.Featured && takeover == null && !expanded && heroApp != null && !titlesDue
+    val appHeroPkg = heroApp.takeIf { appHeroShown }
+    // A few app heroes are kept, so moving back and forth along the row never bakes twice (~5 MB each).
+    val appHeroes = remember { object : LinkedHashMap<String, dev.glasslauncher.glass.Backdrop>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, dev.glasslauncher.glass.Backdrop>?) = size > 3
+    } }
+    val sceneUrl = if (cfg.background == BackgroundMode.Featured && !appHeroShown) hero?.image else null
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
     val takeoverArt = takeover?.art
-    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt) {
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg) {
         if (takeoverArt != null) {
             backdrop.swap(graph.wallpapers.fromImage(dev.glasslauncher.widgets.backdropArt(takeoverArt), light = !dark), animate = backdrop.backdrop != null)
             return@LaunchedEffect
+        }
+        if (appHeroPkg != null) {
+            val key = "$appHeroPkg|$dark"
+            val baked = appHeroes[key] ?: appHeroBackdrop(context, graph, layout, model, appHeroPkg, dark)?.also { appHeroes[key] = it }
+            // A short fade: during one the backdrop and every glass surface draw twice, and this changes as
+            // focus moves along the row.
+            if (baked != null) { backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); return@LaunchedEffect }
         }
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
@@ -381,8 +420,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Paused while Home is hidden (an app is in front): no bakes behind the app, and Home comes back on
     // the slide it left on, which is what the app-close animation's blurred picture shows.
     val homeVisible = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null) {
-        if (!homeVisible || takeover != null) return@LaunchedEffect
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown) {
+        // Only while titles show: an app's own hero never advances or bakes slides.
+        if (!homeVisible || takeover != null || appHeroShown) return@LaunchedEffect
         // Paused under Control Center too: its translucent tiles would change colour with every slide.
         if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || ControlCenterWindow.open || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
         delay(SLIDE_MS)
@@ -558,7 +598,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     when {
                         e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { openControlCenter(); true }
                         // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
-                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && takeover == null -> { setExpanded(true); true }
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && cfg.topShelfTitles && takeover == null -> { setExpanded(true); true }
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && takeover != null && !pillFocused && !heroFocused ->
                             runCatching { heroPlay.requestFocus() }.isSuccess
                         // From the status pill, Down goes back to the Now Playing controls.
@@ -596,12 +636,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
                 BackdropLayer(backdrop, drawSharp = cfg.background != BackgroundMode.Motion)
 
-                if (hero != null && takeover == null) {
+                if (appHeroPkg != null) AppHeroLogo(appHeroPkg, layout, model, Modifier.graphicsLayer {
+                    alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
+                    translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
+                })
+                if (hero != null && takeover == null && !appHeroShown) {
                     ShelfTitle(
                         item = hero,
                         expanded = { expand.value },
                         modifier = Modifier
                             .fillMaxSize()
+                            .testTag("shelf-title")
                             .graphicsLayer {
                                 val atRest = 1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f)
                                 // Gone within the first third of the expand, before the large title fades in.
@@ -618,7 +663,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         model = model,
                         listState = listState,
                         moving = moving,
-                        showHint = feed != null && takeover == null,
+                        // Only when there are titles to open (Up); an app with nothing shows no chevron.
+                        showHint = feed != null && cfg.topShelfTitles && takeover == null,
                         hintAlpha = { (1f - backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f) * (1f - expand.value) * idle.chromeAlpha },
                         requester = ::requester,
                         onFocused = { key, row ->
@@ -913,16 +959,18 @@ private fun HomeList(
 /** tvOS shows "⌃ Swipe up for full screen" just above the tray. */
 @Composable
 private fun ShelfHint(alpha: () -> Float) {
-    // On the art itself (no glass, no shadow: tvOS text is flat): the baked scrim darkens the art above
-    // the tray; dark text where the art is light anyway.
+    // tvOS 27: just a wide, flat chevron above the tray (no words), on the art itself.
     val onLight = LocalBackdrop.current.backdrop?.artLight(0.35f, 0.6f, 0.65f, 0.7f) == true
-    val color = if (onLight) Color(0xFF0E1015) else Color.White
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(bottom = 10.dp).graphicsLayer { this.alpha = alpha() },
+    val color = (if (onLight) Color(0xFF0E1015) else Color.White).copy(alpha = 0.4f)
+    androidx.compose.foundation.Canvas(
+        Modifier.padding(bottom = 14.dp).size(28.dp, 9.dp).graphicsLayer { this.alpha = alpha() }.testTag("shelf-chevron"),
     ) {
-        Text("⌃", style = Type.secondary, color = color.copy(alpha = 0.7f))
-        Text("Press up for full screen", style = Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = color.copy(alpha = 0.7f))
+        // The provided SVG's shape (55×17 viewbox): a stretched chevron with round caps.
+        val sx = size.width / 55f; val sy = size.height / 17f
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(3f * sx, 14f * sy); lineTo(27.5f * sx, 3f * sy); lineTo(52f * sx, 14f * sy)
+        }
+        drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.6f * sy * 17f / 9f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
     }
 }
 
@@ -1167,6 +1215,72 @@ fun rememberArt(model: HomeModel, app: AppEntry): ImageBitmap? {
     val spec = model.spec(app, cfg)
     val art by produceState(graph.tileArt.peek(spec), spec) { value = graph.tileArt.load(spec) }
     return art
+}
+
+/**
+ * The Top Shelf's own hero for a tray app (tvOS's "logo only" shelf, e.g. Peacock's): the app's logo
+ * large and centred on its own brand colour (the backdrop), or for full-bleed banners the banner itself
+ * over a blurred wash of it.
+ */
+@Composable
+private fun AppHeroLogo(pkg: String, layout: HomeLayout, model: HomeModel, modifier: Modifier) {
+    val context = LocalContext.current
+    val m = LocalMetrics.current
+    val app = layout.installed.firstOrNull { it.packageName == pkg } ?: return
+    val hero by produceState(heroLogos[pkg], pkg) {
+        val cached = heroLogos[pkg]
+        value = cached ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            context.app.tileArt.heroLogo(app)?.let { it.background to it.image.asImageBitmap() }
+        }?.also { heroLogos[pkg] = it }
+    }
+    Box(
+        // The space above the tray (the chevron sits at its foot).
+        Modifier.fillMaxWidth().padding(top = m.chromeInset).height(m.trayTopAtRest - m.chromeInset - 30.dp).then(modifier).testTag("top-shelf-app-hero:$pkg"),
+        contentAlignment = Alignment.Center,
+    ) {
+        val h = hero
+        when {
+            h == null -> rememberArt(model, app)?.let {
+                Image(it, app.label, contentScale = ContentScale.Fit, modifier = Modifier.size(420.dp, 252.dp).clip(RoundedCornerShape(24.dp)))
+            }
+            // A logo on its brand colour: just the logo, no plate (the colour is the whole backdrop).
+            h.first != null -> Image(h.second, app.label, contentScale = ContentScale.Fit, modifier = Modifier.size(440.dp, 150.dp))
+            else -> Image(h.second, app.label, contentScale = ContentScale.Fit, modifier = Modifier.size(400.dp, 240.dp).clip(RoundedCornerShape(26.dp)))
+        }
+    }
+}
+
+/** Hero logos for the few apps in the tray. */
+private val heroLogos = object : LinkedHashMap<String, Pair<Int?, androidx.compose.ui.graphics.ImageBitmap>>(8, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Int?, androidx.compose.ui.graphics.ImageBitmap>>?) = size > 6
+}
+
+/**
+ * The app hero's backdrop: the banner's brand colour when it has one (with a soft light in the middle),
+ * else the app's blurred last screen, else a wash of its banner.
+ */
+private suspend fun appHeroBackdrop(
+    context: android.content.Context, graph: dev.glasslauncher.GlassApp, layout: HomeLayout, model: HomeModel, pkg: String, dark: Boolean,
+): dev.glasslauncher.glass.Backdrop? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    val app = layout.installed.firstOrNull { it.packageName == pkg } ?: return@withContext null
+    val logo = graph.tileArt.heroLogo(app)
+    val bg = logo?.background
+    if (bg != null) {
+        logo.image.recycle()
+        val flat = android.graphics.Bitmap.createBitmap(480, 270, android.graphics.Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(flat).apply {
+            drawColor(bg)
+            // A faint light behind the logo, so the colour isn't a dead flat fill.
+            drawRect(0f, 0f, 480f, 270f, android.graphics.Paint().apply {
+                shader = android.graphics.RadialGradient(240f, 120f, 300f, android.graphics.Color.argb(28, 255, 255, 255), android.graphics.Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
+            })
+        }
+        return@withContext runCatching { graph.wallpapers.fromAppArt(flat, light = !dark, darken = false) }.getOrNull()
+    }
+    val source = dev.glasslauncher.system.AppPreviews.load(context, pkg)
+        ?: logo?.image?.let { b -> dev.glasslauncher.widgets.backdropArt(b).also { b.recycle() } }
+        ?: return@withContext null
+    runCatching { graph.wallpapers.fromAppArt(source, light = !dark) }.getOrNull()
 }
 
 /** tvOS shows guidance while rearranging; without it the wiggle mode feels like a dead end. */

@@ -226,7 +226,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
             }
         })
     }, value = "QR code")
-    MenuRow("Featured Row", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
+    MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
     MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
     MenuRow("Screensaver", { push(Page.Screensaver) }, chevron = true)
@@ -269,8 +269,8 @@ private fun ColumnScope.AppearancePage(model: HomeModel, cfg: LauncherConfig, f:
     MenuRow("Background", {
         val next = BackgroundMode.entries[(cfg.background.ordinal + 1) % BackgroundMode.entries.size]
         screen.dissolve { model.edit { it.copy(background = next) } }
-    }, value = when (cfg.background) { BackgroundMode.Featured -> "Featured"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" })
-    Hint("Featured fills Home with artwork from your featured source; Motion plays Apple's Aerial videos behind your apps.")
+    }, value = when (cfg.background) { BackgroundMode.Featured -> "Top Shelf"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" })
+    Hint("Top Shelf fills Home with the focused app and its titles; Motion plays Apple's Aerial videos behind your apps.")
     MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark), chevron = true)
     MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight), chevron = true)
     val fadeOptions = listOf(1, 3, 5, 10, 0)
@@ -343,12 +343,16 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     fun setFeatured(transform: (dev.glasslauncher.data.FeaturedConfig) -> dev.glasslauncher.data.FeaturedConfig) =
         model.edit { it.copy(featured = transform(it.featured)) }
 
-    PanelTitle("Featured Row")
+    PanelTitle("Top Shelf Content")
+    // tvOS 27: the focused app's own hero at once, its titles after resting on it. Never keeps the hero
+    // only (no title fetches, no slideshow bakes).
+    MenuRow("Show Titles", { model.edit { it.copy(topShelfTitles = !it.topShelfTitles) } }, f,
+        value = if (cfg.topShelfTitles) "Automatically" else "Never")
     // Turning it off keeps the default source, so turning it back on restores it.
     val off = fc.mode == FeaturedMode.Off || fc.source == FeaturedSourceId.Off
     val defaultSource = fc.source.takeIf { it != FeaturedSourceId.Off } ?: FeaturedSourceId.Stremio
     SectionLabel("Show content from")
-    MenuRow("Focused App", { setFeatured { it.copy(mode = FeaturedMode.FocusedApp, source = defaultSource) } }, f, value = if (!off && fc.mode == FeaturedMode.FocusedApp) "✓" else null)
+    MenuRow("Focused App", { setFeatured { it.copy(mode = FeaturedMode.FocusedApp, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.FocusedApp) "✓" else null)
     MenuRow("One Source", { setFeatured { it.copy(mode = FeaturedMode.OneSource, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.OneSource) "✓" else null)
     MenuRow("Off", { setFeatured { it.copy(mode = FeaturedMode.Off) } }, value = if (off) "✓" else null)
     if (off) return

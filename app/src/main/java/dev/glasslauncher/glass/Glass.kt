@@ -58,7 +58,8 @@ class BackdropState {
     val fade = Animatable(1f)
 
     /** Swaps in a new scene. The old one fades out (two passes) only for the short cross-fade. */
-    suspend fun swap(next: Backdrop, animate: Boolean) {
+    /** [fadeMs]: the slow dissolve for title slides; app heroes, which change as focus moves, use a short one. */
+    suspend fun swap(next: Backdrop, animate: Boolean, fadeMs: Int = 550) {
         val old = backdrop
         if (old == null || !animate) {
             previous = null
@@ -70,7 +71,7 @@ class BackdropState {
         backdrop = next
         try {
             fade.snapTo(0f)
-            fade.animateTo(1f, androidx.compose.animation.core.tween(550))
+            fade.animateTo(1f, androidx.compose.animation.core.tween(fadeMs))
         } finally {
             // Also when a newer swap cancels this one mid-fade: a previous left behind made every glass
             // surface (and the backdrop) draw twice for good, and kept its bitmaps alive (perf-gate: 12%

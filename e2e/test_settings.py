@@ -1,8 +1,8 @@
-"""Launcher Settings: opening it, the root list, page push/pop, Featured Row, Root."""
+"""Launcher Settings: opening it, the root list, page push/pop, Top Shelf Content, Root."""
 
 import pytest
 
-ROWS = ["Appearance", "Display & Text Size", "Control Center", "Set Up from Phone", "Featured Row", "Hidden Apps", "Icon Pack", "Screensaver",
+ROWS = ["Appearance", "Display & Text Size", "Control Center", "Set Up from Phone", "Top Shelf Content", "Hidden Apps", "Icon Pack", "Screensaver",
         "Widgets", "Accessibility", "Home Button", "Remote Buttons", "Updates", "Backup & Restore", "About"]
 
 
@@ -19,17 +19,17 @@ def test_page_push_and_back(tv, home, settings):
     settings.open_page("Appearance")
     tv.wait_for(lambda t: t.has_text("Light") or t.has_text("Dark"), 4, "the Appearance page's options")
     settings.back()
-    tv.wait_for(lambda t: t.has_text("Featured Row") and t.top_overlay() == "Settings", 4, "back on the main list")
+    tv.wait_for(lambda t: t.has_text("Top Shelf Content") and t.top_overlay() == "Settings", 4, "back on the main list")
     settings.back()
     tv.wait_for(lambda t: "Settings" not in t.overlays(), 4, "Settings to close")
 
 
 def test_featured_row_offers_focused_app_one_source_off(tv, home, settings):
     settings.open_from_control_center()
-    settings.open_page("Featured Row")
+    settings.open_page("Top Shelf Content")
     tree = tv.tree()
     for row in ["Focused App", "One Source", "Off", "Stremio", "TMDB", "YouTube", "Plex"]:
-        assert tree.has_text(row), f"Featured Row has no '{row}'"
+        assert tree.has_text(row), f"Top Shelf Content has no '{row}'"
 
 
 @pytest.mark.root
