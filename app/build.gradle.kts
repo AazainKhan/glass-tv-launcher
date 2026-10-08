@@ -20,7 +20,7 @@ android {
     }
 
     signingConfigs {
-        // CI supplies a real key through secrets; local builds fall back to the debug key.
+        // CI supplies a real key through secrets. Local builds fall back to the debug key; release tags must not (see build.yml).
         val keystore = System.getenv("RELEASE_KEYSTORE")?.let { file(it) }
         if (keystore != null && keystore.exists()) {
             create("release") {

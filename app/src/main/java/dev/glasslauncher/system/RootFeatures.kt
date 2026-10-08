@@ -92,13 +92,26 @@ object RootFeatures {
         context.packageManager.getApplicationInfo(pkg, 0).enabled
     }.getOrDefault(false)
 
-    suspend fun setHomeTakeover(context: Context, on: Boolean): Root.Result = if (on) {
+    /**
+     * Keeps Glass as Home: Amazon's launcher came back on once outside any store visit and took over Home.
+     * Called whenever Glass comes forward; does nothing unless that launcher is on while no store visit is
+     * open and Home Takeover hasn't been turned off.
+     */
+    suspend fun keepHome(context: Context) {
+        if (!context.getSharedPreferences(PREFS, 0).getBoolean("takeover", true)) return
+        if (AmazonStore.isOpen(context) || STOCK_HOME.none { isEnabled(context, it) }) return
+        if (!Root.available()) return
+        Root.action(context, "Amazon launcher was on: Glass back as Home", STOCK_HOME.joinToString("\n") { "pm disable-user --user 0 $it" } +
+            "\ncmd package set-home-activity ${context.packageName}/.MainActivity")
+    }
+
+    suspend fun setHomeTakeover(context: Context, on: Boolean): Root.Result = (if (on) {
         Root.action(context, "Home takeover on", STOCK_HOME.joinToString("\n") { "pm disable-user --user 0 $it" } +
             "\ncmd package set-home-activity ${context.packageName}/.MainActivity")
     } else {
         Root.action(context, "Home takeover off (stock launcher back)", STOCK_HOME.joinToString("\n") { "pm enable $it" } +
             "\ncmd package set-home-activity $STOCK_HOME_ACTIVITY")
-    }
+    }).also { context.getSharedPreferences(PREFS, 0).edit().putBoolean("takeover", on).apply() }
 
     // ── Performance profile ───────────────────────────────────────────────────────────────────────
 

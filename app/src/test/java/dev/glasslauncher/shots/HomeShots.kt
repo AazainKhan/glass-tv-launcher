@@ -68,7 +68,8 @@ class HomeShots {
 
     @Test fun appMenu() = home {
         compose.press(Button.Menu)
-        capture("app-menu")
+        // Opens over a snapshot taken while Home is still settling: its glass differs faintly between runs.
+        capture("app-menu", tolerance = 0.02f, colourNoise = 0.03f)
     }
 
     @Test fun folderOpen() = home(config = { c ->

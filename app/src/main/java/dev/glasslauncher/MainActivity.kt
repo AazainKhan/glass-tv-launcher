@@ -42,9 +42,13 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         stoppedSinceResume = false
-        // However Glass came back (Home, Back out of the store), Amazon's launcher goes off again.
+        // However Glass came back (Home, Back out of the store), Amazon's launcher goes off again; and if it
+        // came back on some other way, Glass takes Home back (keepHome).
         val app = application as GlassApp
-        app.scope.launch(kotlinx.coroutines.Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(app, bringHome = false) }
+        app.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            dev.glasslauncher.system.AmazonStore.close(app, bringHome = false)
+            dev.glasslauncher.system.RootFeatures.keepHome(app)
+        }
     }
 
     /** The Appstore's launcher entry asks Home for Amazon's apps page; show the store instead of ignoring it. */

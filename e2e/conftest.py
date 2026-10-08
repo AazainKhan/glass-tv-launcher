@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -20,9 +21,17 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "perf: frame-time measurements (scripts/perf-gate)")
 
 
+def _only_device() -> str:
+    """The single attached device; set ANDROID_SERIAL when there are several."""
+    out = subprocess.run(["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]
+    serials = [l.split()[0] for l in out if l.strip().endswith("device")]
+    assert len(serials) == 1, f"expected one device, found {serials}; set ANDROID_SERIAL"
+    return serials[0]
+
+
 @pytest.fixture(scope="session")
 def tv() -> TV:
-    serial = os.environ.get("ANDROID_SERIAL", "FIRETV_SERIAL_00")
+    serial = os.environ.get("ANDROID_SERIAL") or _only_device()
     owner = os.environ.get("TV_OWNER", "glass-e2e")
     t = TV(serial, owner)
     assert "device" in t.adb("get-state"), f"{serial} isn't connected"

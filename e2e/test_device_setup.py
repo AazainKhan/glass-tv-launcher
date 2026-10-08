@@ -52,3 +52,21 @@ def test_perf_gate(tv):
     """Frame times, memory and idle CPU against perf-budget.json (slow; close tv-live first)."""
     out = tv.script("perf-gate", "--no-build", timeout=1500)
     assert "perf-gate: pass" in out, out
+
+
+@pytest.mark.root
+def test_glass_switches_the_stock_launcher_back_off(tv, home, rooted):
+    """If Amazon's launcher gets turned on outside a store visit (it took over Home on the stick once),
+    Glass turns it off again and stays Home as soon as it comes forward."""
+    if not rooted:
+        pytest.skip("needs root")
+    disabled = lambda: "com.amazon.tv.launcher" in tv.sh("pm list packages -d com.amazon.tv.launcher")
+    try:
+        tv.su("pm enable com.amazon.tv.launcher")
+        assert not disabled()
+        tv.sh("am start -n dev.glasslauncher/.MainActivity")
+        tv.wait_until(disabled, 10, "Glass to switch Amazon's launcher off again")
+        assert "dev.glasslauncher" in tv.sh("cmd package resolve-activity -a android.intent.action.MAIN -c android.intent.category.HOME | grep -m1 packageName")
+    finally:
+        if not disabled():
+            tv.su("pm disable-user --user 0 com.amazon.tv.launcher; cmd package set-home-activity dev.glasslauncher/.MainActivity")
