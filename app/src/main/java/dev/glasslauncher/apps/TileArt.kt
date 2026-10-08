@@ -262,10 +262,7 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         val top = (HEIGHT - size) / 2f
         val rect = RectF(left, top, left + size, top + size)
         val radius = size * 0.23f
-        canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(60, 0, 0, 0)
-            setShadowLayer(14f, 0f, 4f, Color.argb(80, 0, 0, 0))
-        })
+        // No backing plate or shadow: icons with transparent padding showed it as a dark grey frame.
         canvas.save()
         canvas.clipPath(Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) })
         icon.setBounds(rect.left.toInt(), rect.top.toInt(), rect.right.toInt(), rect.bottom.toInt())

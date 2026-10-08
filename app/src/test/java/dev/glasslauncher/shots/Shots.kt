@@ -37,7 +37,7 @@ fun ActivityScenario<MainActivity>.pressHome() = onActivity { activity ->
 }
 
 /** Tags whose content changes with wall-clock time; masked out of baselines. */
-private val volatileTags = listOf("clock", "status-pill") // the pill resizes with the time text
+private val volatileTags = listOf("clock", "status-pill", "date", "cc-clock", "cc-date") // the pill resizes with the time and date text
 
 /** The screen as a bitmap with time-dependent content painted over, so baselines don't drift by the minute. */
 fun ComposeTestRule.stableImage(): Bitmap {
@@ -54,11 +54,11 @@ fun ComposeTestRule.stableImage(): Bitmap {
     run {
         for (node in volatileNodes) {
             val r = node.boundsInRoot
-            // A box at least 320 px wide from whichever edge is anchored (the pill grows leftwards, the
+            // A box at least 448 px wide from whichever edge is anchored (the pill grows leftwards, the
             // Control Center clock rightwards), padded for text shadow, so the mask doesn't move between runs.
             val grid = 64f  // snap edges so a few px of text-width change never moves the mask itself
-            val l = kotlin.math.floor((minOf(r.left, r.right - 320f) - 24) / grid) * grid
-            val rt = kotlin.math.ceil((maxOf(r.right, r.left + 320f) + 24) / grid) * grid
+            val l = kotlin.math.floor((minOf(r.left, r.right - 448f) - 24) / grid) * grid
+            val rt = kotlin.math.ceil((maxOf(r.right, r.left + 448f) + 24) / grid) * grid
             canvas.drawRect(l, kotlin.math.floor((r.top - 24) / grid) * grid, rt, kotlin.math.ceil((r.bottom + 24) / grid) * grid, paint)
         }
     }

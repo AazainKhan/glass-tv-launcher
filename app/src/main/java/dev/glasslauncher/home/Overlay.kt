@@ -68,17 +68,31 @@ sealed interface Overlay {
 /** Two blurs of the screen from one capture: frosted (overlay glass) and soft (dock-like, behind Control Center). */
 class OverlayShots(val frosted: ImageBitmap?, val soft: ImageBitmap?, val sharp: ImageBitmap? = null)
 
-/** [keepSharp]: also return the capture itself (Control Center fades from it to the blur, over a hidden Home). */
-suspend fun captureOverlay(layer: GraphicsLayer, light: Boolean, keepSharp: Boolean = false): OverlayShots = runCatching {
-    val shotImage = layer.toImageBitmap()
-    val shot = shotImage.asAndroidBitmap()
+/**
+ * [keepSharp]: also return the capture itself (Control Center fades from it to the blur, over a hidden Home).
+ * PixelCopy reads the window's last frame on the compositor's side, asynchronously: GraphicsLayer.toImageBitmap
+ * re-rendered Home on the main thread (50-90 ms), which made every overlay open stall (folders: 80% janky).
+ */
+suspend fun captureOverlay(view: android.view.View, light: Boolean, keepSharp: Boolean = false): OverlayShots = runCatching {
+    val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
+        .filterIsInstance<android.app.Activity>().first().window
+    val w = if (keepSharp) view.width else WallpaperLoader.CLEAR_W
+    val h = if (keepSharp) view.height else WallpaperLoader.CLEAR_H
+    val shot = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+        runCatching {
+            android.view.PixelCopy.request(window, shot, { cont.resumeWith(Result.success(it == android.view.PixelCopy.SUCCESS)) }, android.os.Handler(android.os.Looper.getMainLooper()))
+        }.onFailure { cont.resumeWith(Result.success(false)) }
+    }
+    if (!ok) { shot.recycle(); return@runCatching OverlayShots(null, null) }
     withContext(Dispatchers.Default) {
-        val copy = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
         // The dock's clear blur (480×270, small radius): the screen stays recognisable, just out of focus.
-        val soft = Blur.backdrop(copy, WallpaperLoader.CLEAR_W, WallpaperLoader.CLEAR_H, radius = 3, saturation = 1.15f)
+        val soft = Blur.backdrop(shot, WallpaperLoader.CLEAR_W, WallpaperLoader.CLEAR_H, radius = 3, saturation = 1.15f)
         val softGpu = if (soft.getPixel(soft.width / 2, soft.height / 2) ushr 24 == 0) null
             else (soft.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap()
-        OverlayShots(blurFrosted(copy, light), softGpu, if (keepSharp && softGpu != null) shotImage else null)
+        val sharp = if (keepSharp && softGpu != null) (shot.copy(android.graphics.Bitmap.Config.HARDWARE, false) ?: shot).asImageBitmap() else null
+        val frosted = blurFrosted(if (sharp != null) shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false).also { shot.recycle() } else shot, light)
+        OverlayShots(frosted, softGpu, sharp)
     }
 }.getOrDefault(OverlayShots(null, null))
 
@@ -140,6 +154,35 @@ fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
             .trapFocus(active),
         content = content,
     )
+}
+
+/**
+ * The screen behind an overlay, out of focus: a snapshot of Home taken as the overlay opened, with [blurred]
+ * fading in over it, and Home itself not drawn meanwhile. Two cheap images instead of Home's whole tree
+ * plus glass over it, which made opening Control Center or a folder ~80% janky on the stick.
+ */
+@Composable
+fun SnapshotBackdrop(enter: () -> Float, blurred: ImageBitmap?, fallbackGlass: Boolean = false) {
+    val state = dev.glasslauncher.glass.LocalBackdrop.current
+    val sharp = state.overlaySharp
+    androidx.compose.runtime.DisposableEffect(sharp, blurred) {
+        if (sharp != null && blurred != null) state.homeHidden = true
+        onDispose { state.homeHidden = false; if (state.overlaySharp === sharp) state.overlaySharp = null }
+    }
+    if (blurred == null) {
+        // No capture (it failed, or the JVM test harness): frosted glass over the live Home, as before.
+        if (fallbackGlass) Box(
+            Modifier.fillMaxSize().graphicsLayer { alpha = enter() }
+                .glass(state, androidx.compose.ui.graphics.RectangleShape, dev.glasslauncher.glass.GlassStyle.overlay(dev.glasslauncher.ui.LocalPalette.current.light).copy(highlight = 0f, rim = 0f)),
+        )
+        return
+    }
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val dst = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())
+        val e = enter()
+        if (sharp != null && e < 1f) drawImage(sharp, dstSize = dst)
+        drawImage(blurred, dstSize = dst, alpha = e, filterQuality = androidx.compose.ui.graphics.FilterQuality.Low)
+    }
 }
 
 val Scrim = Color(0x59000000)

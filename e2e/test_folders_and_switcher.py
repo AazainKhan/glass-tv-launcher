@@ -43,3 +43,21 @@ def test_tv_settings_lists_fire_tv_sections(tv, home, cc):
     tree = tv.wait_for(lambda t: t.top_overlay() == "TvSettings" and t, 6, "TV Settings")
     for row in ["Network", "Display & Sounds", "Applications"]:
         assert any(row in n.text for n in tree.nodes()), f"TV Settings has no '{row}'"
+
+
+@pytest.mark.perf
+def test_folder_open_and_close_are_smooth(tv, home):
+    """Five open/close cycles: under 10% janky frames, p90 within one frame (16 ms)."""
+    tv.press("down")
+    if not tv.tree().find(rid_prefix="folder:"):
+        pytest.skip("no folder on Home")
+    home.focus_folder()
+    tv.su("pkill screenrecord")
+    tv.frames_reset()
+    for _ in range(5):
+        home.select()
+        tv.wait_for(lambda t: t.top_overlay() == "FolderOpen", 6, "the folder to open")
+        home.back()
+        tv.wait_for(lambda t: "FolderOpen" not in t.overlays() and not t.find(rid_prefix="overlay-leaving"), 6, "the folder to close")
+    f = tv.frames()
+    assert f["janky_pct"] < 10 and f["p90"] <= 16, f"folder open/close: {f}"

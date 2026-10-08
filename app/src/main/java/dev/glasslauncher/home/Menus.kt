@@ -381,20 +381,19 @@ private fun FolderView(
             runCatching { target.requestFocus() }
         }
     }
+    // The home screen behind is shown blurred (a snapshot, Home not drawn), with a frosted panel and a
+    // capsule name above it.
+    val backdropEnter = rememberOverlayEnter()
+    SnapshotBackdrop({ backdropEnter.value }, LocalBackdrop.current.overlay, fallbackGlass = true)
     FullOverlay(active) {
-        // The home screen behind is shown blurred, with a frosted panel and a capsule name above it.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .glass(LocalBackdrop.current, RectangleShape, GlassStyle.overlay(palette.light).copy(highlight = 0f, rim = 0f)),
-        )
         // tvOS: the panel grows out of the folder tile (about 170 ms of travel, settled by ~500 ms) and
         // shrinks back into it on close.
         val morph = remember { Animatable(0f) }
         val leaving = LocalOverlayExiting.current
         LaunchedEffect(leaving) {
             if (leaving) morph.animateTo(0f, tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-            else morph.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 260f))
+            // Settles in ~400 ms (was ~1 s at stiffness 260: a long tail of full-panel redraws).
+            else morph.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 420f))
         }
         var panelBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
         Column(

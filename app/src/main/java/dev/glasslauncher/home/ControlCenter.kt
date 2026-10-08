@@ -112,20 +112,8 @@ fun ControlCenter(model: HomeModel, cfg: LauncherConfig, active: Boolean, open: 
     // Everything behind Control Center goes out of focus (the dock's soft blur of the screen). It fades
     // from a snapshot of Home taken as it opened to the blur, with Home itself not drawn meanwhile: two
     // cheap images instead of Home plus a blur over it (that made the open and close 80% janky).
-    val state = LocalBackdrop.current
-    val sharp = state.overlaySharp
-    val soft = state.overlaySoft
-    androidx.compose.runtime.DisposableEffect(sharp) {
-        if (sharp != null && soft != null) state.homeHidden = true
-        onDispose { state.homeHidden = false; if (state.overlaySharp === sharp) state.overlaySharp = null }
-    }
     Box(Modifier.fillMaxSize()) {
-        if (soft != null) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            val dst = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())
-            val e = enter.value
-            if (sharp != null && e < 1f) drawImage(sharp, dstSize = dst)
-            drawImage(soft, dstSize = dst, alpha = e, filterQuality = androidx.compose.ui.graphics.FilterQuality.Low)
-        }
+        SnapshotBackdrop({ enter.value }, LocalBackdrop.current.overlaySoft)
         Column(
             verticalArrangement = Arrangement.spacedBy(Gap),
             modifier = Modifier

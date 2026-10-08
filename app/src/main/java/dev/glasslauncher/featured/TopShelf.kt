@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -143,13 +144,8 @@ fun ExpandedShelf(
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 14.dp, bottom = 18.dp)) {
-                    val shown = feed.items.size.coerceAtMost(12)
-                    repeat(shown) { i ->
-                        val active = i == index.coerceAtMost(shown - 1)
-                        Box(Modifier.size(if (active) 8.dp else 6.dp).background(Color.White.copy(alpha = if (active) 1f else 0.4f), CircleShape))
-                    }
-                }
+                // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).
+                Spacer(Modifier.height(18.dp))
             }
             Text(feed.heading, style = Type.label.copy(shadow = Type.shadow), color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 10.dp))
             LazyRow(

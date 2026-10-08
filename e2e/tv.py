@@ -213,6 +213,21 @@ class TV:
         px = list(crop.getdata())
         return sum(px) / len(px) / 255
 
+    def frames_reset(self) -> None:
+        self.sh(f"dumpsys gfxinfo {PKG} reset")
+
+    def frames(self) -> dict:
+        """Glass's frame stats since frames_reset(): {'frames', 'janky_pct', 'p90', 'p99'}. Close any screen
+        recorder first (tv-live), or the numbers are meaningless."""
+        out = self.sh(f"dumpsys gfxinfo {PKG}")
+        num = lambda pat: float((re.search(pat, out) or [0, 0])[1])
+        return {
+            "frames": int(num(r"Total frames rendered: (\d+)")),
+            "janky_pct": num(r"Janky frames: \d+ \(([\d.]+)%\)"),
+            "p90": num(r"90th percentile: (\d+)ms"),
+            "p99": num(r"99th percentile: (\d+)ms"),
+        }
+
     def glass_pid(self) -> str:
         return self.sh(f"pidof {PKG}").strip()
 

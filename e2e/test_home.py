@@ -57,3 +57,22 @@ def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
     assert shelf
     tv.press("down")
     tv.wait_for(lambda t: home.in_dock(t, t.focused()), 6, "Down to return to the top row")
+
+
+def test_full_screen_shelf_has_no_dots_and_ends_at_the_last_card(tv, home):
+    """The page dots stopped at 12 while cards kept going; the dots are gone, and Right stops at the last card."""
+    if not tv.tree().find(text="Press up for full screen"):
+        import pytest
+        pytest.skip("no featured content")
+    tv.press("up")
+    tv.wait_for(lambda t: t.find(rid="featured-row"), 6, "the full-screen shelf")
+    assert not tv.tree().find(rid="shelf-dots"), "the page dots are still shown"
+    seen = []
+    for _ in range(40):
+        tv.press("right")
+        f = tv.tree().focused()
+        if seen and f.rid == seen[-1]:
+            break
+        seen.append(f.rid)
+    assert seen and seen[-1].startswith("featured:"), f"focus left the row: {seen[-1]}"
+    tv.press("down")

@@ -42,7 +42,11 @@ def home(tv: TV) -> Home:
     pid = tv.glass_pid()
     h = Home(tv)
     h.reset()
+    before = _config(tv)
     yield h
+    after = _config(tv)
+    changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k) and k not in VOLATILE)
+    assert not changed, f"the test left launcher settings changed: {changed}"
     crashes = tv.crashes_since(marker)
     assert not crashes, "Glass crashed or stopped responding:\n" + "\n".join(crashes)
     # A silent restart (process replaced without a crash line) also counts.
@@ -52,6 +56,31 @@ def home(tv: TV) -> Home:
         restarted = tv.adb("logcat", "-b", "events", "-d", "-T", marker)
         assert "installPackageLI" in restarted or not re.search(rf"am_(proc_died|kill).*{PKG}", restarted), \
             f"Glass's process was replaced during the test ({pid} → {now})"
+
+
+# Settings that change on their own (recent apps, seen apps, timestamps).
+VOLATILE = {"recentApps", "seenApps", "tipsSeen", "lastUpdateCheck", "seededDefaults"}
+
+
+def _config(tv: TV) -> dict:
+    """Glass's saved config (one JSON string in its DataStore), flattened one level: {"featured.mode": ...}."""
+    import json
+    import subprocess
+    raw = subprocess.run(["adb", "-s", tv.serial, "exec-out", "su", "-c", f"cat /data/data/{PKG}/files/datastore/launcher.preferences_pb"],
+                         capture_output=True, timeout=30).stdout.decode("utf-8", "replace")
+    start, end = raw.find("{"), raw.rfind("}")
+    try:
+        data = json.loads(raw[start:end + 1])
+    except Exception:
+        return {}
+    flat = {}
+    for k, v in data.items():
+        if isinstance(v, dict):
+            for k2, v2 in v.items():
+                flat[f"{k}.{k2}"] = json.dumps(v2, sort_keys=True)
+        else:
+            flat[k] = json.dumps(v, sort_keys=True)
+    return flat
 
 
 @pytest.fixture

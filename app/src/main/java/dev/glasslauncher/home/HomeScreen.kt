@@ -237,7 +237,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     fun open(overlay: Overlay) {
         scope.launch {
-            if (overlays.isEmpty()) captureOverlay(layer, backdrop.light, keepSharp = overlay == Overlay.ControlCenter).let {
+            if (overlays.isEmpty()) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay is Overlay.FolderOpen).let {
                 backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft; backdrop.overlaySharp = it.sharp
             }
             overlays.add(overlay)
@@ -418,7 +418,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(backdrop.backdrop) {
         if (overlays.isNotEmpty()) {
             withFrameNanos { }
-            captureOverlay(layer, backdrop.light).let { backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft }
+            captureOverlay(view, backdrop.light).let { backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft }
         }
     }
     LaunchedEffect(Unit) {
