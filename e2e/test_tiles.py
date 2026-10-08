@@ -36,3 +36,4 @@ def test_generated_tile_has_no_dark_frame_around_the_icon(tv, home):
     near = _ring(tile, cx, cy, half, -2, 2)  # straddles the icon square edge, where the plate showed
     far = _ring(tile, cx, cy, half, h * 0.12, h * 0.17)
     assert near >= far * 0.93, f"dark frame around the icon: band next to it {near:.0f} vs wash {far:.0f}"
+

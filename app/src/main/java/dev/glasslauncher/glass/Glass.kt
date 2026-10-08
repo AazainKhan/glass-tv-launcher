@@ -309,13 +309,19 @@ private class GlassNode(
             // body instead of leaving a seam (the long top and bottom edges are where a seam shows).
             val h = size.height
             val edge = (band / h).coerceAtMost(0.45f)
+            // At most 70% at the very rim, easing out (not a straight ramp), so the band melts into the body
+            // instead of ending in a visible step.
+            val peak = android.graphics.Color.argb(178, 0, 0, 0)
+            val mid = android.graphics.Color.argb(56, 0, 0, 0)
             val mask = LinearGradient(
                 0f, -band / 2f, 0f, h - band / 2f,
-                intArrayOf(android.graphics.Color.BLACK, android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT, android.graphics.Color.BLACK),
-                floatArrayOf(0f, edge, 1f - edge, 1f),
+                intArrayOf(peak, mid, android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT, mid, peak),
+                floatArrayOf(0f, edge * 0.45f, edge, 1f - edge, 1f - edge * 0.45f, 1f),
                 Shader.TileMode.CLAMP,
             )
-            edgeBrush = ShaderBrush(ComposeShader(bent, mask, PorterDuff.Mode.DST_IN))
+            // The bent picture carries the body's own tint and highlight too, so the two read as one material.
+            val tinted = overlayShader?.let { ComposeShader(bent, it, PorterDuff.Mode.SRC_OVER) } ?: bent
+            edgeBrush = ShaderBrush(ComposeShader(tinted, mask, PorterDuff.Mode.DST_IN))
         }
         // One stroke: each extra ring cost about 7 ms a frame on the Fire TV GPU.
         translate(band / 2f, band / 2f) {

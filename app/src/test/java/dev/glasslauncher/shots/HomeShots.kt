@@ -30,9 +30,12 @@ class HomeShots {
         ActivityScenario.launch(MainActivity::class.java).use { compose.waitForHome(); block(it) }
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, tolerance: Float = 0f) {
         compose.settle()
-        compose.stableImage().captureRoboImage(shot(name))
+        val options = if (tolerance > 0f) com.github.takahirom.roborazzi.RoborazziOptions(
+            compareOptions = com.github.takahirom.roborazzi.RoborazziOptions.CompareOptions(changeThreshold = tolerance),
+        ) else com.github.takahirom.roborazzi.RoborazziOptions()
+        compose.stableImage().captureRoboImage(shot(name), roborazziOptions = options)
     }
 
     @Test fun dock() = home { capture("home-dock") }
@@ -67,7 +70,8 @@ class HomeShots {
         compose.focusTag(folderKey("media"))
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
-        capture("folder-open")
+        // The blurred Home behind the folder differs by a few scattered pixels between runs.
+        capture("folder-open", tolerance = 0.01f)
     }
 
     @Test fun settings() = home {
