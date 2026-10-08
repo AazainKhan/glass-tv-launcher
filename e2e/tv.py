@@ -22,6 +22,12 @@ ROOT = Path(__file__).resolve().parent.parent
 T = TypeVar("T")
 
 
+# Glass answers with its own window's tree (~80 ms) whenever it's in front, instead of a ~2 s uiautomator
+# dump (the full suite: 13 min instead of 57). Other apps' windows still come from uiautomator.
+# GLASS_FAST_TREE=0 uses uiautomator for everything.
+FAST_TREE = "" if os.environ.get("GLASS_FAST_TREE") == "0" else " --ez home true"
+
+
 @dataclass
 class Node:
     rid: str
@@ -147,7 +153,7 @@ class TV:
             # Glass's Control Center overlay first (uiautomator can't see accessibility overlays), else the
             # active window. The old dump is removed first: a failed dump used to return the previous one.
             out = self.sh(
-                "r=$(am broadcast -n dev.glasslauncher/.system.DebugDumpReceiver 2>/dev/null); "
+                f"r=$(am broadcast -n dev.glasslauncher/.system.DebugDumpReceiver{FAST_TREE} 2>/dev/null); "
                 "case \"$r\" in *'<hierarchy'*) echo \"$r\" ;; "
                 "*) rm -f /data/local/tmp/e2e.xml; uiautomator dump /data/local/tmp/e2e.xml >/dev/null 2>&1; cat /data/local/tmp/e2e.xml 2>/dev/null ;; esac")
             start = out.find("<?xml")

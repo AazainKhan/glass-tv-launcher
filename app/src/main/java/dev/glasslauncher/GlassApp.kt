@@ -26,7 +26,10 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         // The switcher's decoded previews are the cheapest thing to give back (they reload from disk).
-        if (level >= TRIM_MEMORY_RUNNING_LOW) dev.glasslauncher.system.AppPreviews.trim()
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            dev.glasslauncher.system.AppPreviews.trim()
+            tileArt.trim()
+        }
     }
 
     override fun onCreate() {

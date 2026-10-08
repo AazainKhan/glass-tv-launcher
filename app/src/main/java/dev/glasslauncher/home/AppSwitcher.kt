@@ -81,8 +81,10 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(id: String) = requesters.getOrPut(id) { FocusRequester() }
     fun idAt(i: Int) = if (i == apps.size) HOME_ID else apps[i].packageName
-    LaunchedEffect(active, selected, apps.size) {
-        if (active && selected >= 0) { withFrameNanos { }; runCatching { requester(idAt(selected)).requestFocus() } }
+    // Keyed by the app, not the index: the fresh list can reorder last time's without changing its length.
+    val focusId = if (selected in 0..apps.size) idAt(selected) else null
+    LaunchedEffect(active, focusId) {
+        if (active && focusId != null) { withFrameNanos { }; runCatching { requester(focusId).requestFocus() } }
     }
     val enter = rememberOverlayEnter()
     Box(Modifier.fillMaxSize().trapFocus(active)) {

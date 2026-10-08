@@ -36,7 +36,7 @@ import java.util.Date
  * Apple's aerial videos, caches them on disk for offline replay, and shows the location and time.
  */
 @OptIn(UnstableApi::class)
-class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLayout(context) {
+class AerialView(context: Context, private val cfg: ScreensaverConfig, private val nearEndMs: Long = 0L) : FrameLayout(context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val surface = SurfaceView(context)
@@ -100,6 +100,13 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
                     postDelayed({ if (fade.alpha > 0.99f) fadeIn() }, 500)
                 }
                 override fun onRenderedFirstFrame() { fadeIn() }
+                // Device tests (AerialActivity.EXTRA_NEAR_END_MS): jump near the first clip's end, once.
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_READY && nearEndMs > 0 && !seekedNearEnd && exo.duration > nearEndMs) {
+                        seekedNearEnd = true
+                        exo.seekTo(exo.duration - nearEndMs)
+                    }
+                }
             })
             exo.prepare()
             exo.play()
@@ -129,6 +136,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig) : FrameLa
     }
 
     private var fadingOut = false
+    private var seekedNearEnd = false
 
     private fun updateLabel() {
         val id = player?.currentMediaItem?.mediaId

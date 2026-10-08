@@ -11,6 +11,10 @@ import android.content.Intent
  */
 class DebugDumpReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        resultData = RemoteKeysService.instance?.controlCenter?.dumpXml().orEmpty()
+        // With --ez home true, Glass's own window too while it's the one in front (an app in front, or a
+        // Glass dialog, returns nothing and the test falls back to uiautomator): ~50 ms instead of 1-2 s.
+        resultData = RemoteKeysService.instance?.controlCenter?.dumpXml()
+            ?: if (intent.getBooleanExtra("home", false)) dev.glasslauncher.MainActivity.dumpXml() else null
+            ?: ""
     }
 }

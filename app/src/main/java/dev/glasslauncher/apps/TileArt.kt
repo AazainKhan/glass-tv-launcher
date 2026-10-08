@@ -40,6 +40,9 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
 
     fun peek(spec: TileSpec): ImageBitmap? = cache.get(spec)
 
+    /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */
+    fun trim() = cache.trimToSize(cache.maxSize() / 2)
+
     suspend fun load(spec: TileSpec): ImageBitmap {
         cache.get(spec)?.let { return it }
         val art = withContext(Dispatchers.Default) {

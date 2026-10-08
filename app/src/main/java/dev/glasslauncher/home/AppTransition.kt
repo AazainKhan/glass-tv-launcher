@@ -83,6 +83,8 @@ class AppTransition(
     val settle = Animatable(1f)
 
     private var last: LaunchWindow? = null
+    /** When [last] launched: Home leaving much later than that isn't that app opening. */
+    private var lastAt = 0L
     private var job: Job? = null
     /** Launch colour and glyph per tile art (art bitmaps are cached and reused, so identity works). */
     private val looks = java.util.Collections.synchronizedMap(java.util.WeakHashMap<ImageBitmap, Pair<Color, ImageBitmap?>>())
@@ -107,6 +109,7 @@ class AppTransition(
             settle.snapTo(1f)
             window = w
             last = w
+            lastAt = android.os.SystemClock.uptimeMillis()
             launch { fill.animateTo(1f, tween(FILL_MS)) }
             launch { progress.animateTo(1f, tween(OPEN_MS, easing = ZoomOut)) }
             delay(HANDOFF_MS)
@@ -161,6 +164,9 @@ class AppTransition(
     fun onHomeStopped() {
         if (closing) return
         job?.cancel()
+        // An app Glass opened covers Home within a few seconds. Home leaving later than that (an app
+        // opened some other way, the store's own flow) mustn't replay that launch's close when it returns.
+        if (last != null && android.os.SystemClock.uptimeMillis() - lastAt > STALE_LAUNCH_MS) last = null
         // Left full screen on purpose: Home's first frames when it comes back then match the snapshot
         // the system shows meanwhile (the launch window), instead of dipping to black.
         if (last != null) {
@@ -182,6 +188,8 @@ class AppTransition(
         val coverImage = cover ?: backdrop.backdrop?.blurredSoftware ?: return false
         job?.cancel()
         job = scope.launch {
+            val me = coroutineContext[Job]
+            try {
             cover = coverImage
             closing = true
             window = w.copy(tile = target)
@@ -206,9 +214,16 @@ class AppTransition(
             launch { settle.animateTo(0f, tween(LAND_MS, easing = FastOutSlowInEasing)) }
             delay(LAND_MS / 2L)
             coverAlpha.animateTo(0f, tween(UNBLUR_MS, easing = FastOutSlowInEasing))
-            window = null
-            closing = false
-            cover = null
+            } finally {
+                // Also when cancelled part-way: a close left behind covered Home with the launch window
+                // until the next launch. Unless a newer transition has already taken over.
+                if (job === me) {
+                    window = null
+                    closing = false
+                    cover = null
+                    scope.launch { coverAlpha.snapTo(0f) }
+                }
+            }
         }
         return true
     }
@@ -230,6 +245,8 @@ class AppTransition(
         const val CLOSE_FADE_MS = 110
         const val LAND_MS = 125
         const val UNBLUR_MS = 200
+        /** Home stopping later than this after a launch isn't that launch. */
+        const val STALE_LAUNCH_MS = 6_000L
         /** Where the close lands before settling, relative to the focused tile. */
         const val LAND_SCALE = 1.3f
 

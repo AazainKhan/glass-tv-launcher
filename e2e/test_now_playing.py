@@ -48,13 +48,18 @@ def test_music_takes_over_home(tv, home, playing):
     tree = tv.wait_for(lambda t: t.find(rid="now-playing-hero") and t, 10, "the Now Playing hero on Home")
     assert tree.has_text("Glass Test Track") and tree.has_text("Glass E2E"), "track and artist aren't shown"
     assert not tree.has_text("Press up for full screen"), "the featured shelf hint should give way"
-    # The backdrop is the cover art (blue, with a yellow square), blurred full-bleed: the right half of the
-    # screen, away from the text, comes out clearly blue.
+    # The backdrop is the cover art (blue, with a yellow square), blurred full-bleed: the right edge of the
+    # screen, clear of the centred hero, comes out clearly blue once it's baked (about a second).
     import io, subprocess
     from PIL import Image
-    png = subprocess.run(["adb", "-s", tv.serial, "exec-out", "screencap", "-p"], capture_output=True).stdout
-    r, g, b = Image.open(io.BytesIO(png)).convert("RGB").crop((1300, 80, 1880, 600)).resize((1, 1), Image.BOX).getpixel((0, 0))
-    assert b > r + 25, f"the backdrop isn't the album art (average colour {r},{g},{b})"
+
+    def edge_colour():
+        png = subprocess.run(["adb", "-s", tv.serial, "exec-out", "screencap", "-p"], capture_output=True).stdout
+        return Image.open(io.BytesIO(png)).convert("RGB").crop((1720, 150, 1900, 650)).resize((1, 1), Image.BOX).getpixel((0, 0))
+
+    seen = []
+    tv.wait_until(lambda: seen.append(edge_colour()) or seen[-1][2] > seen[-1][0] + 25, 8,
+                  "the album art as the backdrop")
 
 
 def test_hero_is_centred_with_playback_controls(tv, home, playing):

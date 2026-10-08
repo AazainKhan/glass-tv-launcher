@@ -44,6 +44,8 @@ class AerialActivity : Activity() {
     private var view: AerialView? = null
 
     companion object {
+        const val EXTRA_NEAR_END_MS = "dev.glasslauncher.extra.NEAR_END_MS"
+
         /** Starts Aerials fading in over Home rather than cutting to black. */
         fun start(context: android.content.Context) {
             val options = android.app.ActivityOptions.makeCustomAnimation(context, dev.glasslauncher.R.anim.glass_fade_in, dev.glasslauncher.R.anim.glass_hold)
@@ -62,7 +64,10 @@ class AerialActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        view = AerialView(this, app.config.config.value.screensaver).also { setContentView(it) }
+        // Device tests: start the first clip this many ms before its end, so a clip change can be checked
+        // without waiting minutes for one (`am start … --el dev.glasslauncher.extra.NEAR_END_MS 6000`).
+        val nearEnd = intent.getLongExtra(EXTRA_NEAR_END_MS, 0L)
+        view = AerialView(this, app.config.config.value.screensaver, nearEnd).also { setContentView(it) }
     }
 
     private val sleepAfter = Runnable { finish() }

@@ -144,22 +144,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     fun dumpXml(): String? {
         val root = (view?.getChildAt(0) as? androidx.compose.ui.node.RootForTest) ?: return null
         if (!showing) return null
-        val out = StringBuilder("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">")
-        fun esc(v: String) = v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
-        fun walk(n: androidx.compose.ui.semantics.SemanticsNode, index: Int) {
-            val c = n.config
-            val tag = c.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag).orEmpty()
-            val desc = c.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription)?.joinToString(" ").orEmpty()
-            val text = c.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString(" ") { it.text }.orEmpty()
-            val focused = c.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Focused) == true
-            val focusable = c.contains(androidx.compose.ui.semantics.SemanticsActions.RequestFocus)
-            val b = n.boundsInWindow
-            out.append("<node index=\"$index\" text=\"${esc(text)}\" resource-id=\"${esc(tag)}\" class=\"android.view.View\" package=\"dev.glasslauncher\" content-desc=\"${esc(desc)}\" focusable=\"$focusable\" focused=\"$focused\" bounds=\"[${b.left.toInt()},${b.top.toInt()}][${b.right.toInt()},${b.bottom.toInt()}]\">")
-            n.children.forEachIndexed { i, child -> walk(child, i) }
-            out.append("</node>")
-        }
-        walk(root.semanticsOwner.rootSemanticsNode, 0)
-        return out.append("</hierarchy>").toString()
+        return dev.glasslauncher.system.SemanticsDump.xml(root)
     }
 
     @androidx.compose.runtime.Composable

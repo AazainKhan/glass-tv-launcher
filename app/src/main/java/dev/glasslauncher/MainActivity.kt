@@ -24,6 +24,12 @@ class MainActivity : ComponentActivity() {
         // The wallpaper covers the whole window; skipping the window background saves a full-screen fill per frame.
         window.setBackgroundDrawable(null)
         request(intent)
+        current = java.lang.ref.WeakReference(this)
+    }
+
+    override fun onDestroy() {
+        if (current?.get() === this) current = null
+        super.onDestroy()
     }
 
     private var stoppedSinceResume = false
@@ -86,5 +92,20 @@ class MainActivity : ComponentActivity() {
         const val ACTION_APP_SWITCHER = "dev.glasslauncher.action.APP_SWITCHER"
         const val ACTION_TV_SETTINGS = "dev.glasslauncher.action.TV_SETTINGS"
         const val ACTION_SETTINGS = "dev.glasslauncher.action.SETTINGS"
+
+        @Volatile private var current: java.lang.ref.WeakReference<MainActivity>? = null
+
+        /**
+         * Home's semantics tree for the device tests (DebugDumpReceiver), only while Glass's window has
+         * focus: with an app or a system dialog in front, uiautomator is the right source.
+         */
+        fun dumpXml(): String? {
+            val activity = current?.get() ?: return null
+            if (!activity.hasWindowFocus()) return null
+            val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content) ?: return null
+            val compose = content.getChildAt(0) as? android.view.ViewGroup ?: return null
+            val root = compose.getChildAt(0) as? androidx.compose.ui.node.RootForTest ?: return null
+            return dev.glasslauncher.system.SemanticsDump.xml(root)
+        }
     }
 }

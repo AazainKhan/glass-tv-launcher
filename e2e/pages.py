@@ -38,7 +38,7 @@ class Screen:
                     before = here
                     self.tv.press("down")
                     scrolled += 1
-                    now = self.tv.tree().focused()
+                    now = self._focus_after_press(before)
                     if now and now.label == before.label and now.bounds == before.bounds:
                         raise AssertionError(f"{what} isn't on screen (reached the end); focus is on {here}")
                     continue
@@ -51,12 +51,23 @@ class Screen:
             # Rows first when the target is clearly on another row, else along the row.
             key = ("down" if dy > 0 else "up") if abs(dy) > 40 and (abs(dy) >= abs(dx) * 0.5 or stuck) else ("right" if dx > 0 else "left")
             self.tv.press(key)
-            now = self.tv.tree().focused()
+            now = self._focus_after_press(here)
             stuck = stuck + 1 if (now and here and now.label == here.label and now.bounds == here.bounds) else 0
             if stuck >= 3:
                 raise AssertionError(f"focus stuck on {here} while moving to {what}")
             last = now
         raise AssertionError(f"couldn't reach {what}; focus is on {last}")
+
+    def _focus_after_press(self, before: Node | None, wait: float = 0.8) -> Node | None:
+        """Where focus is once a press has landed: tree reads can be faster (~80 ms) than the press."""
+        import time
+        deadline = time.time() + wait
+        while True:
+            now = self.tv.tree().focused()
+            moved = not (now and before and now.label == before.label and now.bounds == before.bounds)
+            if moved or time.time() > deadline:
+                return now
+            time.sleep(0.05)
 
     def focus_desc(self, desc: str) -> Node:
         return self.focus(lambda n: n.desc == desc, f"'{desc}'")
