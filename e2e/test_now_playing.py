@@ -124,3 +124,17 @@ def test_now_playing_takeover_keeps_home_smooth(tv, home, playing):
     f = tv.frames()
     # Home without music measures ~11% here (the featured slideshow); the takeover must not be worse.
     assert f["janky_pct"] < 10 and f["p90"] <= 16, f"browsing Home with Now Playing up: {f}"
+
+
+def test_down_from_the_controls_and_pill_returns_to_the_tray(tv, home, playing):
+    """With music up: Up reaches the Now Playing controls, Up again the pill; Down, Down come back to the
+    same tray app (it used to need the Home button)."""
+    start = tv.tree().focused()
+    tv.press("up")
+    tv.wait_for(lambda t: t.focused() and not t.focused().rid.startswith("app:"), 3, "the Now Playing controls")
+    tv.press("up")
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 3, "the status pill")
+    tv.press("down")
+    tv.press("down")
+    back = tv.wait_for(lambda t: t.focused() and t.focused().rid.startswith("app:") and t.focused(), 4, "focus back on the tray")
+    assert back.rid == start.rid, f"expected {start.rid}, landed on {back.rid}"

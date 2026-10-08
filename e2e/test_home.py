@@ -98,3 +98,13 @@ def test_tray_icons_are_vertically_centred(tv, home):
     tray, row = tree.find(rid="tray"), tree.find(rid="dock")
     above, below = row.bounds[1] - tray.bounds[1], tray.bounds[3] - row.bounds[3]
     assert abs(above - below) <= 4, f"the tray's icons sit off centre ({above}px above, {below}px below)"
+
+
+def test_down_from_the_pill_returns_to_the_tray_app(tv, home):
+    """Up from a tray app reaches the status pill; Down goes back to that same app (it used to need Home)."""
+    node = home.focus_app("com.amazon.firetv.youtube")
+    tv.press("up")
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 3, "the status pill")
+    tv.press("down")
+    back = tv.wait_for(lambda t: t.focused() and t.focused().rid.startswith("app:") and t.focused(), 3, "focus back on the tray")
+    assert back.rid == node.rid, f"Down from the pill should return to {node.rid}, landed on {back.rid}"

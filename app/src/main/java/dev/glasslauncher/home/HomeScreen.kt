@@ -636,6 +636,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         // From the status pill, Down goes back to the Now Playing controls.
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && pillFocused && takeover != null && !expanded ->
                             runCatching { heroPlay.requestFocus() }.isSuccess
+                        // Down from the pill (no music) or from the Now Playing controls: back to the tray app
+                        // focus came up from (the pill sits outside the grid, so spatial search found nothing).
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && !expanded && (pillFocused || heroFocused) -> {
+                            val key = lastDockFocused?.takeIf { exists(it) } ?: firstKey()
+                            key != null && runCatching { requester(key).requestFocus() }.isSuccess
+                        }
                         // Down always leaves full screen, wherever focus is (even mid-transition); from the
                         // status pill it goes back down to the titles instead.
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded -> when {
