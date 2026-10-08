@@ -158,16 +158,15 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
                 .trapFocus(active)
                 .testTag("control-center"),
         ) {
-            // Right-aligned like tvOS (it sits where the status pill was), with the weather beside it.
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-                // Wider than the tile column: it grows to the left on one line rather than wrapping.
+            // tvOS 27: the time with seconds, the date under it, then the weather, right-aligned where
+            // the status pill was.
+            Column(
+                horizontalAlignment = Alignment.End,
                 modifier = Modifier.width(sz.column).wrapContentWidth(Alignment.End, unbounded = true).padding(end = CC_BLEED + 4.dp, bottom = 16.dp - CC_BLEED),
             ) {
-                cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor, headerStyle) }
-                Text(dev.glasslauncher.widgets.rememberDate(), style = headerStyle, color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-date"))
                 Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
+                Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp).testTag("cc-date"))
+                cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) }
             }
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.

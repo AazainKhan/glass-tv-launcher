@@ -20,27 +20,23 @@ def test_opens_with_every_control(tv, home, cc, rooted):
     assert tree.focused() and tree.focused().desc.startswith("Settings"), "focus should start on Settings"
 
 
-def test_clock_is_right_aligned_with_seconds_and_ticks(tv, home, cc):
+def test_header_stacks_time_date_and_weather_right_aligned(tv, home, cc):
+    """tvOS 27: the time with seconds, the date under it, then the weather, all right-aligned."""
     tree = cc.open()
     clock = tree.find(rid="cc-clock")
-    assert clock, "no clock in Control Center"
-    assert clock_ok(clock.text, seconds=True), f"clock reads {clock.text!r}"
-    width = tv.tree().root.children[0].bounds[2] if tree.root.children else 1920
-    assert clock.bounds[2] > width * 0.8, f"clock isn't right-aligned (right edge {clock.bounds[2]} of {width})"
+    assert clock and clock_ok(clock.text, seconds=True), f"clock reads {clock and clock.text!r}"
+    assert clock.bounds[2] > 1920 * 0.8, f"clock isn't right-aligned (right edge {clock.bounds[2]})"
     date = tree.find(rid="cc-date")
     assert date and date_ok(date.text), f"Control Center date reads {date and date.text!r}"
-    assert date.bounds[2] <= clock.bounds[0] and abs(date.center[1] - clock.center[1]) < 20, "date should be beside the time"
+    lines = [clock, date]
+    weather = next((n for n in tree.nodes() if n.rid == "weather"), None)
+    if weather:
+        lines.append(weather)
+    for upper, lower in zip(lines, lines[1:]):
+        assert lower.bounds[1] >= upper.bounds[3] - 2, f"{lower.rid} should sit under {upper.rid}"
+        assert abs(lower.bounds[2] - upper.bounds[2]) <= 4, f"{lower.rid} isn't right-aligned with {upper.rid}"
     first = clock.text
     tv.wait_for(lambda t: t.find(rid="cc-clock") and t.find(rid="cc-clock").text != first, 4, "the seconds to tick")
-
-
-def test_weather_sits_beside_the_time(tv, home, cc):
-    if not tv.tree().find(rid="weather"):
-        pytest.skip("no weather city set")
-    tree = cc.open()
-    clock = tree.find(rid="cc-clock")
-    weathers = [n for n in tree.nodes() if n.rid == "weather" and abs(n.center[1] - clock.center[1]) < 30]
-    assert weathers and weathers[0].bounds[2] <= clock.bounds[0], "weather should be just left of the time"
 
 
 def test_back_closes(tv, home, cc):
@@ -205,13 +201,14 @@ def test_every_control_has_a_label_when_focused(tv, home, cc):
         tv.wait_for(lambda t: any(n.text.startswith(label) for n in t.nodes()), 3, f"the '{label}' label")
 
 
-def test_pill_and_control_center_show_the_same_weather(tv, home, cc):
-    pill = tv.tree().find(rid="weather")
-    if not pill:
-        pytest.skip("no weather city set")
+def test_control_center_shows_the_weather_reading(tv, home, cc):
+    """The weather moved from the pill into Control Center's header: a condition and a temperature."""
+    import re
     tree = cc.open()
-    weathers = [n.label for n in tree.nodes() if n.rid == "weather"]
-    assert pill.label and pill.label in weathers, f"pill says {pill.label!r}, Control Center says {weathers}"
+    weather = next((n for n in tree.nodes() if n.rid == "weather"), None)
+    if weather is None:
+        pytest.skip("no weather city set")
+    assert re.fullmatch(r"[A-Za-z ]+, -?\d+°", weather.label), f"weather reads {weather.label!r}"
 
 
 def test_text_size_is_not_in_control_center(tv, home, cc):

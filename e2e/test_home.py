@@ -4,15 +4,16 @@ from pages import clock_ok, date_ok
 
 
 def test_home_shows_top_row_status_pill_and_clock(tv, home):
+    """HOME-03: the pill is just the time and the gear (the date and weather live in Control Center)."""
     tree = tv.tree()
     assert tree.find(rid="dock"), "no top row (dock)"
     assert len(home.dock_apps()) >= 1, "the top row is empty"
-    assert tree.find(rid="status-pill"), "no status pill"
+    pill = tree.find(rid="status-pill")
+    assert pill, "no status pill"
     clock = tree.find(rid="clock")
     assert clock and clock_ok(clock.text, seconds=False), f"status pill clock reads {clock and clock.text!r}"
-    date = tree.find(rid="date")
-    assert date and date_ok(date.text), f"status pill date reads {date and date.text!r}"
-    assert date.bounds[2] <= clock.bounds[0], "the date should sit just left of the time"
+    inside = [n for n in tree.nodes() if n.rid in ("date", "weather")]
+    assert not inside, f"the pill should hold only the time and gear, found {[n.rid for n in inside]}"
     assert home.in_dock(tree, tree.focused()), "focus should start in the top row"
 
 

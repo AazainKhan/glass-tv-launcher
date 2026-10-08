@@ -37,9 +37,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * HOME-03: the only persistent chrome is one small glass capsule in the top right (time, plus the
- * weather when set), with a Now Playing pill beside it while media plays. It becomes focusable when
- * nothing else is above the tray, and opens Control Center.
+ * HOME-03: the only persistent chrome is one small glass capsule in the top right: the time and a
+ * gear (the date and weather are in Control Center's header). It becomes focusable when nothing else is
+ * above the tray, and opens Control Center.
  */
 @Composable
 fun StatusPill(
@@ -73,22 +73,23 @@ fun StatusPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 modifier = Modifier
-                    // The tray's clear glass, so the two read as one material (the text-safe copy of its
-                    // texture, since this carries text). Glass stays put under the focus fill.
-                    .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.shelf(palette.light).copy(legible = true))
+                    // Exactly the tray's clear glass, so the two read as one material. Glass stays put
+                    // under the focus fill.
+                    .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.shelf(palette.light))
                     .then(
                         if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                     )
                     .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
             ) {
-                val text = if (focused) palette.onFocusFill else palette.primary
-                cfg.weather?.let { WeatherLabel(it, text) }
-                Text(rememberDate(), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f), color = text, modifier = Modifier.testTag("date"))
+                // Clear glass shows the art through it, so the text follows the art (dark on bright art).
+                val onLight = LocalBackdrop.current.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
+                val rest = if (onLight) Color(0xFF0E1015) else Color.White
+                val text = if (focused) palette.onFocusFill else rest
                 Text(rememberClock(cfg.clock24h), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"), color = text, modifier = Modifier.testTag("clock"))
                 Box(
                     Modifier
                         .size(22.dp)
-                        .background(if (focused) palette.onFocusFill.copy(alpha = 0.12f) else palette.primary.copy(alpha = 0.18f), CircleShape),
+                        .background(if (focused) palette.onFocusFill.copy(alpha = 0.12f) else rest.copy(alpha = 0.18f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) { GearIcon(text, size = 13.dp) }
             }

@@ -193,7 +193,7 @@ private class GlassNode(
         if (size != cachedSize) {
             cachedSize = size
             cachedOutline = shape.createOutline(size, layoutDirection, this)
-            val band = EDGE_BAND.toPx()
+            val band = bandPx()
             edgeRing = shape.createOutline(Size(size.width - band, size.height - band), layoutDirection, this)
         }
         val outline = cachedOutline ?: return drawContent()
@@ -291,7 +291,7 @@ private class GlassNode(
      */
     private fun DrawScope.drawEdgeBand(source: ImageBitmap, alpha: Float = 1f) {
         val ring = edgeRing ?: return
-        val band = EDGE_BAND.toPx()
+        val band = bandPx()
         // Built once per source/size/style/position; rebuilding shaders per frame is wasted work.
         val key = listOf(source, size, style, origin, state.rootSize)
         if (key != edgeKey) {
@@ -321,6 +321,9 @@ private class GlassNode(
             drawOutline(ring, edgeBrush!!, alpha = alpha, style = Stroke(width = band))
         }
     }
+
+    /** The refracted edge, scaled down on small shapes (the status pill) so it stays a rim, not a band. */
+    private fun androidx.compose.ui.unit.Density.bandPx() = minOf(EDGE_BAND.toPx(), cachedSize.height * 0.2f)
 
     private fun solidTint(tint: Color): Color =
         if (tint.luminance() > 0.5f) Color(0xF2F4F5F8) else Color(0xF21A1D25)
