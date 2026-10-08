@@ -173,7 +173,7 @@ fun ExpandedShelf(
                 // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).
                 Spacer(Modifier.height(18.dp))
             }
-            Text(feed.heading, style = Type.label, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 10.dp))
+            Text(feed.heading, style = Type.label, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 18.dp).testTag("shelf-heading"))
             LazyRow(
                 state = listState,
                 contentPadding = PaddingValues(horizontal = m.inset),

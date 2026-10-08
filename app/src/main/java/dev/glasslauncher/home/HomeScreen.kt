@@ -454,6 +454,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (!homeVisible || takeover != null || appHeroShown) return@LaunchedEffect
         // Paused under Control Center too: its translucent tiles would change colour with every slide.
         if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || ControlCenterWindow.open || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
+        // Full screen is browsed by hand: the row, details and backdrop follow focus, not a timer (advancing
+        // moved the backdrop and details off the focused card).
+        if (expanded) return@LaunchedEffect
         delay(SLIDE_MS)
         while (idle.millisSinceInput() < SLIDE_QUIET_MS) delay(SLIDE_QUIET_MS - idle.millisSinceInput() + 50)
         val next = (heroIndex + 1) % feed.items.size
@@ -462,10 +465,6 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (url != null) runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
         feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }
         heroIndex = next
-        if (expanded) {
-            withFrameNanos { }
-            runCatching { cardRequester.requestFocus() }
-        }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     // Coming back to Home (from an app, Aerials, a system screen): it settles in from slightly larger

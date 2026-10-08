@@ -247,3 +247,25 @@ def test_play_and_more_info_are_slim(tv, home, focused_app):
     play = tree.find(rid="shelf-play")
     height = play.bounds[3] - play.bounds[1]
     assert height <= 76, f"Play is {height}px tall; the slim buttons are 36 dp (72 px)"
+    heading, row = tree.find(rid="shelf-heading"), tree.find(rid="featured-row")
+    gap = row.bounds[1] - heading.bounds[3]
+    assert gap >= 24, f"the row's heading sits {gap}px above the cards; it needs room"
+
+
+def test_full_screen_row_starts_at_and_stays_on_the_slide(tv, home, focused_app):
+    """Up opens the row on the title that was showing, and the slideshow doesn't move it while browsing."""
+    import time
+    tray_y = tv.tree().focused().center[1]
+    if abs(home.focus_app(NETFLIX).center[1] - tray_y) > 20:
+        pytest.skip("Netflix isn't in the top row")
+    shown = tv.wait_for(lambda t: (n := t.find(rid="shelf-logo")) and n.desc, 12, "a title at rest")
+    tv.press("up")
+    card = tv.wait_for(lambda t: t.find(rid="featured-row") and (f := t.focused()) and f.rid.startswith("featured:") and f, 4, "a card focused")
+    assert card.label.startswith(shown), f"the row opened on {card.label!r}, but {shown!r} was showing"
+    time.sleep(12)  # longer than a slide
+    tree = tv.tree()
+    still = tree.focused()
+    assert still.rid == card.rid, f"the slideshow moved focus to {still.label!r} while browsing"
+    details = tree.find(rid="shelf-logo")
+    title = details.desc if details else next((n.text for n in tree.nodes() if n.center[0] < 900 and n.center[1] < 600 and len(n.text) > 2), "")
+    assert still.label.startswith(title), f"the details show {title!r} but focus is on {still.label!r}"
