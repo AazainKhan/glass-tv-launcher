@@ -65,6 +65,9 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         /** True while the overlay is up, so Home hides its status pill (Control Center has its own clock). */
         var open by mutableStateOf(false)
             private set
+
+        /** Where Home's status pill is, so Control Center can grow out of it (Home keeps this current). */
+        @Volatile var pillBounds: androidx.compose.ui.geometry.Rect? = null
     }
 
     init {
@@ -104,15 +107,16 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val v = view ?: return
         if (exiting) return
         exiting = true
-        open = false
         handler.postDelayed({
             if (view === v && exiting) {
                 runCatching { windows.removeView(v) }
                 view = null
                 exiting = false
+                // Home's pill comes back as the capsule lands on it, not while it's still shrinking.
+                open = false
                 lifecycleRegistry.currentState = Lifecycle.State.CREATED
             }
-        }, dev.glasslauncher.ui.Motion.OVERLAY_MS + 40L)
+        }, CcMorph.MS + 20L)
     }
 
     /** Another app (or Home) came forward: Control Center belongs to what was on screen when it opened. */

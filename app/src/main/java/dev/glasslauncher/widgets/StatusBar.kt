@@ -13,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -67,7 +69,9 @@ fun StatusPill(
             shape = Shapes.pill,
             focusedScale = 1.08f,
             shadow = false,
-            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-pill"),
+            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-pill")
+                // Control Center grows out of exactly this capsule.
+                .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
         ) { focused ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,

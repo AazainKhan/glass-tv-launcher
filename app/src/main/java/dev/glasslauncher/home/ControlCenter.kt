@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -87,6 +89,23 @@ private class CcSizes(k: Float) {
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
 
+/** Control Center's open/close: from the status pill's capsule to the panel. Pure, so it's unit-tested. */
+object CcMorph {
+    const val MS = 240
+
+    private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
+
+    /** The capsule's bounds at progress [t] (0 = the pill, 1 = the panel), anchored at the top-right. */
+    fun rect(t: Float, pill: androidx.compose.ui.geometry.Rect, panel: androidx.compose.ui.geometry.Rect) =
+        androidx.compose.ui.geometry.Rect(lerp(pill.left, panel.left, t), lerp(pill.top, panel.top, t), lerp(pill.right, panel.right, t), lerp(pill.bottom, panel.bottom, t))
+
+    /** From a capsule (half the pill's height) to the tiles' corner radius. */
+    fun radius(t: Float, pill: androidx.compose.ui.geometry.Rect, tileRadius: Float) = lerp(pill.height / 2f, tileRadius, t)
+
+    /** The tiles' opacity: nothing for the first 40%, then up to full. */
+    fun tiles(t: Float) = ((t - 0.4f) / 0.6f).coerceIn(0f, 1f)
+}
+
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
 private val CC_BLEED = 16.dp
 
@@ -141,21 +160,43 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
     fun system(go: () -> Boolean) { closeAll(); go() }
 
     // Grows out of the status pill (top right) and shrinks back into it.
-    val enter = rememberOverlayEnter()
+    // Grows out of the status pill: a capsule at the pill's place stretches into the panel, and the tiles
+    // fade up over the last 60%. Closing runs it backwards into the pill. Transforms and one outline per
+    // frame; the tiles' layout never changes.
+    val enter = remember { androidx.compose.animation.core.Animatable(0f) }
+    val exiting = LocalOverlayExiting.current
+    LaunchedEffect(exiting) { enter.animateTo(if (exiting) 0f else 1f, androidx.compose.animation.core.tween(CcMorph.MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    var panel by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val pill = ControlCenterWindow.pillBounds
+    val capsule = if (palette.light) Color.White.copy(alpha = 0.24f) else Color(0x7A2A2E37)
     androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz) {
     Box(Modifier.fillMaxSize()) {
         // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent layer,
         // and over another app (an overlay window) the system composites it without redrawing anything.
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter.value }.background(CC_DIM))
+        // The capsule: it is the pill on the first frame and the panel's outline by the end, fading out as
+        // the tiles (each with its own glass) arrive.
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            // From the very first frame (before the panel is measured, it's simply the pill), so there's
+            // never a frame with neither the pill nor the capsule.
+            val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
+            val target = panel ?: from
+            val e = enter.value
+            val a = 1f - CcMorph.tiles(e)
+            if (a <= 0f) return@Canvas
+            val r = CcMorph.rect(e, from, target)
+            val radius = CcMorph.radius(e, from, 26.dp.toPx())
+            drawRoundRect(capsule, topLeft = r.topLeft, size = r.size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius), alpha = a)
+        }
         Column(
             horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .onGloballyPositioned { panel = it.boundsInWindow() }
                 .graphicsLayer {
-                    val s = 0.6f + 0.4f * enter.value
-                    scaleX = s; scaleY = s
-                    alpha = enter.value
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                    val t = CcMorph.tiles(enter.value)
+                    alpha = t
+                    translationY = (1f - t) * 14.dp.toPx()
                 }
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
