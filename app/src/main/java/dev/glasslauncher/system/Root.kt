@@ -35,6 +35,19 @@ object Root {
     /** Last known result of [available] without checking (false until checked). */
     val known: Boolean get() = granted == true
 
+    /** A file only root can read, as bytes (null if unreadable). Glass writes any copy itself, so the copy
+     *  carries Glass's own SELinux label rather than su's. */
+    suspend fun readBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
+        runCatching {
+            // In the global mount namespace: Android 11 hides other apps' data dirs in Glass's own (app data
+            // isolation), even from root. Script on stdin, as in [run]; stdout is the file.
+            val p = ProcessBuilder("su", "--mount-master").start()
+            p.outputStream.bufferedWriter().use { it.write("cat '$path'\nexit\n") }
+            val bytes = p.inputStream.use { it.readBytes() }
+            if (p.waitFor(20, TimeUnit.SECONDS) && bytes.isNotEmpty()) bytes else null
+        }.getOrNull()
+    }
+
     /** Runs [script] as root; returns its exit code and combined output. */
     suspend fun run(script: String): Result = withContext(Dispatchers.IO) { exec(script) }
 

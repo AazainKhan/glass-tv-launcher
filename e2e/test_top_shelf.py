@@ -138,3 +138,17 @@ def test_more_info_opens_and_closes(tv, home, focused_app):
     assert any(len(n.text) > 40 for n in tree.nodes()), "the sheet should show the synopsis"
     tv.press("back")
     tv.wait_for(lambda t: not t.find(rid="shelf-info-sheet") and t.find(rid="featured-row"), 3, "back to the shelf")
+
+
+@pytest.mark.parametrize("pkg", [NETFLIX, STREMIO])
+def test_every_tray_app_has_a_full_screen_hero(tv, home, pkg):
+    """The app hero is full-screen art (Amazon's Fire TV background, else the app's store screenshot),
+    not just its logo on a colour."""
+    tray_y = tv.tree().focused().center[1]
+    node = home.focus_app(pkg)
+    if abs(node.center[1] - tray_y) > 20:
+        pytest.skip(f"{pkg} isn't in the top row")
+    # Leave and come back so the hero (not titles after a dwell) is what shows.
+    tv.press("right")
+    tv.press("left")
+    tv.wait_for(lambda t: t.find(rid=f"app-art:{pkg}"), 8, f"{pkg}'s full-screen art")

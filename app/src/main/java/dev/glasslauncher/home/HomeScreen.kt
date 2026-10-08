@@ -260,10 +260,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded)
     val appHeroShown = cfg.background == BackgroundMode.Featured && takeover == null && !expanded && heroApp != null && !titlesDue
     val appHeroPkg = heroApp.takeIf { appHeroShown }
-    // A few app heroes are kept, so moving back and forth along the row never bakes twice (~5 MB each).
+    // A few app heroes are kept, so moving back and forth along the row never bakes twice.
     val appHeroes = remember { object : LinkedHashMap<String, dev.glasslauncher.glass.Backdrop>(4, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, dev.glasslauncher.glass.Backdrop>?) = size > 3
     } }
+    // Apps whose hero is full-screen art (no logo plate drawn over it).
+    val artApps = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val sceneUrl = if (cfg.background == BackgroundMode.Featured && !appHeroShown) hero?.image else null
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
@@ -275,7 +277,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
         if (appHeroPkg != null) {
             val key = "$appHeroPkg|$dark"
-            val baked = appHeroes[key] ?: appHeroBackdrop(context, graph, layout, model, appHeroPkg, dark)?.also { appHeroes[key] = it }
+            val baked = appHeroes[key] ?: run {
+                // Full-screen art first (Amazon's Fire TV background, else the store screenshot), else the logo plate.
+                val art = dev.glasslauncher.apps.AppArt.url(context, graph.http, appHeroPkg)
+                    ?.let { runCatching { graph.wallpapers.fromUrl(it, background = true, light = !dark) }.getOrNull() }
+                artApps[appHeroPkg] = art != null
+                art ?: appHeroBackdrop(context, graph, layout, model, appHeroPkg, dark)
+            }?.also { appHeroes[key] = it }
             // A short fade: during one the backdrop and every glass surface draw twice, and this changes as
             // focus moves along the row.
             if (baked != null) { backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); return@LaunchedEffect }
@@ -640,7 +648,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
                 BackdropLayer(backdrop, drawSharp = cfg.background != BackgroundMode.Motion)
 
-                if (appHeroPkg != null) AppHeroLogo(appHeroPkg, layout, model, Modifier.graphicsLayer {
+                if (appHeroPkg != null && artApps[appHeroPkg] == true) {
+                    Box(Modifier.testTag("top-shelf-app-hero:$appHeroPkg")) { Box(Modifier.size(1.dp).testTag("app-art:$appHeroPkg")) }
+                } else if (appHeroPkg != null && artApps.containsKey(appHeroPkg)) AppHeroLogo(appHeroPkg, layout, model, Modifier.graphicsLayer {
                     alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
                     translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
                 })
