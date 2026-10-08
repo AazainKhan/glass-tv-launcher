@@ -289,16 +289,16 @@ private fun ColumnScope.AppearancePage(model: HomeModel, cfg: LauncherConfig, f:
     MenuRow("Background", {
         val next = BackgroundMode.entries[(cfg.background.ordinal + 1) % BackgroundMode.entries.size]
         screen.dissolve { model.edit { it.copy(background = next) } }
-    }, value = when (cfg.background) { BackgroundMode.Featured -> "Top Shelf"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" })
-    Hint("Top Shelf fills Home with the focused app and its titles; Motion plays Apple's Aerial videos behind your apps.")
+    }, value = when (cfg.background) { BackgroundMode.Featured -> "Top Shelf"; BackgroundMode.Wallpaper -> "Wallpaper"; BackgroundMode.Motion -> "Motion (Aerials)" },
+        help = "Top Shelf: the focused app and its titles. Motion: Apple's Aerial videos behind your apps.")
     MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark), chevron = true)
     MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight), chevron = true)
     val fadeOptions = listOf(1, 3, 5, 10, 0)
     MenuRow("Fade Clock When Idle", {
         val next = fadeOptions[(fadeOptions.indexOf(cfg.idleFadeMinutes).coerceAtLeast(0) + 1) % fadeOptions.size]
         model.edit { it.copy(idleFadeMinutes = next) }
-    }, value = if (cfg.idleFadeMinutes == 0) "Never" else "${cfg.idleFadeMinutes} min")
-    Hint("Fading the clock and status bar when nothing is happening helps prevent burn-in on OLED and plasma TVs.")
+    }, value = if (cfg.idleFadeMinutes == 0) "Never" else "${cfg.idleFadeMinutes} min",
+        help = "Fades the clock when nothing is happening, to protect OLED and plasma screens.")
 }
 
 private fun wallpaperName(w: Wallpaper) = when (w.kind) {
@@ -367,18 +367,18 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     // tvOS 27: the focused app's own hero at once, its titles after resting on it. Never keeps the hero
     // only (no title fetches, no slideshow bakes).
     MenuRow("Show Titles", { model.edit { it.copy(topShelfTitles = !it.topShelfTitles) } }, f,
+        help = "Automatically: an app's titles appear after resting on it for a moment.",
         value = if (cfg.topShelfTitles) "Automatically" else "Never")
     // Turning it off keeps the default source, so turning it back on restores it.
     val off = fc.mode == FeaturedMode.Off || fc.source == FeaturedSourceId.Off
     val defaultSource = fc.source.takeIf { it != FeaturedSourceId.Off } ?: FeaturedSourceId.Stremio
     SectionLabel("Show content from")
-    MenuRow("Focused App", { setFeatured { it.copy(mode = FeaturedMode.FocusedApp, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.FocusedApp) "✓" else null)
-    MenuRow("One Source", { setFeatured { it.copy(mode = FeaturedMode.OneSource, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.OneSource) "✓" else null)
+    MenuRow("Focused App", { setFeatured { it.copy(mode = FeaturedMode.FocusedApp, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.FocusedApp) "✓" else null,
+        help = "Each app's own titles: its TV rows, its catalog, or its popular titles from JustWatch.")
+    MenuRow("One Source", { setFeatured { it.copy(mode = FeaturedMode.OneSource, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.OneSource) "✓" else null,
+        help = "The same titles whichever app is focused, from the Default Source.")
     MenuRow("Off", { setFeatured { it.copy(mode = FeaturedMode.Off) } }, value = if (off) "✓" else null)
     if (off) return
-    if (fc.mode == FeaturedMode.FocusedApp) {
-        Hint("The shelf shows the focused top-row app's content: the rows an app publishes to the TV first; Stremio, YouTube and Plex from their own catalogs; Netflix, Prime Video, Disney+, Apple TV+, Max and Hulu from JustWatch's popular titles, each opening in its app. Other apps show their own logo.")
-    }
     SectionLabel("Default Source")
     val tvRows = dev.glasslauncher.featured.TvRows.available(LocalContext.current)
     FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && it != FeaturedSourceId.JustWatch && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
@@ -405,7 +405,6 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
             Sources.stremioCatalogs.forEach { (key, name) ->
                 MenuRow(name, { setFeatured { it.copy(stremioCatalog = key) } }, value = if (fc.stremioCatalog == key) "✓" else null)
             }
-            Hint("From Stremio's Cinemeta catalog. Selecting a title opens it in Stremio.")
         }
         FeaturedSourceId.Tmdb -> {
             SectionLabel("TMDB")
@@ -419,7 +418,6 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
             Sources.tmdbProviders.forEach { (key, name) ->
                 MenuRow(name, { setFeatured { it.copy(tmdbProvider = key) } }, value = if (fc.tmdbProvider == key) "✓" else null)
             }
-            Hint("This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming availability data provided by JustWatch.")
         }
         FeaturedSourceId.YouTube -> {
             SectionLabel("YouTube")
@@ -437,9 +435,8 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
                 val askPlex = dev.glasslauncher.home.LocalConfirm.current
                 MenuRow("Sign Out", { askPlex(dev.glasslauncher.home.Overlay.Confirm("Sign Out of Plex?", "The Top Shelf stops showing your Plex titles until you sign in again.", "Sign Out", destructive = true) { setFeatured { it.copy(plexToken = "") } }) }, value = "Signed in")
             }
-            Hint("Shows your On Deck items from the first Plex server that answers.")
         }
-        FeaturedSourceId.ContinueWatching -> Hint("What you were watching in any app, from the rows apps publish to the TV (Watch Next and their own Continue Watching rows).")
+        FeaturedSourceId.ContinueWatching -> Hint("What you were watching, from the rows apps publish to the TV.")
         FeaturedSourceId.Off, FeaturedSourceId.TvApp, FeaturedSourceId.JustWatch -> Unit
     }
     MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
@@ -512,13 +509,12 @@ private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: M
     packs.forEach { pack ->
         MenuRow(pack.label, { model.edit { it.copy(iconPack = pack.packageName) } }, value = if (cfg.iconPack == pack.packageName) "✓" else null)
     }
-    Hint(if (packs.isEmpty()) "No icon packs installed yet." else "Apps the pack doesn't cover keep their normal tile.")
+    if (packs.isEmpty()) Hint("No icon packs installed yet.")
     SectionLabel("Get an Icon Pack")
     val context = LocalContext.current
     MenuRow("Search the Appstore", {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("amzn://apps/android?s=icon%20pack")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    }, chevron = true)
-    Hint("Icon packs are separate apps made for Android launchers: any pack labelled ADW or Nova compatible works. Install one (from the Appstore, or its APK with Downloader), then pick it here. Most packs are made for phones, so expect square icons on your tiles rather than TV banners.")
+    }, chevron = true, help = "Any ADW- or Nova-compatible pack works. Most are made for phones, so expect square icons.")
 }
 
 private fun screensaverName(mode: ScreensaverMode) = when (mode) {
@@ -541,9 +537,10 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
         }, chevron = true)
         Hint("Fire TV's own screensaver runs after the delay set in its Display settings.")
     } else {
-        MenuRow("Start After", { push(Page.StartAfter) }, value = "${cfg.aerialsIdleMinutes} Minutes", chevron = true)
-        ToggleRow("Show During Music", cfg.screensaverDuringMusic, { v -> model.edit { it.copy(screensaverDuringMusic = v) } })
-        Hint("The screen saver starts when Home has been idle this long. While music plays, Home shows the album art instead, unless Show During Music is on.")
+        MenuRow("Start After", { push(Page.StartAfter) }, value = "${cfg.aerialsIdleMinutes} Minutes", chevron = true,
+            help = "The screen saver starts when Home has been idle this long.")
+        ToggleRow("Show During Music", cfg.screensaverDuringMusic, { v -> model.edit { it.copy(screensaverDuringMusic = v) } },
+            help = "Off: while music plays, Home shows the album art instead.")
     }
     SectionLabel("Screen Saver Preferences")
     MenuRow("Aerials", { push(Page.AerialsPrefs) }, chevron = true)
@@ -578,7 +575,8 @@ private fun ColumnScope.AerialsPrefsPage(model: HomeModel, cfg: LauncherConfig, 
     PanelTitle("Aerials")
     MenuRow("Quality", {
         model.edit { it.copy(screensaver = sc.copy(quality = if (sc.quality == AerialQuality.Hd1080) AerialQuality.Uhd4k else AerialQuality.Hd1080)) }
-    }, f, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K")
+    }, f, value = if (sc.quality == AerialQuality.Hd1080) "1080p" else "4K",
+        help = "Aerials stream from Apple and are cached (up to 600 MB) to replay offline.")
     ToggleRow("Show Location", sc.showLocation, { v -> model.edit { it.copy(screensaver = sc.copy(showLocation = v)) } })
     ToggleRow("Show Clock", sc.showClock, { v -> model.edit { it.copy(screensaver = sc.copy(showClock = v)) } })
     MenuRow("Choose Aerials", { push(Page.ChooseAerials) },
@@ -594,10 +592,12 @@ private fun ColumnScope.AerialsPrefsPage(model: HomeModel, cfg: LauncherConfig, 
             else -> "Needs permission"
         },
         enabled = canWrite || isSystem,
+        help = when {
+            HomeSetup.isFireTv -> "Fire OS only runs Amazon's screensavers; Glass starts its own when Home is idle."
+            !canWrite && !isSystem -> "One-time setup from a computer: ${Screensaver.GRANT_COMMAND}"
+            else -> null
+        },
     )
-    Hint("Aerial videos stream from Apple and are cached (up to 600 MB) so they replay offline.")
-    if (!canWrite && !isSystem) Hint("One-time setup from a computer: ${Screensaver.GRANT_COMMAND}")
-    if (HomeSetup.isFireTv) Hint("Fire OS only runs Amazon's own screensavers as the system screensaver; Glass starts its own after Home is idle.")
 }
 
 /** tvOS Choose Aerials: categories on the left, the category's clips as a grid; Select hides or shows one. */
@@ -643,8 +643,8 @@ private fun ChooseAerialsPage(model: HomeModel, cfg: LauncherConfig, active: Boo
                 }
             }
             when {
-                videos == null -> Hint("Loading Aerials…")
-                videos!!.isEmpty() -> Hint("Connect to the internet to download Aerial videos.")
+                videos == null -> Text("Loading Aerials…", style = dev.glasslauncher.ui.Type.secondary, color = dev.glasslauncher.ui.LocalPalette.current.secondary, modifier = Modifier.padding(start = 30.dp, top = 14.dp))
+                videos!!.isEmpty() -> Text("Connect to the internet to download Aerial videos.", style = dev.glasslauncher.ui.Type.secondary, color = dev.glasslauncher.ui.LocalPalette.current.secondary, modifier = Modifier.padding(start = 30.dp, top = 14.dp))
             }
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                 columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
@@ -701,14 +701,14 @@ private fun ColumnScope.SlideshowPrefsPage(model: HomeModel, cfg: LauncherConfig
     val context = LocalContext.current
     val sc = cfg.screensaver
     PanelTitle("Slideshow")
-    MenuRow("Choose Photos", { push(Page.ChoosePhotos) }, f, value = sc.album ?: "All Photos", chevron = true)
+    MenuRow("Choose Photos", { push(Page.ChoosePhotos) }, f, value = sc.album ?: "All Photos", chevron = true,
+        help = "Copy photos to Pictures or Downloads (USB drive or Downloader), then choose an album.")
     MenuRow("Duration", {
         val next = PHOTO_SECONDS[(PHOTO_SECONDS.indexOf(sc.photoSeconds).coerceAtLeast(0) + 1) % PHOTO_SECONDS.size]
         model.edit { it.copy(screensaver = it.screensaver.copy(photoSeconds = next)) }
     }, value = "${sc.photoSeconds} Seconds")
     ToggleRow("Pan and Zoom", sc.kenBurns, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(kenBurns = v)) } })
     MenuRow("Preview", { AerialActivity.start(context, slideshow = true) })
-    Hint("Photos on this TV: copy them to Pictures or Downloads (for example with a USB drive or Downloader), then choose an album.")
 }
 
 @Composable
@@ -724,8 +724,7 @@ private fun ColumnScope.ChoosePhotosPage(model: HomeModel, cfg: LauncherConfig, 
     PanelTitle("Choose Photos")
     MenuRow("All Photos", { choose(null) }, f, value = if (album == null) "✓" else null)
     if (!granted) {
-        MenuRow("Allow Access to Photos", { request.launch(permission) })
-        Hint("The slideshow needs access to the photos on this TV.")
+        MenuRow("Allow Access to Photos", { request.launch(permission) }, help = "The slideshow needs access to the photos on this TV.")
         return
     }
     val albums by androidx.compose.runtime.produceState<List<Pair<String, Int>>?>(null) { value = dev.glasslauncher.dream.SlideshowView.albums(context) }
@@ -758,15 +757,11 @@ private fun ColumnScope.WidgetsPage(model: HomeModel, cfg: LauncherConfig, f: Mo
         ToggleRow("Fahrenheit", w.fahrenheit, { v -> model.edit { it.copy(weather = w.copy(fahrenheit = v)) } })
         ToggleRow("Show Weather", true, { model.edit { it.copy(weather = null) } })
     }
-    if (cfg.weather == null) Hint("Set a location to show the weather next to the time.")
     status?.let { Hint(it) }
     SectionLabel("Now Playing")
-    ToggleRow("Show on Home", cfg.showNowPlaying, { v -> model.edit { it.copy(showNowPlaying = v) } })
-    Hint("While music plays, Home shows the album art and track. Control Center always shows playback controls.")
-    if (!NowPlayingSource.isAllowed(context)) {
-        Hint("Needs media access. From a computer: adb shell cmd notification allow_listener ${context.packageName}/${dev.glasslauncher.widgets.NowPlayingService::class.java.name}")
-    }
-    Hint("Weather by Open-Meteo.")
+    ToggleRow("Show on Home", cfg.showNowPlaying, { v -> model.edit { it.copy(showNowPlaying = v) } },
+        help = if (NowPlayingSource.isAllowed(context)) "While music plays, Home shows the album art and track."
+        else "Needs media access. From a computer: adb shell cmd notification allow_listener ${context.packageName}/${dev.glasslauncher.widgets.NowPlayingService::class.java.name}")
 }
 
 @Composable
@@ -793,16 +788,14 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
             }
             // Turning it off can leave the stock home screen in charge: ask first.
             if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, Glass Launcher won't take over again.", "Turn Off", destructive = true) { apply() })
-        })
-        Hint("When the stock home screen appears, Glass Launcher takes over. It only watches for the stock launcher's window and never intercepts buttons.")
+        }, help = "When the stock home screen appears, Glass takes over. It never intercepts buttons.")
         if (cfg.homeGuard && !guardOn) {
             Hint(if (canWrite) "Couldn't enable the accessibility service." else "Grant once from a computer: ${Screensaver.GRANT_COMMAND}, then toggle again. Or enable it in Accessibility settings.")
         }
     }
     if (HomeSetup.isFireTv) {
         SectionLabel("Most reliable on Fire TV (from a computer)")
-        Hint(HomeSetup.DISABLE_STOCK_COMMAND)
-        Hint("Undo with: ${HomeSetup.RESTORE_STOCK_COMMAND}")
+        Hint("${HomeSetup.DISABLE_STOCK_COMMAND}  (undo: ${HomeSetup.RESTORE_STOCK_COMMAND})")
     }
 }
 
@@ -814,7 +807,7 @@ private fun ColumnScope.UpdatesPage(f: Modifier) {
     var status by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<Release?>(null) }
     PanelTitle("Updates")
-    MenuRow("Current Version", {}, f, value = BuildConfig.VERSION_NAME)
+    MenuRow("Current Version", {}, f, value = BuildConfig.VERSION_NAME, help = "Updates come from github.com/${BuildConfig.UPDATE_REPO}/releases.")
     MenuRow("Check for Updates", {
         scope.launch {
             status = "Checking…"
@@ -839,10 +832,8 @@ private fun ColumnScope.UpdatesPage(f: Modifier) {
                 }.onSuccess { status = "Installing…" }.onFailure { status = it.message ?: "Update failed." }
             }
         }) })
-        if (r.notes.isNotBlank()) Hint(r.notes.take(400))
     }
     status?.let { Hint(it) }
-    Hint("Updates come from github.com/${BuildConfig.UPDATE_REPO}/releases.")
 }
 
 @Composable
@@ -864,7 +855,7 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
     PanelTitle("Backup & Restore")
     MenuRow("Save Backup", {
         scope.launch { status = runCatching { "Saved to " + Backup.export(context, graph.config.export()) }.getOrElse { it.message ?: "Couldn't save." } }
-    }, f)
+    }, f, help = "Your layout, folders, hidden apps and settings. Custom images stay on this TV.")
     val askRestore = dev.glasslauncher.home.LocalConfirm.current
     MenuRow("Restore from Downloads", { askRestore(dev.glasslauncher.home.Overlay.Confirm("Restore from Downloads?", "Your current layout, folders and settings are replaced by the backup's.", "Restore", destructive = true) {
         scope.launch {
@@ -880,18 +871,18 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
         askRestore(dev.glasslauncher.home.Overlay.Confirm("Restore from a File?", "Your current layout, folders and settings are replaced by the file's.", "Choose File", destructive = true) { pick.launch(arrayOf("application/json", "*/*")) })
     })
     status?.let { Hint(it) }
-    Hint("Backups include your layout, folders, hidden apps and settings. Custom images stay on this TV.")
 }
 
 @Composable
 private fun ColumnScope.AboutPage(f: Modifier) {
     PanelTitle("Glass Launcher")
-    MenuRow("Version", {}, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})")
-    Hint("Open source under the Apache License 2.0. github.com/${BuildConfig.UPDATE_REPO}")
-    Hint("Aerial videos are streamed from Apple. Featured content from Stremio Cinemeta, TMDB, YouTube or Plex using your own keys. This product uses the TMDB API but is not endorsed or certified by TMDB. Weather by Open-Meteo.")
+    MenuRow("Version", {}, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})",
+        help = "Open source under the Apache License 2.0. github.com/${BuildConfig.UPDATE_REPO}")
+    MenuRow("Content Sources", {},
+        help = "Aerials from Apple; titles from the apps, JustWatch, Stremio, TMDB, YouTube or Plex; weather by Open-Meteo. Uses the TMDB API but isn't endorsed by TMDB.")
     SectionLabel("Privacy")
-    MenuRow("Glass Launcher Collects No Data", {})
-    Hint("No accounts, analytics, ads or tracking. Nothing about you, your apps or what you watch leaves this TV. Settings and caches (including the app switcher's blurred previews) stay on the device. The launcher only contacts the services you turn on (featured artwork, weather, Aerials, update checks), and sends them nothing but the request itself, such as your weather city or your own API keys.")
+    MenuRow("Glass Launcher Collects No Data", {},
+        help = "No accounts, analytics, ads or tracking. It only contacts the services you turn on, and sends nothing but the request.")
     Box(Modifier.size(1.dp))
 }
 
@@ -901,11 +892,10 @@ private fun ColumnScope.AccessibilityPage(model: HomeModel, cfg: LauncherConfig,
     MenuRow("Reduce Motion", {
         val next = Auto.entries[(cfg.reduceMotion.ordinal + 1) % Auto.entries.size]
         model.edit { it.copy(reduceMotion = next) }
-    }, f, value = when (cfg.reduceMotion) { Auto.Auto -> "Automatic"; Auto.On -> "On"; Auto.Off -> "Off" })
-    Hint("Turns off tilt, wiggle and movement; changes still dissolve. Automatic follows the system's animation setting.")
-    Hint("Text size, bold text, contrast and transparency are in Display & Text Size.")
-    ToggleRow("Navigation Sounds", cfg.sounds, { v -> model.edit { it.copy(sounds = v) } })
-    Hint("Plays the system focus and click sounds, if they're enabled in the TV's settings.")
+    }, f, value = when (cfg.reduceMotion) { Auto.Auto -> "Automatic"; Auto.On -> "On"; Auto.Off -> "Off" },
+        help = "Turns off tilt, wiggle and movement; changes still dissolve. Automatic follows the TV's setting.")
+    ToggleRow("Navigation Sounds", cfg.sounds, { v -> model.edit { it.copy(sounds = v) } },
+        help = "Plays the system focus and click sounds, if they're on in the TV's settings.")
 }
 
 @Composable
@@ -946,12 +936,11 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     others.forEach { b ->
         MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
     }
-    if (!active) {
-        Hint("Fire TV keeps these buttons to itself. On a rooted TV, run this once from a computer, then restart the TV: ${RemoteButtons.INSTALL_COMMAND}")
-    } else if (!HomeSetup.isRemoteKeysEnabled(context)) {
-        Hint("Turn on Glass Launcher Remote Buttons in the TV's Accessibility settings.")
-    }
-    Hint("Home, Back, volume, mute, power, Alexa and the TV button keep working as usual.")
+    Hint(when {
+        !active -> "Fire TV keeps these buttons to itself. On a rooted TV, run once from a computer, then restart: ${RemoteButtons.INSTALL_COMMAND}"
+        !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on Glass Launcher Remote Buttons in the TV's Accessibility settings."
+        else -> "Home, Back, volume, power, Alexa and the TV button keep working as usual."
+    })
 }
 
 @Composable
@@ -1018,8 +1007,8 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     val rooted by androidx.compose.runtime.produceState<Boolean?>(null, rootCheck) { value = dev.glasslauncher.system.Root.recheck() }
     val on = rooted == true
     PanelTitle("Root")
-    MenuRow("Superuser", { rootCheck++ }, f, value = when (rooted) { null -> "Checking…"; true -> "Detected"; false -> "Not detected" })
-    Hint(if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select Superuser to check again after granting Glass Launcher root.")
+    MenuRow("Superuser", { rootCheck++ }, f, value = when (rooted) { null -> "Checking…"; true -> "Detected"; false -> "Not detected" },
+        help = if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select to check again after granting Glass Launcher root.")
     SectionLabel("System")
     val askSystem = dev.glasslauncher.home.LocalConfirm.current
     MenuRow("System App", {
@@ -1034,16 +1023,15 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
         dev.glasslauncher.system.RootFeatures.SystemApp.Pending -> "On after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Removing -> "Off after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Off -> "Off"
-    })
-    Hint("Runs Glass as a privileged system app: it can read other apps' TV rows (Continue Watching) and is harder for the system to stop.")
-    ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on)
-    Hint("Turns off Fire TV's own launcher and makes Glass the Home screen. Off brings Fire TV's back.")
+    }, help = "Runs Glass as a privileged system app: it can read other apps' TV rows and is harder for the system to stop.")
+    ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on,
+        help = "Turns off Fire TV's own launcher and makes Glass the Home screen. Off brings Fire TV's back.")
     SectionLabel("Performance")
     MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null, enabled = on)
-    MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on)
-    Hint("Fast turns off system window animations, so switching apps is instant (Glass keeps its own motion), and holds the GPU and CPU at higher minimum clocks, which runs the stick warmer.")
-    ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on)
-    Hint("Keeps more apps ready to resume: 1.2 GB compressed swap, and up to 12 background apps instead of 4. Takes effect after a restart.")
+    MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on,
+        help = "Instant app switching (no system window animations) and higher minimum clocks. Runs warmer.")
+    ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on,
+        help = "Keeps up to 12 apps ready to resume instead of 4 (1.2 GB compressed swap). After a restart.")
     MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)
     MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true, enabled = on)
     SectionLabel("Device")
@@ -1065,8 +1053,7 @@ private fun ColumnScope.FreezerPage(f: Modifier) {
     Hint("Turned-off apps stop running and disappear until turned back on. Nothing is uninstalled.")
     rf.freezable.forEachIndexed { i, app ->
         val off = frozen?.contains(app.pkg) == true
-        ToggleRow(app.label, !off, { on -> scope.launch { rf.setFrozen(context, app.pkg, !on); tick++ } }, if (i == 0) f else Modifier, enabled = frozen != null)
-        Hint(app.note)
+        ToggleRow(app.label, !off, { on -> scope.launch { rf.setFrozen(context, app.pkg, !on); tick++ } }, if (i == 0) f else Modifier, enabled = frozen != null, help = app.note)
     }
 }
 
@@ -1094,13 +1081,12 @@ private fun ColumnScope.DisplayTextPage(model: HomeModel, cfg: LauncherConfig, f
     MenuRow("Text Size", { push(Page.TextSize) }, value = textSizeName(cfg.textScale), chevron = true)
     SectionLabel("Contrast")
     ToggleRow("Increase Contrast", cfg.increaseContrast, { v -> screen.dissolve { model.edit { it.copy(increaseContrast = v) } } })
-    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } })
-    Hint("Reduce Transparency makes glass solid for easier reading.")
+    ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } },
+        help = "Makes glass solid for easier reading.")
     SectionLabel("Fire TV")
     MenuRow("Fire TV Accessibility", {
         SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Accessibility" })
-    }, chevron = true)
-    Hint("High Contrast Text, Screen Magnifier and captions are Fire TV settings and apply to every app.")
+    }, chevron = true, help = "High Contrast Text, Screen Magnifier and captions: Fire TV settings for every app.")
 }
 
 /** A five-step slider: Left/Right changes the size, and the page grows with it as you go. */

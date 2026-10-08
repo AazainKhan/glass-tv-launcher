@@ -15,7 +15,7 @@ def test_explanations_sit_on_the_left_under_the_page_icon(tv, home, settings):
     settings.open_from_control_center()
     settings.open_page("Accessibility")
     tree = tv.wait_for(lambda t: _icon(t) == "Accessibility" and t, 4, "the Accessibility page icon")
-    hint = next((n for n in tree.nodes() if n.text.startswith("Text size, bold text")), None)
+    hint = next((n for n in tree.nodes() if n.text.startswith("Turns off tilt")), None)
     assert hint, "the page's explanation is missing"
     assert hint.center[0] < 900, f"explanations belong on the left, found at x={hint.center[0]}"
 
@@ -66,3 +66,41 @@ def test_restore_asks_first(tv, home, settings):
     settings.open_from_control_center()
     settings.open_page("Backup & Restore")
     _confirm_then_cancel(tv, settings, "Restore from Downloads", "Restore")
+
+
+def _left_words(tree):
+    """Text in the left column under the icon (not the centred title at the top)."""
+    return [n.text for n in tree.nodes() if n.text and n.center[0] < 840 and n.center[1] > 160 and not n.focusable]
+
+
+def test_left_text_follows_the_focused_row(tv, home, settings):
+    settings.open_from_control_center()
+    settings.open_page("Screen Saver", "Current Selection")
+    settings.focus_text("Show During Music")
+    music = tv.wait_for(lambda t: _left_words(t), 3, "help for Show During Music")
+    assert any("music" in w.lower() for w in music), f"the left text should explain the focused row: {music}"
+    settings.focus_text("Start After")
+    after = tv.wait_for(lambda t: _left_words(t) != music and _left_words(t), 3, "help for Start After")
+    assert any("idle" in w.lower() for w in after), f"the left text should follow focus: {after}"
+
+
+def test_left_column_holds_one_short_text(tv, home, settings):
+    """Purposeful text: at most one short line of words on the left of any page, never a pile."""
+    settings.open_from_control_center()
+    rows = [r for r in ["Appearance", "Display & Text Size", "Control Center", "Top Shelf Content", "Hidden Apps", "Icon Pack",
+                        "Screen Saver", "Widgets", "Home Button", "Remote Buttons", "Accessibility", "Updates", "Backup & Restore", "Root"]
+            if any(r in n.texts for n in tv.tree().nodes()) or True]
+    piles = {}
+    for row in rows:
+        try:
+            settings.open_page(row)
+        except AssertionError:
+            continue
+        import time
+        time.sleep(0.5)
+        words = _left_words(tv.tree())
+        if len(words) > 1 or sum(len(w) for w in words) > 160:
+            piles[row] = words
+        home.back()
+        tv.wait_for(lambda t: t.has_text("Appearance"), 4, "back on the main list")
+    assert not piles, f"pages with too much text on the left: {piles}"

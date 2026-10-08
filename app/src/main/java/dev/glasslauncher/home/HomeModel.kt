@@ -109,8 +109,15 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         else c.copy(dock = c.dock + pkg, folders = c.folders.withoutApp(pkg))
     }
 
-    fun removeFromDock(pkg: String) = edit { c ->
-        c.copy(dock = c.dock - pkg, order = listOf(appKey(pkg)) + (c.order - appKey(pkg)))
+    /** Out of the tray to the front of the grid; the first other grid app takes its place (the tray stays six). */
+    fun removeFromDock(pkg: String) {
+        val l = layout.value
+        val next = l.grid.filterIsInstance<GridItem.App>().firstOrNull { it.app.packageName != pkg }?.app?.packageName
+        edit { c ->
+            val shown = l.dock.map { it.packageName }.ifEmpty { c.dock }
+            val dock = shown.map { if (it == pkg && next != null) next else it }.filter { it != pkg }
+            c.copy(dock = dock, order = listOf(appKey(pkg)) + (c.order - appKey(pkg)))
+        }
     }
 
     fun hide(pkg: String) = edit { c ->
@@ -132,7 +139,8 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             val target = dockIndex + delta
             if (target !in l.dock.indices) return false
             edit { c ->
-                val d = c.dock.filter { p -> l.dock.any { it.packageName == p } }.toMutableList()
+                // The tray as shown (filled apps included), so positions match what's on screen.
+                val d = l.dock.map { it.packageName }.toMutableList()
                 d.add(target, d.removeAt(dockIndex)); c.copy(dock = d)
             }
             return true
@@ -148,7 +156,8 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
 
     /** Moves an app between the dock and the grid while in move mode. */
     fun moveIntoDock(pkg: String): Boolean {
-        if (layout.value.dock.size >= DOCK_SIZE) return false
+        // A full tray of chosen apps has no room; a filled-in app gives way to one moved up on purpose.
+        if (config.value.dock.count { d -> layout.value.dock.any { it.packageName == d } } >= DOCK_SIZE) return false
         addToDock(pkg)
         return true
     }
@@ -239,20 +248,23 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             val byPkg = apps.associateBy { it.packageName }
             val visible = apps.filter { it.packageName !in cfg.hidden }
             val visiblePkgs = visible.map { it.packageName }.toSet()
-            val dock = cfg.dock.filter { it in visiblePkgs }.distinct().take(DOCK_SIZE).map { byPkg.getValue(it) }
-            val dockPkgs = dock.map { it.packageName }.toSet()
+            val chosen = cfg.dock.filter { it in visiblePkgs }.distinct().take(DOCK_SIZE).map { byPkg.getValue(it) }
+            val chosenPkgs = chosen.map { it.packageName }.toSet()
 
             val folders = cfg.folders.mapNotNull { f ->
-                val members = f.apps.filter { it in visiblePkgs && it !in dockPkgs }.distinct().map { byPkg.getValue(it) }
+                val members = f.apps.filter { it in visiblePkgs && it !in chosenPkgs }.distinct().map { byPkg.getValue(it) }
                 if (members.isEmpty()) null else GridItem.FolderItem(f, members)
             }
             val inFolders = folders.flatMap { it.apps }.map { it.packageName }.toSet()
-            val loose = visible.filter { it.packageName !in dockPkgs && it.packageName !in inFolders }
+            val loose = visible.filter { it.packageName !in chosenPkgs && it.packageName !in inFolders }
 
             val items = LinkedHashMap<String, GridItem>()
             (loose.map { GridItem.App(it) } + folders).forEach { items[it.key] = it }
-            val ordered = cfg.order.mapNotNull { items.remove(it) }
-            return HomeLayout(dock, ordered + items.values, apps, loaded = true)
+            val grid = cfg.order.mapNotNull { items.remove(it) } + items.values
+            // The tray always holds six: the first apps of the grid (not folders) move up to fill it.
+            val fill = grid.filterIsInstance<GridItem.App>().take(DOCK_SIZE - chosen.size)
+            val filled = fill.map { it.key }.toSet()
+            return HomeLayout(chosen + fill.map { it.app }, grid.filter { it.key !in filled }, apps, loaded = true)
         }
 
         private fun List<Folder>.withoutApp(pkg: String) = map { it.copy(apps = it.apps - pkg) }

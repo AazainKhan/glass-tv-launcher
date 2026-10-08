@@ -52,7 +52,8 @@ def test_icon_pack_page_explains_and_links_to_packs(tv, home, settings):
     settings.open_page("Icon Pack")
     tree = tv.tree()
     assert tree.has_text("None") and tree.has_text("Search the Appstore")
-    assert any("ADW or Nova" in n.text for n in tree.nodes()), "the page should say which packs work"
+    settings.focus_text("Search the Appstore")
+    tv.wait_for(lambda t: any("Nova" in n.text for n in t.nodes()), 3, "which packs work, beside the Appstore row")
 
 
 def test_24_hour_time_changes_the_clock(tv, home, settings):

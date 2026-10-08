@@ -77,6 +77,8 @@ fun MenuRow(
     destructive: Boolean = false,
     /** An on/off row: drawn as a switch and reported as one to accessibility (checked state). */
     checked: Boolean? = null,
+    /** One short line about this row, shown in the Settings page's left column while it has focus. */
+    help: String? = null,
 ) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
@@ -84,6 +86,11 @@ fun MenuRow(
     val pressed = remember { booleanArrayOf(false) }
     val prefs = LocalUiPrefs.current
     val view = LocalView.current
+    val sink = dev.glasslauncher.home.LocalTitleSink.current
+    if (sink != null && focused) {
+        val page = dev.glasslauncher.home.LocalPageKey.current
+        androidx.compose.runtime.LaunchedEffect(help, page) { sink.help = help?.let { page to it } }
+    }
     val scale by animateFloatAsState(if (focused) 1.02f else 1f, if (focused) Motion.focusIn() else Motion.focusOut(), label = "rowScale")
     // SYS-02: rows rest on faint glass; the focused row is a solid white capsule. tvOS: the new row is
     // white within a frame (the capsule doesn't slide), the old one fades over ~60 ms.
@@ -152,8 +159,8 @@ fun MenuRow(
 }
 
 @Composable
-fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    MenuRow(title, onClick = { onChange(!checked) }, modifier = modifier, checked = checked, enabled = enabled)
+fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, help: String? = null) {
+    MenuRow(title, onClick = { onChange(!checked) }, modifier = modifier, checked = checked, enabled = enabled, help = help)
 }
 
 /** A tvOS-style switch: a capsule track with a knob, green when on. Drawn in one Canvas (no animation cost at rest). */

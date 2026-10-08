@@ -86,3 +86,8 @@ def test_tray_apps_have_no_name_under_them(tv, home):
     focused = tree.focused()
     assert focused and focused.rid.startswith("app:"), "focus should start on a tray app"
     assert not tree.has_text(focused.desc), f"'{focused.desc}' is written under the tray icon"
+
+
+def test_tray_always_holds_six_apps(tv, home):
+    """With fewer than six chosen for the top row, the first grid apps move up to fill it."""
+    assert len(home.dock_apps()) == 6, f"the tray holds {len(home.dock_apps())} apps"

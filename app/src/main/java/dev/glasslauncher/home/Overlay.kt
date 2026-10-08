@@ -1,6 +1,7 @@
 package dev.glasslauncher.home
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -295,6 +296,8 @@ class TitleSink {
     val captions = androidx.compose.runtime.mutableStateListOf<Pair<Any?, String>>()
     /** A page that needs the whole width (Choose Aerials): the frame drops the icon column while it shows. */
     var wide by androidx.compose.runtime.mutableStateOf<Any?>(null)
+    /** The focused row's one-line help (keyed by page): what the left column shows while it has focus. */
+    var help by androidx.compose.runtime.mutableStateOf<Pair<Any?, String>?>(null)
 }
 
 /** The Settings page a composable belongs to (its captions are kept apart from the page it replaces). */
@@ -338,15 +341,11 @@ fun SettingsPage(active: Boolean, icon: @Composable () -> Unit, content: @Compos
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { SettingsPageIcon(sink.title, icon) }
-                val words = sink.captions.filter { it.first == sink.page }.map { it.second }
-                if (words.isNotEmpty()) androidx.compose.foundation.layout.Column(
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 18.dp),
-                ) {
-                    words.forEach {
-                        androidx.tv.material3.Text(it, style = dev.glasslauncher.ui.Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    }
+                // One purposeful line: the focused row's help, else the page's own caption. Never a pile.
+                val words = sink.help?.takeIf { it.first == sink.page }?.second
+                    ?: sink.captions.firstOrNull { it.first == sink.page }?.second
+                androidx.compose.animation.Crossfade(words, animationSpec = androidx.compose.animation.core.tween(160), label = "settings-help", modifier = Modifier.padding(bottom = 18.dp).then(Modifier.defaultMinSize(minHeight = 60.dp))) { w ->
+                    if (w != null) androidx.tv.material3.Text(w, style = dev.glasslauncher.ui.Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
             Box(Modifier.weight(if (wide) 1f else 0.58f).fillMaxHeight()) {
