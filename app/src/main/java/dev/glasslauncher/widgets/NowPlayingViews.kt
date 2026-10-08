@@ -166,7 +166,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
         Modifier.width(width)
             .bringIntoViewRequester(reveal)
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
-            .glass(LocalBackdrop.current, shape, GlassStyle.control(palette.light)).padding((12 * scale).dp).testTag("now-playing-card"),
+            .glass(LocalBackdrop.current, shape, GlassStyle.shelf(false).copy(legible = true)).padding((12 * scale).dp).testTag("now-playing-card"),
     ) {
         // One row (art, track and progress, then the controls), so Control Center fits on screen with it.
         Row(verticalAlignment = Alignment.CenterVertically) {

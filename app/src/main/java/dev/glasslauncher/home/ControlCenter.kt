@@ -109,6 +109,9 @@ object CcMorph {
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
 private val CC_BLEED = 16.dp
 
+/** The tray's clear glass (its text-safe texture, and no refracted edge per tile), for every Control Center surface. */
+private val CC_GLASS = GlassStyle.shelf(false).copy(legible = true)
+
 /** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
 private val CC_DIM = Color.Black.copy(alpha = 0.42f)
 
@@ -128,6 +131,17 @@ val CONTROL_CENTER_TILES = listOf(
  */
 @Composable
 fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
+    // One look in either theme, like the pill and tray: white text and glyphs on clear glass over the
+    // dimmed screen (tvOS 27 Control Center isn't themed light or dark).
+    val outer = LocalPalette.current
+    val palette = remember(outer.highContrast) { dev.glasslauncher.ui.Palette(light = false, highContrast = outer.highContrast) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalPalette provides palette) {
+        ControlCenterBody(edit, cfg, active, open, closeAll)
+    }
+}
+
+@Composable
+private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
     val context = LocalContext.current
     val m = LocalMetrics.current
     val palette = LocalPalette.current
@@ -202,23 +216,21 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
                 .trapFocus(active)
                 .testTag("control-center"),
         ) {
-            // The page icons, right-aligned above the time; focusing one shows its page.
-            if (alexaPage) Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(end = CC_BLEED + 4.dp, bottom = 10.dp),
+            // One band above the tiles (tvOS 27): the time with seconds, the date and the weather on the
+            // left, lined up with the tiles; the page icons on the right (focusing one shows its page).
+            Row(
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
             ) {
-                PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
-                PageIcon(R.drawable.ic_home, "Alexa", selected = page == 1) { page = 1 }
-            }
-            // tvOS 27: the time with seconds, the date under it, then the weather, right-aligned where
-            // the status pill was.
-            Column(
-                horizontalAlignment = Alignment.End,
-                modifier = Modifier.width(sz.column).wrapContentWidth(Alignment.End, unbounded = true).padding(end = CC_BLEED + 4.dp, bottom = 16.dp - CC_BLEED),
-            ) {
-                Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
-                Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp).testTag("cc-date"))
-                cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) }
+                Column(Modifier.weight(1f)) {
+                    Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
+                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp).testTag("cc-date"))
+                    cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) }
+                }
+                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
+                    PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
+                    PageIcon(R.drawable.ic_home, "Alexa", selected = page == 1) { page = 1 }
+                }
             }
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
@@ -336,7 +348,7 @@ private fun PageIcon(@DrawableRes icon: Int, label: String, selected: Boolean, o
     ) { focused ->
         val lit = focused || selected
         Box(
-            Modifier.fillMaxSize().glass(LocalBackdrop.current, CircleShape, GlassStyle.control(palette.light))
+            Modifier.fillMaxSize().glass(LocalBackdrop.current, CircleShape, CC_GLASS)
                 .then(if (lit) Modifier.background(palette.focusFill, CircleShape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
@@ -441,7 +453,7 @@ private fun CcTile(
                 // The glass stays put and the focus or "on" fill draws over it: swapping modifiers made a
                 // fresh glass node on every focus change, which could draw a frame before knowing where it
                 // was (a tile that had just lost focus showed up see-through).
-                .glass(LocalBackdrop.current, shape, GlassStyle.control(palette.light))
+                .glass(LocalBackdrop.current, shape, CC_GLASS)
                 .then(
                     if (focused) Modifier.background(palette.focusFill, shape)
                     else if (on) Modifier.background(Color.White, shape)

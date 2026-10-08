@@ -20,12 +20,12 @@ def test_opens_with_every_control(tv, home, cc, rooted):
     assert tree.focused() and tree.focused().desc.startswith("Settings"), "focus should start on Settings"
 
 
-def test_header_stacks_time_date_and_weather_right_aligned(tv, home, cc):
-    """tvOS 27: the time with seconds, the date under it, then the weather, all right-aligned."""
+def test_header_is_left_aligned_with_the_page_icons_on_the_right(tv, home, cc):
+    """The time with seconds, the date under it, then the weather, left-aligned with the tiles; the page
+    icons stay at the right of the same band, with a gap between the two."""
     tree = cc.open()
     clock = tree.find(rid="cc-clock")
     assert clock and clock_ok(clock.text, seconds=True), f"clock reads {clock and clock.text!r}"
-    assert clock.bounds[2] > 1920 * 0.8, f"clock isn't right-aligned (right edge {clock.bounds[2]})"
     date = tree.find(rid="cc-date")
     assert date and date_ok(date.text), f"Control Center date reads {date and date.text!r}"
     lines = [clock, date]
@@ -34,9 +34,38 @@ def test_header_stacks_time_date_and_weather_right_aligned(tv, home, cc):
         lines.append(weather)
     for upper, lower in zip(lines, lines[1:]):
         assert lower.bounds[1] >= upper.bounds[3] - 2, f"{lower.rid} should sit under {upper.rid}"
-        assert abs(lower.bounds[2] - upper.bounds[2]) <= 4, f"{lower.rid} isn't right-aligned with {upper.rid}"
+        assert abs(lower.bounds[0] - upper.bounds[0]) <= 4, f"{lower.rid} isn't left-aligned with {upper.rid}"
+    settings_tile = cc.tile(tree, "Settings, Fire TV")
+    assert abs(clock.bounds[0] - settings_tile.bounds[0]) <= 24, f"the header should line up with the tiles' left edge ({clock.bounds} vs {settings_tile.bounds})"
+    icons = cc.tile(tree, "Controls")
+    if icons:
+        assert icons.bounds[0] > clock.bounds[2] + 20, "the page icons sit at the right, apart from the time"
     first = clock.text
     tv.wait_for(lambda t: t.find(rid="cc-clock") and t.find(rid="cc-clock").text != first, 4, "the seconds to tick")
+
+
+def test_control_center_looks_the_same_in_light_and_dark(tv, home, cc):
+    """One material for Control Center, like the pill and tray: white glyphs on clear glass in either theme."""
+    def brightest(img, bounds):
+        """The 99th-percentile brightness: the tile's text and glyphs (white in tvOS's Control Center)."""
+        hist = img.crop(bounds).histogram()
+        total, seen = sum(hist), 0
+        for level in range(255, -1, -1):
+            seen += hist[level]
+            if seen >= total * 0.01:
+                return level
+        return 0
+
+    looks = {}
+    for theme in ("Light", "Dark"):
+        with _theme(tv, home, cc, theme):
+            tree = cc.open()
+            tv.press("wait:600")
+            img = tv.screen_image()
+            looks[theme] = {p: brightest(img, cc.tile(tree, p).bounds) for p in ("Wi-Fi", "Bluetooth", "Launcher Settings")}
+            home.reset()
+    for tile in looks["Dark"]:
+        assert abs(looks["Light"][tile] - looks["Dark"][tile]) < 25, f"'{tile}' text differs between themes: {looks}"
 
 
 def test_back_closes(tv, home, cc):
