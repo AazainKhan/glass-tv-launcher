@@ -23,11 +23,12 @@ class LogoHeroTest {
             val art = icon(name)
             val bg = art.getPixel(3, 3)
             val hero = LogoHero.compose(art)
+            val mid = (720 * LogoHero.CENTRE_Y).toInt()
             // Points around the logo (left/right of it, above, below) are all the plain background colour.
-            for ((x, y) in listOf(60 to 274, 1220 to 274, 640 to 40, 640 to 520, 300 to 274, 980 to 274))
+            for ((x, y) in listOf(60 to mid, 1220 to mid, 640 to 40, 640 to 560, 300 to mid, 980 to mid))
                 assertTrue("$name: ${Integer.toHexString(hero.getPixel(x, y))} at ($x,$y) isn't the background ${Integer.toHexString(bg)}", near(hero.getPixel(x, y), bg))
             // And the logo itself is there in the middle band.
-            assertTrue("$name: no logo", (300..980 step 10).any { x -> !near(hero.getPixel(x, 274), bg) })
+            assertTrue("$name: no logo", (300..980 step 10).any { x -> !near(hero.getPixel(x, mid), bg) })
         }
     }
 }

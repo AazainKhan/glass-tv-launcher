@@ -16,7 +16,8 @@ import android.graphics.RectF
 object LogoHero {
     private const val INK_WIDTH = 0.52f
     private const val INK_HEIGHT = 0.30f
-    private const val CENTRE_Y = 0.38f
+    /** Where the logo's centre sits, as a fraction of the height: low in the room above the tray (user, 2026-10-09: 0.38 read too high). */
+    const val CENTRE_Y = 0.44f
     /** How far (summed RGB) from the edge colour a pixel must be to count as logo: gradients stay background. */
     private const val INK_DISTANCE = 110
 

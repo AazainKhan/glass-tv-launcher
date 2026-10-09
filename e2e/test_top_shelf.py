@@ -281,7 +281,7 @@ def test_app_hero_logo_sits_at_tvos_size(tv, home, pkg):
     img = tv.screen_image(colour=True)
     bg = img.getpixel((40, 300))
     differs = lambda p: sum(abs(a - b) for a, b in zip(p, bg)) > 60
-    cols = [x for x in range(0, 1920, 8) if any(differs(img.getpixel((x, y))) for y in range(180, 560, 12))]
+    cols = [x for x in range(0, 1920, 8) if any(differs(img.getpixel((x, y))) for y in range(180, 700, 12))]
     width = (cols[-1] - cols[0]) if cols else 0
     assert 0 < width <= 1920 * 0.62, f"{pkg}'s logo spans {width}px of 1920; tvOS draws it about half as wide"
 
