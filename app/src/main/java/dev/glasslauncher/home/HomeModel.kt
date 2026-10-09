@@ -104,20 +104,16 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         try { getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) { }
     }
 
-    fun addToDock(pkg: String) = edit { c ->
-        if (pkg in c.dock || c.dock.size >= DOCK_SIZE) c
-        else c.copy(dock = c.dock + pkg, folders = c.folders.withoutApp(pkg))
+    /** Move to › App Dock: a full tray takes the app and its rightmost app moves down to the grid (see [addedToTray]). */
+    fun addToDock(pkg: String) {
+        val apps = layout.value.installed
+        edit { c -> addedToTray(c, apps, pkg) }
     }
 
     /** Out of the tray to the front of the grid; the first other grid app takes its place (the tray stays six). */
     fun removeFromDock(pkg: String) {
-        val l = layout.value
-        val next = l.grid.filterIsInstance<GridItem.App>().firstOrNull { it.app.packageName != pkg }?.app?.packageName
-        edit { c ->
-            val shown = l.dock.map { it.packageName }.ifEmpty { c.dock }
-            val dock = shown.map { if (it == pkg && next != null) next else it }.filter { it != pkg }
-            c.copy(dock = dock, order = listOf(appKey(pkg)) + (c.order - appKey(pkg)))
-        }
+        val apps = layout.value.installed
+        edit { c -> removedFromTray(c, apps, pkg) }
     }
 
     fun hide(pkg: String) = edit { c ->
@@ -155,10 +151,10 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Moves an app between the dock and the grid while in move mode. */
-    fun moveIntoDock(pkg: String): Boolean {
-        // A full tray of chosen apps has no room; a filled-in app gives way to one moved up on purpose.
-        if (config.value.dock.count { d -> layout.value.dock.any { it.packageName == d } } >= DOCK_SIZE) return false
-        addToDock(pkg)
+    fun moveIntoDock(pkg: String, position: Int? = null): Boolean {
+        val apps = layout.value.installed
+        // The tray is derived from the config the update receives, so back-to-back moves never see a stale layout.
+        edit { c -> addedToTray(c, apps, pkg, position) }
         return true
     }
 
@@ -266,6 +262,42 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             val fill = grid.filterIsInstance<GridItem.App>().take(DOCK_SIZE - chosen.size)
             val filled = fill.map { it.key }.toSet()
             return HomeLayout(chosen + fill.map { it.app }, grid.filter { it.key !in filled }, apps, loaded = true)
+        }
+
+        /**
+         * Puts [pkg] into the tray as shown in [layout] (chosen apps plus grid apps filling it up), at [position]
+         * (null = the rightmost slot). A tray with six apps never refuses: the new app goes in and the tray's
+         * rightmost app moves down to the grid, taking the slot [pkg] came from (a swap), or the first grid slot
+         * when [pkg] came from a folder. Nothing is lost or duplicated, other grid items keep their order, and
+         * hidden apps stay hidden. The result names all of the tray's apps, so it matches what was on screen.
+         */
+        fun addedToTray(cfg: LauncherConfig, apps: List<AppEntry>, pkg: String, position: Int? = null): LauncherConfig {
+            val layout = buildLayout(apps, cfg)
+            val shown = layout.dock.map { it.packageName }
+            if (pkg in shown) return cfg
+            val full = shown.size >= DOCK_SIZE
+            val displaced = if (full) shown.last() else null
+            val kept = if (displaced != null) shown.dropLast(1) else shown
+            val dock = kept.toMutableList().also { it.add((position ?: it.size).coerceIn(0, it.size), pkg) }
+
+            val gridKeys = layout.grid.map { it.key }
+            val slot = gridKeys.indexOf(appKey(pkg)).coerceAtLeast(0)
+            val newGrid = gridKeys.toMutableList().apply {
+                remove(appKey(pkg))
+                if (displaced != null) add(slot.coerceAtMost(size), appKey(displaced))
+            }
+            // Entries for apps the grid doesn't show (hidden ones) stay where they were relative to each other.
+            val rest = cfg.order.filter { it !in newGrid && it != appKey(pkg) && it != displaced?.let(::appKey) }
+            return cfg.copy(dock = dock, order = newGrid + rest, folders = cfg.folders.withoutApp(pkg))
+        }
+
+        /** Out of the tray to the front of the grid; the first other grid app takes its place (the tray stays six). */
+        fun removedFromTray(cfg: LauncherConfig, apps: List<AppEntry>, pkg: String): LauncherConfig {
+            val l = buildLayout(apps, cfg)
+            val next = l.grid.filterIsInstance<GridItem.App>().firstOrNull { it.app.packageName != pkg }?.app?.packageName
+            val shown = l.dock.map { it.packageName }.ifEmpty { cfg.dock }
+            val dock = shown.map { if (it == pkg && next != null) next else it }.filter { it != pkg }
+            return cfg.copy(dock = dock, order = listOf(appKey(pkg)) + (cfg.order - appKey(pkg)))
         }
 
         private fun List<Folder>.withoutApp(pkg: String) = map { it.copy(apps = it.apps - pkg) }

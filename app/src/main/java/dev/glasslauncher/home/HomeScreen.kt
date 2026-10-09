@@ -856,7 +856,7 @@ private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: 
         AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.move(key, 1)
         AndroidKeyEvent.KEYCODE_DPAD_UP -> when {
             inDock -> Unit
-            gridIndex in 0 until columns && key.startsWith("app:") -> model.moveIntoDock(pkg)
+            gridIndex in 0 until columns && key.startsWith("app:") -> model.moveIntoDock(pkg, gridIndex)
             else -> model.move(key, -columns)
         }
         AndroidKeyEvent.KEYCODE_DPAD_DOWN -> when {

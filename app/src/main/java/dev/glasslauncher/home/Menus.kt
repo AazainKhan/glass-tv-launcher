@@ -234,10 +234,9 @@ private fun ColumnScope.MoveToBody(
         overlay.inDock -> MenuRow("Home Screen", { model.removeFromDock(app.packageName); closeAll() }, f())
         overlay.folderId != null -> {
             MenuRow("Home Screen", { model.removeFromFolder(app.packageName, overlay.folderId); closeAll() }, f())
-            if (layout.dock.size < DOCK_SIZE) MenuRow("App Dock", { model.addToDock(app.packageName); closeAll() })
+            MenuRow("App Dock", { model.addToDock(app.packageName); closeAll() })
         }
-        layout.dock.size < DOCK_SIZE -> MenuRow("App Dock", { model.addToDock(app.packageName); closeAll() }, f())
-        else -> MenuRow("App Dock", {}, f(), value = "Full", enabled = false)
+        else -> MenuRow("App Dock", { model.addToDock(app.packageName); closeAll() }, f())
     }
     cfg.folders.filter { fo -> fo.id != overlay.folderId && layout.grid.any { it.key == folderKey(fo.id) } }.forEach { fo ->
         MenuRow(fo.name, { model.addToFolder(app.packageName, fo.id); closeAll() }, value = "${fo.apps.size}")
