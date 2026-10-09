@@ -131,7 +131,7 @@ fun FocusTile(
                     // The tile-coloured glow goes down first, under both shadows, at a strength that doesn't change with focus.
                     if (glowTint != null && glowAlpha > 0.002f) {
                         val r = TileShadow.destRect(TileShadow.Kind.Glow, size.width, size.height, scale, lift, k)
-                        drawImage(
+                        if (!r.isEmpty) drawImage(
                             TileShadow.glow,
                             dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
                             dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
@@ -143,7 +143,7 @@ fun FocusTile(
                     val focusAlpha = TileShadow.alpha(TileShadow.Kind.Focus, lift)
                     if (focusAlpha > 0.002f) {
                         val r = TileShadow.destRect(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)
-                        drawImage(
+                        if (!r.isEmpty) drawImage(
                             focusImage,
                             dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
                             dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
@@ -154,7 +154,7 @@ fun FocusTile(
                     val contactAlpha = TileShadow.alpha(TileShadow.Kind.Contact, lift)
                     if (contactAlpha > 0.002f) {
                         val r = TileShadow.destRect(TileShadow.Kind.Contact, size.width, size.height, scale, lift, k)
-                        drawImage(
+                        if (!r.isEmpty) drawImage(
                             contactImage,
                             dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
                             dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),

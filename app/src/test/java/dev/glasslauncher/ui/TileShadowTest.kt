@@ -238,6 +238,15 @@ class TileShadowTest {
         }
     }
 
+    @Test fun anEmptyTileHasNoShadowAndNothingThrows() {
+        // A zero-width tile makes k = 0; the old maths divided by it and gave a NaN height, which the draw block can't round.
+        val cases = listOf(listOf(0f, 0f, 0f), listOf(0f, 84f, 0f), listOf(150f, 0f, 0.6f), listOf(150f, 84f, 0f), listOf(Float.NaN, 84f, 0.6f), listOf(150f, 84f, Float.POSITIVE_INFINITY))
+        for ((w, h, k) in cases) for (kind in Kind.entries) {
+            val r = TileShadow.destRect(kind, w, h, 1.2f, 1f, k)
+            assertTrue("$kind for $w x $h at k=$k: $r", r.isEmpty && r.left.isFinite() && r.top.isFinite() && r.right.isFinite() && r.bottom.isFinite())
+        }
+    }
+
     @Test fun strengthsCrossFadeAndStayWithinTheirPeaks() {
         assertEquals(0.10f, TileShadow.alpha(Kind.Contact, 0f), 1e-4f)
         assertEquals(0f, TileShadow.alpha(Kind.Focus, 0f), 1e-4f)

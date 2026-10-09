@@ -88,9 +88,10 @@ object TileShadow {
      * current scaled size (the focus shadow is baked at [FOCUS_SCALE] times a resting tile), and it is centred
      * on the tile, [Kind.drop] u lower (the focus shadow's drop grows with [lift]). The bitmaps are 5:3 like
      * Home's tiles; for a tile of another aspect (16:9 shelf cards) the height follows the tile's, so the core
-     * still equals the tile.
+     * still equals the tile. An empty tile (or a [k] that isn't a positive number) has no shadow: [Rect.Zero].
      */
     fun destRect(kind: Kind, tileW: Float, tileH: Float, scale: Float, lift: Float, k: Float): Rect {
+        if (!(k > 0f && tileW > 0f && tileH > 0f) || !k.isFinite() || !tileW.isFinite() || !tileH.isFinite()) return Rect.Zero
         val pxPerU = if (kind == Kind.Focus) k * scale / FOCUS_SCALE else k * scale
         val w = (kind.coreW + 2 * kind.margin) * pxPerU
         val h = (kind.coreH + 2 * kind.margin) * pxPerU * (tileH / (Kind.Contact.coreH * k))
