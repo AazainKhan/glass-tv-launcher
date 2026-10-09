@@ -3,6 +3,7 @@ package dev.glasslauncher.featured
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -213,6 +214,7 @@ fun ExpandedShelf(
                         ImageRequest.Builder(context).data(card.image).size(if (square) 200 else 300, if (square) 200 else 170).crossfade(false).build()
                     }
                     // Every card carries its title underneath, whatever the app (user, 2026-10-09).
+                    var cardFocused by remember(card.id) { androidx.compose.runtime.mutableStateOf(false) }
                     Column(Modifier.width(cardWidth)) {
                         FocusTile(
                             label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
@@ -220,7 +222,7 @@ fun ExpandedShelf(
                             // The cards are a fixed size, so their corners are too: not scaled with text size like Home's tiles.
                             shape = RoundedCornerShape(Metrics().tileRadius),
                             edgeLight = true,
-                            onFocusChange = { if (it) onIndex(i) },
+                            onFocusChange = { cardFocused = it; if (it) onIndex(i) },
                             modifier = Modifier
                                 .width(cardWidth)
                                 .height(cardHeight)
@@ -229,10 +231,8 @@ fun ExpandedShelf(
                         ) {
                             AsyncImage(request, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         }
-                        Text(
-                            card.title, style = Type.caption, color = Color.White.copy(alpha = 0.85f),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        CardTitle(
+                            card.title, focused = cardFocused,
                             // Clear of the focused card's grow (1.1x) and its edge light.
                             modifier = Modifier.fillMaxWidth().padding(top = 10.dp).testTag("featured-title:${card.id}"),
                         )
@@ -243,6 +243,43 @@ fun ExpandedShelf(
         info?.let { InfoSheet(it, onClose = { info = null; runCatching { infoRequester.requestFocus() } }) }
     }
 }
+
+/**
+ * The title under a card: one line, ending in an ellipsis when it doesn't fit. While its card is focused a title
+ * that doesn't fit scrolls to show all of it, as tvOS does: a short pause, then a steady train-scroll to the end
+ * (the text loops round after a gap), stopping, and starting again from the beginning, when focus leaves. A title
+ * that fits never moves.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun CardTitle(title: String, focused: Boolean, modifier: Modifier = Modifier) {
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    // Whether the title overflows, read from the ellipsised layout (while focused it is laid out unclipped instead).
+    var truncated by remember(title) { androidx.compose.runtime.mutableStateOf(false) }
+    val scrolling = focused && truncated && !reduceMotion
+    Text(
+        title, style = Type.caption, color = Color.White.copy(alpha = 0.85f),
+        maxLines = 1,
+        // A marquee needs the text unclipped by an ellipsis: only while it scrolls (a title that fits stays as it was).
+        softWrap = !scrolling,
+        overflow = if (scrolling) TextOverflow.Clip else TextOverflow.Ellipsis,
+        onTextLayout = { if (!scrolling) truncated = it.hasVisualOverflow },
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = modifier.then(
+            if (scrolling) Modifier.basicMarquee(
+                iterations = Int.MAX_VALUE,
+                initialDelayMillis = TITLE_MARQUEE_DELAY_MS,
+                repeatDelayMillis = TITLE_MARQUEE_DELAY_MS,
+                spacing = androidx.compose.foundation.MarqueeSpacing(TITLE_MARQUEE_GAP),
+                velocity = TITLE_MARQUEE_SPEED,
+            ) else Modifier,
+        ),
+    )
+}
+
+private const val TITLE_MARQUEE_DELAY_MS = 1_000
+private val TITLE_MARQUEE_GAP = 32.dp
+private val TITLE_MARQUEE_SPEED = 36.dp
 
 /** A tvOS hero button: a capsule (Play, with a progress bar for Resume) or a round icon (More Info). */
 @Composable
