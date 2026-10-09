@@ -76,4 +76,4 @@ VR=/data/local/tmp/glass-press
 if ! adb shell "test -x $VR" 2>/dev/null; then
   adb push "$(dirname "$0")/../tools/uinput/glass-press" "$VR" >/dev/null 2>&1 && adb shell chmod 755 "$VR" || true
 fi
-adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds elif [ -x $VR ]; then $VR $GAP$vr; else $alt fi"
+adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds elif [ -x $VR ] && [ \"\$(getprop ro.kernel.qemu)\" != 1 ]; then $VR $GAP$vr; else $alt fi"
