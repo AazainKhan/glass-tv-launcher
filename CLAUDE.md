@@ -7,6 +7,35 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, type one of feat, fix, perf, refactor, test, docs, build, ci, chore, style. Mark breaking changes with `!` or a `BREAKING CHANGE:` footer. Example: `fix(focus): stop Right at row ends`.
 - The repo is public (github.com/AazainKhan/glass-tv-launcher). Commits use the noreply email set in the repo config. Before pushing, `git grep -nI -e G072JM -e /Users/aazain` must print nothing (no device serials, home paths or crash dumps), then `git pull --rebase`.
 
+## Working as an agent (models, prompts, context)
+
+**Pick the model per subagent** (Agent tool `model`). Use the cheapest one that can do the job reliably:
+
+| Model | Use it for |
+|---|---|
+| `haiku` (Haiku 4.5) | Mechanical and read-only work: running `scripts/shots`/`perf-run`/`e2e` and summarising the output; logcat or Gradle-log triage; grep/file audits (leak checks, finding usages); listing baselines or reports; simple renames. |
+| `sonnet` (Sonnet 5.5) | Well-specified implementation: a board item with files, constraints and acceptance commands spelled out; writing tests; refactors; re-recording and reviewing baselines. |
+| `opus` (Opus 5.5) | Ambiguous or cross-cutting judgement: design and motion diagnosis, perfetto/GPU analysis, reviewing an implementer's diff, merge decisions. Use `fable` (Fable 5.1) only when a hard problem stalls. |
+
+For broad codebase searches, use the `Explore` agent and keep only its conclusion.
+
+**Brief subagents so they can work without asking.** A good prompt states:
+1. the goal and why it matters (the user's words or report);
+2. the evidence paths (strip, video, Gallery tab, report id), not a paraphrase;
+3. the files to touch and the files NOT to touch (who owns what, per `board.md`);
+4. the rules that apply: GPU performance rules, Conventional Commits, a worktree, no stick unless you hold the lock;
+5. the exact acceptance commands (`scripts/shots verify …`, `scripts/perf-gate`, a named test);
+6. what to return: a short summary with paths, numbers and failures, under ~200 words, not raw logs or full diffs.
+
+**Keep the context small:**
+- Delegate searches, logs and long command output to subagents.
+- Pipe commands through `tail`/`grep`; `scripts/shots` already prints a short report; use `--level digest` for agent-device.
+- Look at images at 960 px (`scripts/shot`) or as zoomed crops. Look once and write down what you saw.
+- Use the Gallery instead of re-reading screenshots, and point the user at it instead of pasting images.
+- Run long jobs (Gradle, `bench`, `e2e`) in the background and wait for the notification instead of polling.
+- Launch independent subagents in one message so they run in parallel.
+- Keep durable state in `.superpowers/pair/board.md` (one line per item) and the ledger, not in chat. Summarise each finished round there, so a compacted or new session can pick it up.
+
 ## Build and run
 
 - **Needs JDK 17 or 21.** The system default is JDK 25, which AGP rejects. `scripts/build` picks 21 automatically. For raw Gradle: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
