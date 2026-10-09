@@ -27,6 +27,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -652,12 +655,17 @@ private fun ChooseAerialsPage(model: HomeModel, cfg: LauncherConfig, active: Boo
                 videos == null -> Text("Loading Aerials…", style = dev.glasslauncher.ui.Type.secondary, color = dev.glasslauncher.ui.LocalPalette.current.secondary, modifier = Modifier.padding(start = 30.dp, top = 14.dp))
                 videos!!.isEmpty() -> Text("Connect to the internet to download Aerial videos.", style = dev.glasslauncher.ui.Type.secondary, color = dev.glasslauncher.ui.LocalPalette.current.secondary, modifier = Modifier.padding(start = 30.dp, top = 14.dp))
             }
+            // A gap under Hide All that stays when the list is scrolled (the grid's own top padding scrolls away,
+            // and tiles then ran right up to the button).
+            androidx.compose.foundation.layout.Spacer(Modifier.height(AERIALS_GAP_UNDER_HIDE_ALL))
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                 columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 30.dp, end = 18.dp, top = 14.dp, bottom = 30.dp),
+                // Bottom: the page fades its last 36 dp, and the list ends this far above its edge, so the last
+                // row's caption scrolls up clear of the fade (see AERIALS_BRING_BELOW for the rows before it).
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 30.dp, end = 18.dp, top = 6.dp, bottom = 44.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().testTag("aerials-grid"),
             ) {
                 items(clips.size, key = { clips[it].id }) { i ->
                     val v = clips[i]
@@ -669,15 +677,33 @@ private fun ChooseAerialsPage(model: HomeModel, cfg: LauncherConfig, active: Boo
     }
 }
 
+private val AERIALS_GAP_UNDER_HIDE_ALL = 12.dp
+/** What a focused thumbnail brings into view below its caption: clear of the page's 36 dp bottom fade. */
+private val AERIALS_BRING_BELOW = 44.dp
+
+/** A focused tile scales by 1.1 about its centre, so its top edge rises a few dp above the cell: part of what is brought into view. */
+private val AERIALS_BRING_ABOVE = 8.dp
+
 @Composable
 private fun AerialThumb(v: dev.glasslauncher.dream.AerialVideo, hidden: Boolean, onClick: () -> Unit) {
     val context = LocalContext.current
     val palette = dev.glasslauncher.ui.LocalPalette.current
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // Focus scrolls the list to show the focused tile, which stops short of its caption and left the last rows
+    // cut off at the bottom. Ask for the whole cell, and some room under it, to be brought into view instead.
+    val bring = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    val below = with(androidx.compose.ui.platform.LocalDensity.current) { AERIALS_BRING_BELOW.toPx() }
+    val above = with(androidx.compose.ui.platform.LocalDensity.current) { AERIALS_BRING_ABOVE.toPx() }
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.onSizeChanged { size = it }.bringIntoViewRequester(bring),
+    ) {
         dev.glasslauncher.ui.FocusTile(
             label = if (hidden) "${v.label}, Hidden" else v.label,
             onClick = onClick,
             focusedScale = 1.1f,
+            onFocusChange = { if (it) scope.launch { bring.bringIntoView(androidx.compose.ui.geometry.Rect(0f, -above, size.width.toFloat(), size.height + below)) } },
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("aerial:${v.id}"),
         ) {
             coil3.compose.AsyncImage(
