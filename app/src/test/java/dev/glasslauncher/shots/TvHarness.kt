@@ -95,6 +95,7 @@ object TvHarness {
         // Control Center's material bake runs inline here, so a paused clock sees the same open every time.
         dev.glasslauncher.home.CcMaterial.bakeContext = kotlinx.coroutines.Dispatchers.Unconfined
         dev.glasslauncher.home.CcMaterial.beforeBake = {}
+        dev.glasslauncher.home.CcMaterial.recordLast = true
         blockNetwork()
         pinClock()
         useBitmapFactoryForImages()

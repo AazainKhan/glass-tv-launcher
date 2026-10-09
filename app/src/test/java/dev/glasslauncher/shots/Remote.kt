@@ -56,11 +56,6 @@ fun describe(node: SemanticsNode): String {
     return text ?: "node#${node.id}"
 }
 
-/**
- * Frame-exact motion review: pauses the clock, presses [button], then captures [frames] frames
- * [stepMs] apart and tiles them into one image (left to right, top to bottom) at [scale].
- * Written to build/strips/<name>.png. Opening one image shows the whole transition.
- */
 @OptIn(ExperimentalTestApi::class)
 /** Presses [button] and captures [frames] frames [stepMs] apart on a paused clock (scaled by [scale]). */
 fun ComposeTestRule.frames(button: Button, frames: Int, stepMs: Long, scale: Float = 0.25f, onFrame: (Int) -> Unit = {}): List<Bitmap> =
@@ -84,6 +79,10 @@ fun ComposeTestRule.frames(start: () -> Unit, frames: Int, stepMs: Long, scale: 
     return shots
 }
 
+/**
+ * Frame-exact motion review: pauses the clock, presses [button], then captures [frames] frames [stepMs] apart and
+ * tiles them into one image (left to right, top to bottom) at [scale], written to build/strips/<name>.png.
+ */
 fun ComposeTestRule.strip(
     name: String,
     button: Button,

@@ -54,21 +54,29 @@ object GlassMatch {
         if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
         val rows = (cols * height / width).toInt().coerceIn(2, 64)
         val sx = source.width / rootWidth.toFloat(); val sy = source.height / rootHeight.toFloat()
+        // The crop of the panel from the (480x270) sample, read once in one call: about 70x160 px, so the whole
+        // bake is a few thousand integer operations, not thousands of getPixel calls.
+        val x0 = (left * sx).toInt().coerceIn(0, source.width - 1)
+        val y0 = (top * sy).toInt().coerceIn(0, source.height - 1)
+        val cw = (Math.ceil(((left + width) * sx).toDouble()).toInt().coerceIn(x0 + 1, source.width)) - x0
+        val ch = (Math.ceil(((top + height) * sy).toDouble()).toInt().coerceIn(y0 + 1, source.height)) - y0
+        val crop = IntArray(cw * ch)
+        runCatching { source.getPixels(crop, 0, cw, x0, y0, cw, ch) }.onFailure { return null }
         val r = FloatArray(cols * rows); val g = FloatArray(cols * rows); val b = FloatArray(cols * rows)
-        val sub = 2
-        runCatching {
-            for (j in 0 until rows) for (i in 0 until cols) {
-                var rr = 0f; var gg = 0f; var bb = 0f
-                for (v in 0 until sub) for (u in 0 until sub) {
-                    val x = ((left + width * (i + (u + 0.5f) / sub) / cols) * sx).toInt().coerceIn(0, source.width - 1)
-                    val y = ((top + height * (j + (v + 0.5f) / sub) / rows) * sy).toInt().coerceIn(0, source.height - 1)
-                    val p = source.getPixel(x, y)
-                    rr += android.graphics.Color.red(p); gg += android.graphics.Color.green(p); bb += android.graphics.Color.blue(p)
+        for (j in 0 until rows) {
+            val ya = j * ch / rows; val yb = maxOf(ya + 1, (j + 1) * ch / rows)
+            for (i in 0 until cols) {
+                val xa = i * cw / cols; val xb = maxOf(xa + 1, (i + 1) * cw / cols)
+                var rr = 0; var gg = 0; var bb = 0
+                for (y in ya until yb) for (x in xa until xb) {
+                    val p = crop[x + y * cw]
+                    rr += p shr 16 and 0xFF; gg += p shr 8 and 0xFF; bb += p and 0xFF
                 }
+                val n = (yb - ya) * (xb - xa) * 255f
                 val k = i + j * cols
-                r[k] = rr / (sub * sub * 255f); g[k] = gg / (sub * sub * 255f); b[k] = bb / (sub * sub * 255f)
+                r[k] = rr / n; g[k] = gg / n; b[k] = bb / n
             }
-        }.onFailure { return null }
+        }
         fun blur(c: FloatArray) = FloatArray(c.size).also { out ->
             for (j in 0 until rows) for (i in 0 until cols) {
                 var sum = 0f; var n = 0

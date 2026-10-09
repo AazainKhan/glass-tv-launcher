@@ -42,4 +42,13 @@ class GlassMatchTest {
         assertTrue("drift ${bottom - top} of $raw", bottom - top >= raw * 0.9f)
         assertTrue(GlassMatch.panelSheet(scene, 0, 540, 0f, 0f, 1f, 1f, Color.Black, 0f) == null)
     }
+
+    // The bake works on the panel's crop of the 480x270 sample: a few KB, never a full-size intermediate.
+    @Test fun theBakeIsSmall() {
+        val scene = bitmap(480, 270) { x, y -> 0xFF000000.toInt() or (x and 0xFF shl 16) or (y and 0xFF shl 8) }
+        val sheet = GlassMatch.panelSheet(scene, 1920, 1080, 1314f, 0f, 606f, 790f, Color.Black.copy(alpha = 0.06f), 0.42f)!!
+        assertTrue("sheet ${sheet.pixels.size * 4} bytes", sheet.pixels.size * 4 <= 64 * 1024)
+        // The crop is read from the right place: the sheet's left edge is darker in red than its right edge.
+        assertTrue(android.graphics.Color.red(sheet.pixels[0]) < android.graphics.Color.red(sheet.pixels[sheet.width - 1]))
+    }
 }

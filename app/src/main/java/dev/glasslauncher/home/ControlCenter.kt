@@ -230,8 +230,12 @@ internal object CcMaterial {
         return sheet to (bmp.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { bmp.recycle() } ?: bmp)
     }
 
-    /** The sheet of the latest open (tests compare the tiles with it). */
-    @Volatile var last: CcSheet? = null
+    /**
+     * Tests only: the sheet of the latest open (so they can compare the tiles with it). Never set unless a test
+     * turns [recordLast] on, so release builds keep no reference to a sheet or its bitmap; cleared when the open closes.
+     */
+    @androidx.annotation.VisibleForTesting @Volatile var last: CcSheet? = null
+    @androidx.annotation.VisibleForTesting @Volatile var recordLast = false
 }
 
 /** The material for one open: the baked [bitmap] over [panel] (window pixels), or, for an open whose bake missed its head start, the one [flat] colour. */
@@ -384,6 +388,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val phase = remember { CcPhase() }
     val glassState = LocalBackdrop.current
     var panel by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // The tallest the panel has been (the Controls page; the Alexa page is shorter): the sheet is made for this, so
+    // a re-open, which starts on the Controls page before it has been laid out again, never maps to a short page.
+    var tallest by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     // The material of this open, decided once before the spring starts (see [prepareSheet]) and never re-keyed
     // by a later backdrop swap: a tile then never changes colour once it has appeared.
     var sheet by remember { androidx.compose.runtime.mutableStateOf<CcSheet?>(null) }
@@ -394,13 +401,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         if (!exiting) {
             phase.landed = false
             // Re-opening during a close that is still visible keeps the sheet it has; otherwise bake a fresh one.
-            if (sheet == null || enter.value < 0.02f) sheet = prepareSheet(glassState, { panel }, light)
+            if (sheet == null || enter.value < 0.02f) sheet = prepareSheet(glassState, { tallest }, light)
         }
         // Reduce Motion: no growing bubble, a plain fade (a bounce would pulse the opacity).
         if (reduceMotion) enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())
         else if (exiting) enter.animateTo(0f, CcMorph.closeSpring)
         else enter.animateTo(1f, CcMorph.openSpring)
         phase.landed = true
+        // Closed: let go of this open's sheet (the cached composition would otherwise hold it until the next open).
+        if (exiting && enter.value < 0.02f) { sheet = null; CcMaterial.last = null }
     }
     // The bubble's bounds now: from the very first frame (before the panel is measured, it's simply the pill).
     fun androidx.compose.ui.unit.Density.bubbleNow(): CcBubble? {
@@ -430,7 +439,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .onGloballyPositioned { panel = it.boundsInWindow() }
+                .onGloballyPositioned { val r = it.boundsInWindow(); panel = r; if (tallest == null || r.height >= tallest!!.height) tallest = r }
                 // One layer for the panel and every tile: clipped to the growing bubble (nothing fades), or with
                 // Reduce Motion a plain fade of the whole panel.
                 .graphicsLayer {
@@ -587,11 +596,18 @@ private suspend fun prepareSheet(
             .first { (b, r, p) -> b != null && r != androidx.compose.ui.unit.IntSize.Zero && p != null }
             .let { (b, r, p) -> backdrop = b; root = r; rect = p }
         val b = backdrop; val p = rect
-        baked = withContext(CcMaterial.bakeContext) { CcMaterial.beforeBake(); CcMaterial.bake(b, root, p!!, light) }
+        baked = withContext(CcMaterial.bakeContext) {
+            CcMaterial.beforeBake()
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            CcMaterial.bake(b, root, p!!, light).also {
+                // Fire OS drops Log.d from apps, so debug builds log at info level.
+                if (dev.glasslauncher.BuildConfig.DEBUG) android.util.Log.i("CcMaterial", "bake ${android.os.SystemClock.elapsedRealtime() - t0}ms")
+            }
+        }
     }
     val p = rect ?: panel() ?: androidx.compose.ui.geometry.Rect.Zero
     // Only a bake that finished inside the head start is used; its flat average is what a failed one falls back to.
-    return CcSheet(baked?.second, p, CcMaterial.flat(backdrop, root, rect, light), baked?.first).also { CcMaterial.last = it }
+    return CcSheet(baked?.second, p, CcMaterial.flat(backdrop, root, rect, light), baked?.first).also { if (CcMaterial.recordLast) CcMaterial.last = it }
 }
 
 @Composable
