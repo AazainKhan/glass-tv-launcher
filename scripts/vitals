@@ -45,6 +45,9 @@ fi
 n=$(ls -1 reports/inbox 2>/dev/null | wc -l | tr -d ' ')
 [ "$n" -gt 0 ] && warn "reports: $n open from the user/crash watcher → scripts/reports" || ok "reports: inbox empty"
 
+# The emulator's private adb server must never hold a real device (it hides the stick from everyone).
+grabbed=$(ANDROID_ADB_SERVER_PORT=5038 adb devices 2>/dev/null | tail -n +2 | awk '$2=="device" && $1 !~ /^emulator-/ {print $1}')
+[ -n "$grabbed" ] && bad "adb: the emulator's adb server holds $grabbed, hiding it from everyone → scripts/emulator release-usb"
 # Device: connected, lock, installed build vs master.
 if adb get-state >/dev/null 2>&1; then
   lock="$(scripts/stick-lock status 2>/dev/null)"

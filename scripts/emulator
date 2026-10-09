@@ -5,6 +5,7 @@
 #   scripts/emulator install [debug|release]   build-free install of the last built APK, set as Home
 #   scripts/emulator env                 print the exports that point scripts at the emulator
 #   scripts/emulator stop
+#   scripts/emulator release-usb       the stick vanished from adb? the emulator's server grabbed it: hand it back
 #
 # Isolation: it listens on ports outside adb's auto-scan range and is attached only to a separate
 # adb server (port 5038), so the default adb (and any other session using the stick) never sees a
@@ -22,6 +23,11 @@ case "${1:-}" in
   start)
     if "${EADB[@]}" get-state >/dev/null 2>&1; then echo "already running"; exit 0; fi
     window=(-no-window); [ "${2:-}" = --window ] && window=()
+    # Both adb servers scan USB, and a USB device belongs to whichever server opens it first. Make sure
+    # the default server is up (and owns the stick) before the emulator's private server starts, or the
+    # stick vanishes from every other session's `adb devices`. Never kill the default server while the
+    # emulator runs; `scripts/emulator release-usb` fixes it if it happens.
+    adb start-server >/dev/null 2>&1
     mkdir -p "$ROOT/build"
     # The emulator registers with the adb server named in its own environment: keep it off the default one.
     # The emulator announces itself to adb (server port and discovery files under $HOME). Give it its
@@ -45,6 +51,11 @@ case "${1:-}" in
     "${EADB[@]}" shell cmd package set-home-activity dev.glasslauncher/.MainActivity >/dev/null
     "${EADB[@]}" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity >/dev/null
     echo "installed $variant on the emulator" ;;
+  release-usb)
+    # The private server grabbed a real device (stick missing from `adb devices`): hand it back.
+    ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
+    adb start-server >/dev/null 2>&1; sleep 2; adb devices
+    echo "(the emulator's adb server was stopped; scripts/emulator start brings it back after the stick is claimed)" ;;
   env)
     echo "export ANDROID_ADB_SERVER_PORT=$SERVER ANDROID_SERIAL=emulator-$CONSOLE" ;;
   stop)
