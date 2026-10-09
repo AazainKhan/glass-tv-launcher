@@ -547,9 +547,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     closeAll()
                     setExpanded(false)
                     // In its own coroutine: a scroll interrupted by another one is cancelled, and that
-                    // cancellation must not end this collector (Home would stop responding).
-                    scope.launch { runCatching { scrollToTop() } }
-                    focusKey(firstKey())
+                    // cancellation must not end this collector (Home would stop responding). Focus moves
+                    // once the top row is on screen again: requested while the grid was still scrolled
+                    // down, it found no tile and Home was left with no focus at all.
+                    scope.launch { runCatching { scrollToTop() }; focusKey(firstKey()) }
                 }
                 // From remote buttons: pressing the same button again closes it.
                 HomeRequest.ControlCenter -> { closeAll(); openControlCenter() }
