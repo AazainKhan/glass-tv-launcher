@@ -71,7 +71,10 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     private var overHome by mutableStateOf(false)
     private val app get() = service.app
 
-    val showing: Boolean get() = view != null && !exiting
+    /** An open asked for and waiting on the screen capture (up to [CAPTURE_WAIT_MS]): the window isn't attached yet, but a close must still win. */
+    private var pending = false
+
+    val showing: Boolean get() = (view != null || pending) && !exiting
 
     companion object {
         /** True while the overlay is up, so Home hides its status pill (Control Center has its own clock). */
@@ -99,7 +102,9 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             if (exiting) { exiting = false; open = true; removal?.let(handler::removeCallbacks); takesInput(true) }
             return
         }
+        if (pending) return
         exiting = false
+        pending = true
         shownAt = android.os.SystemClock.uptimeMillis()
         // Built once and kept: its composition survives the window being removed, so a second open only
         // re-attaches it (composing Control Center from scratch cost the slowest frames of opening).
@@ -117,7 +122,9 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             PixelFormat.TRANSLUCENT,
         ).apply { title = "Glass Control Center" }
         fun attach() {
-            if (view != null) return
+            // A hide() while the capture was pending withdrew the open.
+            if (view != null || !pending) return
+            pending = false
             runCatching { windows.addView(v, params) }.onFailure { return }
             view = v
             open = true
@@ -145,13 +152,14 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
 
     /** Plays the exit (the same curve as the entrance), then removes the window. */
     fun hide() {
+        pending = false
         val v = view ?: return
         if (exiting) return
         exiting = true
         takesInput(false)
         val remove = Runnable {
             if (view === v && exiting) {
-                runCatching { windows.removeView(v) }
+                runCatching { windows.removeView(v) }.onFailure { android.util.Log.w("ControlCenterWindow", "removeView failed; window state cleared anyway", it) }
                 view = null
                 capture?.cancel()
                 overHome = false
