@@ -11,7 +11,7 @@ Thanks for helping. Glass TV Launcher is a Kotlin + Jetpack Compose for TV app (
 ## Test without a TV
 
 - `./gradlew :app:testDebugUnitTest` runs the unit tests.
-- `scripts/shots verify` renders every Home screen with Robolectric and Roborazzi and diffs against `app/src/test/screenshots/`. If a UI change is intended, run `scripts/shots record` and commit the new PNGs with the code. Fonts differ between operating systems, so pixel diffs are only reliable on the machine that recorded them; CI does not compare pixels.
+- `scripts/shots verify` renders every Home screen with Robolectric and Roborazzi and diffs against `app/src/test/screenshots/`. If a UI change is intended, run `scripts/shots record` and commit the new PNGs with the code. Fonts differ between operating systems, so pixel diffs are only reliable on the machine that recorded them; CI does not compare pixels. The clock and date are pinned and masked, so shots do not depend on the time of day; to prove a change keeps it that way run `GLASS_SHOTS_TIME=10:05 scripts/shots verify` (any `HH:mm`).
 - `scripts/shots focus` crawls every focusable on Home in all four D-pad directions and fails on lost focus.
 - `scripts/emulator start` boots an Android TV emulator for functional and focus checks.
 

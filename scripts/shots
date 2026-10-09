@@ -7,6 +7,8 @@
 #   scripts/shots focus               crawl Home's focus graph -> app/build/focus-graph/home.md
 #   scripts/shots strips [name|all]   frame strips of transitions -> app/build/strips/*.png
 #   scripts/shots all                 verify + focus (what CI runs, via testDebugUnitTest)
+#   GLASS_SHOTS_TIME=10:05 scripts/shots verify   run with the on-screen clock pinned to another time (default 09:41);
+#                                     baselines must pass at every time of day
 # On failure, diffs are in app/build/outputs/roborazzi/*_compare.png.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -56,6 +56,9 @@ android {
             it.maxHeapSize = "3g"
             // -Pstrips=all|<name> turns on the MotionStrips frame captures.
             it.systemProperty("strips", providers.gradleProperty("strips").getOrElse(""))
+            // GLASS_SHOTS_TIME=HH:mm pins the clock the shots show (see TvHarness); declared as an input so
+            // a run at another time is never a stale cached/up-to-date pass.
+            it.inputs.property("glassShotsTime", providers.environmentVariable("GLASS_SHOTS_TIME").orElse(""))
         }
     }
 
