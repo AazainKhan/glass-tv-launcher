@@ -28,7 +28,7 @@ if [ "${1:-}" = profile ]; then
   exit
 fi
 filter=(); [ -n "${1:-}" ] && filter=(-Pandroid.testInstrumentationRunnerArguments.tests_regex=".*${1}.*")
-./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest --console=plain -q "${filter[@]}"
+./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest --console=plain -q ${filter[@]+"${filter[@]}"}
 python3 - <<'PY'
 import glob, json
 for f in glob.glob("baselineprofile/build/outputs/connected_android_test_additional_output/**/*benchmarkData.json", recursive=True):
