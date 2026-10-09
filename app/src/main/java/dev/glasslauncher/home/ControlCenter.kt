@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
@@ -100,6 +102,11 @@ private class CcSizes(k: Float) {
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
 
+/** The close's progress below which the capsule is the pill again and Home's own pill is shown under it. */
+private const val PILL_BACK_AT = 0.02f
+/** Home's pill's focused scale (StatusPill's focus tile), so a focused pill's copy matches it. */
+private const val PILL_FOCUS_SCALE = 1.08f
+
 /**
  * Control Center's open/close: the status pill's capsule swells into the panel like a drop of liquid, and
  * shrinks back into the pill. One progress value (0 = the pill, 1 = the panel) drives it, from a spring
@@ -122,6 +129,10 @@ object CcMorph {
     private const val DROP = 2.5f
     /** The bubble (the gaps between the tiles) is fully there until the panel is this open, then fades to leave the gaps clear. */
     private const val BUBBLE_HOLD = 0.8f
+    /** The pill has faded out by this much of the open (tvOS: by about 30%). */
+    private const val PILL_GONE = 0.3f
+    /** The page icons start to fade in here: late, like tvOS's header icons, and quick (at most two frames half-drawn). */
+    private const val HEADER_FROM = 0.9f
     /** How far the bubble's height squeezes while collapsing into the pill (to 96%). */
     private const val SQUEEZE = 0.04f
 
@@ -172,6 +183,12 @@ object CcMorph {
      * the gaps between them: solid until the panel is nearly open, then it fades to leave the gaps clear.
      */
     fun bubbleAlpha(b: Float) = 1f - ((b - BUBBLE_HOLD) / (1f - BUBBLE_HOLD)).coerceIn(0f, 1f)
+
+    /** Home's pill (drawn by Control Center at its spot) at bubble progress [b]: whole at 0, gone by [PILL_GONE]. */
+    fun pillAlpha(b: Float) = 1f - (b / PILL_GONE).coerceIn(0f, 1f)
+
+    /** The header's page icons at bubble progress [b]: in over the last stretch, from [HEADER_FROM] to 1. */
+    fun headerAlpha(b: Float) = ((b - HEADER_FROM) / (1f - HEADER_FROM)).coerceIn(0f, 1f)
 }
 
 /** One outline: the bubble at progress [b] between the pill and the panel (see [CcMorph]). */
@@ -388,6 +405,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // the bubble, its clip and the dim in both directions, so Back mid-open reverses from wherever it is. The
     // tiles' layout never changes, and the panel and its tiles are one layer (no per-row translucent layers).
     val enter = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { ControlCenterWindow.pillCovered = false } }
     val exiting = LocalOverlayExiting.current
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     // Where the close began (read once, here, so it isn't a per-frame dependency): the bubble turns from there.
@@ -418,6 +436,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         else if (exiting) enter.animateTo(0f, CcMorph.closeSpring)
         else enter.animateTo(1f, CcMorph.openSpring)
         phase.landed = true
+        if (exiting) ControlCenterWindow.pillCovered = false
         // Closed: let go of this open's sheet (the cached composition would otherwise hold it until the next open).
         if (exiting && enter.value < 0.02f) { sheetRef.sheet = null; CcMaterial.last = null }
     }
@@ -447,13 +466,40 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // The bubble: the pill's capsule on the first frame and the panel's outline by the end, drawn from the
             // same sheet as the tiles. It fills the gaps between the clipped-in tiles, then fades to clear them.
             // Reduce Motion: no growing bubble, Control Center simply fades in.
+            // The open's material from its very first frame: the backdrop is in place before Control Center
+            // attaches, but the effect that takes the sheet only runs after a frame has drawn (bare icons, P29).
+            if (!exiting && sheetRef.sheet == null) takeSheet()
+            // Home's pill goes once this capsule covers it, not before (a frame of neither read as a blink).
+            if (!exiting && (reduceMotion || sheetRef.sheet != null)) ControlCenterWindow.pillCovered = true
+            // Closing: back at the pill's size (well before the window goes), Home's pill returns under the capsule.
+            if (exiting && enter.value < PILL_BACK_AT) ControlCenterWindow.pillCovered = false
             if (reduceMotion) return@Canvas
             val material = sheetRef.sheet ?: return@Canvas
             val bubble = bubbleNow() ?: return@Canvas
-            val a = CcMorph.bubbleAlpha(bubble.b)
+            // Over Home the pill's copy is the capsule at first; the bubble takes over as it fades.
+            val handoff = if (pill != null && ControlCenterWindow.homeStarted) 1f - CcMorph.pillAlpha(bubble.b) else 1f
+            val a = CcMorph.bubbleAlpha(bubble.b) * handoff
             if (a <= 0f) return@Canvas
             val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
             drawCcBubble(bubble.b, CcMorph.squeeze(bubble.b, exiting, closeFrom), from, panel ?: from, material.brush, a, 26.dp.toPx())
+        }
+        // Home's pill itself on the first frame (same glass, clock and gear, at its spot), fading as the bubble
+        // grows and back as it closes, so neither end cuts from the pill's clock to Control Center's icons (tvOS:
+        // the pill fades out by about 30% of the open). Only over Home: over an app there is no pill to match.
+        val pillAt = pill
+        if (pillAt != null && ControlCenterWindow.homeStarted && !reduceMotion) {
+            val onLight = glassState.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
+            val focusedPill = remember(exiting) { ControlCenterWindow.pillFocused }
+            dev.glasslauncher.widgets.PillFace(
+                cfg, focused = focusedPill, onLight = onLight, copy = true,
+                modifier = Modifier
+                    .offset { androidx.compose.ui.unit.IntOffset(pillAt.left.roundToInt(), pillAt.top.roundToInt()) }
+                    .size(with(androidx.compose.ui.platform.LocalDensity.current) { androidx.compose.ui.unit.DpSize(pillAt.width.toDp(), pillAt.height.toDp()) })
+                    .graphicsLayer {
+                        alpha = CcMorph.pillAlpha(CcMorph.bubble(enter.value, exiting, closeFrom))
+                        if (focusedPill) { scaleX = PILL_FOCUS_SCALE; scaleY = PILL_FOCUS_SCALE }
+                    },
+            )
         }
         Column(
             horizontalAlignment = Alignment.End,
@@ -466,7 +512,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     val origin = panel
                     if (reduceMotion) { alpha = enter.value.coerceIn(0f, 1f); compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; return@graphicsLayer }
                     val bubble = bubbleNow()
-                    if (origin == null || bubble == null) { alpha = 0f; return@graphicsLayer }
+                    // Never the tiles without their material (they would show bare on the open's first frame).
+                    if (origin == null || bubble == null || sheetRef.sheet == null) { alpha = 0f; return@graphicsLayer }
                     if (bubble.b < 1f || exiting) {
                         clip = true
                         shape = CcBubbleShape(bubble.rect.translate(-origin.topLeft), bubble.radius)
@@ -489,7 +536,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     // so the weather line gets the matching gap above (e2e measures the ink).
                     cfg.weather?.let { Box(Modifier.padding(top = 11.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = HEADER_ALPHA), Type.secondary) } }
                 }
-                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
+                // The page icons come in late (tvOS: the header's icons fade in over the last 30%) and go first.
+                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)
+                    .graphicsLayer { alpha = if (reduceMotion) 1f else CcMorph.headerAlpha(CcMorph.bubble(enter.value, exiting, closeFrom)) }) {
                     PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
                     // The Alexa app's own icon (loaded once per open); the mic if it isn't installed.
                     val alexaIcon = remember(active) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }

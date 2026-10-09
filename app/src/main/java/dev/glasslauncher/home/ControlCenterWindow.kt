@@ -110,6 +110,15 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             }
         }
 
+        /**
+         * True while Control Center's capsule covers Home's status pill: set by Control Center (either path) on its
+         * first frame drawn with its material, cleared when a close lands, before the window or overlay goes.
+         */
+        var pillCovered by mutableStateOf(false)
+
+        /** Whether Home's pill has focus (white), so Control Center's first frame draws it the same. */
+        @Volatile var pillFocused = false
+
         /** Where Home's status pill is, so Control Center can grow out of it (Home keeps this current). */
         @Volatile var pillBounds: androidx.compose.ui.geometry.Rect? = null
     }
@@ -195,6 +204,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                 exiting = false
                 // Home's pill comes back as the capsule lands on it, not while it's still shrinking.
                 open = false
+                pillCovered = false
                 lifecycleRegistry.currentState = Lifecycle.State.CREATED
             }
         }

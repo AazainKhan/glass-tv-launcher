@@ -80,38 +80,47 @@ fun StatusPill(
                 .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier)
                 // Control Center grows out of exactly this capsule.
                 .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
-        ) { focused ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-                modifier = Modifier
-                    // The tray's clear glass, so the two read as one material; over light art (a white logo
-                    // hero) clear glass vanishes, so it is milky white there (light glass: no dark bevel, a faint
-                    // eased shade at the bottom), and the edge does the separating (see shadow above, rim below).
-                    // Glass stays put under the focus fill.
-                    .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f)) else GlassStyle.shelf(palette.light))
-                    .then(if (onLight) Modifier.border(1.dp, Color.Black.copy(alpha = 0.22f), Shapes.pill) else Modifier)
-                    .then(
-                        if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
-                    )
-                    .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
-            ) {
-                val rest = if (onLight) Color(0xFF0E1015) else Color.White
-                val text = if (focused) palette.onFocusFill else rest
-                Text(rememberClock(cfg.clock24h), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"), color = text, modifier = Modifier.testTag("clock"))
-                Box(
-                    Modifier
-                        .testTag("status-gear")
-                        .size(22.dp)
-                        .background(if (focused) palette.onFocusFill.copy(alpha = 0.12f) else if (onLight) Color.White.copy(alpha = 0.5f) else rest.copy(alpha = 0.18f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) { GearIcon(text, size = 13.dp) }
-            }
-        }
+        ) { focused -> PillFace(cfg, focused, onLight) }
     }
 }
 
 
+/**
+ * The pill as drawn: the glass capsule with the clock and the gear. Control Center draws it too, at the pill's
+ * spot, as its first frame, so the pill turns into Control Center without a cut (P29).
+ */
+@Composable
+fun PillFace(cfg: LauncherConfig, focused: Boolean, onLight: Boolean, modifier: Modifier = Modifier, copy: Boolean = false) {
+    val palette = LocalPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        modifier = modifier
+            // Home's pill gets its halo from its focus tile; the copy draws its own.
+            .then(if (copy && onLight) Modifier.drawBehind { drawHalo() } else Modifier)
+            // The tray's clear glass, so the two read as one material; over light art (a white logo
+            // hero) clear glass vanishes, so it is milky white there (light glass: no dark bevel, a faint
+            // eased shade at the bottom), and the edge does the separating (see shadow above, rim below).
+            // Glass stays put under the focus fill.
+            .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f)) else GlassStyle.shelf(palette.light))
+            .then(if (onLight) Modifier.border(1.dp, Color.Black.copy(alpha = 0.22f), Shapes.pill) else Modifier)
+            .then(
+                if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
+            )
+            .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+    ) {
+        val rest = if (onLight) Color(0xFF0E1015) else Color.White
+        val text = if (focused) palette.onFocusFill else rest
+        Text(rememberClock(cfg.clock24h), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"), color = text, modifier = if (copy) Modifier else Modifier.testTag("clock"))
+        Box(
+            Modifier
+                .then(if (copy) Modifier else Modifier.testTag("status-gear"))
+                .size(22.dp)
+                .background(if (focused) palette.onFocusFill.copy(alpha = 0.12f) else if (onLight) Color.White.copy(alpha = 0.5f) else rest.copy(alpha = 0.18f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { GearIcon(text, size = 13.dp) }
+    }
+}
 
 private const val HALO_ALPHA = 0.08f
 private const val HALO_STEPS = 6
