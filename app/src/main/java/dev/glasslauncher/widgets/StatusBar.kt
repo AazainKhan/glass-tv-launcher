@@ -124,8 +124,12 @@ fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
     return text
 }
 
-/** The time the clock and date widgets show. The system's, except that the JVM shot harness pins it (Date() ignores Robolectric's clock). */
-object WallClock {
+/**
+ * The time the clock and date widgets show: the system's. Test seam; production never sets it. The JVM shot
+ * harness pins it because java.util.Date ignores Robolectric's clock.
+ */
+@androidx.annotation.VisibleForTesting
+internal object WallClock {
     @Volatile var now: () -> Long = System::currentTimeMillis
 }
 

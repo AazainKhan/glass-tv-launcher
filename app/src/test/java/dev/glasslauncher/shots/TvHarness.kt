@@ -55,17 +55,33 @@ object TvHarness {
         dev.glasslauncher.home.HomeModel.DEFAULT_DOCK.filter { it in fakeApps }.distinct().take(dev.glasslauncher.home.DOCK_SIZE)
     }
 
+    private var savedZone: java.util.TimeZone? = null
+    private var savedNow: (() -> Long)? = null
+
     /**
      * The clock, date and status pill read [dev.glasslauncher.widgets.WallClock] (java.util.Date ignores
      * Robolectric's clock), so pin it: a fixed zone and instant, never the machine's. GLASS_SHOTS_TIME=HH:mm
      * (UTC, on 2026-10-07) overrides the default 09:41; the baselines must hold at every time (the clock is
-     * masked), which is how that is proven.
+     * masked), which is how that is proven, e.g. `GLASS_SHOTS_TIME=10:05 scripts/shots verify`. The variable
+     * is a declared input of the unit-test task, so changing it re-runs the tests instead of reusing a cache.
+     * [PinnedClockRule] puts the real clock back after each test.
      */
     private fun pinClock() {
+        if (savedNow == null) { savedZone = java.util.TimeZone.getDefault(); savedNow = dev.glasslauncher.widgets.WallClock.now }
         java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
-        val (h, m) = (System.getenv("GLASS_SHOTS_TIME")?.takeIf { it.isNotBlank() } ?: "09:41").split(":").map { it.toInt() }
-        val at = java.time.LocalDate.of(2026, 10, 7).atTime(h, m).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        val raw = System.getenv("GLASS_SHOTS_TIME")?.takeIf { it.isNotBlank() } ?: "09:41"
+        val parts = raw.split(":")
+        require(parts.size == 2 && parts.all { it.length in 1..2 && it.all(Char::isDigit) } && parts[0].toInt() < 24 && parts[1].toInt() < 60) {
+            "GLASS_SHOTS_TIME must be HH:mm (00:00-23:59), was \"$raw\""
+        }
+        val at = java.time.LocalDate.of(2026, 10, 7).atTime(parts[0].toInt(), parts[1].toInt()).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
         dev.glasslauncher.widgets.WallClock.now = { at }
+    }
+
+    internal fun restoreClock() {
+        savedZone?.let { java.util.TimeZone.setDefault(it) }
+        savedNow?.let { dev.glasslauncher.widgets.WallClock.now = it }
+        savedZone = null; savedNow = null
     }
 
     /** Package -> label, in install order. */
@@ -179,4 +195,9 @@ object TvHarness {
 
     private fun fixtures(): File =
         File(requireNotNull(javaClass.classLoader?.getResource("fixtures/featured1.jpg")).toURI()).parentFile!!
+}
+
+/** Add as `@get:Rule val clock = PinnedClockRule()` to every test class that calls [TvHarness.setUp]; it undoes the clock pin afterwards. */
+class PinnedClockRule : org.junit.rules.TestWatcher() {
+    override fun finished(description: org.junit.runner.Description?) = TvHarness.restoreClock()
 }

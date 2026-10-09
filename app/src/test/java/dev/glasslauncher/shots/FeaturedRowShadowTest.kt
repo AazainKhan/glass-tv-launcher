@@ -22,6 +22,7 @@ import kotlin.math.roundToInt
 @Config(sdk = [35], qualifiers = TV)
 class FeaturedRowShadowTest {
     @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule val pinnedClock = PinnedClockRule()
 
     /** FocusTile's default focusedScale, which the shelf's cards use. */
     private val FOCUSED_SCALE = 1.2f

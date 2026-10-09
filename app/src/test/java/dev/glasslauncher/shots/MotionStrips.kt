@@ -20,6 +20,7 @@ import org.robolectric.annotation.Config
 class MotionStrips {
 
     @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule val pinnedClock = PinnedClockRule()
 
     private val only = System.getProperty("strips").orEmpty()
 

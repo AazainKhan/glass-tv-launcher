@@ -18,6 +18,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], qualifiers = TV)
 class ControlCenterMotionTest {
     @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule val pinnedClock = PinnedClockRule()
 
     // Text wins over a smaller grid (§8.8): no Control Center label is cut off by its tile.
     @Test fun labelsFitTheirTiles() {

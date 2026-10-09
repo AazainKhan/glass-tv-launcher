@@ -41,6 +41,7 @@ class ControlCenterWindowTest {
         idle(CcMorph.CLOSE_MS + 500L)
         ControlCenterWindow.homeBackdrop = null
         ControlCenterWindow.pillBounds = null
+        TvHarness.restoreClock()
     }
 
     private fun idle(ms: Long) = shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(ms))

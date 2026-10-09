@@ -24,6 +24,7 @@ import org.robolectric.annotation.Config
 class HomeShots {
 
     @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule val pinnedClock = PinnedClockRule()
 
     private fun home(config: (LauncherConfig) -> LauncherConfig = { it }, block: (ActivityScenario<MainActivity>) -> Unit) {
         TvHarness.setUp(config = config)

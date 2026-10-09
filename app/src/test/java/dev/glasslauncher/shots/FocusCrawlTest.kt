@@ -19,6 +19,7 @@ import org.robolectric.annotation.Config
 class FocusCrawlTest {
 
     @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule val pinnedClock = PinnedClockRule()
 
     @Test fun home() = crawlHome("home")
 
