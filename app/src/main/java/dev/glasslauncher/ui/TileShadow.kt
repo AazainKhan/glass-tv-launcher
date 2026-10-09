@@ -54,8 +54,6 @@ object TileShadow {
     val focus: ImageBitmap by lazy { bake(Kind.Focus) }
     val contact: ImageBitmap by lazy { bake(Kind.Contact) }
 
-    fun image(kind: Kind): ImageBitmap = if (kind == Kind.Focus) focus else contact
-
     /** The draw alpha for [kind] at focus value [lift] (0 resting, 1 focused; springs overshoot, so it is clamped). */
     fun alpha(kind: Kind, lift: Float): Float {
         val l = lift.coerceIn(0f, 1f)

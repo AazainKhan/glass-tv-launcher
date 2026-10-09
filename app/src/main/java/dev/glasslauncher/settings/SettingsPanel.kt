@@ -321,7 +321,7 @@ private fun WallpaperPage(dark: Boolean, model: HomeModel, cfg: LauncherConfig, 
     val first = remember { FocusRequester() }
     LaunchedEffect(active) { if (active) { delay(16); runCatching { first.requestFocus() } } }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 22.dp)) {
+    Column(Modifier.fillMaxSize().padding(start = 14.dp, top = 22.dp, end = 14.dp)) {
         PanelTitle(if (dark) "Dark Wallpaper" else "Light Wallpaper")
         WallpaperLoader.presets.forEachIndexed { i, preset ->
             val swatch = remember(preset.id) { graph.wallpapers.renderPreset(preset, 96, 54).asImageBitmap() }
@@ -348,6 +348,8 @@ private fun WallpaperPage(dark: Boolean, model: HomeModel, cfg: LauncherConfig, 
         SectionLabel("On this device")
         ImagePicker(
             modifier = Modifier.weight(1f),
+            // The page's 22 dp bottom inset, inside the grid so a focused tile's shadow isn't cut short.
+            bottomInset = 22.dp,
             onPicked = { uri ->
                 scope.launch {
                     status = "Importing…"

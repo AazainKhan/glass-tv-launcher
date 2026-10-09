@@ -156,8 +156,7 @@ fun ExpandedShelf(
         Column(
             Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(bottom = 34.dp),
+                .fillMaxWidth(),
         ) {
             Column(Modifier.padding(start = m.inset).widthIn(max = 640.dp)) {
                 Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
@@ -183,7 +182,10 @@ fun ExpandedShelf(
             Text(feed.heading, style = Type.label, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 18.dp).testTag("shelf-heading"))
             LazyRow(
                 state = listState,
-                contentPadding = PaddingValues(horizontal = m.inset),
+                // The 34 dp under the cards belongs to the row, not to the column around it: a lazy row clips
+                // 30 dp past its own bounds and a focused card's shadow reaches further, so with that space
+                // outside the row the halo was cut off in a visible step. Inside it, the clip is off screen.
+                contentPadding = PaddingValues(start = m.inset, end = m.inset, bottom = 34.dp),
                 horizontalArrangement = Arrangement.spacedBy(m.gutter * 0.8f),
                 modifier = Modifier
                     .fillMaxWidth()
