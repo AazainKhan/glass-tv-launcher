@@ -183,7 +183,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
         Modifier.width(width)
             .bringIntoViewRequester(reveal)
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
-            .ccSurface(shape).testTag("now-playing-card").padding((12 * scale).dp),
+            .ccSurface(shape, dev.glasslauncher.home.LocalCcSheet.current).testTag("now-playing-card").padding((12 * scale).dp),
     ) {
         // One row (art, track and progress, then the controls), so Control Center fits on screen with it.
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -59,6 +59,8 @@ import dev.glasslauncher.system.SystemControls
 import dev.glasslauncher.glass.LocalBackdrop
 import kotlinx.coroutines.flow.first
 import dev.glasslauncher.glass.GlassMatch
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.node.invalidateDraw
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
 import dev.glasslauncher.ui.LocalPalette
@@ -116,32 +118,22 @@ object CcMorph {
 
     /** The bubble's corner stays capsule-round until this much of the open, then tightens to the tiles' radius. */
     private const val ROUND_UNTIL = 0.55f
-    /** The tiles appear only once the bubble is this open. */
-    private const val TILES_AFTER = 0.6f
-    /** Closing: the tiles are gone by this progress, and only then does the bubble collapse. */
-    private const val CLOSE_HOLD = 0.85f
     /** The bubble's bottom edge follows progress to this power: low in the first frames, so the capsule widens before it drops. */
     private const val DROP = 2.5f
-    /** A tile is fully opaque this far into its arrival (no translucent ghosts). */
-    private const val SOLID_BY = 0.3f
-    /** The bubble stays opaque behind the arriving tiles until the first row is this far in, then fades. */
-    private const val BUBBLE_HOLD = 0.3f
+    /** The bubble (the gaps between the tiles) is fully there until the panel is this open, then fades to leave the gaps clear. */
+    private const val BUBBLE_HOLD = 0.8f
     /** How far the bubble's height squeezes while collapsing into the pill (to 96%). */
     private const val SQUEEZE = 0.04f
-
-    /** Rows arrive one after another, a little apart. */
-    private const val ROW_STEP = 0.03f
-    private const val ROWS = 6
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
     /**
-     * The bubble's progress (0..1, a little over 1 in the bounce) for the spring's value [e]. Opening it is
-     * the value itself; closing it holds full size while the tiles leave, then collapses. [from] is where
-     * the close began (Back mid-open), so the two directions agree at the turn and nothing jumps.
+     * The bubble's progress (0..1, a little over 1 in the bounce) for the spring's value [e]: the value itself,
+     * and closing runs the same path back, never past [from] (where the close began, Back mid-open), so the
+     * two directions agree at the turn and nothing jumps. The tiles are clipped to this bubble.
      */
     fun bubble(e: Float, closing: Boolean, from: Float = 1f): Float =
-        if (closing) minOf(from, e / CLOSE_HOLD).coerceAtLeast(0f) else e.coerceAtLeast(0f)
+        if (closing) minOf(from, e).coerceAtLeast(0f) else e.coerceAtLeast(0f)
 
     /**
      * The bubble's bounds at progress [t]: the pill's capsule stretches into the panel (past 1 it overshoots a
@@ -176,57 +168,32 @@ object CcMorph {
     }
 
     /**
-     * A row's arrival (0..1). Opening: nothing until the bubble is ~60% open, then top row first, every row
-     * landed by the end. Closing: the rows leave first, in the stretch before the bubble starts to collapse.
+     * The bubble's own opacity at progress [b]. The tiles are clipped to the bubble, so the bubble is what fills
+     * the gaps between them: solid until the panel is nearly open, then it fades to leave the gaps clear.
      */
-    fun tiles(e: Float, row: Int = 0, closing: Boolean = false, from: Float = 1f): Float {
-        val start = TILES_AFTER + row.coerceIn(0, ROWS - 1) * ROW_STEP
-        val arrival = ((e - start) / (1f - TILES_AFTER - (ROWS - 1) * ROW_STEP)).coerceIn(0f, 1f)
-        if (!closing) return arrival
-        val f = from.coerceIn(0.01f, 1f)
-        return tiles(f, row) * ((e - CLOSE_HOLD * f) / (f * (1f - CLOSE_HOLD))).coerceIn(0f, 1f)
-    }
-
-    /**
-     * The bubble's opacity for the first row's [arrival]. It is the tiles' own colour, so it stays solid behind
-     * them until they are opaque and then fades, to leave the gaps between the tiles clear.
-     */
-    fun bubbleAlpha(arrival: Float) = 1f - ((arrival - BUBBLE_HOLD) / (1f - BUBBLE_HOLD)).coerceIn(0f, 1f)
-
-    /** A tile's opacity at [arrival]: solid within the first [SOLID_BY] of it. */
-    fun tileAlpha(arrival: Float) = (arrival / SOLID_BY).coerceIn(0f, 1f)
-
-    /** Tiles grow a touch as they arrive. */
-    fun scale(arrival: Float) = 0.96f + 0.04f * arrival
-
-    /** A row's look at progress [t]: with Reduce Motion it only fades (no rise, no grow). */
-    data class RowMotion(val alpha: Float, val rise: Float, val scale: Float)
-
-    fun row(t: Float, row: Int = 0, reduceMotion: Boolean, closing: Boolean = false, from: Float = 1f): RowMotion =
-        if (reduceMotion) RowMotion(alpha = t.coerceIn(0f, 1f), rise = 0f, scale = 1f)
-        else tiles(t, row, closing, from).let { a -> RowMotion(alpha = tileAlpha(a), rise = 1f - a, scale = scale(a)) }
+    fun bubbleAlpha(b: Float) = 1f - ((b - BUBBLE_HOLD) / (1f - BUBBLE_HOLD)).coerceIn(0f, 1f)
 }
 
 /** One outline: the bubble at progress [b] between the pill and the panel (see [CcMorph]). */
 internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCcBubble(
     b: Float, squeeze: Float, pill: androidx.compose.ui.geometry.Rect, panel: androidx.compose.ui.geometry.Rect,
-    color: Color, alpha: Float, tileRadius: Float,
+    brush: androidx.compose.ui.graphics.Brush, alpha: Float, tileRadius: Float,
 ) {
     val r = CcMorph.rect(b, pill, panel, squeeze)
-    drawRoundRect(color, topLeft = r.topLeft, size = r.size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(CcMorph.radius(b, r, tileRadius)), alpha = alpha)
+    drawRoundRect(brush, topLeft = r.topLeft, size = r.size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(CcMorph.radius(b, r, tileRadius)), alpha = alpha)
 }
 
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
 private val CC_BLEED = 16.dp
 
 /**
- * Control Center's one material. Every tile (pills, the big Settings tile, round buttons, the page discs, the
- * Now Playing card) and the bubble that grows into the panel draw this single flat colour: the scene behind
- * the panel, averaged once when it opens, under a faint tint and the wash's dim ([GlassMatch.fill]). Tiles used
- * to sample the scene each, so they tinted differently and swapped to a texture after landing (the user's video).
+ * Control Center's one material: a small bitmap of the scene behind the panel (the clear texture's pixels
+ * under the panel, blurred, with a faint tint and the wash's dim baked in), made once when it opens. Every
+ * tile, the page discs, the Now Playing card and the bubble draw their part of it: one draw each, mapped
+ * panel-relative, so they read as one sheet of glass and never sample anything per frame.
  */
 internal object CcMaterial {
-    /** The tint over the averaged scene: a faint darkening for the labels. */
+    /** The tint over the scene: a faint darkening for the labels. */
     val tint = Color.Black.copy(alpha = 0.06f)
     val lightTint = Color.White.copy(alpha = 0.2f)
     /** With no scene to average: one fixed smoky colour. */
@@ -234,28 +201,82 @@ internal object CcMaterial {
     /** The rim every tile keeps so it has an edge: a single thin stroke. */
     val rim = Color.White.copy(alpha = 0.22f)
 
-    fun fill(backdrop: dev.glasslauncher.glass.Backdrop?, root: androidx.compose.ui.unit.IntSize, panel: androidx.compose.ui.geometry.Rect?, light: Boolean): Color {
+    /** The sheet's average colour, cheap enough to compute on the main thread: what is drawn until [bake] lands. */
+    fun flat(backdrop: dev.glasslauncher.glass.Backdrop?, root: androidx.compose.ui.unit.IntSize, panel: androidx.compose.ui.geometry.Rect?, light: Boolean): Color {
         val sample = backdrop?.clearSample ?: return fallback
         panel ?: return fallback
         return GlassMatch.regionFill(sample, root.width, root.height, panel.left, panel.top, panel.width, panel.height, if (light) lightTint else tint, CC_DIM_ALPHA) ?: fallback
     }
-}
 
-internal val LocalCcFill = androidx.compose.runtime.staticCompositionLocalOf { CcMaterial.fallback }
-
-/** A Control Center surface: [LocalCcFill] in [shape] with the one thin rim; no texture, no sampling. */
-@Composable
-internal fun Modifier.ccSurface(shape: Shape): Modifier {
-    val fill = LocalCcFill.current
-    return this.drawWithCache {
-        val outline = shape.createOutline(size, layoutDirection, this)
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
-        onDrawBehind {
-            drawOutline(outline, fill)
-            drawOutline(outline, CcMaterial.rim, style = stroke)
-        }
+    /** The baked sheet for [panel] (off the main thread); null if there is nothing to sample. */
+    fun bake(backdrop: dev.glasslauncher.glass.Backdrop?, root: androidx.compose.ui.unit.IntSize, panel: androidx.compose.ui.geometry.Rect, light: Boolean): android.graphics.Bitmap? {
+        val sample = backdrop?.clearSample ?: return null
+        val sheet = GlassMatch.panelSheet(sample, root.width, root.height, panel.left, panel.top, panel.width, panel.height, if (light) lightTint else tint, CC_DIM_ALPHA) ?: return null
+        val bmp = android.graphics.Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, android.graphics.Bitmap.Config.ARGB_8888)
+        return bmp.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { bmp.recycle() } ?: bmp
     }
 }
+
+/** The material for one open: the baked [bitmap] over [panel] (window pixels), or its [flat] average until that lands. */
+@androidx.compose.runtime.Stable
+internal class CcSheet(val bitmap: android.graphics.Bitmap?, val panel: androidx.compose.ui.geometry.Rect, val flat: Color) {
+    private fun shader(tx: Float, ty: Float): android.graphics.BitmapShader? = bitmap?.let {
+        android.graphics.BitmapShader(it, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP).apply {
+            setLocalMatrix(android.graphics.Matrix().apply { setScale(panel.width / it.width, panel.height / it.height); postTranslate(panel.left + tx, panel.top + ty) })
+        }
+    }
+    /** The sheet in window coordinates, for the bubble. */
+    val brush: androidx.compose.ui.graphics.Brush by lazy { shader(0f, 0f)?.let { androidx.compose.ui.graphics.ShaderBrush(it) } ?: androidx.compose.ui.graphics.SolidColor(flat) }
+    /** The sheet for a surface whose top-left is at [origin] in the window (its own coordinates start there). */
+    fun brushAt(origin: androidx.compose.ui.geometry.Offset): androidx.compose.ui.graphics.Brush =
+        shader(-origin.x, -origin.y)?.let { androidx.compose.ui.graphics.ShaderBrush(it) } ?: androidx.compose.ui.graphics.SolidColor(flat)
+}
+
+internal val LocalCcSheet = androidx.compose.runtime.staticCompositionLocalOf<CcSheet?> { null }
+
+/** A Control Center surface: [sheet] in [shape] with the one thin rim; one draw, no texture of its own. */
+internal fun Modifier.ccSurface(shape: Shape, sheet: CcSheet?): Modifier = this then CcSurfaceElement(shape, sheet)
+
+private data class CcSurfaceElement(val shape: Shape, val sheet: CcSheet?) : androidx.compose.ui.node.ModifierNodeElement<CcSurfaceNode>() {
+    override fun create() = CcSurfaceNode(shape, sheet)
+    override fun update(node: CcSurfaceNode) { node.shape = shape; node.sheet = sheet; node.reset(); node.invalidateDraw() }
+}
+
+private class CcSurfaceNode(var shape: Shape, var sheet: CcSheet?) : Modifier.Node(), androidx.compose.ui.node.DrawModifierNode, androidx.compose.ui.node.GlobalPositionAwareModifierNode {
+    private var origin = androidx.compose.ui.geometry.Offset.Zero
+    private var cachedSize = androidx.compose.ui.geometry.Size.Unspecified
+    private var outline: androidx.compose.ui.graphics.Outline? = null
+    private var brush: androidx.compose.ui.graphics.Brush? = null
+
+    fun reset() { brush = null; outline = null }
+
+    override fun onGloballyPositioned(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
+        val p = coordinates.positionInWindow()
+        if (p != origin) { origin = p; brush = null; invalidateDraw() }
+    }
+
+    override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
+        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this) }
+        val o = outline ?: return drawContent()
+        val b = brush ?: (sheet?.brushAt(origin) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
+        drawOutline(o, b)
+        drawOutline(o, CcMaterial.rim, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
+        drawContent()
+    }
+}
+
+/** The bubble as a clip for the panel: the tiles show through it as it grows (nothing fades in). */
+private data class CcBubbleShape(val rect: androidx.compose.ui.geometry.Rect, val radius: Float) : Shape {
+    override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+        androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(rect, androidx.compose.ui.geometry.CornerRadius(radius)))
+}
+
+/** Where the bubble is now (window pixels), its progress and its corner radius. */
+private class CcBubble(val rect: androidx.compose.ui.geometry.Rect, val b: Float, val radius: Float)
+
+/** Set when the open lands: a focus fill that appears while Control Center is still opening snaps instead of fading (a tile is never half-white). */
+internal class CcPhase { var landed = false }
+internal val LocalCcPhase = androidx.compose.runtime.staticCompositionLocalOf { CcPhase() }
 
 /** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
 /** How much Control Center mutes the screen behind it; its glass samples the scene muted by the same amount. */
@@ -322,63 +343,78 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
-    // Grows out of the status pill: its capsule swells into the panel from the pill's centre like a drop of
-    // liquid, the tiles fade up once it is ~60% open, and closing runs the tiles out first, then collapses
-    // the bubble back into the pill. One Animatable drives both directions, so Back mid-open reverses from
-    // wherever it is. Transforms and one outline per frame; the tiles' layout never changes.
+    // Grows out of the status pill: its capsule stretches into the panel like a drop of liquid, and the tiles,
+    // at full opacity, are revealed by clipping to it. Closing runs the same path back. One Animatable drives
+    // the bubble, its clip and the dim in both directions, so Back mid-open reverses from wherever it is. The
+    // tiles' layout never changes, and the panel and its tiles are one layer (no per-row translucent layers).
     val enter = remember { androidx.compose.animation.core.Animatable(0f) }
     val exiting = LocalOverlayExiting.current
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
-    // Where the close began (read once, here, so it isn't a per-frame dependency): the bubble and tiles turn from there.
+    // Where the close began (read once, here, so it isn't a per-frame dependency): the bubble turns from there.
     val closeFrom = remember(exiting) { if (exiting) androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { enter.value }.coerceIn(0.01f, 1f) else 1f }
+    val phase = remember { CcPhase() }
     LaunchedEffect(exiting) {
         // Reduce Motion: no growing bubble, a plain fade (a bounce would pulse the opacity).
         if (reduceMotion) enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())
         else if (exiting) enter.animateTo(0f, CcMorph.closeSpring)
         else enter.animateTo(1f, CcMorph.openSpring)
-    }
-    // Each row of tiles arrives on its own beat: a fade, a small rise and a slight grow, top to bottom.
-    fun Modifier.ccRow(row: Int) = graphicsLayer {
-        val r = CcMorph.row(enter.value, row, reduceMotion, exiting, closeFrom)
-        alpha = r.alpha
-        translationY = r.rise * 14.dp.toPx()
-        scaleX = r.scale; scaleY = r.scale
-        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+        phase.landed = true
     }
     val glassState = LocalBackdrop.current
     var panel by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    // The panel as first laid out: the material is computed from it once per open (the Alexa page is shorter,
-    // and a colour that followed the panel's size would shift when the page changed).
+    // The panel as first laid out: the material is made from it once per open (the Alexa page is shorter,
+    // and a sheet that followed the panel's size would shift when the page changed).
     var measured by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val pill = ControlCenterWindow.pillBounds
-    val sample = glassState.backdrop
+    val backdrop = glassState.backdrop
     val root = glassState.rootSize
-    val fill = remember(sample, root, measured, palette.light) { CcMaterial.fill(sample, root, measured, palette.light) }
-    androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz, LocalCcFill provides fill) {
+    val flat = remember(backdrop, root, measured, palette.light) { CcMaterial.flat(backdrop, root, measured, palette.light) }
+    // The baked sheet, once, off the main thread; until it lands everything draws its average (the same pixels).
+    val baked by produceState<android.graphics.Bitmap?>(null, backdrop, root, measured, palette.light) {
+        val m = measured
+        value = if (m == null || root == androidx.compose.ui.unit.IntSize.Zero) null else withContext(Dispatchers.Default) { CcMaterial.bake(backdrop, root, m, palette.light) }
+    }
+    val sheet = remember(baked, measured, flat) { measured?.let { CcSheet(baked, it, flat) } }
+    // The bubble's bounds now: from the very first frame (before the panel is measured, it's simply the pill).
+    fun androidx.compose.ui.unit.Density.bubbleNow(): CcBubble? {
+        val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return null
+        val b = CcMorph.bubble(enter.value, exiting, closeFrom)
+        val r = CcMorph.rect(b, from, panel ?: from, CcMorph.squeeze(b, exiting, closeFrom))
+        return CcBubble(r, b, CcMorph.radius(b, r, 26.dp.toPx()))
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz, LocalCcSheet provides sheet, LocalCcPhase provides phase) {
     Box(Modifier.fillMaxSize()) {
         // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent layer,
         // and over another app (an overlay window) the system composites it without redrawing anything.
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter.value.coerceIn(0f, 1f) }.background(CC_DIM))
-        // The bubble: it is the pill's capsule on the first frame and the panel's outline by the end, in the one
-        // colour the tiles are, so it stays solid behind them as they arrive and only then fades.
+        // The bubble: the pill's capsule on the first frame and the panel's outline by the end, drawn from the
+        // same sheet as the tiles. It fills the gaps between the clipped-in tiles, then fades to clear them.
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            // From the very first frame (before the panel is measured, it's simply the pill), so there's
-            // never a frame with neither the pill nor the capsule.
-            val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
-            val target = panel ?: from
-            val e = enter.value
             // Reduce Motion: no growing bubble, Control Center simply fades in.
             if (reduceMotion) return@Canvas
-            val a = CcMorph.bubbleAlpha(CcMorph.tiles(e, 0, exiting, closeFrom))
+            val bubble = bubbleNow() ?: return@Canvas
+            val a = CcMorph.bubbleAlpha(bubble.b)
             if (a <= 0f) return@Canvas
-            val b = CcMorph.bubble(e, exiting, closeFrom)
-            drawCcBubble(b, CcMorph.squeeze(b, exiting, closeFrom), from, target, fill, a, 26.dp.toPx())
+            val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
+            drawCcBubble(bubble.b, CcMorph.squeeze(bubble.b, exiting, closeFrom), from, panel ?: from, sheet?.brush ?: androidx.compose.ui.graphics.SolidColor(flat), a, 26.dp.toPx())
         }
         Column(
             horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .onGloballyPositioned { panel = it.boundsInWindow().also { r -> if (measured == null) measured = r } }
+                // One layer for the panel and every tile: clipped to the growing bubble (nothing fades), or with
+                // Reduce Motion a plain fade of the whole panel.
+                .graphicsLayer {
+                    val origin = panel
+                    if (reduceMotion) { alpha = enter.value.coerceIn(0f, 1f); return@graphicsLayer }
+                    val bubble = bubbleNow()
+                    if (origin == null || bubble == null) { alpha = 0f; return@graphicsLayer }
+                    if (bubble.b < 1f || exiting) {
+                        clip = true
+                        shape = CcBubbleShape(bubble.rect.translate(-origin.topLeft), bubble.radius)
+                    }
+                }
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
                 .testTag("control-center"),
@@ -387,7 +423,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // left, lined up with the tiles; the page icons on the right (focusing one shows its page).
             Row(
                 verticalAlignment = Alignment.Top,
-                modifier = Modifier.ccRow(0).width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
+                modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
@@ -419,9 +455,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             androidx.compose.animation.Crossfade(page, animationSpec = androidx.compose.animation.core.tween(140), label = "cc-page") { shownPage ->
             Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
             if (shownPage == 1) {
-                Box(Modifier.ccRow(1)) { AlexaPage(sz, closeAll) }
+                Box(Modifier) { AlexaPage(sz, closeAll) }
             } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccRow(1)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
                 CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), sz.bigWidth, sz.big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
                     BigIcon(R.drawable.ic_settings, "Settings", fg)
@@ -436,7 +472,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     }
                 }
             }
-            if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, modifier = Modifier.ccRow(2), onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
+            if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, modifier = Modifier, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
                 PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
             }
             // Round buttons, four to a row (tvOS), with the focused one's name in a caption underneath.
@@ -479,7 +515,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 Column(Modifier.width(sz.round * 4 + sz.gap * 3), verticalArrangement = Arrangement.spacedBy(sz.gap)) {
                     rounds.chunked(4).forEachIndexed { i, row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccRow(3 + i)) { row.forEach { it() } }
+                        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier) { row.forEach { it() } }
                     }
                 }
             }
@@ -490,13 +526,13 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
                 color = headerColor,
                 maxLines = 1,
-                modifier = Modifier.ccRow(5).padding(start = 4.dp).testTag("cc-caption"),
+                modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
             )
             }
             }
             }
             // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
-            np?.let { Box(Modifier.ccRow(5)) { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) } }
+            np?.let { Box(Modifier) { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) } }
             }
         }
     }
@@ -536,7 +572,7 @@ private fun PageIcon(label: String, selected: Boolean, onShow: () -> Unit, conte
     ) { focused ->
         val lit = focused || selected
         Box(
-            Modifier.fillMaxSize().ccSurface(CircleShape)
+            Modifier.fillMaxSize().ccSurface(CircleShape, LocalCcSheet.current)
                 .then(if (lit) Modifier.background(palette.focusFill, CircleShape) else Modifier),
             contentAlignment = Alignment.Center,
         ) { content(lit) }
@@ -643,7 +679,10 @@ private fun CcTile(
         // A toggle that's on sits white with a blue glyph, like tvOS's Control Center toggles.
         // Focus and "on" fills fade (never pop), so a focus move cross-fades the white from one tile to the next.
         val fade = androidx.compose.animation.core.tween<Float>(FILL_FADE_MS)
-        val focusA by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, fade, label = "focus")
+        // The first focus lands while Control Center is still opening: the white appears at once, so the tile
+        // is never revealed half-grey (later focus moves cross-fade).
+        val phase = LocalCcPhase.current
+        val focusA by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, if (phase.landed) fade else androidx.compose.animation.core.snap(), label = "focus")
         val onA by androidx.compose.animation.core.animateFloatAsState(if (on && !focused) 1f else 0f, fade, label = "on")
         // The text and glyph colour switches outright (animating it recomposed every tile's content each
         // frame); under the fading fill the switch isn't visible.
@@ -653,7 +692,7 @@ private fun CcTile(
                 .fillMaxSize()
                 // The shared fill stays put and the focus or "on" fill draws over it (swapping modifiers made a
                 // fresh node on every focus change, which could draw a frame before it knew where it was).
-                .ccSurface(shape)
+                .ccSurface(shape, LocalCcSheet.current)
                 .drawWithCache {
                     val outline = shape.createOutline(size, layoutDirection, this)
                     onDrawBehind {

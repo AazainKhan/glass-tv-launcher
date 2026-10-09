@@ -68,42 +68,21 @@ class CcMorphTest {
         assertTrue(squeezed.height < CcMorph.rect(0.4f, pill, panel).height)
     }
 
-    // Opening: the tiles wait until the bubble is ~60% open, then arrive top row first.
-    @Test fun tilesWaitForTheBubbleToBeSixtyPercentOpen() {
-        for (row in 0..5) assertEquals("row $row", 0f, CcMorph.tiles(0.6f, row), 0.0001f)
-        assertEquals(0f, CcMorph.tiles(0.3f, 0), 0f)
-        assertTrue(CcMorph.tiles(0.7f, row = 0) > 0f)
-        assertTrue("later rows follow", CcMorph.tiles(0.8f, row = 3) < CcMorph.tiles(0.8f, row = 0))
-        for (row in 0..5) assertEquals(1f, CcMorph.tiles(1f, row), 0.001f)
-        // The bounce overshoots 1: arrival stays 1.
-        for (row in 0..5) assertEquals(1f, CcMorph.tiles(1.03f, row), 0.001f)
+    // Closing runs the open's path back: the bubble is the spring value, never past where the close began.
+    @Test fun closingRunsTheBubbleBackAndReversingMidOpenDoesNotJump() {
         assertEquals(0.5f, CcMorph.bubble(0.5f, closing = false), 0f)
-    }
-
-    // Closing: the tiles leave first (the bubble holds full size), then the bubble collapses.
-    @Test fun closingTilesGoBeforeTheBubbleCollapses() {
-        assertEquals(1f, CcMorph.bubble(0.9f, closing = true), 0f)
-        assertTrue("tiles are leaving", CcMorph.tiles(0.95f, 0, closing = true) in 0.01f..0.99f)
-        for (row in 0..5) assertEquals("row $row gone", 0f, CcMorph.tiles(0.85f, row, closing = true), 0.0001f)
-        assertTrue("then the bubble shrinks", CcMorph.bubble(0.5f, closing = true) < 0.65f)
-        assertEquals(0f, CcMorph.bubble(0f, closing = true), 0f)
-        assertEquals(0f, CcMorph.bubble(-0.02f, closing = true), 0f)
-    }
-
-    // Back mid-open reverses from where it is: both directions agree at the moment of the turn.
-    @Test fun reversingMidOpenDoesNotJump() {
+        assertEquals(0.5f, CcMorph.bubble(0.5f, closing = true), 0f)
         for (from in listOf(0.2f, 0.5f, 0.75f, 0.9f, 1f)) {
             assertEquals("bubble from $from", CcMorph.bubble(from, closing = false), CcMorph.bubble(from, closing = true, from = from), 0.0001f)
-            for (row in 0..5) assertEquals("row $row from $from", CcMorph.tiles(from, row), CcMorph.tiles(from, row, closing = true, from = from), 0.0001f)
+            // The bounce's overshoot never makes a close start past where it began.
+            assertTrue(CcMorph.bubble(1.04f, closing = true, from = from) <= from + 0.0001f)
         }
-        // The squeeze starts from 1 at the turn (no height step), and still reaches ~96% on the way in.
+        assertEquals(0f, CcMorph.bubble(0f, closing = true), 0f)
+        assertEquals(0f, CcMorph.bubble(-0.02f, closing = true), 0f)
         for (from in listOf(0.2f, 0.5f, 0.75f, 1f)) {
             assertEquals("squeeze from $from", 1f, CcMorph.squeeze(CcMorph.bubble(from, true, from), true, from), 0.0001f)
             assertEquals(0.96f, (0..100).minOf { CcMorph.squeeze(from * it / 100f, true, from) }, 0.005f)
         }
-        // Then it still collapses fully.
-        assertEquals(0f, CcMorph.bubble(0f, closing = true, from = 0.5f), 0f)
-        assertEquals(0f, CcMorph.tiles(0.1f, 0, closing = true, from = 0.9f), 0f)
     }
 
     // Springs (user spec): open 0.76 / 140 with a slight settle bounce; close 0.92 / 225, landing without a wobble.
@@ -166,47 +145,18 @@ class CcMorphTest {
         }
     }
 
-    // Tiles are solid early: each reaches 90% opacity within the first 40% of its own arrival, so there is no
-    // stretch of translucent ghost tiles (the user's video).
-    @Test fun tilesAreSolidEarlyInTheirArrival() {
-        for (row in 0..5) {
-            // Find the spring progress at which this row is 40% arrived.
-            val start = 0.6f + row * 0.03f
-            val span = 1f - 0.6f - 5 * 0.03f
-            val e = start + span * 0.4f
-            assertEquals("arrival at e=$e", 0.4f, CcMorph.tiles(e, row), 0.001f)
-            assertTrue("row $row alpha ${CcMorph.row(e, row, reduceMotion = false).alpha} at 40% of its arrival",
-                CcMorph.row(e, row, reduceMotion = false).alpha >= 0.9f)
-            assertEquals(0f, CcMorph.row(start - 0.01f, row, reduceMotion = false).alpha, 0f)
-            assertEquals(1f, CcMorph.row(1f, row, reduceMotion = false).alpha, 0f)
-        }
-    }
-
-    // The bubble keeps its colour behind the arriving tiles and only then fades, so the two never add up to a hole.
-    @Test fun bubbleStaysSolidUntilTheTilesAreIn() {
+    // The tiles are clipped to the bubble, so the bubble is what fills the gaps between them: solid until the
+    // panel is nearly open, then it fades to leave the gaps clear (and back in as the close begins).
+    @Test fun bubbleStaysSolidUntilThePanelIsNearlyOpen() {
         assertEquals(1f, CcMorph.bubbleAlpha(0f), 0f)
-        assertEquals(1f, CcMorph.bubbleAlpha(0.3f), 0f)
+        assertEquals(1f, CcMorph.bubbleAlpha(0.8f), 0f)
         assertEquals(0f, CcMorph.bubbleAlpha(1f), 0f)
-        assertTrue(CcMorph.bubbleAlpha(0.6f) in 0.01f..0.99f)
-    }
-
-    @Test fun tilesGrowSlightlyAsTheyArrive() {
-        assertEquals(0.96f, CcMorph.scale(0f), 0.0001f)
-        assertEquals(1f, CcMorph.scale(1f), 0.0001f)
+        assertEquals(0f, CcMorph.bubbleAlpha(1.04f), 0f)
+        assertTrue(CcMorph.bubbleAlpha(0.9f) in 0.01f..0.99f)
     }
 }
 
 class ReduceMotionTest {
-    // Reduce Motion (§9.2): things fade, nothing slides, rises or scales.
-    @Test fun controlCenterRowsOnlyFade() {
-        val m = CcMorph.row(0.4f, reduceMotion = true)
-        assertEquals(0f, m.rise, 0f)
-        assertEquals(1f, m.scale, 0f)
-        assertTrue(m.alpha in 0f..1f)
-        val full = CcMorph.row(0.4f, reduceMotion = false)
-        assertTrue("normally rows rise", full.rise > 0f)
-    }
-
     @Test fun overlaysOnlyFade() {
         assertEquals(1f, dev.glasslauncher.home.OverlayMotion.scale(0.3f, reduceMotion = true), 0f)
         assertEquals(0f, dev.glasslauncher.home.OverlayMotion.slide(0.3f, reduceMotion = true), 0f)

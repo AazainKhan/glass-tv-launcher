@@ -3,6 +3,7 @@ package dev.glasslauncher.glass
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.toArgb
 
 /**
  * The flat colour a surface over the scene takes: the scene behind it (averaged), under a tint, then the
@@ -36,5 +37,53 @@ object GlassMatch {
         val sx = source.width / rootWidth.toFloat()
         val sy = source.height / rootHeight.toFloat()
         return runCatching { fill(average(source, left * sx, top * sy, width * sx, height * sy), tint, dim) }.getOrNull()
+    }
+
+    /** How much of the scene's own variation across the panel the sheet keeps. */
+    const val VARIATION = 0.2f
+
+    /** A baked sheet: [pixels] (ARGB) of [width]×[height]. */
+    class Sheet(val pixels: IntArray, val width: Int, val height: Int)
+
+    /**
+     * A small blurred, tinted and dimmed picture of the rectangle [left],[top],[width],[height] (root pixels) of
+     * [source], which covers the root: [cols] cells across, each the mean of a few samples, then one 3x3 box blur,
+     * calmed towards the mean ([VARIATION]), then [fill]. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.
+     */
+    fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = 20, variation: Float = VARIATION): Sheet? {
+        if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
+        val rows = (cols * height / width).toInt().coerceIn(2, 64)
+        val sx = source.width / rootWidth.toFloat(); val sy = source.height / rootHeight.toFloat()
+        val r = FloatArray(cols * rows); val g = FloatArray(cols * rows); val b = FloatArray(cols * rows)
+        val sub = 2
+        runCatching {
+            for (j in 0 until rows) for (i in 0 until cols) {
+                var rr = 0f; var gg = 0f; var bb = 0f
+                for (v in 0 until sub) for (u in 0 until sub) {
+                    val x = ((left + width * (i + (u + 0.5f) / sub) / cols) * sx).toInt().coerceIn(0, source.width - 1)
+                    val y = ((top + height * (j + (v + 0.5f) / sub) / rows) * sy).toInt().coerceIn(0, source.height - 1)
+                    val p = source.getPixel(x, y)
+                    rr += android.graphics.Color.red(p); gg += android.graphics.Color.green(p); bb += android.graphics.Color.blue(p)
+                }
+                val k = i + j * cols
+                r[k] = rr / (sub * sub * 255f); g[k] = gg / (sub * sub * 255f); b[k] = bb / (sub * sub * 255f)
+            }
+        }.onFailure { return null }
+        fun blur(c: FloatArray) = FloatArray(c.size).also { out ->
+            for (j in 0 until rows) for (i in 0 until cols) {
+                var sum = 0f; var n = 0
+                for (dj in -1..1) for (di in -1..1) {
+                    val x = i + di; val y = j + dj
+                    if (x in 0 until cols && y in 0 until rows) { sum += c[x + y * cols]; n++ }
+                }
+                out[i + j * cols] = sum / n
+            }
+        }
+        // Calm: only a [variation] share of how far each cell is from the panel's mean survives, so the sheet is
+        // one material with a faint drift of the scene's colour, not a patchwork of dark and maroon tiles.
+        fun calm(c: FloatArray) = blur(c).let { x -> val m = x.average().toFloat(); FloatArray(x.size) { m + (x[it] - m) * variation } }
+        val br = calm(r); val bg = calm(g); val bbl = calm(b)
+        val pixels = IntArray(cols * rows) { Color(br[it], bg[it], bbl[it]).let { c -> fill(c, tint, dim).toArgb() } }
+        return Sheet(pixels, cols, rows)
     }
 }

@@ -19,6 +19,8 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = TV)
 class ControlCenterMotionTest {
+    private companion object { const val SPREAD = 10f }
+
     @get:Rule val compose = createEmptyComposeRule()
     @get:Rule val pinnedClock = PinnedClockRule()
 
@@ -69,10 +71,7 @@ class ControlCenterMotionTest {
             val moving = steps.count { it > total * 0.02f }
             val worst = steps.maxOrNull() ?: 0f
             assertTrue("nothing changed while opening: $levels", total > 3f)
-            // Tiles are solid within the first 30% of their arrival (no ghosts), so this area, mostly the white
-            // Settings tile and its row, now lands in two or three frames rather than a long fade: one frame may
-            // take most of it, but not all of it, and the grow before it must be gradual (the 12 moving frames).
-            assertTrue("a sudden jump: ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one 16 ms frame: $levels", worst < total * 0.95f)
+            assertTrue("a sudden jump: ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one 16 ms frame: $levels", worst < total * 0.3f)
             assertTrue("the opening spans only $moving frames (want a grow over many): $levels", moving >= 12)
         }
     }
@@ -148,8 +147,9 @@ class ControlCenterMotionTest {
     /**
      * The user's phone video: tiles were not one colour while Control Center opened (each tinted from the scene
      * right behind it, a texture then swapping in tile by tile). Every tile now draws one flat shared fill:
-     * after the tiles land none moves more than 4/255 between frames, and the unfocused tiles of every kind
-     * (pills, round buttons, the wide pill) sit within 6/255 of each other, on landing and when settled.
+     * after the tiles land none moves more than 3/255 between frames, and the unfocused tiles of every kind
+     * (pills, round buttons, the wide pill) sit within SPREAD/255 of each other, on landing and when settled
+     * (they are parts of one baked sheet of the scene, so they differ only by the sheet's slow gradient).
      */
     @Test fun everyTileIsOneMaterialFromLandingOn() {
         TvHarness.setUp()
@@ -166,7 +166,7 @@ class ControlCenterMotionTest {
             for ((name, r) in tiles) {
                 val seq = frames.drop(landed).map { material(it, rootW, r) }
                 val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f
-                assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 between frames after landing", worst <= 4f)
+                assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 between frames after landing", worst <= 3f)
             }
             val unfocused = tiles.filterKeys { it != "Settings, Fire TV" }
             for (at in listOf(landed, frames.lastIndex)) {
@@ -174,7 +174,7 @@ class ControlCenterMotionTest {
                 for (c in 0..2) {
                     val lo = means.values.minOf { it[c] }; val hi = means.values.maxOf { it[c] }
                     assertTrue("tiles are not one material in frame $at (channel $c spread ${"%.1f".format(hi - lo)}/255): " +
-                        means.mapValues { e -> e.value.map { "%.0f".format(it) } }, hi - lo <= 6f)
+                        means.mapValues { e -> e.value.map { "%.0f".format(it) } }, hi - lo <= SPREAD)
                 }
             }
         }
@@ -197,8 +197,24 @@ class ControlCenterMotionTest {
             val l = frames.map { f -> material(f, rootW, settings).let { (it[0] * 3 + it[1] * 6 + it[2]) / 10 } }
             val lo = l.min(); val hi = l.last()
             assertTrue("the Settings tile never turned white: $l", hi - lo > 60f)
-            val grey = l.count { it > lo + 0.15f * (hi - lo) && it < lo + 0.85f * (hi - lo) }
-            assertTrue("the white tile read as grey for $grey frames: $l", grey <= 3)
+            // Clipped in, never faded in: no frame has a grey Settings tile. Pixels of the tile's top band are either
+            // the bubble's dark colour (not revealed yet) or white; only the clip's own antialiased edge may be
+            // between (a fade shows as the whole band grey).
+            val range = hi - lo
+            val worstGrey = frames.maxOf { f ->
+                val k = f.width / rootW.toFloat()
+                var grey = 0; var n = 0
+                for (y in ((settings.top + settings.height() * 0.08f) * k).toInt()..((settings.top + settings.height() * 0.16f) * k).toInt())
+                    for (x in ((settings.left + settings.width() * 0.35f) * k).toInt()..((settings.left + settings.width() * 0.65f) * k).toInt()) {
+                        val c = f.getPixel(x.coerceIn(0, f.width - 1), y.coerceIn(0, f.height - 1))
+                        val v = ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10f
+                        if (v > lo + 0.25f * range && v < hi - 0.1f * range) grey++
+                        n++
+                    }
+                grey.toFloat() / n
+            }
+            assertTrue("a frame has ${"%.0f".format(worstGrey * 100)}% grey pixels on the Settings tile: $l", worstGrey <= 0.25f)
+            assertTrue("the Settings tile settled ${"%.1f".format(hi)} but never reached white-ish", hi > 200f)
 
             // The dim: a patch of the screen left of the panel darkens smoothly; no frame takes most of it at once.
             val dim = frames.map { f ->

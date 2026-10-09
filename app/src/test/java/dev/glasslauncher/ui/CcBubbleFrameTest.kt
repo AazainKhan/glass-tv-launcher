@@ -64,7 +64,7 @@ class CcBubbleFrameTest {
             val d = LocalDensity.current.density
             Canvas(Modifier.size((1000 / d).dp, (700 / d).dp)) {
                 val b = CcMorph.bubble(progress, closing)
-                drawCcBubble(b, CcMorph.squeeze(b, closing), pill, panel, Color.Black, 1f, 26f)
+                drawCcBubble(b, CcMorph.squeeze(b, closing), pill, panel, androidx.compose.ui.graphics.SolidColor(Color.Black), 1f, 26f)
             }
         }
         for (t in listOf(0.1f, 0.3f, 0.6f, 1f, 1.03f)) check(t, closing = false)
@@ -75,7 +75,7 @@ class CcBubbleFrameTest {
             val d = LocalDensity.current.density
             Canvas(Modifier.size((1000 / d).dp, (700 / d).dp)) {
                 val b = CcMorph.bubble(progress, closing)
-                drawCcBubble(b, CcMorph.squeeze(b, closing), pill, panel, Color.Black, 1f, 26f)
+                drawCcBubble(b, CcMorph.squeeze(b, closing), pill, panel, androidx.compose.ui.graphics.SolidColor(Color.Black), 1f, 26f)
             }
         }
         for (t in listOf(0.7f, 0.4f, 0.15f)) check(t, closing = true)
