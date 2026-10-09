@@ -47,6 +47,10 @@ case "${1:-}" in
     apk="$ROOT/app/build/outputs/apk/$variant/app-$variant.apk"
     [ -f "$apk" ] || { echo "no $apk; build it first (./gradlew :app:assembleDebug or assembleRelease)" >&2; exit 1; }
     "${EADB[@]}" install -r "$apk" >/dev/null
+    # A bare emulator has only four TV apps: add code-free fillers so the tray fills and the grid has rows.
+    for filler in $("$ROOT/scripts/lib/filler-apks.sh" "$SDK" "$ROOT/build/e2e-fillers"); do
+      "${EADB[@]}" install -r "$filler" >/dev/null
+    done
     "${EADB[@]}" shell pm disable-user --user 0 com.google.android.tvlauncher >/dev/null 2>&1 || true
     "${EADB[@]}" shell cmd package set-home-activity dev.glasslauncher/.MainActivity >/dev/null
     "${EADB[@]}" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity >/dev/null
