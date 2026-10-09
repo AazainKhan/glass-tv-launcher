@@ -3,7 +3,7 @@
 # through the accessibility tree.
 #
 # Default target: the Android TV emulator (scripts/emulator), started if needed, so functional and
-# focus checks never queue for the stick. Use --stick for Fire-OS-only tests and perf; that takes a
+# focus checks never queue for the stick. Both targets run under a self-renewing lock per device. Use --stick for Fire-OS-only tests and perf; that takes a
 # self-renewing stick lock for the run (scripts/stick-lock hold).
 #   scripts/e2e                      emulator, everything except perf and stick-only tests
 #   scripts/e2e --stick              the real Fire TV (all tests except perf)
@@ -15,6 +15,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 target=emulator; build=0; args=()
+# An explicit ANDROID_SERIAL that isn't an emulator means the stick: honour it rather than silently
+# switching to the emulator.
+case "${ANDROID_SERIAL:-}" in ""|emulator-*) ;; *) target=stick ;; esac
 for a in "$@"; do
   case "$a" in
     --stick) target=stick ;;
@@ -44,4 +47,5 @@ cd "$ROOT/e2e"
 if [ "$target" = stick ]; then
   exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- python3 -m pytest "${args[@]}"
 fi
-exec python3 -m pytest "${args[@]}"
+# The emulator is shared too: one suite at a time, under the same self-renewing lock (keyed by its serial).
+exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- python3 -m pytest "${args[@]}"
