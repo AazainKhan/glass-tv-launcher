@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import java.io.File
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /** D-pad and remote buttons, as Compose key events. */
 enum class Button(val key: Key) {
@@ -113,13 +115,50 @@ fun sheet(name: String, shots: List<Bitmap>, stepMs: Long, columns: Int = 4): Fi
     return out
 }
 
-/** Lets animations, the backdrop swap and off-thread image decodes finish before a capture. */
+/**
+ * Lets animations, the backdrop swap and off-thread image decodes finish before a capture.
+ *
+ * Image decodes and backdrop bakes run on real background threads, so a fixed sleep is a race that a cold or busy
+ * JVM loses (a first run after a compile, a machine that is paging): the picture then changes mid-measurement
+ * and a continuity or ghost-frame check fails on one test, then passes on the rerun. So after the usual minimum
+ * this waits until the bake thread has drained and the picture has stopped changing ([untilStill]).
+ */
 fun ComposeTestRule.settle() {
-    // Image decodes and backdrop blurs run on real background threads, so give them real time too.
     repeat(10) {
         mainClock.advanceTimeBy(300)
-        Thread.sleep(80)
+        Thread.sleep(20)
         waitForIdle()
+    }
+    untilStill()
+}
+
+/** How many captures in a row must match the one before, and how far apart in real time, for the picture to count as still. */
+private const val STILL_ROUNDS = 4
+private const val STILL_GAP_MS = 60L
+private const val STILL_MAX_ROUNDS = 30
+
+/** Waits for the bake thread to finish whatever it has queued (it is one FIFO thread: an empty task runs after them). */
+fun awaitBakes() = runBlocking { withContext(dev.glasslauncher.glass.WallpaperLoader.BakeDispatcher) { } }
+
+/**
+ * Drains the bake thread, then lets time pass until the picture is the same in [STILL_ROUNDS] captures after the
+ * first (or [STILL_MAX_ROUNDS] rounds are up: something that never stops, like a looping animation, is not waited
+ * on forever). Capped by rounds, not by wall time, so the virtual time advanced is the same on every machine.
+ */
+fun ComposeTestRule.untilStill() {
+    var same = 0
+    var last: Int? = null
+    var rounds = 0
+    while (same < STILL_ROUNDS && rounds++ < STILL_MAX_ROUNDS) {
+        awaitBakes()
+        mainClock.advanceTimeBy(100)
+        Thread.sleep(STILL_GAP_MS)
+        waitForIdle()
+        val bitmap = onRoot().captureToImage().asAndroidBitmap()
+        val pixels = IntArray(bitmap.width * bitmap.height).also { bitmap.getPixels(it, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height) }
+        val hash = pixels.contentHashCode()
+        same = if (hash == last) same + 1 else 0
+        last = hash
     }
 }
 

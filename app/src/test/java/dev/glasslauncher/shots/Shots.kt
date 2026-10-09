@@ -25,8 +25,9 @@ fun shot(name: String) = "src/test/screenshots/$name.png"
 @OptIn(ExperimentalTestApi::class)
 fun ComposeTestRule.waitForHome() {
     waitUntilAtLeastOneExists(hasTestTag("app:${TvHarness.apps.keys.first()}"), timeoutMillis = 10_000)
-    // Tile art and Coil images decode off the main thread; let them land.
-    repeat(5) { Thread.sleep(100); waitForIdle() }
+    // Tile art and Coil images decode off the main thread; let them land (then wait until the picture is still).
+    repeat(2) { Thread.sleep(50); waitForIdle() }
+    untilStill()
 }
 
 /** Delivers a Home press the way the system does: a MAIN intent to the running singleTask activity. */
