@@ -14,3 +14,6 @@ The user's settled decisions, so agents don't re-open them. Newest first. One li
 - 2026-10-07: No focus shimmer: rejected as tacky. Follow the tvos27-guidelines skill and tvos27-inspo frames for design.
 - 2026-10-07: Fire OS's own quick menu stays; don't duplicate system controls the user didn't ask for.
 - 2026-10-07: Performance budget for the stick lives in perf-budget.json (p90 12 ms, PSS 120 MB, …); scripts/perf-gate enforces it.
+
+## 2026-10-09 · Control Center opens by splitting the pill (P49)
+The user approved: the status pill pinches into two liquid drops (Settings page, Alexa page) and every control grows out of the nearer drop; close reverses into the pill. No clipped bubble or rect reveal. Deliberate departure from measured tvOS (which never splits glass in CC), like P7. Feel: crisp, no bounce (open ~350–400 ms, close ~250 ms). Top Shelf titles that are cut off scroll twice when focused, then rest with their ellipsis (an endless loop cost ~30% of a core).
