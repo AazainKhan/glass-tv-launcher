@@ -105,8 +105,8 @@ class VisualChecks {
     @Test fun settingsPageIsContinuous() = continuous("settings-page-push", Button.Select, Button.Down, Button.Down, Button.Right, Button.Right, Button.Select)
     @Test fun controlCenterIsContinuous() = continuous("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up)
     // Move mode: Menu on the first dock app, "Move" (second row), then move it right / down.
-    @Test fun moveModeRightIsContinuous() = expectFail("P20") { continuous("move-right", Button.Right, Button.Menu, Button.Down, Button.Select) }
-    @Test fun moveModeDownIsContinuous() = expectFail("P20") { continuous("move-down", Button.Down, Button.Menu, Button.Down, Button.Select) }
+    @Test fun moveModeRightIsContinuous() = continuous("move-right", Button.Right, Button.Menu, Button.Down, Button.Select)
+    @Test fun moveModeDownIsContinuous() = continuous("move-down", Button.Down, Button.Menu, Button.Down, Button.Select)
 
     /**
      * Records [button]'s transition with every watched element's bounds per frame, and fails when an

@@ -2,6 +2,7 @@ package dev.glasslauncher.home
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -919,6 +920,11 @@ private sealed interface Cell {
     data object Settings : Cell
 }
 
+private fun cellKey(cell: Cell): String = when (cell) {
+    is Cell.Item -> cell.item.key
+    Cell.Settings -> SETTINGS_TILE_KEY
+}
+
 @Composable
 private fun HomeList(
     layout: HomeLayout,
@@ -947,6 +953,10 @@ private fun HomeList(
         dockExtra.map<dev.glasslauncher.apps.AppEntry, Cell> { Cell.Item(GridItem.App(it)) } + layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings
     }
     val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
+    // Move mode: a changed layout makes the cells that moved glide to their new spots.
+    val glide = remember { GlideTracker() }
+    remember(layout) { if (moving != null) glide.generation++ }
+    CompositionLocalProvider(LocalGlide provides glide) {
     LazyColumn(
         state = listState,
         userScrollEnabled = false,
@@ -980,7 +990,7 @@ private fun HomeList(
                     .stopAtRowEnds(),
             ) {
                 row.forEach { cell ->
-                    Box(Modifier.weight(1f)) {
+                    Box(Modifier.weight(1f).glide(cellKey(cell))) {
                         when (cell) {
                             is Cell.Settings -> SettingsCell(requester(SETTINGS_TILE_KEY), { onFocused(SETTINGS_TILE_KEY, i + 2) }, onSettings)
                             is Cell.Item -> when (val item = cell.item) {
@@ -1009,6 +1019,7 @@ private fun HomeList(
                 repeat(m.columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+    }
     }
 }
 
@@ -1055,7 +1066,7 @@ private fun DockTray(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().stopAtRowEnds().testTag("dock")) {
             apps.take(m.columns).forEach { app ->
-                Box(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).glide(appKey(app.packageName))) {
                     val key = appKey(app.packageName)
                     AppCell(
                         app = app,
@@ -1338,6 +1349,8 @@ private fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Mod
     Box(
         modifier
             .padding(bottom = Safe.bottom)
+            // The hint changes length as the app moves between the top row and the grid: grow, don't jump.
+            .animateContentSize(spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow))
             .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
             .padding(horizontal = 28.dp, vertical = 14.dp)
             .testTag("move-banner"),
