@@ -287,7 +287,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             return@LaunchedEffect
         }
         if (appHeroPkg != null) {
-            val key = "$appHeroPkg|$dark"
+            // The app's update time is part of the key: an updated app gets a hero drawn from its new art.
+            val key = "$appHeroPkg|${layout.installed.firstOrNull { it.packageName == appHeroPkg }?.updated ?: 0L}|$dark"
             val baked = appHeroes[key] ?: run {
                 // The app's logo art full screen: Amazon's Fire TV icon, else its own banner (or icon) drawn sharp.
                 val art = dev.glasslauncher.apps.AppArt.url(context, appHeroPkg)

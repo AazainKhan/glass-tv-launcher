@@ -21,6 +21,12 @@ data class AppEntry(
     val packageName: String,
     val label: String,
     val component: ComponentName,
+    /**
+     * When the package was last installed or updated (PackageInfo.lastUpdateTime; 0 if unknown). It is part of
+     * the entry, so part of every tile-art cache key ([TileSpec]): an updated app misses the cache and its tile
+     * is drawn again from its new banner or icon instead of keeping the old art until the process dies.
+     */
+    val updated: Long = 0L,
 )
 
 class AppRepository(private val context: Context) {
@@ -40,6 +46,8 @@ class AppRepository(private val context: Context) {
 
     private fun queryApps(): List<AppEntry> {
         val byPackage = LinkedHashMap<String, AppEntry>()
+        // One call for every package's last update time, not one binder call per app.
+        val updatedAt = runCatching { pm.getInstalledPackages(0).associate { it.packageName to it.lastUpdateTime } }.getOrDefault(emptyMap())
         // Leanback entries win: they are the TV-specific activity with a banner.
         for (category in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(category)
@@ -50,6 +58,7 @@ class AppRepository(private val context: Context) {
                     packageName = ai.packageName,
                     label = info.loadLabel(pm).toString().trim(),
                     component = ComponentName(ai.packageName, ai.name),
+                    updated = updatedAt[ai.packageName] ?: runCatching { pm.getPackageInfo(ai.packageName, 0).lastUpdateTime }.getOrDefault(0L),
                 )
             }
         }
