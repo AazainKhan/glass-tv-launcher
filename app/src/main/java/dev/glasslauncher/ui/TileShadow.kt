@@ -53,9 +53,18 @@ object TileShadow {
         /** A resting tile's shadow: 6 u lower, 0.10 dark, gone about 14 u below the tile. */
         Contact(250f, 150f, 30f, 2.5f, 20f, 1f, 0.10f, 6f),
 
-        /** The tile-coloured glow: 10 u lower, up to 0.30 strong (see [glowAlpha]), at rest and focused alike. */
-        Glow(250f, 150f, 30f, 5f, 20f, 1f, 0.30f, 10f),
+        /**
+         * The tile-coloured glow: 10 u lower, up to 0.22 strong (see [glowAlpha]), at rest and focused alike. Kept
+         * subtle: a saturated tint falling off over about 20 u on dark grey shows colour bands, and the less it
+         * adds, the fainter they are (0.30 banded under Magisk, Instagram and VLC). It is also baked with a little
+         * noise in its falloff ([GLOW_NOISE]), which dithers the 8-bit steps whether or not the GPU does.
+         */
+        Glow(250f, 150f, 30f, 5f, 20f, 1f, 0.22f, 10f),
     }
+
+    /** The glow's baked noise, in alpha levels (of 255) at most: under one level of the final colour, but enough to break up bands. */
+    const val GLOW_NOISE = 4f
+    private const val GLOW_SEED = 27L
 
     val focus: ImageBitmap by lazy { bake(Kind.Focus) }
     val contact: ImageBitmap by lazy { bake(Kind.Contact) }
@@ -156,6 +165,7 @@ object TileShadow {
         }
         val rgb = if (kind == Kind.Glow) 0xFFFFFF else 0
         val pixels = IntArray(w * h)
+        val noise = java.util.Random(GLOW_SEED)
         val column = FloatArray(w)
         for (y in by0 until by1) {
             column.fill(0f, bx0, bx1)
@@ -164,7 +174,12 @@ object TileShadow {
                 val row = i * w
                 for (x in bx0 until bx1) column[x] += across[row + x] * weight
             }
-            for (x in bx0 until bx1) pixels[y * w + x] = ((column[x] * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24) or rgb
+            for (x in bx0 until bx1) {
+                var a = column[x] * 255f
+                // Triangular noise, scaled down to nothing where the halo does (no specks past its reach) and at the opaque core.
+                if (kind == Kind.Glow) a += (noise.nextFloat() - noise.nextFloat()) * min(GLOW_NOISE, min(a, 255f - a))
+                pixels[y * w + x] = ((a + 0.5f).toInt().coerceIn(0, 255) shl 24) or rgb
+            }
         }
 
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

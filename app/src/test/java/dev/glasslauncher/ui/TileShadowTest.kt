@@ -104,6 +104,24 @@ class TileShadowTest {
         assertEquals("250 x 150 u core with a 20 u margin", (250f + 40f) * (150f + 40f), a.width * a.height * Kind.Glow.unitsPerPx * Kind.Glow.unitsPerPx, 1f)
     }
 
+    @Test fun theGlowsFalloffIsDitheredAndNothingElseIs() {
+        // A plain Gaussian is constant along a row below the tile's middle; the glow carries a few levels of noise
+        // there, so a saturated tint's 8-bit steps don't line up as bands. The shadows stay smooth.
+        fun noisyShare(kind: Kind): Float {
+            val a = image(kind).asAndroidBitmap()
+            val belowCore = ((a.height * kind.unitsPerPx / 2 + kind.coreH / 2) / kind.unitsPerPx).toInt()
+            var noisy = 0; var n = 0
+            for (y in belowCore + 2 until belowCore + (kind.margin / kind.unitsPerPx).toInt() - 4) for (x in (a.width * 0.4f).toInt() until (a.width * 0.6f).toInt()) {
+                if (Color.alpha(a.getPixel(x, y)) != Color.alpha(a.getPixel(x + 1, y))) noisy++
+                n++
+            }
+            return noisy.toFloat() / n
+        }
+        assertTrue("glow ${noisyShare(Kind.Glow)}", noisyShare(Kind.Glow) > 0.3f)
+        assertTrue("contact ${noisyShare(Kind.Contact)}", noisyShare(Kind.Contact) < 0.05f)
+        assertTrue("focus ${noisyShare(Kind.Focus)}", noisyShare(Kind.Focus) < 0.05f)
+    }
+
     @Test fun theCoreIsBakedAtFullStrength() {
         for (kind in Kind.entries) {
             val a = Alpha(image(kind))
@@ -214,9 +232,9 @@ class TileShadowTest {
         assertEquals("white", 0f, glowAlpha(0xFFFFFFFF), 1e-4f)
         assertEquals("black", 0f, glowAlpha(0xFF000000), 1e-4f)
         assertTrue("mid grey ${glowAlpha(0xFF808080)}", glowAlpha(0xFF808080) < 0.02f)
-        assertTrue("saturated cyan ${glowAlpha(0xFF00C8C8)}", glowAlpha(0xFF00C8C8) in 0.27f..0.30f)
-        // 0.3 * s 0.844 * (v 0.251 / 0.4): dark but coloured tiles still glow, less.
-        assertTrue("dark navy ${glowAlpha(0xFF0A1A40)}", glowAlpha(0xFF0A1A40) > 0.15f && glowAlpha(0xFF0A1A40) < 0.30f)
+        assertTrue("saturated cyan ${glowAlpha(0xFF00C8C8)}", glowAlpha(0xFF00C8C8) in 0.19f..0.22f)
+        // 0.22 * s 0.844 * (v 0.251 / 0.4): dark but coloured tiles still glow, less.
+        assertTrue("dark navy ${glowAlpha(0xFF0A1A40)}", glowAlpha(0xFF0A1A40) > 0.10f && glowAlpha(0xFF0A1A40) < 0.22f)
         // Never above the peak, whatever the colour.
         for (c in listOf(0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFA000, 0xFF123456))
             assertTrue("$c ${glowAlpha(c)}", glowAlpha(c) in 0f..Kind.Glow.peak)
