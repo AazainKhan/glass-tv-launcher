@@ -77,10 +77,12 @@ class HomeShots {
         c.copy(folders = listOf(Folder("media", "Media", apps)), order = listOf(folderKey("media")))
     }) {
         compose.focusTag(folderKey("media"))
+        // At rest first: the overlay snapshots Home on a real thread, so mid-spring tiles would land at a different phase each run.
+        compose.settle()
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
         // The blurred Home behind the folder differs by a few scattered pixels between runs.
-        capture("folder-open", tolerance = 0.01f, colourNoise = 0.1f)
+        capture("folder-open", tolerance = 0.01f)
     }
 
     @Test fun settings() = home {
@@ -118,9 +120,11 @@ class HomeShots {
         c.copy(theme = ThemeMode.Light, folders = listOf(Folder("media", "Media", apps)), order = listOf(folderKey("media")))
     }) {
         compose.focusTag(folderKey("media"))
+        // At rest first: the overlay snapshots Home on a real thread, so mid-spring tiles would land at a different phase each run.
+        compose.settle()
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
-        capture("folder-open-light", tolerance = 0.01f, colourNoise = 0.1f)
+        capture("folder-open-light", tolerance = 0.01f)
     }
 
     @Test fun lightControlCenter() = home(config = light) {

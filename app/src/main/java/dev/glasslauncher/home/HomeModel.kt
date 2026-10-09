@@ -225,7 +225,8 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
-        private val DEFAULT_DOCK = listOf(
+        /** The dock a first run seeds (internal: the screenshot harness seeds the same one up front). */
+        internal val DEFAULT_DOCK = listOf(
             "com.netflix.ninja", "com.netflix.mediaclient",
             "com.amazon.firetv.youtube", "com.google.android.youtube.tv", "com.teamsmart.videomanager.tv",
             "com.amazon.avod", "com.amazon.amazonvideo.livingroom",
