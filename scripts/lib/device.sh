@@ -28,3 +28,12 @@ require_device_access() {  # call before sending input
     exit 3
   fi
 }
+
+# For long stick jobs (bench, perf-gate, clip): re-run the calling script under a self-renewing lock,
+# so it can't outlive its lock or collide with another session. No-op when already held or on an emulator.
+hold_stick() {  # usage: hold_stick "$0" "$@"
+  [ -n "${STICK_HELD:-}" ] && return 0
+  case "$ANDROID_SERIAL" in emulator-*) return 0 ;; esac
+  local who="${TV_OWNER:-$(basename "$1")-$$}"
+  STICK_HELD=1 exec "$(dirname "$1")/stick-lock" hold "$who" -- "$@"
+}
