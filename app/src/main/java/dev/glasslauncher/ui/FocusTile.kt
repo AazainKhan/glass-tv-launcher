@@ -37,6 +37,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.platform.LocalView
 import android.view.SoundEffectConstants
 import kotlinx.coroutines.launch
@@ -142,6 +145,25 @@ fun FocusTile(
                 // Reduce motion replaces the move-mode wiggle with a plain outline.
                 if (focused && wiggle && prefs.reduceMotion) drawRect(Color.White, style = Stroke(3.dp.toPx()))
             }
+            // tvOS 27 lights only the focused tile's edge: a thin bright line along the top, a fainter one
+            // along the bottom. Static (it fades with focus, no sweep); the brush is built once per tile size.
+            .drawWithCache {
+                val stroke = Stroke(EDGE_LIGHT_WIDTH.toPx())
+                val half = stroke.width / 2
+                // Inset by half the stroke so the line sits wholly inside the tile's edge; the corner is the tile's own.
+                val corner = (shape.createOutline(size, layoutDirection, this) as? Outline.Rounded)?.roundRect?.topLeftCornerRadius
+                val brush = Brush.verticalGradient(*EDGE_LIGHT_STOPS, startY = 0f, endY = size.height)
+                onDrawWithContent {
+                    drawContent()
+                    val strength = lift.coerceAtMost(1f)
+                    if (corner != null && strength >= 0.01f) {
+                        drawRoundRect(
+                            brush, Offset(half, half), Size(size.width - stroke.width, size.height - stroke.width),
+                            corner, alpha = strength, style = stroke,
+                        )
+                    }
+                }
+            }
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused
@@ -194,6 +216,15 @@ fun FocusTile(
         content(focused)
     }
 }
+
+/** The focus edge light's line: white, 1.25 dp, bright at the top edge, faint through the sides, a little at the bottom. */
+private val EDGE_LIGHT_WIDTH = 1.25.dp
+private val EDGE_LIGHT_STOPS = arrayOf(
+    0f to Color.White.copy(alpha = 0.34f),
+    0.2f to Color.White.copy(alpha = 0.08f),
+    0.8f to Color.White.copy(alpha = 0.06f),
+    1f to Color.White.copy(alpha = 0.16f),
+)
 
 /** Matches the system's directional focus sounds to the last D-pad press. */
 fun navigationSound(): Int = when {

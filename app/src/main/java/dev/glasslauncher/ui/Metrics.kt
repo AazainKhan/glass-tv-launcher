@@ -21,9 +21,9 @@ data class Metrics(val textScale: Float = 1f) {
     val inset: Dp = 45.dp
     /** Gap between tiles in a row (tvOS ~48px). */
     val gutter: Dp = (24 * textScale).dp
-    /** Tiles are 5:3 rounded rectangles (tvOS ~250x150px, radius ~26px). */
+    /** Tiles are 5:3 rounded rectangles (tvOS ~250x150px, radius 30px). */
     val tileAspect: Float = 5f / 3f
-    val tileRadius: Dp = (13 * textScale).dp
+    val tileRadius: Dp = (15 * textScale).dp
     /** Space under each grid row for the focus label (tvOS row pitch ~260px). */
     val labelSpace: Dp = (55 * textScale).dp
     /** Dock tray: nearly full width, ~225px tall, radius ~60px, ~40px vertical padding. */

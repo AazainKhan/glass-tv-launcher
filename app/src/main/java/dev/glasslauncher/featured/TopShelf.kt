@@ -208,7 +208,7 @@ fun ExpandedShelf(
                     FocusTile(
                         label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
                         onClick = { card.open(context) },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(m.tileRadius),
                         onFocusChange = { if (it) onIndex(i) },
                         modifier = Modifier
                             .width(150.dp)
