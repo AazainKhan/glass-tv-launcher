@@ -2,6 +2,7 @@ package dev.glasslauncher.widgets
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,14 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import dev.glasslauncher.ui.TileShadow
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -54,6 +62,8 @@ fun StatusPill(
 ) {
     val palette = LocalPalette.current
     val m = LocalMetrics.current
+    // Clear glass shows the art through it, so the text follows the art (dark on bright art).
+    val onLight = LocalBackdrop.current.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -68,21 +78,26 @@ fun StatusPill(
             onLongClick = onSelect,
             shape = Shapes.pill,
             focusedScale = 1.08f,
-            shadow = false,
+            // Over light art the capsule separates from it by its edge (tvOS light glass): a soft shadow here and a
+            // thin rim below, not a darker fill. Dark art keeps the bare glass.
+            shadow = onLight,
             modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-pill")
+                // A resting tile's contact shadow is 0.10, too faint to hold a white capsule off a light page: a
+                // second pass of the same baked bitmap (no new blur, one more drawImage) doubles it.
+                .then(if (onLight) Modifier.drawBehind { drawContactShadow() } else Modifier)
                 // Control Center grows out of exactly this capsule.
                 .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
         ) { focused ->
-            // Clear glass shows the art through it, so the text follows the art (dark on bright art).
-            val onLight = LocalBackdrop.current.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 modifier = Modifier
                     // The tray's clear glass, so the two read as one material; over light art (a white logo
-                    // hero) clear glass vanishes, so it takes a smoky tint there, as tvOS's does. Glass stays
-                    // put under the focus fill.
-                    .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(palette.light).copy(tint = Color.Black.copy(alpha = 0.16f)) else GlassStyle.shelf(palette.light))
+                    // hero) clear glass vanishes, so it is milky white there (light glass: no dark bevel, a faint
+                    // eased shade at the bottom), and the edge does the separating (see shadow above, rim below).
+                    // Glass stays put under the focus fill.
+                    .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f)) else GlassStyle.shelf(palette.light))
+                    .then(if (onLight) Modifier.border(1.dp, Color.Black.copy(alpha = 0.10f), Shapes.pill) else Modifier)
                     .then(
                         if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                     )
@@ -93,8 +108,9 @@ fun StatusPill(
                 Text(rememberClock(cfg.clock24h), style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"), color = text, modifier = Modifier.testTag("clock"))
                 Box(
                     Modifier
+                        .testTag("status-gear")
                         .size(22.dp)
-                        .background(if (focused) palette.onFocusFill.copy(alpha = 0.12f) else rest.copy(alpha = 0.18f), CircleShape),
+                        .background(if (focused) palette.onFocusFill.copy(alpha = 0.12f) else if (onLight) Color.White.copy(alpha = 0.5f) else rest.copy(alpha = 0.18f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) { GearIcon(text, size = 13.dp) }
             }
@@ -103,6 +119,20 @@ fun StatusPill(
 }
 
 
+
+private const val EXTRA_CONTACT_ALPHA = 0.14f
+
+private fun DrawScope.drawContactShadow() {
+    val r = TileShadow.destRect(TileShadow.Kind.Contact, size.width, size.height, 1f, 0f, size.width / 250f)
+    if (r.isEmpty) return
+    drawImage(
+        TileShadow.contact,
+        dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+        dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+        alpha = EXTRA_CONTACT_ALPHA,
+        filterQuality = FilterQuality.Medium,
+    )
+}
 
 @Composable
 fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
