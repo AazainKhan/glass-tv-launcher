@@ -93,7 +93,19 @@ private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { C
 
 /** Control Center's open/close: from the status pill's capsule to the panel. Pure, so it's unit-tested. */
 object CcMorph {
-    const val MS = 240
+    /** Opening, like an app opening: a fast start and a long, soft settle. */
+    const val OPEN_MS = 420
+    /** Closing: the same path backwards, a little quicker, landing on the pill. */
+    const val CLOSE_MS = 280
+
+    /** The app-open curve (AppTransition's zoom): fast start, long deceleration. */
+    val openEasing = androidx.compose.animation.core.Easing { x -> ((1f - kotlin.math.exp(-3.5f * x)) / (1f - kotlin.math.exp(-3.5f))) }
+    /** The exact reverse of [openEasing], for animating progress from 1 back to 0. */
+    val closeEasing = androidx.compose.animation.core.Easing { x -> 1f - openEasing.transform(1f - x) }
+
+    /** Rows arrive one after another (~20 ms apart at the opening's pace). */
+    private const val ROW_STEP = 0.05f
+    private const val ROWS = 6
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
@@ -104,8 +116,14 @@ object CcMorph {
     /** From a capsule (half the pill's height) to the tiles' corner radius. */
     fun radius(t: Float, pill: androidx.compose.ui.geometry.Rect, tileRadius: Float) = lerp(pill.height / 2f, tileRadius, t)
 
-    /** The tiles' opacity: nothing for the first 40%, then up to full. */
-    fun tiles(t: Float) = ((t - 0.4f) / 0.6f).coerceIn(0f, 1f)
+    /** A row's arrival (0..1): from a quarter of the way in, top row first, every row landed by the end. */
+    fun tiles(t: Float, row: Int = 0): Float {
+        val start = 0.25f + row.coerceIn(0, ROWS - 1) * ROW_STEP
+        return ((t - start) / (0.75f - (ROWS - 1) * ROW_STEP)).coerceIn(0f, 1f)
+    }
+
+    /** Tiles grow a touch as they arrive. */
+    fun scale(arrival: Float) = 0.96f + 0.04f * arrival
 }
 
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
@@ -186,7 +204,18 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // frame; the tiles' layout never changes.
     val enter = remember { androidx.compose.animation.core.Animatable(0f) }
     val exiting = LocalOverlayExiting.current
-    LaunchedEffect(exiting) { enter.animateTo(if (exiting) 0f else 1f, androidx.compose.animation.core.tween(CcMorph.MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    LaunchedEffect(exiting) {
+        if (exiting) enter.animateTo(0f, androidx.compose.animation.core.tween(CcMorph.CLOSE_MS, easing = CcMorph.closeEasing))
+        else enter.animateTo(1f, androidx.compose.animation.core.tween(CcMorph.OPEN_MS, easing = CcMorph.openEasing))
+    }
+    // Each row of tiles arrives on its own beat: a fade, a small rise and a slight grow, top to bottom.
+    fun Modifier.ccRow(row: Int) = graphicsLayer {
+        val a = CcMorph.tiles(enter.value, row)
+        alpha = a
+        translationY = (1f - a) * 14.dp.toPx()
+        scaleX = CcMorph.scale(a); scaleY = scaleX
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+    }
     // The tiles' glass (a capture of the screen behind, or Home's own) fades in once they have landed:
     // sampled through the fade and rise it cost a fifth of the frames, and the moving tiles hide it anyway.
     // Until then, and while closing, they draw the overlay's smoky fill.
@@ -214,7 +243,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
             val target = panel ?: from
             val e = enter.value
-            val a = 1f - CcMorph.tiles(e)
+            val a = 1f - CcMorph.tiles(e, 0)
             if (a <= 0f) return@Canvas
             val r = CcMorph.rect(e, from, target)
             val radius = CcMorph.radius(e, from, 26.dp.toPx())
@@ -225,11 +254,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .onGloballyPositioned { panel = it.boundsInWindow() }
-                .graphicsLayer {
-                    val t = CcMorph.tiles(enter.value)
-                    alpha = t
-                    translationY = (1f - t) * 14.dp.toPx()
-                }
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
                 .testTag("control-center"),
@@ -238,7 +262,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // left, lined up with the tiles; the page icons on the right (focusing one shows its page).
             Row(
                 verticalAlignment = Alignment.Top,
-                modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
+                modifier = Modifier.ccRow(0).width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
@@ -266,9 +290,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             androidx.compose.animation.Crossfade(page, animationSpec = androidx.compose.animation.core.tween(140), label = "cc-page") { shownPage ->
             Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
             if (shownPage == 1) {
-                AlexaPage(sz, closeAll)
+                Box(Modifier.ccRow(1)) { AlexaPage(sz, closeAll) }
             } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccRow(1)) {
                 // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
                 CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), sz.bigWidth, sz.big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
                     BigIcon(R.drawable.ic_settings, "Settings", fg)
@@ -283,7 +307,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     }
                 }
             }
-            if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
+            if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, modifier = Modifier.ccRow(2), onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
                 PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
             }
             // Round buttons, four to a row (tvOS), with the focused one's name in a caption underneath.
@@ -325,8 +349,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // Centred under the tiles as one block, rows sharing a left edge.
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 Column(Modifier.width(sz.round * 4 + sz.gap * 3), verticalArrangement = Arrangement.spacedBy(sz.gap)) {
-                    rounds.chunked(4).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) { row.forEach { it() } }
+                    rounds.chunked(4).forEachIndexed { i, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccRow(3 + i)) { row.forEach { it() } }
                     }
                 }
             }
@@ -337,13 +361,13 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
                 color = headerColor,
                 maxLines = 1,
-                modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
+                modifier = Modifier.ccRow(5).padding(start = 4.dp).testTag("cc-caption"),
             )
             }
             }
             }
             // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
-            np?.let { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) }
+            np?.let { Box(Modifier.ccRow(5)) { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) } }
             }
         }
     }

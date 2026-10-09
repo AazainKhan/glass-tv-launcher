@@ -140,7 +140,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                 open = false
                 lifecycleRegistry.currentState = Lifecycle.State.CREATED
             }
-        }, CcMorph.MS + 20L)
+        }, CcMorph.CLOSE_MS + 20L)
     }
 
     private fun apply(baked: dev.glasslauncher.glass.Backdrop) {

@@ -42,7 +42,7 @@ class MotionStrips {
     @Test fun dockToGrid() = strip("dock-to-grid", button = Button.Down)
     @Test fun gridToDock() = strip("grid-to-dock", Button.Down, button = Button.Up)
     @Test fun openAppMenu() = strip("open-app-menu", button = Button.Menu)
-    @Test fun controlCenterOpen() = strip("control-center-open", Button.Up, Button.Up, button = Button.Select)
+    @Test fun controlCenterOpen() = strip("control-center-open", Button.Up, Button.Up, Button.Up, button = Button.Select)
     // Exits can't be stripped here: the harness's Back key doesn't reach OnBackPressedDispatcher.
     @Test fun settingsPagePush() = strip("settings-page-push", Button.Down, Button.Down, Button.Right, Button.Right, Button.Select, button = Button.Select)
 }

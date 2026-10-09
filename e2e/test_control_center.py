@@ -378,3 +378,4 @@ def test_one_gap_everywhere_and_smaller_round_buttons(tv, home, cc):
     round_size = rounds[0][3] - rounds[0][1]
     pill = wifi[3] - wifi[1]
     assert round_size < pill * 0.9, f"round buttons ({round_size}px) should be smaller than the pills ({pill}px)"
+

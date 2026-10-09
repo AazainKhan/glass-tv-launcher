@@ -27,9 +27,23 @@ class CcMorphTest {
         assertEquals(26f, CcMorph.radius(1f, pill, 26f), 0.01f)
     }
 
-    @Test fun tilesOnlyAppearInTheLastSixtyPercent() {
-        assertEquals(0f, CcMorph.tiles(0.4f), 0.001f)
-        assertEquals(1f, CcMorph.tiles(1f), 0.001f)
-        assertTrue(CcMorph.tiles(0.7f) in 0.01f..0.99f)
+    // Like an app opening: ~420 ms, a fast start and a long soft settle; closing is the same path, faster.
+    @Test fun opensLikeAnAppAndClosesFaster() {
+        assertTrue(CcMorph.OPEN_MS in 380..450)
+        assertTrue(CcMorph.CLOSE_MS in 250..300)
+        assertTrue("fast start", CcMorph.openEasing.transform(0.25f) > 0.5f)
+        for (x in listOf(0.1f, 0.4f, 0.8f)) assertEquals(1f - CcMorph.openEasing.transform(1f - x), CcMorph.closeEasing.transform(x), 0.0001f)
+    }
+
+    @Test fun tilesComeInFromAQuarterRowByRow() {
+        assertEquals(0f, CcMorph.tiles(0.25f, row = 0), 0.001f)
+        assertTrue(CcMorph.tiles(0.35f, row = 0) > 0f)
+        assertTrue("later rows follow", CcMorph.tiles(0.5f, row = 3) < CcMorph.tiles(0.5f, row = 0))
+        for (row in 0..5) assertEquals(1f, CcMorph.tiles(1f, row), 0.001f)
+    }
+
+    @Test fun tilesGrowSlightlyAsTheyArrive() {
+        assertEquals(0.96f, CcMorph.scale(0f), 0.0001f)
+        assertEquals(1f, CcMorph.scale(1f), 0.0001f)
     }
 }

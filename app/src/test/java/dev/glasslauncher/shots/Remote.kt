@@ -62,14 +62,8 @@ fun describe(node: SemanticsNode): String {
  * Written to build/strips/<name>.png. Opening one image shows the whole transition.
  */
 @OptIn(ExperimentalTestApi::class)
-fun ComposeTestRule.strip(
-    name: String,
-    button: Button,
-    frames: Int = 12,
-    stepMs: Long = 32,
-    columns: Int = 4,
-    scale: Float = 0.25f,
-): File {
+/** Presses [button] and captures [frames] frames [stepMs] apart on a paused clock (scaled by [scale]). */
+fun ComposeTestRule.frames(button: Button, frames: Int, stepMs: Long, scale: Float = 0.25f): List<Bitmap> {
     mainClock.autoAdvance = false
     val shots = ArrayList<Bitmap>(frames)
     try {
@@ -82,6 +76,18 @@ fun ComposeTestRule.strip(
     } finally {
         mainClock.autoAdvance = true
     }
+    return shots
+}
+
+fun ComposeTestRule.strip(
+    name: String,
+    button: Button,
+    frames: Int = 12,
+    stepMs: Long = 32,
+    columns: Int = 4,
+    scale: Float = 0.25f,
+): File {
+    val shots = frames(button, frames, stepMs, scale)
     val w = shots[0].width; val h = shots[0].height; val gap = 4
     val rows = (frames + columns - 1) / columns
     val sheet = Bitmap.createBitmap(columns * (w + gap) - gap, rows * (h + gap) - gap, Bitmap.Config.ARGB_8888)
