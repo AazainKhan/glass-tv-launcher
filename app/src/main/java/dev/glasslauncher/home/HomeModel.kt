@@ -184,6 +184,16 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         c.copy(folders = c.folders.map { if (it.id == folderId) it.copy(apps = it.apps - pkg) else it }, order = order)
     }
 
+    /**
+     * Rearranging inside an open folder: [pkg] moves one place ([dx]) or one row ([dy]) among the folder's apps
+     * as shown. Resolved inside the config update, against the newest order, so a held or double D-pad press never
+     * works from a stale one. An edge, or an app that isn't shown, changes nothing.
+     */
+    fun moveInFolder(folderId: String, pkg: String, dx: Int, dy: Int, columns: Int) {
+        val installed = layout.value.installed.map { it.packageName }.toSet()
+        edit { c -> movedInFolderBy(c, installed, folderId, pkg, dx, dy, columns) }
+    }
+
     fun renameFolder(folderId: String, name: String) = edit { c ->
         c.copy(folders = c.folders.map { if (it.id == folderId) it.copy(name = name.ifBlank { it.name }) else it })
     }
@@ -298,6 +308,39 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             val shown = l.dock.map { it.packageName }.ifEmpty { cfg.dock }
             val dock = shown.map { if (it == pkg && next != null) next else it }.filter { it != pkg }
             return cfg.copy(dock = dock, order = listOf(appKey(pkg)) + (cfg.order - appKey(pkg)))
+        }
+
+        /**
+         * [pkg] takes the place of [target] (the app it moves onto, as shown) in folder [folderId]; the apps between
+         * shift by one. The same config back when either isn't in the folder or they are the same app.
+         */
+        fun movedInFolder(c: LauncherConfig, folderId: String, pkg: String, target: String): LauncherConfig {
+            val folder = c.folders.firstOrNull { it.id == folderId } ?: return c
+            val from = folder.apps.indexOf(pkg)
+            val to = folder.apps.indexOf(target)
+            if (from < 0 || to < 0 || from == to) return c
+            val apps = folder.apps.toMutableList().apply { add(to, removeAt(from)) }
+            return c.copy(folders = c.folders.map { if (it.id == folderId) it.copy(apps = apps) else it })
+        }
+
+        /** [movedInFolder] for one D-pad step: the folder's shown apps (installed, visible, not in the tray) in [columns] columns. */
+        fun movedInFolderBy(c: LauncherConfig, installed: Set<String>, folderId: String, pkg: String, dx: Int, dy: Int, columns: Int): LauncherConfig {
+            val folder = c.folders.firstOrNull { it.id == folderId } ?: return c
+            // The tray as buildLayout shows it: its visible, installed apps, first DOCK_SIZE of them.
+            val tray = c.dock.filter { it in installed && it !in c.hidden }.distinct().take(DOCK_SIZE).toSet()
+            val shown = folder.apps.filter { it in installed && it !in c.hidden && it !in tray }.distinct()
+            val i = shown.indexOf(pkg)
+            if (i < 0) return c
+            val last = shown.lastIndex
+            val to = when {
+                dx != 0 -> i + dx
+                dy < 0 -> i - columns
+                // A row below that is short still takes the app, at the end of it.
+                dy > 0 -> if (i + columns <= last) i + columns else if (i / columns < last / columns) last else i
+                else -> i
+            }
+            if (to !in 0..last || to == i) return c
+            return movedInFolder(c, folderId, pkg, shown[to])
         }
 
         private fun List<Folder>.withoutApp(pkg: String) = map { it.copy(apps = it.apps - pkg) }

@@ -15,6 +15,9 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.glasslauncher.data.Folder
+import dev.glasslauncher.data.LauncherConfig
+import dev.glasslauncher.data.folderKey
 import dev.glasslauncher.MainActivity
 import dev.glasslauncher.home.CcMaterial
 import dev.glasslauncher.home.CcSheet
@@ -108,6 +111,30 @@ class VisualChecks {
     @Test fun moveModeRightIsContinuous() = continuous("move-right", Button.Right, Button.Menu, Button.Down, Button.Select)
     @Test fun moveModeDownIsContinuous() = continuous("move-down", Button.Down, Button.Menu, Button.Down, Button.Select)
 
+    // Rearrange Folder (P35): Menu on the first app in an open folder, Rearrange Folder, then move it right.
+    @Test fun folderRearrangeIsContinuous() = onHome(config = { c ->
+        c.copy(folders = listOf(Folder("media", "Media", FOLDER_APPS)), order = listOf(folderKey("media")))
+    }) {
+        compose.focusTag(folderKey("media"))
+        compose.settle()
+        compose.press(Button.Select)
+        compose.waitForTag("folder-title")
+        compose.press(Button.Menu, Button.Select)
+        val moved = "app:org.jellyfin.androidtv"
+        val other = "app:org.videolan.vlc"
+        val before = tagged()
+        trackTransition("folder-rearrange", Button.Right)
+        // And it really moved: the first app now sits where the second was, and the second where the first was.
+        val after = tagged()
+        check(after.getValue(moved).l > before.getValue(moved).l && after.getValue(other).l < before.getValue(other).l) {
+            "Rearrange Folder + Right didn't swap the first two apps: $moved ${before[moved]} -> ${after[moved]}, $other ${before[other]} -> ${after[other]}"
+        }
+    }
+
+    private val FOLDER_APPS = listOf(
+        "org.jellyfin.androidtv", "org.videolan.vlc", "com.hbo.hbonow", "tv.twitch.android.viewer", "com.esaba.downloader", "com.estrongs.android.pop",
+    )
+
     /**
      * Records [button]'s transition with every watched element's bounds per frame, and fails when an
      * element jumps: one frame's move is large (> [JUMP_MIN_PX]) and far bigger than its typical
@@ -117,6 +144,10 @@ class VisualChecks {
      */
     private fun continuous(name: String, button: Button, vararg setup: Button) = onHome {
         compose.press(*setup)
+        trackTransition(name, button)
+    }
+
+    private fun trackTransition(name: String, button: Button) {
         compose.settle()
         val track = ArrayList<Map<String, Box>>()
         compose.mainClock.autoAdvance = false
@@ -294,8 +325,8 @@ class VisualChecks {
 
     // ── harness ──────────────────────────────────────────────────────────────────────────────────
 
-    private fun onHome(block: () -> Unit) {
-        TvHarness.setUp()
+    private fun onHome(config: (LauncherConfig) -> LauncherConfig = { it }, block: () -> Unit) {
+        TvHarness.setUp(config = config)
         ActivityScenario.launch(MainActivity::class.java).use { compose.waitForHome(); block() }
     }
 

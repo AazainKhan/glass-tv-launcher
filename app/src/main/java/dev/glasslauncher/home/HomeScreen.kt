@@ -219,6 +219,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val density = LocalDensity.current
     val overlays = remember { mutableStateListOf<Overlay>() }
     var moving by remember { mutableStateOf<String?>(null) }
+    // The app being rearranged inside the open folder (Rearrange Folder in its app menu).
+    var folderMoving by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(overlays.none { it is Overlay.FolderOpen }) { if (overlays.none { it is Overlay.FolderOpen }) folderMoving = null }
     var lastFocused by remember { mutableStateOf<String?>(null) }
     var focusedRow by remember { mutableIntStateOf(1) }
     val expand = remember { Animatable(0f) }
@@ -548,6 +551,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(Unit) {
         homePresses.collect { request ->
             moving = null
+            folderMoving = null
             // A Home press (or a remote button) is activity too: Aerials wait for real idle time.
             idle.touch()
             when (request) {
@@ -590,6 +594,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     BackHandler {
         when {
             moving != null -> moving = null
+            folderMoving != null -> folderMoving = null
             overlays.isNotEmpty() -> closeTop()
             else -> homeBack()
         }
@@ -807,6 +812,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                                 close = ::closeTop,
                                 closeAll = ::closeAll,
                                 startMove = { key -> closeAll(); moving = key },
+                                folderMoving = folderMoving,
+                                startFolderMove = { key -> closeTop(); folderMoving = key },
+                                stopFolderMove = { folderMoving = null },
                             )
                         }
                     }
@@ -1321,13 +1329,15 @@ private suspend fun appHeroBackdrop(
 
 /** tvOS shows guidance while rearranging; without it the wiggle mode feels like a dead end. */
 @Composable
-private fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Modifier) {
+internal fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Modifier, inFolder: Boolean = false) {
     val palette = LocalPalette.current
     val inDock = layout.dock.any { appKey(it.packageName) == key }
     val hint = androidx.compose.ui.text.buildAnnotatedString {
         // The D-pad directions are drawn as icons (one symbol set), with words for accessibility.
         fun arrows(vararg d: String) = d.forEachIndexed { i, k -> if (i > 0) append(" "); appendInlineContent(k, k) }
-        if (inDock) {
+        if (inFolder) {
+            arrows("Left", "Right", "Up", "Down"); append("  Rearrange   ·   Select  Done")
+        } else if (inDock) {
             arrows("Left", "Right"); append("  Rearrange   ·   "); arrows("Down"); append("  Move to Apps   ·   Select  Done")
         } else {
             arrows("Left", "Right", "Up", "Down"); append("  Move   ·   "); arrows("Up"); append(" on first row  Add to Top Row   ·   Select  Done")

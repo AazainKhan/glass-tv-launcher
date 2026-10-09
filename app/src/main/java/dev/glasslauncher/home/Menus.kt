@@ -93,9 +93,13 @@ fun OverlayContent(
     close: () -> Unit,
     closeAll: () -> Unit,
     startMove: (String) -> Unit,
+    /** The app being rearranged inside the open folder (null when none), and how to start and finish that. */
+    folderMoving: String? = null,
+    startFolderMove: (String) -> Unit = {},
+    stopFolderMove: () -> Unit = {},
 ) {
     when (overlay) {
-        is Overlay.AppMenu -> AnchoredMenu(active, overlay.anchor) { first -> AppMenuBody(overlay, model, first, open, closeAll, startMove) }
+        is Overlay.AppMenu -> AnchoredMenu(active, overlay.anchor) { first -> AppMenuBody(overlay, model, first, open, closeAll, startMove, startFolderMove) }
         is Overlay.MoveTo -> AnchoredMenu(active, overlay.anchor) { first -> MoveToBody(overlay, model, layout, cfg, first, open, closeAll) }
         is Overlay.FolderMenu -> SidePanel(active) {
             MenuList(active) { first ->
@@ -131,7 +135,7 @@ fun OverlayContent(
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         is Overlay.Confirm -> FullOverlay(active) { ConfirmCard(overlay, active, close) }
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
-        is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close)
+        is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
@@ -190,6 +194,7 @@ private fun ColumnScope.AppMenuBody(
     open: (Overlay) -> Unit,
     closeAll: () -> Unit,
     startMove: (String) -> Unit,
+    startFolderMove: (String) -> Unit,
 ) {
     val app = overlay.app
     // tvOS context menu: a short list beside the tile; Move to… opens a second list in the same place.
@@ -204,6 +209,9 @@ private fun ColumnScope.AppMenuBody(
     )
     if (overlay.folderId == null) {
         MenuRow("Edit Home Screen", { startMove(appKey(app.packageName)) }, f(), leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_tv) })
+    } else {
+        // Inside an open folder: move this app among the folder's apps (the same move mode, scoped to the folder).
+        MenuRow("Rearrange Folder", { startFolderMove(appKey(app.packageName)) }, f(), leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_apps) })
     }
     MenuRow("Move to…", { open(Overlay.MoveTo(app, overlay.inDock, overlay.folderId, overlay.anchor)) }, f(), chevron = true,
         leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_drive_file_move) })
@@ -376,21 +384,35 @@ private fun FolderView(
     active: Boolean,
     open: (Overlay) -> Unit,
     close: () -> Unit,
+    /** The app being rearranged (an app key), if any: D-pad moves it among the folder's apps, Select or Back ends it. */
+    rearranging: String? = null,
+    stopRearranging: () -> Unit = {},
 ) {
     val folder = layout.grid.filterIsInstance<GridItem.FolderItem>().firstOrNull { it.folder.id == folderId }
     LaunchedEffect(folder == null) { if (folder == null) close() }
     folder ?: return
     val palette = LocalPalette.current
-    val first = remember { FocusRequester() }
     val lastFocused = remember { mutableStateOf<String?>(null) }
     val requesters = remember { HashMap<String, FocusRequester>() }
+    fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     LaunchedEffect(active, folder.apps.size) {
         if (active) {
             withFrameNanos { }
-            val target = lastFocused.value?.let { requesters[it] } ?: first
-            runCatching { target.requestFocus() }
+            val target = lastFocused.value?.let { requesters[it] } ?: folder.apps.firstOrNull()?.let { requester(appKey(it.packageName)) }
+            runCatching { target?.requestFocus() }
         }
     }
+    // Rearranging: focus follows the moved app to its new place, and its tile and the others glide there.
+    LaunchedEffect(folder.apps, rearranging) {
+        if (rearranging != null && active) { withFrameNanos { }; runCatching { requester(rearranging).requestFocus() } }
+    }
+    // The app being moved went away (hidden or uninstalled): the move is over.
+    LaunchedEffect(folder.apps, rearranging) {
+        if (rearranging != null && folder.apps.none { appKey(it.packageName) == rearranging }) stopRearranging()
+    }
+    val swallowSelect = remember { booleanArrayOf(false) }
+    val glide = remember { GlideTracker() }
+    remember(folder.apps) { if (rearranging != null) glide.generation++ }
     // The home screen behind is shown blurred (a snapshot, Home not drawn), with a frosted panel and a
     // capsule name above it.
     val backdropEnter = rememberOverlayEnter()
@@ -410,7 +432,27 @@ private fun FolderView(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxSize()
-                
+                .onPreviewKeyEvent { ev ->
+                    val e = ev.nativeKeyEvent
+                    val select = e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER || e.keyCode == AndroidKeyEvent.KEYCODE_ENTER
+                    // The Select that ended the move: its repeats and its key-up must not reach the tile under it.
+                    if (select && swallowSelect[0]) { if (e.action == AndroidKeyEvent.ACTION_UP) swallowSelect[0] = false; return@onPreviewKeyEvent true }
+                    val key = rearranging ?: return@onPreviewKeyEvent false
+                    // Back ends it through the home screen's BackHandler.
+                    if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK) return@onPreviewKeyEvent false
+                    if (e.action == AndroidKeyEvent.ACTION_DOWN) {
+                        val pkg = key.removePrefix("app:")
+                        val columns = FolderGeometry.COLUMNS
+                        when (e.keyCode) {
+                            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> model.moveInFolder(folderId, pkg, -1, 0, columns)
+                            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.moveInFolder(folderId, pkg, 1, 0, columns)
+                            AndroidKeyEvent.KEYCODE_DPAD_UP -> model.moveInFolder(folderId, pkg, 0, -1, columns)
+                            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> model.moveInFolder(folderId, pkg, 0, 1, columns)
+                            else -> if (select) { swallowSelect[0] = true; stopRearranging() }
+                        }
+                    }
+                    true
+                }
                 .onGloballyPositioned { panelBounds = it.boundsInWindow() }
                 .graphicsLayer {
                     val from = anchor; val to = panelBounds
@@ -464,6 +506,7 @@ private fun FolderView(
                     .testTag("folder-panel"),
             ) {
                 val folderAnchor = LocalMenuAnchor.current
+                androidx.compose.runtime.CompositionLocalProvider(LocalGlide provides glide) {
                 // The scroller fills the panel (its clip must not cut a focused tile's shadow or name short).
                 Column(
                     verticalArrangement = Arrangement.spacedBy(FolderGeometry.rowGap),
@@ -476,13 +519,12 @@ private fun FolderView(
                         Row(horizontalArrangement = Arrangement.spacedBy(FolderGeometry.colGap)) {
                             row.forEachIndexed { i, app ->
                                 val key = appKey(app.packageName)
-                                val req = remember(key, rowIndex, i) { if (rowIndex == 0 && i == 0) first else requesters.getOrPut(key) { FocusRequester() } }
-                                Box(Modifier.width(FolderGeometry.tileWidth)) {
+                                Box(Modifier.width(FolderGeometry.tileWidth).glide(key)) {
                                     AppCell(
                                         app = app,
                                         model = model,
-                                        moving = false,
-                                        focusRequester = req,
+                                        moving = rearranging == key,
+                                        focusRequester = requester(key),
                                         onFocused = { lastFocused.value = key },
                                         // The name shows under the focused tile; no row space is reserved for it (the pitch is tvOS's).
                                         showLabel = false,
@@ -494,8 +536,10 @@ private fun FolderView(
                         }
                     }
                 }
+                }
             }
         }
+        if (rearranging != null) MoveBanner(rearranging, layout, Modifier.align(Alignment.BottomCenter), inFolder = true)
     }
 }
 
