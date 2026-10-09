@@ -77,7 +77,8 @@ data class UiPrefs(
 val LocalUiPrefs = staticCompositionLocalOf { UiPrefs() }
 
 object Shapes {
-    val tile = RoundedCornerShape(12.dp)
+    /** The default for a [FocusTile]: the same corner as a Home tile at the standard text size. */
+    val tile = RoundedCornerShape(Metrics().tileRadius)
     val panel = RoundedCornerShape(30.dp)
     val pill = RoundedCornerShape(50)
     val row = RoundedCornerShape(16.dp)

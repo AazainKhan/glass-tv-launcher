@@ -1217,6 +1217,7 @@ fun TileWithLabel(
             wiggle = moving,
             shadow = !glassBackground,
             glowColor = glowColor,
+            edgeLight = true,
             shape = RoundedCornerShape(m.tileRadius),
             onFocusChange = { focused = it; if (it) onFocused() },
             modifier = Modifier
