@@ -47,34 +47,20 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
      * banner, the launcher icon large and centred on its own edge colour. Never a screenshot.
      */
     fun heroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
+        // The logo art at a sharp size and its own aspect (vector banners crisp), then laid out tvOS's way.
         val banner = hiResBanner(app) ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
-        if (banner != null) {
-            val iw = banner.intrinsicWidth.takeIf { it > 0 } ?: w
-            val ih = banner.intrinsicHeight.takeIf { it > 0 } ?: h
-            val scale = maxOf(w / iw.toFloat(), h / ih.toFloat())
-            val dw = (iw * scale).toInt(); val dh = (ih * scale).toInt()
-            banner.setBounds((w - dw) / 2, (h - dh) / 2, (w - dw) / 2 + dw, (h - dh) / 2 + dh)
-            (banner as? android.graphics.drawable.BitmapDrawable)?.paint?.isFilterBitmap = true
-            banner.draw(canvas)
-            // Banners often have transparent rounded corners: fill behind with the banner's own edge colour
-            // (sampled mid-edge, where it's opaque), so the hero reads as one full-screen piece.
-            val edge = out.getPixel((w * 0.02f).toInt(), h / 2)
-            if (Color.alpha(edge) > 200) canvas.drawColor(edge or 0xFF000000.toInt(), android.graphics.PorterDuff.Mode.DST_OVER)
-            else canvas.drawColor(Color.rgb(20, 22, 28), android.graphics.PorterDuff.Mode.DST_OVER)
-            return out
-        }
-        val icon = hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: run { out.recycle(); return null }
-        // The icon's own edge colour fills the screen, so the logo reads as one piece of art.
-        val probe = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).also { icon.setBounds(0, 0, 64, 64); icon.draw(Canvas(it)) }
-        canvas.drawColor(edgeColor(probe) ?: Color.rgb(20, 22, 28))
-        probe.recycle()
-        val size = (h * 0.56f).toInt()
-        icon.setBounds((w - size) / 2, (h - size) / 2, (w + size) / 2, (h + size) / 2)
-        icon.draw(canvas)
-        return out
+        val art = (banner ?: hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull())?.let { d ->
+            val iw = d.intrinsicWidth.takeIf { it > 0 } ?: 320
+            val ih = d.intrinsicHeight.takeIf { it > 0 } ?: 180
+            val scale = 960f / maxOf(iw, ih)
+            Bitmap.createBitmap((iw * scale).toInt().coerceAtLeast(1), (ih * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { bmp ->
+                d.setBounds(0, 0, bmp.width, bmp.height)
+                (d as? android.graphics.drawable.BitmapDrawable)?.paint?.isFilterBitmap = true
+                d.draw(Canvas(bmp))
+            }
+        } ?: return null
+        return LogoHero.compose(art, w, h).also { art.recycle() }
     }
 
     /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */

@@ -109,7 +109,10 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
         val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: return null
         val bitmap = image.toBitmap()
-        return fromHeroArt(bitmap, light).also { bitmap.recycle() }
+        // Amazon's icon is the logo on its colour; laid out tvOS's way (about half the width, above the tray).
+        val hero = dev.glasslauncher.apps.LogoHero.compose(bitmap, HERO_W, HERO_H)
+        bitmap.recycle()
+        return fromHeroArt(hero, light).also { hero.recycle() }
     }
 
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */

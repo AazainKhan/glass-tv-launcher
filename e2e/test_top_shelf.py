@@ -181,7 +181,8 @@ def test_app_heroes_are_the_apps_logo_sharp(tv, home, pkg):
     tv.press("right" if pkg == APPSTORE else "left")
     tv.wait_for(lambda t: t.find(rid=f"app-art:{pkg}"), 8, f"{pkg}'s hero")
     edges = sorted(tv.screen_image().crop((0, 120, 1920, 700)).filter(ImageFilter.FIND_EDGES).getdata())
-    crisp = edges[int(len(edges) * 0.999)]
+    # The logo is about half the screen wide now: look at the strongest edges (its outline), not the average.
+    crisp = edges[int(len(edges) * 0.9999)]
     assert crisp > 220, f"{pkg}'s hero is soft (edge strength {crisp}); it should be crisp logo art"
 
 
@@ -212,7 +213,7 @@ def test_tizentube_uses_youtubes_art(tv, home):
     from PIL import ImageFilter
     _show_hero(tv, home, TIZENTUBE)
     edges = sorted(tv.screen_image().crop((0, 120, 1920, 700)).filter(ImageFilter.FIND_EDGES).getdata())
-    assert edges[int(len(edges) * 0.999)] > 220, "TizenTube's hero is soft"
+    assert edges[int(len(edges) * 0.9999)] > 220, "TizenTube's hero is soft"
 
 
 def test_pill_stands_out_on_light_art(tv, home):
@@ -269,3 +270,16 @@ def test_full_screen_row_starts_at_and_stays_on_the_slide(tv, home, focused_app)
     details = tree.find(rid="shelf-logo")
     title = details.desc if details else next((n.text for n in tree.nodes() if n.center[0] < 900 and n.center[1] < 600 and len(n.text) > 2), "")
     assert still.label.startswith(title), f"the details show {title!r} but focus is on {still.label!r}"
+
+
+@pytest.mark.parametrize("pkg", [NETFLIX, STREMIO])
+def test_app_hero_logo_sits_at_tvos_size(tv, home, pkg):
+    """tvOS's logo-only shelf: the logo about half the screen wide, centred above the tray on its own
+    colour, not stretched edge to edge."""
+    _show_hero(tv, home, pkg)
+    img = tv.screen_image(colour=True)
+    bg = img.getpixel((40, 300))
+    differs = lambda p: sum(abs(a - b) for a, b in zip(p, bg)) > 60
+    cols = [x for x in range(0, 1920, 8) if any(differs(img.getpixel((x, y))) for y in range(180, 560, 12))]
+    width = (cols[-1] - cols[0]) if cols else 0
+    assert 0 < width <= 1920 * 0.62, f"{pkg}'s logo spans {width}px of 1920; tvOS draws it about half as wide"
