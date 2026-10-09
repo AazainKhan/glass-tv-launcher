@@ -92,7 +92,7 @@ class HomeShots {
     @Test fun lightDock() = home(config = { it.copy(theme = ThemeMode.Light) }) { capture("home-dock-light") }
 }
 
-private fun androidx.compose.ui.test.junit4.ComposeTestRule.waitForTag(tag: String) {
+internal fun androidx.compose.ui.test.junit4.ComposeTestRule.waitForTag(tag: String) {
     @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
     waitUntilAtLeastOneExists(hasTestTag(tag), timeoutMillis = 5_000)
 }

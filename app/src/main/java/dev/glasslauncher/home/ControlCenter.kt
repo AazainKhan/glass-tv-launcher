@@ -73,20 +73,24 @@ private val Blue = Color(0xFF0A84FF)
  * being cut off: at Larger the Wi-Fi network name was truncated in a fixed 128 dp pill.
  */
 private class CcSizes(k: Float) {
-    // One gap for everything: tiles, pills, rows, the round buttons and the music card.
-    val gap = 10.dp
-    val pill = (47 * k).dp
-    /** Round buttons: a little smaller than a pill's height, set on the same gap. */
-    val round = (40 * k).dp
-    val pillWidth = (128 * k).dp
-    val big = pill * 2 + gap
-    // The big tile matches a pill's width so the second row of pills lines up under it.
-    val bigWidth = pillWidth
-    val column = pillWidth * 2 + gap
-    val disc = (28 * k).dp
-    val discGlyph = (17 * k).dp
-    val roundGlyph = (23 * k).dp
-    val bigGlyph = (46 * k).dp
+    /**
+     * tvOS 27's Control Center is one grid of square cells: u is a cell, gap the one space between cells.
+     * Circles are 1×1, pills 2×1 (as tall as a circle), the big tile 2×2 and square, wide rows 4×1, and the
+     * panel 4u + 3·gap. Everything below derives from these two.
+     */
+    // 54 dp: at 48 the pills cut "Bluetooth" and "Connected"; legibility wins over a smaller grid.
+    val u = (54 * k).dp
+    val gap = (9 * k).dp
+    val round = u
+    val pill = u
+    val pillWidth = u * 2 + gap
+    val big = u * 2 + gap
+    val bigWidth = big
+    val column = u * 4 + gap * 3
+    val disc = u * 0.5f
+    val discGlyph = u * 0.33f
+    val roundGlyph = u * 0.44f
+    val bigGlyph = u * 0.8f
 }
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
@@ -138,6 +142,8 @@ private val CC_GLASS = GlassStyle.shelf(false).copy(tint = androidx.compose.ui.g
 /** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
 /** How much Control Center mutes the screen behind it; its glass samples the scene muted by the same amount. */
 internal const val CC_DIM_ALPHA = 0.42f
+/** The time, date and weather share one opacity, slightly muted, as tvOS's header. */
+private const val HEADER_ALPHA = 0.85f
 private val CC_DIM = Color.Black.copy(alpha = CC_DIM_ALPHA)
 
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
@@ -265,11 +271,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 modifier = Modifier.ccRow(0).width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
-                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 6.dp).testTag("cc-date"))
+                    Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
+                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 6.dp).testTag("cc-date"))
                     // Equal air between the three lines as drawn: the clock's own leading already sits under it,
                     // so the weather line gets the matching gap above (e2e measures the ink).
-                    cfg.weather?.let { Box(Modifier.padding(top = 11.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) } }
+                    cfg.weather?.let { Box(Modifier.padding(top = 11.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = HEADER_ALPHA), Type.secondary) } }
                 }
                 if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
                     PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
@@ -441,7 +447,7 @@ private fun PillContent(
     disc: Boolean = true,
 ) {
     val sz = LocalCcSizes.current
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 12.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 8.dp)) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier

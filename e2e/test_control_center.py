@@ -397,8 +397,7 @@ def test_header_lines_are_evenly_spaced(tv, home, cc):
 
 
 def test_one_gap_everywhere_and_smaller_round_buttons(tv, home, cc):
-    """One grid: the same gap between tiles, pills, rows and the round buttons; the round buttons are
-    smaller than the pills and sit with that same gap."""
+    """One grid: the same gap between tiles, pills, rows and the round buttons."""
     cc.open()
     tree = tv.tree()
     b = lambda d: tree.find(desc_prefix=d).bounds
@@ -417,7 +416,57 @@ def test_one_gap_everywhere_and_smaller_round_buttons(tv, home, cc):
         gaps["round row→round row"] = rounds[len(first_row)][1] - first_row[0][3]
     base = gaps["wifi→bluetooth"]
     assert all(abs(g - base) <= 4 for g in gaps.values()), f"uneven gaps: {gaps}"
+    # tvOS's grid (§8.8): a circle is one cell, as tall as a pill.
     round_size = rounds[0][3] - rounds[0][1]
-    pill = wifi[3] - wifi[1]
-    assert round_size < pill * 0.9, f"round buttons ({round_size}px) should be smaller than the pills ({pill}px)"
+    pill = bt[3] - bt[1]
+    assert abs(round_size - pill) <= 2, f"round buttons ({round_size}px) should be one cell, as tall as the pills ({pill}px)"
+
+
+
+ROUND_NAMES = ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Performance", "Free Memory")
+
+
+def test_panel_is_one_square_grid(tv, home, cc):
+    """tvOS 27's Control Center: square cells of one size u with one gap g. Circles are 1×1, pills 2×1
+    (as tall as a circle), the big tile 2×2 and square, the wide row 4×1; the panel is 4u + 3g wide."""
+    cc.open()
+    tv.press("right")  # off the big tile, so its focus lift doesn't change its size
+    import time
+    time.sleep(0.4)
+    tree = tv.tree()
+    b = lambda d: tree.find(desc_prefix=d).bounds
+    rounds = sorted((n.bounds for n in tree.nodes() if n.desc.split(",")[0] in ROUND_NAMES), key=lambda r: (r[1], r[0]))
+    u = rounds[0][2] - rounds[0][0]
+    g = rounds[1][0] - rounds[0][2]
+    w = lambda r: r[2] - r[0]
+    h = lambda r: r[3] - r[1]
+    big, wifi, bt, wide = b("Settings, Fire TV"), b("Wi-Fi"), b("Bluetooth"), b("Launcher Settings")
+    checks = {
+        "circle is square": (h(rounds[0]), u),
+        # Bluetooth: Wi-Fi has focus here, and focus lifts a tile 2%.
+        "pill width = 2u+g": (w(bt), 2 * u + g),
+        "pill height = u": (h(bt), u),
+        "big tile width = 2u+g": (w(big), 2 * u + g),
+        "big tile is square": (h(big), w(big)),
+        "wide row = 4u+3g": (w(wide), 4 * u + 3 * g),
+        "wide row height = u": (h(wide), u),
+        "pills share the grid's right edge": (bt[2], wide[2]),
+        "big tile shares its left edge": (big[0], wide[0]),
+        "circles span the panel": (rounds[3][2] - rounds[0][0], 4 * u + 3 * g),
+    }
+    bad = {k: v for k, v in checks.items() if abs(v[0] - v[1]) > 2}
+    assert not bad, f"off the grid (u={u}, g={g}): {bad}"
+
+
+def test_header_lines_share_one_opacity(tv, home, cc):
+    """Time, date and weather are drawn at the same opacity (they differed)."""
+    cc.open()
+    import time
+    time.sleep(0.6)
+    tree = tv.tree()
+    img = tv.screen_image()
+    peak = lambda r: max(img.getpixel((x, y)) for x in range(r[0], min(r[2], r[0] + 200), 2) for y in range(r[1], r[3]))
+    clock, date, weather = (tree.find(rid=k).bounds for k in ("cc-clock", "cc-date", "weather"))
+    levels = [peak(clock), peak(date), peak(weather)]
+    assert max(levels) - min(levels) <= 14, f"header lines differ in brightness (time, date, weather): {levels}"
 

@@ -19,6 +19,30 @@ import org.robolectric.annotation.Config
 class ControlCenterMotionTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    // Text wins over a smaller grid (§8.8): no Control Center label is cut off by its tile.
+    @Test fun labelsFitTheirTiles() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            val labels = compose.onAllNodes(androidx.compose.ui.test.hasTestTag("control-center").let { androidx.compose.ui.test.hasAnyAncestor(it) }
+                .and(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult)), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+            assertTrue("found no labels to check", labels.size >= 5)
+            val overflowing = compose.onAllNodes(androidx.compose.ui.test.hasTestTag("control-center").let { androidx.compose.ui.test.hasAnyAncestor(it) }
+                .and(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult)), useUnmergedTree = true)
+                .fetchSemanticsNodes().mapNotNull { node ->
+                    val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                    node.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action?.invoke(results)
+                    // An ellipsis shortens the text to fit, so look for one rather than for overflow.
+                    results.firstOrNull()?.takeIf { r -> r.hasVisualOverflow || (0 until r.lineCount).any { r.isLineEllipsized(it) } }?.layoutInput?.text?.text
+                }
+            assertTrue("labels cut off in Control Center: $overflowing", overflowing.isEmpty())
+        }
+    }
+
     @Test fun opensWithAContinuousGrow() {
         TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use {

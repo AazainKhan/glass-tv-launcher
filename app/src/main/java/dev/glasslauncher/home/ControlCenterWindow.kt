@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
      */
     private val backdrop = BackdropState().apply { translucentWindow = true; sceneDim = CC_DIM_ALPHA }
     private var capture: kotlinx.coroutines.Job? = null
+    /** Open over Home: the glass follows Home's scene (a slide can change under Control Center). */
+    private var overHome by mutableStateOf(false)
     private val app get() = service.app
 
     val showing: Boolean get() = view != null && !exiting
@@ -78,7 +81,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         /** Home's baked scene while Home is on screen: Control Center's glass over Home samples it directly. */
         private const val CAPTURE_WAIT_MS = 120L
 
-        @Volatile var homeBackdrop: dev.glasslauncher.glass.Backdrop? = null
+        var homeBackdrop by mutableStateOf<dev.glasslauncher.glass.Backdrop?>(null)
 
         /** Where Home's status pill is, so Control Center can grow out of it (Home keeps this current). */
         @Volatile var pillBounds: androidx.compose.ui.geometry.Rect? = null
@@ -118,6 +121,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         }
         val home = homeBackdrop
+        overHome = home != null
         if (home != null) {
             app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(home, animate = false) }
             attach()
@@ -134,6 +138,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                 runCatching { windows.removeView(v) }
                 view = null
                 capture?.cancel()
+                overHome = false
                 backdrop.clear()
                 exiting = false
                 // Home's pill comes back as the capsule lands on it, not while it's still shrinking.
@@ -241,6 +246,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val metrics = remember(cfg.textScale) { dev.glasslauncher.ui.Metrics(cfg.textScale) }
         val palette = remember(dark, prefs) { dev.glasslauncher.ui.Palette(light = !dark, highContrast = prefs.highContrast) }
         val density = LocalDensity.current
+        val homeScene = homeBackdrop
+        LaunchedEffect(homeScene, overHome) { if (overHome && homeScene != null && backdrop.backdrop !== homeScene) backdrop.swap(homeScene, animate = false) }
         dev.glasslauncher.ui.Type.bold = cfg.boldText
         CompositionLocalProvider(
             LocalBackdrop provides backdrop,
