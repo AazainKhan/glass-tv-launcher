@@ -1,5 +1,7 @@
 package dev.glasslauncher.dream
 
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 
 /**
@@ -7,6 +9,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
  * and a 128 MB video buffer); a looping Aerial or Home's motion background needs a few seconds, and that
  * buffer counts toward Glass's memory. A cached clip (Aerials) refills from disk almost instantly.
  */
+@OptIn(UnstableApi::class)
 object VideoBuffer {
     const val MIN_MS = 5_000
     const val MAX_MS = 15_000
