@@ -264,7 +264,7 @@ def test_control_center_tiles_can_be_turned_off_in_settings(tv, home, cc, settin
         home.reset()
 
 
-ALEXA_TILES = ["Smart Home", "Ask Alexa", "Cameras", "Alexa Settings"]
+ALEXA_TILES = ["Smart Home", "Ask Alexa", "Alexa Settings"]
 
 
 def test_alexa_page_shows_its_shortcuts(tv, home, cc):
@@ -275,6 +275,7 @@ def test_alexa_page_shows_its_shortcuts(tv, home, cc):
     cc.focus_desc("Alexa")
     tree = tv.wait_for(lambda t: all(cc.tile(t, n) for n in ALEXA_TILES) and t, 4, "the Alexa page")
     assert not cc.tile(tree, "Wi-Fi"), "the Controls tiles should give way"
+    assert not cc.tile(tree, "Cameras"), "no cameras are set up: the tile is gone"
     cc.focus_desc("Controls")
     tv.wait_for(lambda t: cc.tile(t, "Wi-Fi"), 4, "back to Controls")
 
@@ -289,6 +290,47 @@ def test_smart_home_opens_its_app(tv, home, cc):
         tv.wait_until(lambda: tv.resumed_package() == "com.amazon.smarthomemapviewapp", 10, "the Smart Home dashboard")
     finally:
         tv.sh("am force-stop com.amazon.smarthomemapviewapp")
+
+
+def _focused_window(tv) -> str:
+    return tv.sh("dumpsys window | grep -m1 mCurrentFocus")
+
+
+def _alexa_listening(tv) -> bool:
+    """Alexa's voice overlay (its own window, not an activity such as its settings) has focus."""
+    return "u0 com.amazon.vizzini}" in _focused_window(tv)
+
+
+@pytest.mark.slow
+@pytest.mark.root
+def test_ask_alexa_brings_up_alexas_voice_ui(tv, home, cc, rooted):
+    """Ask Alexa puts Alexa's own listening UI on screen (as holding the remote's mic button does)."""
+    if not rooted:
+        pytest.skip("needs root (a virtual mic-button press)")
+    cc.open()
+    cc.focus_desc("Alexa")
+    tv.wait_for(lambda t: cc.tile(t, "Ask Alexa"), 4, "the Alexa page")
+    cc.press_tile("Ask Alexa")
+    tv.wait_until(lambda: _alexa_listening(tv), 6, "Alexa's voice UI in front")
+    import time
+    time.sleep(1.5)
+    # Held there (listening), not a flash that closes at once (what an ASSIST intent alone did).
+    assert _alexa_listening(tv), "Alexa's UI closed straight away"
+
+
+@pytest.mark.slow
+@pytest.mark.root
+def test_alexa_settings_opens_alexas_settings(tv, home, cc, rooted):
+    if not rooted:
+        pytest.skip("Alexa's settings screen is permission-guarded; Glass opens it as root")
+    cc.open()
+    cc.focus_desc("Alexa")
+    tv.wait_for(lambda t: cc.tile(t, "Alexa Settings"), 4, "the Alexa page")
+    cc.press_tile("Alexa Settings")
+    try:
+        tv.wait_until(lambda: "AlexaSettingActivity" in tv.resumed(), 8, "Alexa's settings")
+    finally:
+        tv.sh("am force-stop com.amazon.vizzini")
 
 
 def test_alexa_page_can_be_turned_off_in_settings(tv, home, cc, settings):

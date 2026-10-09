@@ -420,13 +420,12 @@ private fun AlexaPage(sz: CcSizes, closeAll: () -> Unit) {
             CcTile("Ask Alexa", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { go(SystemControls::askAlexa) }) { fg ->
                 PillContent(R.drawable.ic_mic, "Ask Alexa", null, fg, on = false, accent = fg)
             }
-            CcTile("Cameras", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { go(SystemControls::openSmartHome) }) { fg ->
-                PillContent(R.drawable.ic_videocam, "Cameras", null, fg, on = false, accent = fg)
+            // Alexa's settings screen is permission-guarded; without root there's no way in.
+            if (dev.glasslauncher.system.Root.known) CcTile("Alexa Settings", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { go(SystemControls::openAlexaSettings) }) { fg ->
+                // Two lines, like Wi-Fi's: "Alexa Settings" didn't fit a pill.
+                PillContent(R.drawable.ic_settings, "Alexa", "Settings", fg, on = false, accent = fg)
             }
         }
-    }
-    CcTile("Alexa Settings", null, Shapes.pill, sz.column, sz.pill, onClick = { go(SystemControls::openAlexaSettings) }) { fg ->
-        PillContent(R.drawable.ic_settings, "Alexa Settings", null, fg, on = false, accent = fg)
     }
 }
 

@@ -98,9 +98,31 @@ object SystemControls {
         context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("com.amazon.smarthomemapviewapp://smarthomedashboard")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }.isSuccess
 
-    fun askAlexa(context: Context): Boolean = open(context, Intent.ACTION_ASSIST)
+    /**
+     * Alexa's own voice UI, as holding the remote's mic button brings it up: with root, a virtual remote
+     * (same key layout as the real one) holds the mic key. An ASSIST intent alone opened Alexa's voice
+     * activity and it closed at once (no voice session). Alexa listens through the remote's microphone.
+     */
+    fun askAlexa(context: Context): Boolean {
+        val app = context.applicationContext
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            kotlinx.coroutines.delay(350) // Control Center closes first
+            val press = if (Root.available()) VirtualRemote.path(app) else null
+            if (press == null) open(app, Intent.ACTION_ASSIST) else Root.run("$press 120 $ALEXA_KEY:3000")
+        }
+        return true
+    }
 
-    fun openAlexaSettings(context: Context): Boolean = open(context, "amazon.intent.action.ALEXA_SETTING")
+    /** Alexa's settings: guarded by an Amazon permission, so Glass opens it as root. */
+    fun openAlexaSettings(context: Context): Boolean {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            Root.run("am start -n com.amazon.vizzini/.setting.AlexaSettingActivity -a amazon.intent.action.ALEXA_SETTING")
+        }
+        return true
+    }
+
+    /** The remote's mic button (scancode 217 maps to Fire OS's ALEXA key in its layout). */
+    private const val ALEXA_KEY = 217
 
     fun openGameControllers(context: Context): Boolean =
         open(context, "com.amazon.device.settings.action.GAMEPADS") || openBluetooth(context)
