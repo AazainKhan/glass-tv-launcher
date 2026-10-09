@@ -48,6 +48,11 @@ data class LauncherConfig(
     val seenApps: Set<String> = emptySet(),
     /** Most recently opened first; the app switcher's fallback when usage access isn't granted. */
     val recentApps: List<String> = emptyList(),
+    /**
+     * Apps closed from the app switcher, with when (epoch ms): hidden from the switcher until they next come to
+     * the foreground after that moment (the system's usage history would otherwise bring them straight back).
+     */
+    val closedRecents: Map<String, Long> = emptyMap(),
     /** Remote button name (e.g. "KEYCODE_APP_1") -> action; see RemoteAction. Missing = Fire TV default. */
     val remoteButtons: Map<String, String> = emptyMap(),
     /** Top Shelf: show the focused app's titles after a dwell (else only its hero). */

@@ -116,6 +116,24 @@ class VisualChecks {
     @Test fun moveModeRightIsContinuous() = continuous("move-right", Button.Right, Button.Menu, Button.Down, Button.Select)
     @Test fun moveModeDownIsContinuous() = continuous("move-down", Button.Down, Button.Menu, Button.Down, Button.Select)
 
+    // App switcher (P54): Up throws the centre card away: it rises and fades while the rest close the gap.
+    @Test fun switcherCloseIsContinuous() {
+        TvHarness.setUp(config = { c ->
+            c.copy(recentApps = listOf("com.netflix.ninja", "com.amazon.firetv.youtube", "com.stremio.one", "com.plexapp.android"))
+        })
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            scenario.onActivity { activity ->
+                val intent = android.content.Intent(MainActivity.ACTION_APP_SWITCHER)
+                MainActivity::class.java.getDeclaredMethod("onNewIntent", android.content.Intent::class.java)
+                    .apply { isAccessible = true }.invoke(activity, intent)
+            }
+            compose.settle()
+            check(compose.onAllNodes(hasTestTag("app-switcher")).fetchSemanticsNodes().isNotEmpty()) { "the switcher didn't open" }
+            trackTransition("switcher-close", Button.Up)
+        }
+    }
+
     // Rearrange Folder (P35): Menu on the first app in an open folder, Rearrange Folder, then move it right.
     @Test fun folderRearrangeIsContinuous() = onHome(config = { c ->
         c.copy(folders = listOf(Folder("media", "Media", FOLDER_APPS)), order = listOf(folderKey("media")))

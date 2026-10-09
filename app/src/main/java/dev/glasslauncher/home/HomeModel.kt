@@ -108,9 +108,7 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     fun launchIntent(app: AppEntry): Intent? = graph.apps.launchIntent(app)
 
     /** Remembers the launch for the app switcher and clears the new-app dot. */
-    fun noteLaunched(pkg: String) = edit {
-        it.copy(seenApps = it.seenApps + pkg, recentApps = (listOf(pkg) + (it.recentApps - pkg)).take(RECENT_LIMIT))
-    }
+    fun noteLaunched(pkg: String) = edit { launchedConfig(it, pkg) }
 
     /** New since the launcher last looked, and not opened yet: shows the blue dot. */
     fun isNew(pkg: String, cfg: LauncherConfig = config.value) = cfg.seenApps.isNotEmpty() && pkg !in cfg.seenApps
@@ -311,6 +309,16 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         /** Added to existing installs once (version [HIDDEN_MIGRATION]): Fire TV Early Access traps the remote. */
         private val LATER_HIDDEN = listOf("com.amazon.tv.earlyaccess")
         private const val HIDDEN_MIGRATION = 1
+
+        /**
+         * The config after [pkg] is launched through Glass: seen, newest in the switcher's own list, and no longer
+         * "closed" (closing hid it only until it is next used, and without usage access this is the only signal).
+         */
+        fun launchedConfig(c: LauncherConfig, pkg: String): LauncherConfig = c.copy(
+            seenApps = c.seenApps + pkg,
+            recentApps = (listOf(pkg) + (c.recentApps - pkg)).take(RECENT_LIMIT),
+            closedRecents = c.closedRecents - pkg,
+        )
 
         fun buildLayout(apps: List<AppEntry>, cfg: LauncherConfig): HomeLayout {
             val byPkg = apps.associateBy { it.packageName }

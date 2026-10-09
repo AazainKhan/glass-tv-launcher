@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -70,7 +72,7 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
     LaunchedEffect(layout.loaded) {
         // Reading usage events covers days of history: off the main thread, or opening stutters.
         val recent = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            RecentApps.list(context, layout.installed, cfg.recentApps).reversed() // oldest … newest
+            RecentApps.list(context, layout.installed, cfg.recentApps, cfg.closedRecents).reversed() // oldest … newest
         }
         lastApps = recent
         if (recent != apps.toList()) {
@@ -79,6 +81,10 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
             selected = apps.lastIndex
         }
     }
+    // Cards just thrown away: each rises and fades out where it was while the others close the gap.
+    val thrown = remember { mutableStateListOf<AppEntry>() }
+    val positions = remember { HashMap<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
+    val closeScope = androidx.compose.runtime.rememberCoroutineScope()
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(id: String) = requesters.getOrPut(id) { FocusRequester() }
     fun idAt(i: Int) = if (i == apps.size) HOME_ID else apps[i].packageName
@@ -135,8 +141,18 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                         AndroidKeyEvent.KEYCODE_DPAD_UP -> {
                             // Up throws the app away, as swiping up does on tvOS.
                             apps.getOrNull(selected)?.let { app ->
-                                RecentApps.close(context, app.packageName)
-                                model.edit { c -> c.copy(recentApps = c.recentApps - app.packageName) }
+                                // Really stopped (not just its background processes), and kept out of the list
+                                // until it next comes to the foreground: the usage history would bring it straight back.
+                                val now = System.currentTimeMillis()
+                                closeScope.launch(kotlinx.coroutines.Dispatchers.IO) { RecentApps.stop(context, app.packageName) }
+                                model.edit { c ->
+                                    c.copy(
+                                        recentApps = c.recentApps - app.packageName,
+                                        closedRecents = (c.closedRecents + (app.packageName to now)).entries
+                                            .sortedByDescending { it.value }.take(CLOSED_REMEMBERED).associate { it.key to it.value },
+                                    )
+                                }
+                                thrown += app
                                 apps.removeAt(selected)
                                 selected = selected.coerceAtMost(apps.size)
                             }
@@ -150,11 +166,13 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
             val title = apps.getOrNull(selected)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (CENTRE_X - CARD_W / 2).dp, y = (CARD_TOP - 52).dp),
+                // The card's width, fixed: the name changes with the card, and the row's box must not change size with it.
+                modifier = Modifier.align(Alignment.TopStart).offset(x = (CENTRE_X - CARD_W / 2).dp, y = (CARD_TOP - 52).dp).width(CARD_W.dp),
             ) {
-                if (title != null) {
-                    rememberArt(model, title)?.let {
-                        Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.size(56.dp, 34.dp).clip(RoundedCornerShape(7.dp)))
+                // The icon's slot is always there (empty for Home): the name must not slide sideways as it changes.
+                Box(Modifier.size(56.dp, 34.dp)) {
+                    if (title != null) rememberArt(model, title)?.let {
+                        Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(7.dp)))
                     }
                 }
                 Text(
@@ -171,8 +189,18 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                 if (d < -STACKED - 1 || d > 2) continue
                 val id = idAt(i)
                 val app = apps.getOrNull(i)
+                // Keyed by the app: a card keeps its own motion state when the ones before it go, so it slides to its
+                // new place instead of the next app taking over the same slot at once.
+                androidx.compose.runtime.key(id) {
+                // One position per app, kept here (not in the card's composition) so a card that is still on screen
+                // slides from where it was when the ones before it go, whatever happens to the composition around it.
                 // Reduce Motion: the cards jump to their places (the switcher still dissolves in and out).
-                val p by animateFloatAsState(d.toFloat(), if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f), label = "card")
+                val position = remember(id) { positions.getOrPut(id) { androidx.compose.animation.core.Animatable(d.toFloat()) } }
+                LaunchedEffect(id, d, reduceMotion) {
+                    if (reduceMotion) position.snapTo(d.toFloat())
+                    else position.animateTo(d.toFloat(), androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f))
+                }
+                val p = position.value
                 var bounds by remember { mutableStateOf<Rect?>(null) }
                 Box(
                     Modifier
@@ -214,6 +242,13 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                         Box(Modifier.fillMaxSize().graphicsLayer { alpha = ((-p).coerceIn(0f, 3f) * 0.18f) }.background(Color.Black))
                     }
                 }
+                }
+            }
+            // The thrown-away cards, over the stack: rise and fade, then go.
+            thrown.forEach { gone ->
+                androidx.compose.runtime.key(gone.packageName) {
+                    LeavingCard(model, gone) { thrown.remove(gone) }
+                }
             }
             Text(
                 "Press up to close an app",
@@ -224,6 +259,32 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
         }
     }
 }
+
+/** A card thrown away: rises and fades out over [LEAVE_MS] from where it stood (the centre), then calls [done]. */
+@Composable
+private fun LeavingCard(model: HomeModel, app: AppEntry, done: () -> Unit) {
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    LaunchedEffect(Unit) {
+        progress.animateTo(1f, androidx.compose.animation.core.tween(if (reduceMotion) 0 else LEAVE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        done()
+    }
+    Box(
+        Modifier
+            .offset(x = (CENTRE_X - CARD_W / 2).dp, y = CARD_TOP.dp)
+            .zIndex(30f)
+            .size(CARD_W.dp, CARD_H.dp)
+            .graphicsLayer {
+                translationY = -progress.value * CARD_H.dp.toPx() * 0.7f
+                alpha = 1f - progress.value
+            }
+            .clip(RoundedCornerShape(22.dp))
+            .testTag("switcher-leaving:${app.packageName}"),
+    ) { AppCard(model, app) }
+}
+
+private const val LEAVE_MS = 240
+private const val CLOSED_REMEMBERED = 40
 
 /**
  * An app's card: its blurred preview (AppPreviews), or until there is one, a blurred wash of its art with
