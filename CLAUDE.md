@@ -13,7 +13,7 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 
 | Model | Use it for |
 |---|---|
-| `haiku` (Haiku 4.5) | Mechanical and read-only work: running `scripts/shots`/`perf-run`/`e2e` and summarising the output; logcat or Gradle-log triage; grep/file audits (leak checks, finding usages); listing baselines or reports; simple renames. |
+| `haiku` (Haiku 5.5) | Mechanical and read-only work: running `scripts/shots`/`perf-run`/`e2e` and summarising the output; logcat or Gradle-log triage; grep/file audits (leak checks, finding usages); listing baselines or reports; simple renames. |
 | `sonnet` (Sonnet 5.5) | Well-specified implementation: a board item with files, constraints and acceptance commands spelled out; writing tests; refactors; re-recording and reviewing baselines. |
 | `opus` (Opus 5.5) | Ambiguous or cross-cutting judgement: design and motion diagnosis, perfetto/GPU analysis, reviewing an implementer's diff, merge decisions. Use `fable` (Fable 5.1) only when a hard problem stalls. |
 
