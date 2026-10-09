@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil3.compose.AsyncImage
@@ -40,7 +41,7 @@ private data class DeviceImage(val uri: Uri, val name: String)
 
 /** Lets the user pick an image on the TV: the system file browser when one exists, plus a grid of local photos. */
 @Composable
-fun ImagePicker(onPicked: (Uri) -> Unit, modifier: Modifier = Modifier) {
+fun ImagePicker(onPicked: (Uri) -> Unit, modifier: Modifier = Modifier, bottomInset: Dp = 0.dp) {
     val context = LocalContext.current
     val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
     var granted by remember {
@@ -64,7 +65,10 @@ fun ImagePicker(onPicked: (Uri) -> Unit, modifier: Modifier = Modifier) {
             images!!.isEmpty() -> Hint("No images found. Copy some to Downloads or Pictures (for example with Downloader or a USB drive).")
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(8.dp),
+                // The page's bottom inset is the grid's own padding, not space outside it: the grid clips what it
+                // draws (a focused tile's shadow reaches well below the tile) at its own edge, which is then the
+                // page's faded edge instead of a hard line a few dp under the last row.
+                contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 8.dp + bottomInset),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth().fillMaxSize(),

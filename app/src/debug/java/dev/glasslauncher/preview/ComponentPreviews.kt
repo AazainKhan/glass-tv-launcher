@@ -90,6 +90,9 @@ private fun TileRow() {
             FocusTile(
                 label = name,
                 onClick = {},
+                edgeLight = true,
+                // Home's tiles glow in their art's colour: saturated for these two, none under the white tile.
+                glowColor = ink.takeIf { bg != Color.White },
                 modifier = Modifier.width(150.dp).aspectRatio(5f / 3f).then(if (i == 0) Modifier.focusRequester(first) else Modifier),
             ) { FakeAppArt(name, bg, ink) }
         }

@@ -300,7 +300,8 @@ fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
             if (p > 0f) lerpRect(land, full, p) else lerpRect(w.tile, land, t.settle.value)
         }
         // Corners stay rounded until the window is nearly full screen.
-        val tileRadius = 16.dp.toPx()
+        // The focused tile it grows from shows its corners scaled up with it.
+        val tileRadius = (dev.glasslauncher.ui.Metrics().tileRadius * dev.glasslauncher.ui.FOCUSED_SCALE).toPx()
         val toFull = ((rect.width - w.tile.width) / (size.width - w.tile.width)).coerceIn(0f, 1f)
         val radius = lerp(tileRadius, 26.dp.toPx(), toFull) * (1f - ((toFull - 0.92f) / 0.08f).coerceIn(0f, 1f))
         val f = t.fill.value

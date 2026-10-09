@@ -259,7 +259,7 @@ private fun IconPickerBody(app: AppEntry, model: HomeModel, active: Boolean, ope
     val graph = LocalContext.current.app
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 22.dp)) {
+    Column(Modifier.fillMaxSize().padding(start = 14.dp, top = 22.dp, end = 14.dp)) {
         PanelTitle("Icon for ${app.label}")
         val first = remember { FocusRequester() }
         LaunchedEffect(active) { if (active) { withFrameNanos { }; runCatching { first.requestFocus() } } }
@@ -277,6 +277,8 @@ private fun IconPickerBody(app: AppEntry, model: HomeModel, active: Boolean, ope
         SectionLabel("On this device")
         ImagePicker(
             modifier = Modifier.weight(1f),
+            // The panel's 22 dp bottom inset, inside the grid so a focused tile's shadow isn't cut short.
+            bottomInset = 22.dp,
             onPicked = { uri ->
                 scope.launch {
                     val path = graph.wallpapers.importImage(uri, "icon-${app.packageName}-${System.currentTimeMillis()}")

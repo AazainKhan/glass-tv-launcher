@@ -21,4 +21,9 @@ class MetricsTest {
     @Test fun defaultSizeKeepsTvosPlacement() {
         assertEquals(384f, Metrics(1f).trayTop(w, h).value, 0.5f)
     }
+
+    // tvOS 27's tile radius is 30 px on a 250 px tile = 15 dp, and it grows with Text Size like the tile.
+    @Test fun tileRadiusIs15dpTimesTextScale() {
+        for (scale in listOf(1f, 1.3f)) assertEquals(15f * scale, Metrics(scale).tileRadius.value, 0.001f)
+    }
 }

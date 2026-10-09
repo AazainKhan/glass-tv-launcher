@@ -26,6 +26,9 @@ import kotlin.math.min
 /** What a tile should be drawn from; part of the cache key so changes re-render. */
 data class TileSpec(val app: AppEntry, val customIcon: String?, val iconPack: String?)
 
+/** A rendered tile and the colour it glows in ([TileArt.glowColor]); cached, and trimmed, as one. */
+class LoadedTile(val image: ImageBitmap, val glow: Int)
+
 /**
  * Produces a full-bleed 16:9 tile for every app: a custom image, the TV banner, or a generated
  * tile so phone-style square icons never look out of place.
@@ -35,11 +38,16 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
 
     private val res = context.resources
     private val pm: PackageManager = context.packageManager
-    private val cache = object : LruCache<TileSpec, ImageBitmap>(16 * 1024 * 1024) {
-        override fun sizeOf(key: TileSpec, value: ImageBitmap) = value.width * value.height * 4
+    private val cache = object : LruCache<TileSpec, LoadedTile>(16 * 1024 * 1024) {
+        override fun sizeOf(key: TileSpec, value: LoadedTile) = value.image.width * value.image.height * 4
     }
 
-    fun peek(spec: TileSpec): ImageBitmap? = cache.get(spec)
+    fun peek(spec: TileSpec): ImageBitmap? = cache.get(spec)?.image
+
+    /** The tile's glow colour (opaque ARGB), or null until [load] has rendered it. */
+    fun peekGlow(spec: TileSpec): Int? = cache.get(spec)?.glow
+
+    fun peekTile(spec: TileSpec): LoadedTile? = cache.get(spec)
 
     /**
      * The app's logo art, full screen, for its Top Shelf hero when Amazon has no Fire TV icon for it: the TV
@@ -66,15 +74,18 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
     /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */
     fun trim() = cache.trimToSize(cache.maxSize() / 2)
 
-    suspend fun load(spec: TileSpec): ImageBitmap {
+    suspend fun load(spec: TileSpec): ImageBitmap = loadTile(spec).image
+
+    suspend fun loadTile(spec: TileSpec): LoadedTile {
         cache.get(spec)?.let { return it }
-        val art = withContext(Dispatchers.Default) {
-            // GPU-only copy: a software tile would be held twice (native heap plus its texture).
+        val tile = withContext(Dispatchers.Default) {
             val soft = render(spec)
-            (soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap()
+            val glow = glowColor(soft)
+            // GPU-only copy: a software tile would be held twice (native heap plus its texture).
+            LoadedTile((soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap(), glow)
         }
-        cache.put(spec, art)
-        return art
+        cache.put(spec, tile)
+        return tile
     }
 
     /** Icon on a coloured backing, used for folder previews and menus. */
@@ -346,5 +357,26 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         const val WIDTH = 340
         const val HEIGHT = 204
         private const val PROBE = 96
+
+        /**
+         * The colour a tile glows in: the mean of its bottom fifth (full width, fully transparent pixels skipped),
+         * as opaque ARGB; transparent when there is nothing to average. Read from the bitmap as rendered, once,
+         * so a tile costs one pass over about 14k pixels.
+         */
+        internal fun glowColor(bitmap: Bitmap): Int {
+            val w = bitmap.width
+            val top = (bitmap.height * 0.8f).toInt()
+            val row = IntArray(w)
+            var r = 0L; var g = 0L; var b = 0L; var n = 0L
+            for (y in top until bitmap.height) {
+                bitmap.getPixels(row, 0, w, 0, y, w, 1)
+                for (c in row) {
+                    if (Color.alpha(c) == 0) continue
+                    r += Color.red(c); g += Color.green(c); b += Color.blue(c); n++
+                }
+            }
+            if (n == 0L) return Color.TRANSPARENT
+            return Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+        }
     }
 }

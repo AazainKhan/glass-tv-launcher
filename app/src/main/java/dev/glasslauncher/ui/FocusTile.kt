@@ -24,8 +24,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onKeyEvent
@@ -37,9 +39,13 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.platform.LocalView
 import android.view.SoundEffectConstants
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * A focusable surface with tvOS-style motion: spring lift and scale with a soft shadow, and a
@@ -54,11 +60,15 @@ fun FocusTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = Shapes.tile,
-    focusedScale: Float = 1.2f,
+    focusedScale: Float = FOCUSED_SCALE,
     wiggle: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
     shadow: Boolean = true,
+    /** The colour the tile glows in under it ([TileShadow.glowAlpha] sets how strongly); null for no glow. Needs [shadow]. */
+    glowColor: Color? = null,
+    /** tvOS 27's focus edge light: for app tiles and shelf cards only (not pills, circles or thumbnails). */
+    edgeLight: Boolean = false,
     onFocusChange: (Boolean) -> Unit = {},
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
@@ -67,6 +77,8 @@ fun FocusTile(
     val longFired = remember { booleanArrayOf(false) }
     val prefs = LocalUiPrefs.current
     val view = LocalView.current
+    val glowTint = remember(glowColor) { glowColor?.let { ColorFilter.tint(it, BlendMode.SrcIn) } }
+    val glowAlpha = if (glowColor != null) TileShadow.glowAlpha(glowColor) else 0f
 
     val scale by animateFloatAsState(
         when {
@@ -107,24 +119,49 @@ fun FocusTile(
     Box(
         modifier
             .drawBehind {
-                // Pre-blurred shadow bitmap instead of animated elevation, which the render thread
-                // would otherwise re-tessellate every frame.
-                // Every tile sits slightly above the backdrop (tvOS 27): a soft, close shadow at rest
-                // that grows, drops and darkens as the tile lifts on focus.
+                // Pre-blurred shadow bitmaps instead of animated elevation, which the render thread
+                // would otherwise re-tessellate every frame (see TileShadow for the numbers).
+                // tvOS 27: a resting tile has a tight contact shadow; on focus a wide soft one fades in,
+                // drops away and the contact one fades out. Both follow the tile's animated scale.
                 if (shadow) {
-                    // tvOS 27 tiles cast a clear soft shadow straight down even at rest (inspo
-                    // home-grid-scroll): darker and a touch lower than before; focus deepens and drops it.
-                    val spread = 1.05f + 0.05f * lift
-                    val w = size.width * scale * spread
-                    val h = size.height * scale * (spread + 0.06f * lift)
-                    val drop = (6.dp.toPx() + 10.dp.toPx() * lift)
-                    drawImage(
-                        TileShadow.image,
-                        dstOffset = IntOffset(((size.width - w) / 2).toInt(), ((size.height - h) / 2 + drop).toInt()),
-                        dstSize = IntSize(w.toInt(), h.toInt()),
-                        alpha = 0.5f + 0.2f * lift,
-                        filterQuality = FilterQuality.Low,
-                    )
+                    val k = size.width / 250f
+                    // GlassApp bakes the shadows at startup; if a tile draws first, these touch (and wait for) the same lazy bake.
+                    val focusImage = TileShadow.focus
+                    val contactImage = TileShadow.contact
+                    // The tile-coloured glow goes down first, under both shadows, at a strength that doesn't change with focus.
+                    if (glowTint != null && glowAlpha > 0.002f) {
+                        val r = TileShadow.destRect(TileShadow.Kind.Glow, size.width, size.height, scale, lift, k)
+                        if (!r.isEmpty) drawImage(
+                            TileShadow.glow,
+                            dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                            alpha = glowAlpha,
+                            colorFilter = glowTint,
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
+                    val focusAlpha = TileShadow.alpha(TileShadow.Kind.Focus, lift)
+                    if (focusAlpha > 0.002f) {
+                        val r = TileShadow.destRect(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)
+                        if (!r.isEmpty) drawImage(
+                            focusImage,
+                            dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                            alpha = focusAlpha,
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
+                    val contactAlpha = TileShadow.alpha(TileShadow.Kind.Contact, lift)
+                    if (contactAlpha > 0.002f) {
+                        val r = TileShadow.destRect(TileShadow.Kind.Contact, size.width, size.height, scale, lift, k)
+                        if (!r.isEmpty) drawImage(
+                            contactImage,
+                            dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                            alpha = contactAlpha,
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
                 }
             }
             .graphicsLayer {
@@ -142,6 +179,28 @@ fun FocusTile(
                 // Reduce motion replaces the move-mode wiggle with a plain outline.
                 if (focused && wiggle && prefs.reduceMotion) drawRect(Color.White, style = Stroke(3.dp.toPx()))
             }
+            // tvOS 27 lights the edge of a focused app tile: a thin bright line along the top, a fainter one
+            // along the bottom. Opt-in via [edgeLight], so other tiles don't carry the modifier at all. Static
+            // (it fades with focus, no sweep); the brush is built once per tile size.
+            .then(
+                if (!edgeLight) Modifier else Modifier.drawWithCache {
+                    val stroke = Stroke(EDGE_LIGHT_WIDTH.toPx())
+                    val half = stroke.width / 2
+                    // Inset by half the stroke so the line sits wholly inside the tile's edge; the corner is the tile's own.
+                    val corner = (shape.createOutline(size, layoutDirection, this) as? Outline.Rounded)?.roundRect?.topLeftCornerRadius
+                    val brush = Brush.verticalGradient(*EDGE_LIGHT_STOPS, startY = 0f, endY = size.height)
+                    onDrawWithContent {
+                        drawContent()
+                        val strength = lift.coerceAtMost(1f)
+                        if (corner != null && strength >= 0.01f) {
+                            drawRoundRect(
+                                brush, Offset(half, half), Size(size.width - stroke.width, size.height - stroke.width),
+                                corner, alpha = strength, style = stroke,
+                            )
+                        }
+                    }
+                },
+            )
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused
@@ -195,6 +254,15 @@ fun FocusTile(
     }
 }
 
+/** The focus edge light's line: white, 1.25 dp, bright at the top edge, faint through the sides, a little at the bottom. */
+private val EDGE_LIGHT_WIDTH = 1.25.dp
+private val EDGE_LIGHT_STOPS = arrayOf(
+    0f to Color.White.copy(alpha = 0.34f),
+    0.2f to Color.White.copy(alpha = 0.08f),
+    0.8f to Color.White.copy(alpha = 0.06f),
+    1f to Color.White.copy(alpha = 0.16f),
+)
+
 /** Matches the system's directional focus sounds to the last D-pad press. */
 fun navigationSound(): Int = when {
     KeyDirection.dx < 0 -> SoundEffectConstants.NAVIGATION_LEFT
@@ -204,3 +272,6 @@ fun navigationSound(): Int = when {
 }
 
 private const val TILT_DEG = 1.5f
+
+/** How much bigger a focused tile is drawn, unless it says otherwise. */
+const val FOCUSED_SCALE = 1.2f
