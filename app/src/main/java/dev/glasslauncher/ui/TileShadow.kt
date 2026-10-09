@@ -86,12 +86,14 @@ object TileShadow {
      * Where to draw [kind]'s bitmap, in px from the tile's top-left corner, for a tile [tileW] x [tileH] px
      * at animated [scale] and focus value [lift], with [k] px per u. The bitmap's core always equals the tile's
      * current scaled size (the focus shadow is baked at [FOCUS_SCALE] times a resting tile), and it is centred
-     * on the tile, [Kind.drop] u lower (the focus shadow's drop grows with [lift]).
+     * on the tile, [Kind.drop] u lower (the focus shadow's drop grows with [lift]). The bitmaps are 5:3 like
+     * Home's tiles; for a tile of another aspect (16:9 shelf cards) the height follows the tile's, so the core
+     * still equals the tile.
      */
     fun destRect(kind: Kind, tileW: Float, tileH: Float, scale: Float, lift: Float, k: Float): Rect {
         val pxPerU = if (kind == Kind.Focus) k * scale / FOCUS_SCALE else k * scale
         val w = (kind.coreW + 2 * kind.margin) * pxPerU
-        val h = (kind.coreH + 2 * kind.margin) * pxPerU
+        val h = (kind.coreH + 2 * kind.margin) * pxPerU * (tileH / (Kind.Contact.coreH * k))
         val cx = tileW / 2
         val cy = tileH / 2 + kind.drop * k * if (kind == Kind.Focus) lift else 1f
         return Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)

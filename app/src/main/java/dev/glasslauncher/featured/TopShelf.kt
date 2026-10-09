@@ -56,6 +56,7 @@ import coil3.request.transformations
 import dev.glasslauncher.home.stopAtRowEnds
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
+import dev.glasslauncher.ui.Metrics
 import dev.glasslauncher.ui.Type
 
 /**
@@ -210,7 +211,8 @@ fun ExpandedShelf(
                     FocusTile(
                         label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
                         onClick = { card.open(context) },
-                        shape = RoundedCornerShape(m.tileRadius),
+                        // The cards are a fixed 150 x 84 dp, so their corners are too: not scaled with text size like Home's tiles.
+                        shape = RoundedCornerShape(Metrics().tileRadius),
                         edgeLight = true,
                         onFocusChange = { if (it) onIndex(i) },
                         modifier = Modifier

@@ -60,7 +60,7 @@ fun FocusTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = Shapes.tile,
-    focusedScale: Float = 1.2f,
+    focusedScale: Float = FOCUSED_SCALE,
     wiggle: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
@@ -125,7 +125,7 @@ fun FocusTile(
                 // drops away and the contact one fades out. Both follow the tile's animated scale.
                 if (shadow) {
                     val k = size.width / 250f
-                    // Touch both bitmaps so their one-time bake lands on the first tile drawn, not the first focus.
+                    // GlassApp bakes the shadows at startup; if a tile draws first, these touch (and wait for) the same lazy bake.
                     val focusImage = TileShadow.focus
                     val contactImage = TileShadow.contact
                     // The tile-coloured glow goes down first, under both shadows, at a strength that doesn't change with focus.
@@ -272,3 +272,6 @@ fun navigationSound(): Int = when {
 }
 
 private const val TILT_DEG = 1.5f
+
+/** How much bigger a focused tile is drawn, unless it says otherwise. */
+const val FOCUSED_SCALE = 1.2f

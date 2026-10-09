@@ -222,6 +222,22 @@ class TileShadowTest {
             assertTrue("$c ${glowAlpha(c)}", glowAlpha(c) in 0f..Kind.Glow.peak)
     }
 
+    @Test fun aTileOfAnotherAspectGetsAShadowCoreEqualToItself() {
+        // The 16:9 shelf cards (150 x 84 dp) next to a 5:3 tile: the core follows the tile on both axes, and the
+        // halo reaches past all four sides. (It was sized from the width alone: 6% too tall under a 16:9 card.)
+        for ((w, h) in listOf(150f to 84f, 250f to 150f, 120f to 100f)) for (kind in Kind.entries) {
+            val k = w / 250f
+            val scale = if (kind == Kind.Focus) 1.2f else 1f
+            val lift = if (kind == Kind.Focus) 1f else 0f
+            val r = TileShadow.destRect(kind, w, h, scale, lift, k)
+            val coreW = kind.coreW * r.width / (kind.coreW + 2 * kind.margin)
+            val coreH = kind.coreH * r.height / (kind.coreH + 2 * kind.margin)
+            assertEquals("$kind on $w x $h: core width", w * scale, coreW, 1f)
+            assertEquals("$kind on $w x $h: core height", h * scale, coreH, 1f)
+            assertTrue("$kind on $w x $h: $r doesn't reach past all four sides", r.left < 0f && r.top < 0f && r.right > w && r.bottom > h)
+        }
+    }
+
     @Test fun strengthsCrossFadeAndStayWithinTheirPeaks() {
         assertEquals(0.10f, TileShadow.alpha(Kind.Contact, 0f), 1e-4f)
         assertEquals(0f, TileShadow.alpha(Kind.Focus, 0f), 1e-4f)
