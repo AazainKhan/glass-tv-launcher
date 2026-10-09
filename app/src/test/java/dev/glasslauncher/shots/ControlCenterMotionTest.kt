@@ -194,7 +194,7 @@ class ControlCenterMotionTest {
             val rootW = compose.onRoot().fetchSemanticsNode().size.width
             val tiles = tileBounds()
             assertTrue("found only ${tiles.keys}", tiles.size >= 5)
-            val landed = 20   // ~340 ms: every row has arrived (the spring's first pass over 1 is ~280 ms)
+            val landed = 27   // ~430 ms: every control has grown out of its drop (P49: open ~350-400 ms, the farthest last)
             for ((name, r) in tiles) {
                 val seq = frames.drop(landed).map { material(it, rootW, r) }
                 val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f

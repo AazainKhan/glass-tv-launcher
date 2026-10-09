@@ -1,5 +1,6 @@
 package dev.glasslauncher.shots
 
+import androidx.compose.animation.core.VectorConverter
 import android.graphics.Bitmap
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -57,7 +58,10 @@ class VisualChecks {
 
     @Test fun appMenuHasNoGhostFrames() = noGhosts("open-app-menu", Button.Menu)
     @Test fun settingsPageHasNoGhostFrames() = noGhosts("settings-page-push", Button.Select, Button.Down, Button.Down, Button.Right, Button.Right, Button.Select)
-    @Test fun controlCenterHasNoGhostFrames() = noGhosts("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up, dimRef = ::unclaimedPatch)
+    // P49: Control Center's shapes fly and grow out of their drops at full opacity (nothing in it fades but the page
+    // icons' glyphs and the header, each for at most two frames: CcMorphTest), and a moving shape's pixels are never its
+    // final ones, so its frames are judged from the moment the open lands.
+    @Test fun controlCenterHasNoGhostFrames() = noGhosts("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up, dimRef = ::unclaimedPatch, fromMs = ccLandedMs())
 
     /**
      * Presses [setup], then [button], and checks every element that appeared for long half-transparent runs.
@@ -67,7 +71,7 @@ class VisualChecks {
      * pixels are compared with is the dimmed scene, not the scene before the wash (a darkening backdrop is not an
      * element fading in).
      */
-    private fun noGhosts(name: String, button: Button, vararg setup: Button, dimRef: ((Bitmap) -> Box)? = null) = onHome {
+    private fun noGhosts(name: String, button: Button, vararg setup: Button, dimRef: ((Bitmap) -> Box)? = null, fromMs: Long = 0) = onHome {
         compose.press(*setup)
         compose.settle()
         val before = capture()
@@ -86,6 +90,7 @@ class VisualChecks {
             val dd = d.sumOf { (it * it).toDouble() }.toFloat()
             if (dimRef == null && dd < 30f * 30f) return@mapNotNull null // can't tell it from what was behind
             for ((i, f) in frames.withIndex()) {
+                if (i * STEP_MS < fromMs) continue
                 val ghost = if (dimRef != null) ghostPixelFraction(before, f, last, box, ratios[i]) > GHOST_PIXELS
                 else (0..2).sumOf { ((mean(f, box)[it] - bg[it]) * d[it]).toDouble() }.toFloat() / dd in 0.2f..0.8f
                 run = if (ghost) run + 1 else 0
@@ -214,6 +219,8 @@ class VisualChecks {
         val sheet = CcMaterial.last ?: throw AssertionError("Control Center made no sheet")
         val box = inner(settings)
         val grey = frames.withIndex().mapNotNull { (i, f) ->
+            // While it grows out of its drop its pixels move (P49); its fill is white from the first frame (a snap).
+            if (i * STEP_MS < ccLandedMs()) return@mapNotNull null
             val ratio = dimRatio(before, f.bitmap, unclaimedPatch(before))
             val share = greyPixelFraction(f.bitmap, box) { x, y, c ->
                 isNear(c, 0xFFFFFFFF.toInt()) || // the lit fill
@@ -237,6 +244,15 @@ class VisualChecks {
         val tiles = descendants(panel).filter { it.config.contains(SemanticsProperties.Focused) }.map { it.toBox() }
         val settings = tiles.firstOrNull { it.name.contains("Settings") && !it.name.contains("Launcher") }
         check(frames, tiles, settings, before)
+    }
+
+    /** When Control Center's open has landed (its spring within 0.1%), plus a frame for the press to arrive. */
+    private fun ccLandedMs(): Long {
+        val v = dev.glasslauncher.home.CcMorph.openSpring.vectorize(Float.VectorConverter)
+        val a = androidx.compose.animation.core.AnimationVector1D(0f); val b = androidx.compose.animation.core.AnimationVector1D(1f)
+        val z = androidx.compose.animation.core.AnimationVector1D(0f)
+        val ms = (0..2000 step 4).first { v.getValueFromNanos(it * 1_000_000L, a, b, z).value >= 0.999f }
+        return ms + STEP_MS
     }
 
     // ── per-pixel measurements ───────────────────────────────────────────────────────────────────

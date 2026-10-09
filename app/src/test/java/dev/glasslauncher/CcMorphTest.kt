@@ -1,158 +1,118 @@
 package dev.glasslauncher
 
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import dev.glasslauncher.home.CcMorph
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** Control Center's open/close (P49): the pill splits into two drops, the controls grow out of them, all from one value. */
 class CcMorphTest {
     private val pill = Rect(1662f, 44f, 1876f, 108f)
-    private val panel = Rect(1300f, 40f, 1880f, 1000f)
+    private val controlsIcon = Rect(1740f, 48f, 1820f, 128f)
+    private val alexaIcon = Rect(1840f, 48f, 1920f, 128f)
 
-    private fun assertRect(want: Rect, got: Rect) {
-        assertEquals(want.left, got.left, 0.01f); assertEquals(want.top, got.top, 0.01f)
-        assertEquals(want.right, got.right, 0.01f); assertEquals(want.bottom, got.bottom, 0.01f)
+    // Frame 1 is the pill: the drops start as its two end circles, as tall as it is, and the neck between them is
+    // the pill's full height (so drops + neck are exactly its capsule).
+    @Test fun theSplitStartsAsThePillsCapsule() {
+        val (l, r) = CcMorph.pillEnds(pill)
+        assertEquals(pill.left + pill.height / 2, l.x, 0.01f); assertEquals(pill.right - pill.height / 2, r.x, 0.01f)
+        val (c, d) = CcMorph.drop(CcMorph.split(0f), l, pill.height, controlsIcon)
+        assertEquals(l, c); assertEquals(pill.height, d, 0.01f)
+        val (ends, waist) = CcMorph.neck(0f, pill.height / 2)!!
+        assertEquals(pill.height / 2, ends, 0.01f); assertEquals(pill.height / 2, waist, 0.01f)
     }
 
-    @Test fun startsExactlyOnThePillAndEndsOnThePanel() {
-        assertRect(pill, CcMorph.rect(0f, pill, panel))
-        assertRect(panel, CcMorph.rect(1f, pill, panel))
+    // The drops land exactly on the page icons by the end of the split, and the neck has parted well before.
+    @Test fun theDropsLandOnThePageIcons() {
+        val q = CcMorph.split(CcMorph.SPLIT_END)
+        assertEquals(1f, q, 0f)
+        val (c, d) = CcMorph.drop(q, CcMorph.pillEnds(pill).second, pill.height, alexaIcon)
+        assertEquals(alexaIcon.center, c); assertEquals(alexaIcon.width, d, 0.01f)
+        assertNull(CcMorph.neck(0.7f, 20f))
+        // The neck only thins (its waist faster than its ends: it pinches).
+        var last = Float.MAX_VALUE
+        for (i in 0..69) { val (e, w) = CcMorph.neck(i / 100f, 20f)!!; assertTrue(w <= e + 0.001f); assertTrue(w <= last + 0.001f); last = w }
     }
 
-    // The bubble stretches out of the pill: its width grows with the open and its sides, top and bottom travel
-    // linearly to the panel's, except that the bottom lags (the capsule stretches down late, so it is never a disc).
-    @Test fun stretchesOutOfThePill() {
-        for (t in listOf(0.1f, 0.3f, 0.5f, 0.8f)) {
-            val r = CcMorph.rect(t, pill, panel)
-            assertEquals(pill.left + (panel.left - pill.left) * t, r.left, 0.01f)
-            assertEquals(pill.right + (panel.right - pill.right) * t, r.right, 0.01f)
-            assertEquals(pill.top + (panel.top - pill.top) * t, r.top, 0.01f)
-            assertEquals(pill.width + (panel.width - pill.width) * t, r.width, 0.01f)
-            assertTrue("t=$t the bottom lags the linear path", r.bottom < pill.bottom + (panel.bottom - pill.bottom) * t - 1f)
-            assertTrue("t=$t the bubble only grows", r.height >= pill.height - 0.01f)
+    // Every control starts as a drop-sized shape at its drop and ends exactly in its slot; nothing jumps.
+    @Test fun controlsGrowOutOfTheirDrop() {
+        val slot = Rect(1400f, 200f, 1600f, 300f)
+        val drop = controlsIcon.center
+        val start = CcMorph.emerge(0f, slot, drop, 80f)
+        assertEquals(80f / 100f, start.scale, 0.001f)
+        assertEquals(drop.x - slot.center.x, start.dx, 0.01f); assertEquals(drop.y - slot.center.y, start.dy, 0.01f)
+        assertEquals(0f, start.round, 0f)
+        assertTrue(CcMorph.emerge(1f, slot, drop, 80f).still)
+        // Continuous along the way: no step bigger than a small fraction of the travel per 1% of progress.
+        var prev = start
+        for (i in 1..100) {
+            val f = CcMorph.emerge(i / 100f, slot, drop, 80f)
+            assertTrue(kotlin.math.abs(f.dx - prev.dx) < 3f && kotlin.math.abs(f.dy - prev.dy) < 3f && kotlin.math.abs(f.scale - prev.scale) < 0.01f)
+            prev = f
         }
     }
 
-    // The settle bounce overshoots a little; a spring undershooting on close never gives a negative size.
-    @Test fun overshootGrowsPastThePanelAndNeverGoesNegative() {
-        assertTrue(CcMorph.rect(1.03f, pill, panel).width > panel.width)
-        val under = CcMorph.rect(-0.05f, pill, panel)
-        assertEquals(pill.width, under.width, 0.01f)
-        assertTrue(under.height >= 0f)
+    // Near controls start first; everything has started by 45% and finishes at 1.
+    @Test fun theStaggerStartsNearControlsFirst() {
+        assertEquals(0.2f, CcMorph.tileStart(0f, 500f), 0.001f)
+        assertEquals(0.45f, CcMorph.tileStart(500f, 500f), 0.001f)
+        assertTrue(CcMorph.tileStart(100f, 500f) < CcMorph.tileStart(300f, 500f))
+        assertEquals(0f, CcMorph.tile(0.2f, 0.3f), 0f)
+        assertEquals(1f, CcMorph.tile(1f, 0.45f), 0f)
     }
 
-    // Very round throughout (a capsule), reaching the tiles' radius only at the end.
-    @Test fun cornersStayCapsuleRoundUntilLate() {
-        assertEquals(pill.height / 2, CcMorph.radius(0f, CcMorph.rect(0f, pill, panel), 26f), 0.01f)
-        for (t in listOf(0.1f, 0.3f, 0.5f, 0.6f)) {
-            val r = CcMorph.rect(t, pill, panel)
-            assertTrue("t=$t radius ${CcMorph.radius(t, r, 26f)} of capsule ${minOf(r.width, r.height) / 2}",
-                CcMorph.radius(t, r, 26f) >= 0.85f * minOf(r.width, r.height) / 2)
-        }
-        assertEquals(26f, CcMorph.radius(1f, panel, 26f), 0.01f)
-        assertEquals(26f, CcMorph.radius(1.03f, panel, 26f), 0.01f)
-        // Never more than a capsule's half (a radius past it would draw a pinched shape).
-        assertTrue(CcMorph.radius(0.05f, CcMorph.rect(0.05f, pill, panel), 26f) <= pill.height)
+    // Home's pill (its copy) fades as the drops form; the icons' glyphs only come in as they land.
+    @Test fun thePillFadesAndTheGlyphsArriveLate() {
+        assertEquals(1f, CcMorph.pillAlpha(0f), 0f); assertEquals(0f, CcMorph.pillAlpha(0.3f), 0f)
+        assertEquals(0f, CcMorph.glyphAlpha(0.2f), 0f); assertEquals(1f, CcMorph.glyphAlpha(CcMorph.SPLIT_END), 0.001f)
     }
 
-    // Closing squeezes the bubble to ~96% of its height on the way back into the pill; opening doesn't.
-    @Test fun closingSqueezesVerticallyToAboutNinetySixPercent() {
-        assertEquals(1f, CcMorph.squeeze(0.5f, closing = false), 0f)
-        assertEquals(1f, CcMorph.squeeze(1f, closing = true), 0.0001f)
-        assertEquals(1f, CcMorph.squeeze(0f, closing = true), 0.0001f)
-        val lowest = (0..100).minOf { CcMorph.squeeze(it / 100f, closing = true) }
-        assertEquals(0.96f, lowest, 0.005f)
-        val squeezed = CcMorph.rect(0.4f, pill, panel, CcMorph.squeeze(0.4f, closing = true))
-        assertTrue(squeezed.height < CcMorph.rect(0.4f, pill, panel).height)
+    // The only fades in Control Center (the page icons' glyphs, the header) last at most two frames (28 ms each) of the
+    // open spring, the ghost rule's limit; every glass shape is opaque throughout.
+    @Test fun theOnlyFadesAreAtMostTwoFrames() {
+        val v = CcMorph.openSpring.vectorize(Float.VectorConverter)
+        val a = androidx.compose.animation.core.AnimationVector1D(0f); val b = androidx.compose.animation.core.AnimationVector1D(1f)
+        val z = androidx.compose.animation.core.AnimationVector1D(0f)
+        fun halfFrames(alpha: (Float) -> Float) = (0..1000 step 28).count { ms -> alpha(v.getValueFromNanos(ms * 1_000_000L, a, b, z).value) in 0.2f..0.8f }
+        assertTrue("glyphs ${halfFrames(CcMorph::glyphAlpha)}", halfFrames(CcMorph::glyphAlpha) <= 2)
+        assertTrue("header ${halfFrames(CcMorph::headerAlpha)}", halfFrames(CcMorph::headerAlpha) <= 2)
     }
 
-    // Closing runs the open's path back: the bubble is the spring value, never past where the close began.
-    @Test fun closingRunsTheBubbleBackAndReversingMidOpenDoesNotJump() {
-        assertEquals(0.5f, CcMorph.bubble(0.5f, closing = false), 0f)
-        assertEquals(0.5f, CcMorph.bubble(0.5f, closing = true), 0f)
+    // Closing runs the open's path back: the progress is the spring value, never past where the close began.
+    @Test fun closingRunsThePathBackAndReversingMidOpenDoesNotJump() {
         for (from in listOf(0.2f, 0.5f, 0.75f, 0.9f, 1f)) {
-            assertEquals("bubble from $from", CcMorph.bubble(from, closing = false), CcMorph.bubble(from, closing = true, from = from), 0.0001f)
-            // The bounce's overshoot never makes a close start past where it began.
+            assertEquals("from $from", CcMorph.bubble(from, closing = false), CcMorph.bubble(from, closing = true, from = from), 0.0001f)
             assertTrue(CcMorph.bubble(1.04f, closing = true, from = from) <= from + 0.0001f)
         }
-        assertEquals(0f, CcMorph.bubble(0f, closing = true), 0f)
         assertEquals(0f, CcMorph.bubble(-0.02f, closing = true), 0f)
-        for (from in listOf(0.2f, 0.5f, 0.75f, 1f)) {
-            assertEquals("squeeze from $from", 1f, CcMorph.squeeze(CcMorph.bubble(from, true, from), true, from), 0.0001f)
-            assertEquals(0.96f, (0..100).minOf { CcMorph.squeeze(from * it / 100f, true, from) }, 0.005f)
-        }
+        assertEquals(1f, CcMorph.bubble(1.03f, closing = false), 0f)
     }
 
-    // Springs (user spec): open 0.76 / 140 with a slight settle bounce; close 0.92 / 225, landing without a wobble.
-    @Test fun springsOvershootSlightlyOnOpenAndLandOnClose() {
-        fun path(spec: androidx.compose.animation.core.SpringSpec<Float>, from: Float, to: Float): Pair<List<Float>, Long> {
+    // User (P49): crisp, no bounce; open ~350-400 ms, close ~250 ms.
+    @Test fun springsAreCrispWithoutBounce() {
+        fun path(spec: androidx.compose.animation.core.SpringSpec<Float>, from: Float, to: Float): List<Float> {
             val v = spec.vectorize(Float.VectorConverter)
             val a = androidx.compose.animation.core.AnimationVector1D(from); val b = androidx.compose.animation.core.AnimationVector1D(to)
             val z = androidx.compose.animation.core.AnimationVector1D(0f)
             val ms = v.getDurationNanos(a, b, z) / 1_000_000
-            return (0..ms step 4).map { v.getValueFromNanos(it * 1_000_000, a, b, z).value } to ms
+            return (0..ms step 4).map { v.getValueFromNanos(it * 1_000_000, a, b, z).value }
         }
-        val (open, openMs) = path(CcMorph.openSpring, 0f, 1f)
-        val peak = open.max()
-        assertTrue("open peak $peak should bounce a little", peak in 1.01f..1.06f)
-        assertEquals(1f, open.last(), 0.002f)
-        val (close, closeMs) = path(CcMorph.closeSpring, 1f, 0f)
-        assertTrue("close undershoot ${close.min()}", close.min() > -0.02f)
-        assertEquals(0f, close.last(), 0.002f)
+        val open = path(CcMorph.openSpring, 0f, 1f)
+        assertTrue("open overshoot ${open.max()}", open.max() < 1.005f)
+        val openMs = open.indexOfFirst { it >= 0.99f } * 4
+        assertTrue("open visibly done at $openMs ms", openMs in 280..420)
+        val close = path(CcMorph.closeSpring, 1f, 0f)
+        assertTrue("close undershoot ${close.min()}", close.min() > -0.005f)
         // The window and the in-launcher overlay are removed once the close has visibly landed (within 1% of the
         // pill), cutting the spring's invisible tail: CLOSE_MS is that time, to within a frame or two.
         val landedMs = close.indexOfFirst { it <= 0.01f } * 4L
+        assertTrue("close lands at $landedMs ms", landedMs in 200..330)
         assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} < visible landing $landedMs", CcMorph.CLOSE_MS >= landedMs)
-        assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} keeps the invisible tail (landing $landedMs, settle $closeMs)", CcMorph.CLOSE_MS <= landedMs + 40)
-        assertTrue("open settles in ${openMs} ms", openMs < 1000)
-    }
-
-    // The first frames are the pill's capsule stretching, never a round disc: while the bubble is less than a
-    // quarter open its aspect stays within 25% of the pill's (the user's phone video: "a dark round disc").
-    @Test fun earlyBubbleKeepsThePillsCapsuleAspect() {
-        val aspect = pill.width / pill.height
-        for (i in 0..25) {
-            val t = i / 100f
-            val r = CcMorph.rect(t, pill, panel)
-            val got = r.width / r.height
-            assertTrue("t=$t aspect $got vs the pill's $aspect", got in aspect * 0.75f..aspect * 1.25f)
-        }
-        // Along the real open spring, the frames before 25% progress are the same capsule.
-        val v = CcMorph.openSpring.vectorize(Float.VectorConverter)
-        val a = androidx.compose.animation.core.AnimationVector1D(0f); val b = androidx.compose.animation.core.AnimationVector1D(1f)
-        val z = androidx.compose.animation.core.AnimationVector1D(0f)
-        var seen = 0
-        for (ms in 0..300 step 4) {
-            val e = v.getValueFromNanos(ms * 1_000_000L, a, b, z).value
-            if (e > 0.25f) break
-            val r = CcMorph.rect(CcMorph.bubble(e, closing = false), pill, panel)
-            assertTrue("at $ms ms (e=$e) the bubble is ${r.width} x ${r.height}", r.width / r.height >= aspect * 0.75f)
-            seen++
-        }
-        assertTrue("the spring has early frames to check", seen >= 3)
-        // It still ends as the tall panel.
-        assertRect(panel, CcMorph.rect(1f, pill, panel))
-    }
-
-    // The bubble stays attached to the pill: its top and right edges leave the pill's smoothly, no drift away from it.
-    @Test fun earlyBubbleStaysAttachedToThePill() {
-        for (t in listOf(0.05f, 0.1f, 0.2f)) {
-            val r = CcMorph.rect(t, pill, panel)
-            assertTrue("top $t", r.top in panel.top - 0.01f..pill.top + 0.01f)
-            assertTrue("t=$t bubble covers the pill's centre", r.contains(pill.center))
-        }
-    }
-
-    // The tiles are clipped to the bubble, so the bubble is what fills the gaps between them: solid until the
-    // panel is nearly open, then it fades to leave the gaps clear (and back in as the close begins).
-    @Test fun bubbleStaysSolidUntilThePanelIsNearlyOpen() {
-        assertEquals(1f, CcMorph.bubbleAlpha(0f), 0f)
-        assertEquals(1f, CcMorph.bubbleAlpha(0.8f), 0f)
-        assertEquals(0f, CcMorph.bubbleAlpha(1f), 0f)
-        assertEquals(0f, CcMorph.bubbleAlpha(1.04f), 0f)
-        assertTrue(CcMorph.bubbleAlpha(0.9f) in 0.01f..0.99f)
+        assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} keeps the invisible tail (landing $landedMs)", CcMorph.CLOSE_MS <= landedMs + 40)
     }
 }
 
