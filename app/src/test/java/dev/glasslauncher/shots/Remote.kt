@@ -91,7 +91,12 @@ fun ComposeTestRule.strip(
     columns: Int = 4,
     scale: Float = 0.25f,
 ): File {
-    val shots = frames(button, frames, stepMs, scale)
+    return sheet(name, frames(button, frames, stepMs, scale), stepMs, columns)
+}
+
+/** Tiles [shots] (taken [stepMs] apart) into build/strips/<name>.png, labelled with their times. */
+fun sheet(name: String, shots: List<Bitmap>, stepMs: Long, columns: Int = 4): File {
+    val frames = shots.size
     val w = shots[0].width; val h = shots[0].height; val gap = 4
     val rows = (frames + columns - 1) / columns
     val sheet = Bitmap.createBitmap(columns * (w + gap) - gap, rows * (h + gap) - gap, Bitmap.Config.ARGB_8888)

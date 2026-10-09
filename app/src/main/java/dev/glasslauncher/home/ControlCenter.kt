@@ -99,35 +99,83 @@ private class CcSizes(k: Float) {
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
 
-/** Control Center's open/close: from the status pill's capsule to the panel. Pure, so it's unit-tested. */
+/**
+ * Control Center's open/close: the status pill's capsule swells into the panel like a drop of liquid, and
+ * shrinks back into the pill. One progress value (0 = the pill, 1 = the panel) drives it, from a spring
+ * that bounces a little past 1 on open. Pure, so it's unit-tested.
+ */
 object CcMorph {
-    /** Opening, like an app opening: a fast start and a long, soft settle. */
-    const val OPEN_MS = 420
-    /** Closing: the same path backwards, a little quicker, landing on the pill. */
-    const val CLOSE_MS = 280
+    /** Opening: a lively spring with a slight settle bounce (tuned by eye). */
+    val openSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.76f, stiffness = 140f, visibilityThreshold = 0.001f)
+    /** Closing: stiffer and almost critically damped, so it lands in the pill without wobbling. */
+    val closeSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.92f, stiffness = 225f, visibilityThreshold = 0.001f)
+    /**
+     * When the close has visibly landed (the spring is within 1% of the pill; the rest is an invisible tail).
+     * The overlay window / in-launcher overlay is removed then, so it stops taking input (a test ties it to the spring).
+     */
+    const val CLOSE_MS = 370
 
-    /** The app-open curve (AppTransition's zoom): fast start, long deceleration. */
-    val openEasing = androidx.compose.animation.core.Easing { x -> ((1f - kotlin.math.exp(-3.5f * x)) / (1f - kotlin.math.exp(-3.5f))) }
-    /** The exact reverse of [openEasing], for animating progress from 1 back to 0. */
-    val closeEasing = androidx.compose.animation.core.Easing { x -> 1f - openEasing.transform(1f - x) }
+    /** The bubble's corner stays capsule-round until this much of the open, then tightens to the tiles' radius. */
+    private const val ROUND_UNTIL = 0.55f
+    /** The tiles appear only once the bubble is this open. */
+    private const val TILES_AFTER = 0.6f
+    /** Closing: the tiles are gone by this progress, and only then does the bubble collapse. */
+    private const val CLOSE_HOLD = 0.85f
+    /** How far the bubble's height squeezes while collapsing into the pill (to 96%). */
+    private const val SQUEEZE = 0.04f
 
-    /** Rows arrive one after another (~20 ms apart at the opening's pace). */
-    private const val ROW_STEP = 0.05f
+    /** Rows arrive one after another, a little apart. */
+    private const val ROW_STEP = 0.03f
     private const val ROWS = 6
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
-    /** The capsule's bounds at progress [t] (0 = the pill, 1 = the panel), anchored at the top-right. */
-    fun rect(t: Float, pill: androidx.compose.ui.geometry.Rect, panel: androidx.compose.ui.geometry.Rect) =
-        androidx.compose.ui.geometry.Rect(lerp(pill.left, panel.left, t), lerp(pill.top, panel.top, t), lerp(pill.right, panel.right, t), lerp(pill.bottom, panel.bottom, t))
+    /**
+     * The bubble's progress (0..1, a little over 1 in the bounce) for the spring's value [e]. Opening it is
+     * the value itself; closing it holds full size while the tiles leave, then collapses. [from] is where
+     * the close began (Back mid-open), so the two directions agree at the turn and nothing jumps.
+     */
+    fun bubble(e: Float, closing: Boolean, from: Float = 1f): Float =
+        if (closing) minOf(from, e / CLOSE_HOLD).coerceAtLeast(0f) else e.coerceAtLeast(0f)
 
-    /** From a capsule (half the pill's height) to the tiles' corner radius. */
-    fun radius(t: Float, pill: androidx.compose.ui.geometry.Rect, tileRadius: Float) = lerp(pill.height / 2f, tileRadius, t)
+    /**
+     * The bubble's bounds at progress [t]: the centre travels from the pill's to the panel's while the size
+     * grows (past 1 it overshoots a little; it never goes negative). [squeeze] scales the height about the centre.
+     */
+    fun rect(t: Float, pill: androidx.compose.ui.geometry.Rect, panel: androidx.compose.ui.geometry.Rect, squeeze: Float = 1f): androidx.compose.ui.geometry.Rect {
+        val p = t.coerceAtLeast(0f)
+        val cx = lerp(pill.center.x, panel.center.x, p); val cy = lerp(pill.center.y, panel.center.y, p)
+        val w = lerp(pill.width, panel.width, p).coerceAtLeast(0f); val h = (lerp(pill.height, panel.height, p) * squeeze).coerceAtLeast(0f)
+        return androidx.compose.ui.geometry.Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+    }
 
-    /** A row's arrival (0..1): from a quarter of the way in, top row first, every row landed by the end. */
-    fun tiles(t: Float, row: Int = 0): Float {
-        val start = 0.25f + row.coerceIn(0, ROWS - 1) * ROW_STEP
-        return ((t - start) / (0.75f - (ROWS - 1) * ROW_STEP)).coerceIn(0f, 1f)
+    /**
+     * Closing squeezes the bubble to ~96% of its height mid-collapse (1 at both ends); opening doesn't. It is
+     * measured against [from] (where the close began), so a Back mid-open starts from 1 and doesn't step.
+     */
+    fun squeeze(t: Float, closing: Boolean, from: Float = 1f): Float =
+        if (!closing) 1f else 1f - SQUEEZE * kotlin.math.sin(Math.PI * Math.pow((t / from.coerceAtLeast(0.01f)).coerceIn(0f, 1f).toDouble(), 0.6)).toFloat()
+
+    /**
+     * The corner radius of [bounds] at progress [t]: a full capsule (half the short side) until late, reaching
+     * the tiles' [tileRadius] only at the end. From the pill's capsule it never passes a capsule's half.
+     */
+    fun radius(t: Float, bounds: androidx.compose.ui.geometry.Rect, tileRadius: Float): Float {
+        val capsule = minOf(bounds.width, bounds.height) / 2f
+        val k = ((t - ROUND_UNTIL) / (1f - ROUND_UNTIL)).coerceIn(0f, 1f)
+        return lerp(capsule, minOf(tileRadius, capsule), k * k)
+    }
+
+    /**
+     * A row's arrival (0..1). Opening: nothing until the bubble is ~60% open, then top row first, every row
+     * landed by the end. Closing: the rows leave first, in the stretch before the bubble starts to collapse.
+     */
+    fun tiles(e: Float, row: Int = 0, closing: Boolean = false, from: Float = 1f): Float {
+        val start = TILES_AFTER + row.coerceIn(0, ROWS - 1) * ROW_STEP
+        val arrival = ((e - start) / (1f - TILES_AFTER - (ROWS - 1) * ROW_STEP)).coerceIn(0f, 1f)
+        if (!closing) return arrival
+        val f = from.coerceIn(0.01f, 1f)
+        return tiles(f, row) * ((e - CLOSE_HOLD * f) / (f * (1f - CLOSE_HOLD))).coerceIn(0f, 1f)
     }
 
     /** Tiles grow a touch as they arrive. */
@@ -136,9 +184,18 @@ object CcMorph {
     /** A row's look at progress [t]: with Reduce Motion it only fades (no rise, no grow). */
     data class RowMotion(val alpha: Float, val rise: Float, val scale: Float)
 
-    fun row(t: Float, row: Int = 0, reduceMotion: Boolean): RowMotion =
-        if (reduceMotion) RowMotion(alpha = t, rise = 0f, scale = 1f)
-        else tiles(t, row).let { a -> RowMotion(alpha = a, rise = 1f - a, scale = scale(a)) }
+    fun row(t: Float, row: Int = 0, reduceMotion: Boolean, closing: Boolean = false, from: Float = 1f): RowMotion =
+        if (reduceMotion) RowMotion(alpha = t.coerceIn(0f, 1f), rise = 0f, scale = 1f)
+        else tiles(t, row, closing, from).let { a -> RowMotion(alpha = a, rise = 1f - a, scale = scale(a)) }
+}
+
+/** One outline: the bubble at progress [b] between the pill and the panel (see [CcMorph]). */
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCcBubble(
+    b: Float, squeeze: Float, pill: androidx.compose.ui.geometry.Rect, panel: androidx.compose.ui.geometry.Rect,
+    color: Color, alpha: Float, tileRadius: Float,
+) {
+    val r = CcMorph.rect(b, pill, panel, squeeze)
+    drawRoundRect(color, topLeft = r.topLeft, size = r.size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(CcMorph.radius(b, r, tileRadius)), alpha = alpha)
 }
 
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
@@ -215,20 +272,24 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
-    // Grows out of the status pill (top right) and shrinks back into it.
-    // Grows out of the status pill: a capsule at the pill's place stretches into the panel, and the tiles
-    // fade up over the last 60%. Closing runs it backwards into the pill. Transforms and one outline per
-    // frame; the tiles' layout never changes.
+    // Grows out of the status pill: its capsule swells into the panel from the pill's centre like a drop of
+    // liquid, the tiles fade up once it is ~60% open, and closing runs the tiles out first, then collapses
+    // the bubble back into the pill. One Animatable drives both directions, so Back mid-open reverses from
+    // wherever it is. Transforms and one outline per frame; the tiles' layout never changes.
     val enter = remember { androidx.compose.animation.core.Animatable(0f) }
     val exiting = LocalOverlayExiting.current
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    // Where the close began (read once, here, so it isn't a per-frame dependency): the bubble and tiles turn from there.
+    val closeFrom = remember(exiting) { if (exiting) androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { enter.value }.coerceIn(0.01f, 1f) else 1f }
     LaunchedEffect(exiting) {
-        if (exiting) enter.animateTo(0f, androidx.compose.animation.core.tween(CcMorph.CLOSE_MS, easing = CcMorph.closeEasing))
-        else enter.animateTo(1f, androidx.compose.animation.core.tween(CcMorph.OPEN_MS, easing = CcMorph.openEasing))
+        // Reduce Motion: no growing bubble, a plain fade (a bounce would pulse the opacity).
+        if (reduceMotion) enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())
+        else if (exiting) enter.animateTo(0f, CcMorph.closeSpring)
+        else enter.animateTo(1f, CcMorph.openSpring)
     }
     // Each row of tiles arrives on its own beat: a fade, a small rise and a slight grow, top to bottom.
-    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     fun Modifier.ccRow(row: Int) = graphicsLayer {
-        val r = CcMorph.row(enter.value, row, reduceMotion)
+        val r = CcMorph.row(enter.value, row, reduceMotion, exiting, closeFrom)
         alpha = r.alpha
         translationY = r.rise * 14.dp.toPx()
         scaleX = r.scale; scaleY = r.scale
@@ -242,7 +303,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     LaunchedEffect(exiting) {
         glassState.textureIn.snapTo(0f)
         if (exiting) return@LaunchedEffect
-        androidx.compose.runtime.snapshotFlow { enter.value >= 1f }.first { it }
+        // Landed, not merely reached: the spring bounces past 1, and the texture must not fade in mid-bounce.
+        androidx.compose.runtime.snapshotFlow { enter.value >= 1f && !enter.isRunning }.first { it }
         androidx.compose.runtime.snapshotFlow { glassState.backdrop != null }.first { it }
         glassState.textureIn.animateTo(1f, androidx.compose.animation.core.tween(180))
     }
@@ -253,8 +315,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     Box(Modifier.fillMaxSize()) {
         // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent layer,
         // and over another app (an overlay window) the system composites it without redrawing anything.
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter.value }.background(CC_DIM))
-        // The capsule: it is the pill on the first frame and the panel's outline by the end, fading out as
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter.value.coerceIn(0f, 1f) }.background(CC_DIM))
+        // The bubble: it is the pill on the first frame and the panel's outline by the end, fading out as
         // the tiles (each with its own glass) arrive.
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             // From the very first frame (before the panel is measured, it's simply the pill), so there's
@@ -262,13 +324,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
             val target = panel ?: from
             val e = enter.value
-            // Reduce Motion: no growing capsule, Control Center simply fades in.
+            // Reduce Motion: no growing bubble, Control Center simply fades in.
             if (reduceMotion) return@Canvas
-            val a = 1f - CcMorph.tiles(e, 0)
+            val a = 1f - CcMorph.tiles(e, 0, exiting, closeFrom)
             if (a <= 0f) return@Canvas
-            val r = CcMorph.rect(e, from, target)
-            val radius = CcMorph.radius(e, from, 26.dp.toPx())
-            drawRoundRect(capsule, topLeft = r.topLeft, size = r.size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius), alpha = a)
+            val b = CcMorph.bubble(e, exiting, closeFrom)
+            drawCcBubble(b, CcMorph.squeeze(b, exiting, closeFrom), from, target, capsule, a, 26.dp.toPx())
         }
         Column(
             horizontalAlignment = Alignment.End,

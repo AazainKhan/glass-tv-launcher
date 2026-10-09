@@ -348,7 +348,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     fun dismiss(overlay: Overlay) {
         exiting.add(overlay)
         scope.launch {
-            delay(Motion.OVERLAY_MS + 40L)
+            // Control Center plays its bubble collapse; the others a short fade.
+            delay(if (overlay == Overlay.ControlCenter) CcMorph.CLOSE_MS + 40L else Motion.OVERLAY_MS + 40L)
             exiting.remove(overlay)
             // Nothing open any more: let go of the screen captures (two full-screen images were held
             // after Control Center closed: perf-gate PSS 131 MB, over budget).
