@@ -283,3 +283,44 @@ def test_app_hero_logo_sits_at_tvos_size(tv, home, pkg):
     cols = [x for x in range(0, 1920, 8) if any(differs(img.getpixel((x, y))) for y in range(180, 560, 12))]
     width = (cols[-1] - cols[0]) if cols else 0
     assert 0 < width <= 1920 * 0.62, f"{pkg}'s logo spans {width}px of 1920; tvOS draws it about half as wide"
+
+
+SPOTIFY = "com.spotify.tv.android"
+
+
+def _cards(tree):
+    """The full-screen row's cards that are on screen, each with the title label under it (or None)."""
+    # Whole cards only: one cut off by the screen edge reports its visible part.
+    cards = [n for n in tree.nodes() if n.rid.startswith("featured:") and n.bounds[2] < 1915 and n.bounds[0] > 5]
+    labels = {n.rid.split(":", 1)[1]: n for n in tree.nodes() if n.rid.startswith("featured-title:")}
+    return [(c, labels.get(c.rid.split(":", 1)[1])) for c in cards]
+
+
+@pytest.mark.parametrize("pkg", [NETFLIX, SPOTIFY])
+def test_every_card_in_full_screen_has_its_title_under_it(tv, home, focused_app, pkg):
+    """Whatever the app, each card in the full-screen row shows its title below it (user, 2026-10-09)."""
+    if pkg not in tv.sh(f"pm list packages {pkg}"):
+        pytest.skip(f"{pkg} isn't installed")
+    _expand(tv, home, pkg)
+    tree = tv.wait_for(lambda t: len(_cards(t)) >= 3 and t, 8, "the row's cards")
+    for card, label in _cards(tree):
+        assert label is not None and label.text.strip(), f"{card.rid} has no title under it"
+        assert label.text.strip() in card.label, f"{card.rid}: the title under it ({label.text!r}) isn't the card's ({card.label!r})"
+        assert label.bounds[1] >= card.bounds[3] - 4, f"{card.rid}: the title should sit below the card"
+        assert abs(label.center[0] - card.center[0]) < (card.bounds[2] - card.bounds[0]) / 2, f"{card.rid}: the title should sit under its card"
+    home.back()
+
+
+def test_spotify_shows_square_covers(tv, home, focused_app):
+    """Spotify's row is playlists and albums: square cover cards, not 16:9 crops (and no promo banner)."""
+    if SPOTIFY not in tv.sh(f"pm list packages {SPOTIFY}"):
+        pytest.skip("Spotify isn't installed")
+    _expand(tv, home, SPOTIFY)
+    tree = tv.wait_for(lambda t: len(_cards(t)) >= 3 and t, 8, "Spotify's cards")
+    for card, _ in _cards(tree):
+        w, h = card.bounds[2] - card.bounds[0], card.bounds[3] - card.bounds[1]
+        assert abs(w - h) <= 0.06 * h, f"{card.rid} is {w}x{h}, not a square cover"
+    assert not tree.has_text("Listen to music and podcasts for free"), "Spotify's free-tier promo isn't a cover"
+    title = tree.find(rid="featured-title:" + tree.focused().rid.split(":", 1)[1]).text
+    assert sum(1 for n in tree.nodes() if n.text == title and n.center[1] < 900) <= 1, f"the details repeat the title {title!r}"
+    home.back()

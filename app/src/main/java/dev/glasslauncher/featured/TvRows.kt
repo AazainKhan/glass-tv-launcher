@@ -46,7 +46,7 @@ object TvRows {
         val channels = query(context, CHANNELS, arrayOf("_id", "display_name"), "package_name=? AND type=?", arrayOf(pkg, "TYPE_PREVIEW")) { c ->
             c.long("_id") to (c.str("display_name") ?: "")
         }.sortedByDescending { CONTINUE.containsMatchIn(it.second) }
-        val items = channels.flatMap { (id, _) -> previewItems(context, id) }.filterNotNull().distinctBy { it.title }.take(12)
+        val items = CardShape.uniform(channels.flatMap { (id, _) -> previewItems(context, id) }.filterNotNull().distinctBy { it.title }).take(12)
         FeaturedFeed(channels.firstOrNull()?.second?.ifBlank { null } ?: label, items)
     }
 
@@ -73,7 +73,8 @@ object TvRows {
             id = "tv:$pkg:${long("_id")}",
             title = title,
             subtitle = subtitle,
-            description = str("short_description"),
+            // Spotify repeats the title as its description; show nothing rather than the title twice.
+            description = str("short_description")?.takeUnless { it.equals(title, ignoreCase = true) },
             image = image,
             link = str("intent_uri"),
             packages = listOf(pkg),
@@ -83,6 +84,8 @@ object TvRows {
             durationMin = (durationMs / 60_000).toInt().takeIf { it > 0 },
             episode = if (season != null && episode != null) "S$season, E$episode" else null,
             progress = if (durationMs > 0 && positionMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else null,
+            // The art shown is the poster (its own aspect) unless it fell back to the thumbnail (16:9).
+            aspect = if (image == poster) CardShape.fromTvContract(aspect) else null,
         )
     }
 

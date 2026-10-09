@@ -43,6 +43,8 @@ data class FeaturedItem(
     val episode: String? = null,
     /** How far it has been watched (0..1), for Resume; null if never started. */
     val progress: Float? = null,
+    /** The art's width / height when the source says (TV rows do: Spotify's covers are 1:1); null is 16:9. */
+    val aspect: Float? = null,
 ) {
     /** The details line under the title, in tvOS's order: rating · year · episode · duration · genre. */
     fun metaLine(): String? {

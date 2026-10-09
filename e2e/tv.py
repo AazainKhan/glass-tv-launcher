@@ -255,9 +255,17 @@ class TV:
         recorder first (tv-live), or the numbers are meaningless."""
         out = self.sh(f"dumpsys gfxinfo {PKG}")
         num = lambda pat: float((re.search(pat, out) or [0, 0])[1])
+        frames = int(num(r"Total frames rendered: (\d+)"))
+        # Janky = frames that missed their deadline. gfxinfo's own "Janky frames" also counts every frame
+        # Android 11 flags "high input latency", which includes each frame of an animation that runs long
+        # after the last key (the Top Shelf slideshow's cross-fades): 61 of 64 "janky" frames on a resting
+        # tray were that, drawn on time (2026-10-09).
+        missed = num(r"Number Frame deadline missed: (\d+)")
         return {
-            "frames": int(num(r"Total frames rendered: (\d+)")),
-            "janky_pct": num(r"Janky frames: \d+ \(([\d.]+)%\)"),
+            "frames": frames,
+            "janky_pct": round(100 * missed / frames, 2) if frames else 0.0,
+            "gfxinfo_janky_pct": num(r"Janky frames: \d+ \(([\d.]+)%\)"),
+            "input_latency": int(num(r"Number High input latency: (\d+)")),
             "p90": num(r"90th percentile: (\d+)ms"),
             "p99": num(r"99th percentile: (\d+)ms"),
         }

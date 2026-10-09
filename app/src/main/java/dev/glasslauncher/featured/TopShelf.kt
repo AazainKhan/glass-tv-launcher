@@ -180,6 +180,10 @@ fun ExpandedShelf(
                 // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).
                 Spacer(Modifier.height(18.dp))
             }
+            // Square cover cards when the row's art is square (Spotify's playlists and albums), 16:9 otherwise.
+            val square = remember(feed) { CardShape.square(feed.items) }
+            val cardWidth = if (square) 100.dp else 150.dp
+            val cardHeight = if (square) 100.dp else 84.dp
             Text(feed.heading, style = Type.label, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(start = m.inset, bottom = 18.dp).testTag("shelf-heading"))
             LazyRow(
                 state = listState,
@@ -205,23 +209,33 @@ fun ExpandedShelf(
                     .testTag("featured-row"),
             ) {
                 itemsIndexed(feed.items, key = { _, it -> it.id }) { i, card ->
-                    val request = remember(card.image) {
-                        ImageRequest.Builder(context).data(card.image).size(300, 170).crossfade(false).build()
+                    val request = remember(card.image, square) {
+                        ImageRequest.Builder(context).data(card.image).size(if (square) 200 else 300, if (square) 200 else 170).crossfade(false).build()
                     }
-                    FocusTile(
-                        label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
-                        onClick = { card.open(context) },
-                        // The cards are a fixed 150 x 84 dp, so their corners are too: not scaled with text size like Home's tiles.
-                        shape = RoundedCornerShape(Metrics().tileRadius),
-                        edgeLight = true,
-                        onFocusChange = { if (it) onIndex(i) },
-                        modifier = Modifier
-                            .width(150.dp)
-                            .height(84.dp)
-                            .then(if (i == index) Modifier.focusRequester(firstCard) else Modifier)
-                            .testTag("featured:${card.id}"),
-                    ) {
-                        AsyncImage(request, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    // Every card carries its title underneath, whatever the app (user, 2026-10-09).
+                    Column(Modifier.width(cardWidth)) {
+                        FocusTile(
+                            label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
+                            onClick = { card.open(context) },
+                            // The cards are a fixed size, so their corners are too: not scaled with text size like Home's tiles.
+                            shape = RoundedCornerShape(Metrics().tileRadius),
+                            edgeLight = true,
+                            onFocusChange = { if (it) onIndex(i) },
+                            modifier = Modifier
+                                .width(cardWidth)
+                                .height(cardHeight)
+                                .then(if (i == index) Modifier.focusRequester(firstCard) else Modifier)
+                                .testTag("featured:${card.id}"),
+                        ) {
+                            AsyncImage(request, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                        Text(
+                            card.title, style = Type.caption, color = Color.White.copy(alpha = 0.85f),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            // Clear of the focused card's grow (1.1x) and its edge light.
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).testTag("featured-title:${card.id}"),
+                        )
                     }
                 }
             }

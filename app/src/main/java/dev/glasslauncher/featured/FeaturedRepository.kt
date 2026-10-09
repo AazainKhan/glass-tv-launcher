@@ -16,7 +16,7 @@ import okhttp3.OkHttpClient
 import java.io.File
 
 /** Bump when FeaturedItem gains data a cached feed wouldn't have. */
-private const val FEED_VERSION = 2
+private const val FEED_VERSION = 3
 
 /** The cache key for [cfg]'s feed, versioned so a feed cached before items gained a field (logos) is fetched again. */
 fun cacheKey(cfg: FeaturedConfig) = "$FEED_VERSION:$cfg"

@@ -37,8 +37,11 @@ pss_kb="$(adb shell "dumpsys meminfo \$(pidof $PKG)" | tr -d '\r' | awk '/TOTAL 
 # Idle CPU: utime+stime ticks (100/s) over 5 quiet seconds. toybox top's %CPU is unreliable here.
 cpu="$(adb shell "p=\$(pidof $PKG); a=\$(awk '{print \$14+\$15}' /proc/\$p/stat); sleep 5; b=\$(awk '{print \$14+\$15}' /proc/\$p/stat); echo \$((b-a))" | tr -d "\r" | awk '{printf "%.1f", $1/5}')"
 num() { echo "$gfx" | sed -n "s/.*$1: *\([0-9.]*\).*/\1/p" | head -1; }
-printf '{"pkg":"%s","keys":%d,"frames":%s,"janky":%s,"jankyPct":%s,"p50":%s,"p90":%s,"p95":%s,"p99":%s,"pssMB":%s,"idleCpuPct":%s}\n' \
+# deadlineMissed and highInputLatency split gfxinfo's "Janky frames": Android 11 also flags frames of an
+# animation running long after the last key (the slideshow) as high input latency, drawn on time or not.
+printf '{"pkg":"%s","keys":%d,"frames":%s,"janky":%s,"deadlineMissed":%s,"highInputLatency":%s,"jankyPct":%s,"p50":%s,"p90":%s,"p95":%s,"p99":%s,"pssMB":%s,"idleCpuPct":%s}\n' \
   "$PKG" "$(( ROUNDS * ${#KEYS[@]} ))" "$(num 'Total frames rendered')" "$(num 'Janky frames')" \
+  "$(num 'Number Frame deadline missed')" "$(num 'Number High input latency')" \
   "$(echo "$gfx" | sed -n 's/.*Janky frames: [0-9]* (\([0-9.]*\)%).*/\1/p' | head -1)" \
   "$(num '50th percentile')" "$(num '90th percentile')" "$(num '95th percentile')" "$(num '99th percentile')" \
   "$(( ${pss_kb:-0} / 1024 ))" "${cpu:-null}"
