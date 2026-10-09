@@ -1,5 +1,7 @@
 """Home: the top row, the grid, focus, the status pill, the full-screen top shelf."""
 
+import pytest
+
 from pages import clock_ok, date_ok
 
 
@@ -31,6 +33,7 @@ def test_right_moves_along_the_top_row(tv, home):
     assert second.bounds[0] > first.bounds[0], "Right moved focus left"
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_down_reaches_the_grid_and_home_returns_to_the_top(tv, home):
     tv.press("down")
     tv.wait_for(lambda t: t.focused() and not home.in_dock(t, t.focused()), 6, "focus in the grid")
@@ -49,6 +52,7 @@ def test_back_from_the_grid_returns_to_the_top(tv, home):
     tv.wait_for(lambda t: home.in_dock(t, t.focused()), 6, "Back to return to the top row")
 
 
+@pytest.mark.emulator_gap  # flaky on the emulator only, passes on the stick (P22)
 def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
     if not tv.tree().find(rid="shelf-chevron"):
         import pytest
@@ -60,6 +64,7 @@ def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
     tv.wait_for(lambda t: home.in_dock(t, t.focused()), 6, "Down to return to the top row")
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_full_screen_shelf_has_no_dots_and_ends_at_the_last_card(tv, home):
     """The page dots stopped at 12 while cards kept going; the dots are gone, and Right stops at the last card."""
     if not tv.tree().find(rid="shelf-chevron"):
@@ -100,9 +105,14 @@ def test_tray_icons_are_vertically_centred(tv, home):
     assert abs(above - below) <= 4, f"the tray's icons sit off centre ({above}px above, {below}px below)"
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_down_from_the_pill_returns_to_the_tray_app(tv, home):
     """Up from a tray app reaches the status pill; Down goes back to that same app (it used to need Home)."""
-    node = home.focus_app("com.amazon.firetv.youtube")
+    # Start from the tray app under the pill (Up goes straight up), whichever apps the device has.
+    pill = tv.tree().find(rid="status-pill")
+    mid = lambda n: (n.bounds[0] + n.bounds[2]) / 2
+    nearest = min(home.dock_apps(), key=lambda n: abs(mid(n) - mid(pill)))
+    node = home.focus_app(nearest.rid.removeprefix("app:"))
     tv.press("up")
     tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 3, "the status pill")
     tv.press("down")

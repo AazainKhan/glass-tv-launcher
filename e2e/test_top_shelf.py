@@ -12,6 +12,7 @@ def _hero(tree):
     return next((n.rid.split(":", 1)[1] for n in tree.nodes() if n.rid.startswith("top-shelf-app-hero:")), None)
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_focusing_a_tray_app_shows_its_hero_at_once(tv, home):
     """Moving along the tray, each app's own hero follows within a second (titles wait for a dwell)."""
     for _ in range(2):

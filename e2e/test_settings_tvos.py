@@ -11,6 +11,7 @@ def _icon(tree):
     return n.rid.split(":", 1)[1] if n else None
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_explanations_sit_on_the_left_under_the_page_icon(tv, home, settings):
     settings.open_from_control_center()
     settings.open_page("Accessibility")

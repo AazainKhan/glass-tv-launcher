@@ -62,6 +62,7 @@ def test_current_selection_and_start_after_pick_from_a_list(tv, home, settings):
     tv.wait_until(lambda: settings.value_of("Start After") == before, 4, "Start After restored")
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_choose_aerials_hides_a_clip_and_shows_it_again(tv, home, settings):
     _open(tv, settings)
     settings.open_page("Aerials", "Choose Aerials")

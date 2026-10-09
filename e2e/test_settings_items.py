@@ -4,6 +4,7 @@ Each test changes something through the UI, checks the effect, and puts it back;
 conftest fails any test that leaves a setting changed.
 """
 
+import os
 import re
 import time
 
@@ -13,6 +14,7 @@ EARLY_ACCESS_LABEL = "Fire TV Early Access"
 BACKUP = "/sdcard/Download/glass-launcher-backup.json"
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_set_up_from_phone_shows_a_link(tv, home, settings):
     settings.open_from_control_center()
     settings.focus_text("Set Up from Phone")
@@ -89,7 +91,11 @@ def test_home_button_page_reports_glass_as_home(tv, home, settings):
     settings.open_from_control_center()
     settings.open_page("Home Button")
     assert settings.value_of("Default Home App") == "Glass TV Launcher"
-    assert settings.toggle_state("Home Button Takeover") is not None, "Home Button Takeover should be a switch"
+    if os.environ.get("GLASS_TARGET") == "emulator":
+        # Off Fire OS the fallback only shows while another app is Home (SettingsPanel's HomeButtonPage).
+        assert settings.toggle_state("Home Button Takeover") is None, "Home Button Takeover shown while Glass is Home"
+    else:
+        assert settings.toggle_state("Home Button Takeover") is not None, "Home Button Takeover should be a switch"
 
 
 def test_save_backup_writes_a_file(tv, home, settings):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from typing import Callable
@@ -124,6 +125,10 @@ class Home(Screen):
         return [n for n in tree.nodes() if (n.rid.startswith("app:") or n.rid.startswith("folder:")) and not self.in_dock(tree, n)]
 
     def focus_app(self, pkg: str) -> Node:
+        # The emulator has none of the stick's streaming apps: skip rather than walk the whole screen.
+        if os.environ.get("GLASS_TARGET") == "emulator" and not self.tv.sh(f"pm path {pkg}").strip():
+            import pytest
+            pytest.skip(f"{pkg} isn't installed on the emulator")
         return self.focus(lambda n: n.rid == f"app:{pkg}", f"app {pkg}")
 
     def focus_folder(self) -> Node:

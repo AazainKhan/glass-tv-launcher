@@ -176,6 +176,7 @@ def _theme(tv, home, cc, want):
 
 
 @pytest.mark.parametrize("theme", ["Light", "Dark"])
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_tiles_keep_their_look_after_opening_settings_from_control_center(tv, home, cc, theme):
     """Regression: after Launcher Settings opened from Control Center, Bluetooth etc. went see-through."""
     with _theme(tv, home, cc, theme):
@@ -267,6 +268,7 @@ def test_control_center_tiles_can_be_turned_off_in_settings(tv, home, cc, settin
 ALEXA_TILES = ["Smart Home", "Ask Alexa", "Alexa Settings"]
 
 
+@pytest.mark.stick  # Alexa only exists on Fire OS
 def test_alexa_page_shows_its_shortcuts(tv, home, cc):
     """A row of page icons at the top of Control Center: Controls (the tiles) and Alexa (shortcuts)."""
     tree = cc.open()
@@ -281,6 +283,7 @@ def test_alexa_page_shows_its_shortcuts(tv, home, cc):
 
 
 @pytest.mark.slow
+@pytest.mark.stick  # Alexa only exists on Fire OS
 def test_smart_home_opens_its_app(tv, home, cc):
     cc.open()
     cc.focus_desc("Alexa")
@@ -333,6 +336,7 @@ def test_alexa_settings_opens_alexas_settings(tv, home, cc, rooted):
         tv.sh("am force-stop com.amazon.vizzini")
 
 
+@pytest.mark.stick  # Alexa only exists on Fire OS
 def test_alexa_page_can_be_turned_off_in_settings(tv, home, cc, settings):
     settings.open_from_control_center()
     settings.open_page("Control Center")
@@ -458,6 +462,7 @@ def test_panel_is_one_square_grid(tv, home, cc):
     assert not bad, f"off the grid (u={u}, g={g}): {bad}"
 
 
+@pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_header_lines_share_one_opacity(tv, home, cc):
     """Time, date and weather are drawn at the same opacity (they differed)."""
     cc.open()

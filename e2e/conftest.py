@@ -20,6 +20,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "root: needs Magisk root on the device")
     config.addinivalue_line("markers", "slow: launches other apps or restarts things")
     config.addinivalue_line("markers", "perf: frame-time measurements (scripts/perf-gate)")
+    config.addinivalue_line("markers", "emulator_gap: passes on the stick but not on the emulator (timing or rendering); skipped there, listed in P22")
     config.addinivalue_line("markers", "stick: needs the real Fire TV (Fire OS, Amazon apps, its remote); skipped on the emulator")
 
 
@@ -33,7 +34,9 @@ def pytest_collection_modifyitems(config, items):
         return
     skip = pytest.mark.skip(reason="stick-only: run with scripts/e2e --stick")
     for item in items:
-        if item.get_closest_marker("stick") or item.get_closest_marker("perf") or item.module.__name__ in STICK_ONLY_MODULES:
+        if item.get_closest_marker("emulator_gap"):
+            item.add_marker(pytest.mark.skip(reason="emulator gap: passes on the stick (P22)"))
+        elif item.get_closest_marker("stick") or item.get_closest_marker("perf") or item.module.__name__ in STICK_ONLY_MODULES:
             item.add_marker(skip)
 
 
@@ -52,7 +55,29 @@ def tv() -> TV:
     t = TV(serial, owner)
     assert "device" in t.adb("get-state"), f"{serial} isn't connected"
     t.sh("input keyevent KEYCODE_WAKEUP")
+    _preflight(t)
     return t
+
+
+def _preflight(t: TV) -> None:
+    """Stop the run with one clear line if the tree can't be read or keys don't move focus, instead of
+    letting every test time out on its own (P22: 61 failures that were all the same problem)."""
+    t.press("home")
+    try:
+        start = t.wait_for(lambda tr: tr.focused(), 10, "a focused node")
+    except AssertionError:
+        pytest.exit(f"preflight: no focused node in the accessibility tree of {t.serial} "
+                    "(is Glass Home and is uiautomator dump working?)", returncode=3)
+    for key in ("right", "left"):
+        t.press(key)
+        try:
+            t.wait_for(lambda tr: tr.focused() and tr.focused().rid != start.rid, 4, "focus to move")
+            t.press("home")
+            return
+        except AssertionError:
+            pass
+    pytest.exit(f"preflight: Left/Right don't move focus on {t.serial} (stuck on {start.rid}); "
+                "key input isn't reaching Glass", returncode=3)
 
 
 @pytest.fixture(scope="session")

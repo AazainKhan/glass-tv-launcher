@@ -162,6 +162,7 @@ TV_SECTIONS = {
 
 
 @pytest.mark.slow
+@pytest.mark.stick  # Fire OS Settings activities
 @pytest.mark.parametrize("section", list(TV_SECTIONS))
 def test_every_tv_settings_section_opens(tv, home, cc, section):
     """Each row opens Fire TV's own page for it, and the page stays up (some finish at once without an action)."""
