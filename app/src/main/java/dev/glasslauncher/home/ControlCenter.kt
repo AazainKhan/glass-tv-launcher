@@ -109,8 +109,11 @@ object CcMorph {
     val openSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.76f, stiffness = 140f, visibilityThreshold = 0.001f)
     /** Closing: stiffer and almost critically damped, so it lands in the pill without wobbling. */
     val closeSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.92f, stiffness = 225f, visibilityThreshold = 0.001f)
-    /** The close spring has landed by then; the window / overlay is removed after it (tests check this). */
-    const val CLOSE_MS = 600
+    /**
+     * When the close has visibly landed (the spring is within 1% of the pill; the rest is an invisible tail).
+     * The overlay window / in-launcher overlay is removed then, so it stops taking input (a test ties it to the spring).
+     */
+    const val CLOSE_MS = 370
 
     /** The bubble's corner stays capsule-round until this much of the open, then tightens to the tiles' radius. */
     private const val ROUND_UNTIL = 0.55f
@@ -146,9 +149,12 @@ object CcMorph {
         return androidx.compose.ui.geometry.Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     }
 
-    /** Closing squeezes the bubble to ~96% of its height mid-collapse (1 at both ends); opening doesn't. */
-    fun squeeze(t: Float, closing: Boolean): Float =
-        if (!closing) 1f else 1f - SQUEEZE * kotlin.math.sin(Math.PI * Math.pow(t.coerceIn(0f, 1f).toDouble(), 0.6)).toFloat()
+    /**
+     * Closing squeezes the bubble to ~96% of its height mid-collapse (1 at both ends); opening doesn't. It is
+     * measured against [from] (where the close began), so a Back mid-open starts from 1 and doesn't step.
+     */
+    fun squeeze(t: Float, closing: Boolean, from: Float = 1f): Float =
+        if (!closing) 1f else 1f - SQUEEZE * kotlin.math.sin(Math.PI * Math.pow((t / from.coerceAtLeast(0.01f)).coerceIn(0f, 1f).toDouble(), 0.6)).toFloat()
 
     /**
      * The corner radius of [bounds] at progress [t]: a full capsule (half the short side) until late, reaching
@@ -323,7 +329,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val a = 1f - CcMorph.tiles(e, 0, exiting, closeFrom)
             if (a <= 0f) return@Canvas
             val b = CcMorph.bubble(e, exiting, closeFrom)
-            drawCcBubble(b, CcMorph.squeeze(b, exiting), from, target, capsule, a, 26.dp.toPx())
+            drawCcBubble(b, CcMorph.squeeze(b, exiting, closeFrom), from, target, capsule, a, 26.dp.toPx())
         }
         Column(
             horizontalAlignment = Alignment.End,

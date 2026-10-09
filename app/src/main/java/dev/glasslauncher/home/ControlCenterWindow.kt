@@ -95,7 +95,10 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     fun toggle() = if (showing) hide() else show()
 
     fun show() {
-        if (view != null) { if (exiting) { exiting = false; open = true }; return }
+        if (view != null) {
+            if (exiting) { exiting = false; open = true; removal?.let(handler::removeCallbacks); takesInput(true) }
+            return
+        }
         exiting = false
         shownAt = android.os.SystemClock.uptimeMillis()
         // Built once and kept: its composition survives the window being removed, so a second open only
@@ -128,12 +131,25 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         } else captureThenAttach(::attach)
     }
 
+    /** The pending window removal of a close, cancelled if Control Center re-opens meanwhile. */
+    private var removal: Runnable? = null
+
+    /** Whether the window takes focus and touches; off from the moment a close starts, so Select/D-pad reach the app below. */
+    private fun takesInput(on: Boolean) {
+        val v = view ?: return
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val off = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        lp.flags = if (on) lp.flags and off.inv() else lp.flags or off
+        runCatching { windows.updateViewLayout(v, lp) }
+    }
+
     /** Plays the exit (the same curve as the entrance), then removes the window. */
     fun hide() {
         val v = view ?: return
         if (exiting) return
         exiting = true
-        handler.postDelayed({
+        takesInput(false)
+        val remove = Runnable {
             if (view === v && exiting) {
                 runCatching { windows.removeView(v) }
                 view = null
@@ -145,7 +161,9 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                 open = false
                 lifecycleRegistry.currentState = Lifecycle.State.CREATED
             }
-        }, CcMorph.CLOSE_MS + 20L)
+        }
+        removal = remove
+        handler.postDelayed(remove, CcMorph.CLOSE_MS + 20L)
     }
 
     private fun apply(baked: dev.glasslauncher.glass.Backdrop) {

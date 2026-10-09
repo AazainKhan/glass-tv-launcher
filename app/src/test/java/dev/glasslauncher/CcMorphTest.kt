@@ -93,6 +93,11 @@ class CcMorphTest {
             assertEquals("bubble from $from", CcMorph.bubble(from, closing = false), CcMorph.bubble(from, closing = true, from = from), 0.0001f)
             for (row in 0..5) assertEquals("row $row from $from", CcMorph.tiles(from, row), CcMorph.tiles(from, row, closing = true, from = from), 0.0001f)
         }
+        // The squeeze starts from 1 at the turn (no height step), and still reaches ~96% on the way in.
+        for (from in listOf(0.2f, 0.5f, 0.75f, 1f)) {
+            assertEquals("squeeze from $from", 1f, CcMorph.squeeze(CcMorph.bubble(from, true, from), true, from), 0.0001f)
+            assertEquals(0.96f, (0..100).minOf { CcMorph.squeeze(from * it / 100f, true, from) }, 0.005f)
+        }
         // Then it still collapses fully.
         assertEquals(0f, CcMorph.bubble(0f, closing = true, from = 0.5f), 0f)
         assertEquals(0f, CcMorph.tiles(0.1f, 0, closing = true, from = 0.9f), 0f)
@@ -114,8 +119,11 @@ class CcMorphTest {
         val (close, closeMs) = path(CcMorph.closeSpring, 1f, 0f)
         assertTrue("close undershoot ${close.min()}", close.min() > -0.02f)
         assertEquals(0f, close.last(), 0.002f)
-        // The window and the in-launcher overlay stay up until the close has landed.
-        assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} < spring $closeMs", CcMorph.CLOSE_MS >= closeMs)
+        // The window and the in-launcher overlay are removed once the close has visibly landed (within 1% of the
+        // pill), cutting the spring's invisible tail: CLOSE_MS is that time, to within a frame or two.
+        val landedMs = close.indexOfFirst { it <= 0.01f } * 4L
+        assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} < visible landing $landedMs", CcMorph.CLOSE_MS >= landedMs)
+        assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} keeps the invisible tail (landing $landedMs, settle $closeMs)", CcMorph.CLOSE_MS <= landedMs + 40)
         assertTrue("open settles in ${openMs} ms", openMs < 1000)
     }
 
