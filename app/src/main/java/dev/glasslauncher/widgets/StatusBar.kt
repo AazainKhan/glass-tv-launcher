@@ -118,21 +118,26 @@ fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
     val text by produceState(format(pattern), pattern) {
         while (true) {
             value = format(pattern)
-            delay(step - System.currentTimeMillis() % step + 20)
+            delay(step - WallClock.now() % step + 20)
         }
     }
     return text
+}
+
+/** The time the clock and date widgets show. The system's, except that the JVM shot harness pins it (Date() ignores Robolectric's clock). */
+object WallClock {
+    @Volatile var now: () -> Long = System::currentTimeMillis
 }
 
 /** Today's date, short ("Tue, Oct 7"). Checked once a minute, like the clock, so it turns over at midnight. */
 @Composable
 fun rememberDate(): String {
     // US English abbreviations ("Wed, Oct 7"); en_CA adds periods ("Wed., Oct. 7").
-    fun today() = SimpleDateFormat(DATE_PATTERN, Locale.US).format(Date())
+    fun today() = SimpleDateFormat(DATE_PATTERN, Locale.US).format(Date(WallClock.now()))
     val text by produceState(today()) {
         while (true) {
             value = today()
-            delay(60_000L - System.currentTimeMillis() % 60_000L + 20)
+            delay(60_000L - WallClock.now() % 60_000L + 20)
         }
     }
     return text
@@ -143,7 +148,7 @@ private const val DATE_PATTERN = "EEE, MMM d"
 // AM/PM as "AM"/"PM" whatever the locale's markers are (en_CA writes "p.m.").
 private fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).apply {
     dateFormatSymbols = dateFormatSymbols.apply { amPmStrings = arrayOf("AM", "PM") }
-}.format(Date())
+}.format(Date(WallClock.now()))
 
 /** The settings gear (Material Symbols, filled): one clean silhouette at every size. */
 @Composable

@@ -55,6 +55,19 @@ object TvHarness {
         dev.glasslauncher.home.HomeModel.DEFAULT_DOCK.filter { it in fakeApps }.distinct().take(dev.glasslauncher.home.DOCK_SIZE)
     }
 
+    /**
+     * The clock, date and status pill read [dev.glasslauncher.widgets.WallClock] (java.util.Date ignores
+     * Robolectric's clock), so pin it: a fixed zone and instant, never the machine's. GLASS_SHOTS_TIME=HH:mm
+     * (UTC, on 2026-10-07) overrides the default 09:41; the baselines must hold at every time (the clock is
+     * masked), which is how that is proven.
+     */
+    private fun pinClock() {
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
+        val (h, m) = (System.getenv("GLASS_SHOTS_TIME")?.takeIf { it.isNotBlank() } ?: "09:41").split(":").map { it.toInt() }
+        val at = java.time.LocalDate.of(2026, 10, 7).atTime(h, m).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        dev.glasslauncher.widgets.WallClock.now = { at }
+    }
+
     /** Package -> label, in install order. */
     val apps: Map<String, String> get() = fakeApps.mapValues { it.value.label }
 
@@ -64,6 +77,7 @@ object TvHarness {
      */
     fun setUp(featured: Boolean = true, config: (LauncherConfig) -> LauncherConfig = { it }) {
         blockNetwork()
+        pinClock()
         useBitmapFactoryForImages()
         installApps()
         if (featured) seedFeatured()

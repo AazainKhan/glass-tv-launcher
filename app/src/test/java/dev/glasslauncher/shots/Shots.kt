@@ -54,12 +54,17 @@ fun ComposeTestRule.stableImage(): Bitmap {
     run {
         for (node in volatileNodes) {
             val r = node.boundsInRoot
-            // A box at least 448 px wide from whichever edge is anchored (the pill grows leftwards, the
-            // Control Center clock rightwards), padded for text shadow, so the mask doesn't move between runs.
-            val grid = 64f  // snap edges so a few px of text-width change never moves the mask itself
-            val l = kotlin.math.floor((minOf(r.left, r.right - 448f) - 24) / grid) * grid
-            val rt = kotlin.math.ceil((maxOf(r.right, r.left + 448f) + 24) / grid) * grid
-            canvas.drawRect(l, kotlin.math.floor((r.top - 24) / grid) * grid, rt, kotlin.math.ceil((r.bottom + 24) / grid) * grid, paint)
+            // A box 448 px wide, grown from the edge the text is anchored to: the pill sits against the screen's
+            // right edge and grows leftwards, the Control Center clock and date start at a fixed left edge and
+            // grow rightwards. Only the anchored edge (which doesn't depend on the text) positions the box, so
+            // it is identical for "9:36 AM" and "10:05 AM", "Wed, Oct 7" and "Wed, Oct 14". The old box took
+            // min/max over both anchors, so the text's free edge moved it across a 64 px snap boundary.
+            val grid = 64f  // snap edges so a pixel of layout drift never moves the mask itself
+            val pad = 24f   // text shadow
+            val rightAnchored = bitmap.width - r.right < 256f
+            val l = kotlin.math.floor(((if (rightAnchored) r.right - 448f else r.left) - pad) / grid) * grid
+            val rt = kotlin.math.ceil(((if (rightAnchored) r.right else r.left + 448f) + pad) / grid) * grid
+            canvas.drawRect(l, kotlin.math.floor((r.top - pad) / grid) * grid, rt, kotlin.math.ceil((r.bottom + pad) / grid) * grid, paint)
         }
     }
     return bitmap
