@@ -1211,6 +1211,7 @@ fun TileWithLabel(
             onLongClick = onMenu,
             wiggle = moving,
             shadow = !glassBackground,
+            edgeLight = true,
             shape = RoundedCornerShape(m.tileRadius),
             onFocusChange = { focused = it; if (it) onFocused() },
             modifier = Modifier

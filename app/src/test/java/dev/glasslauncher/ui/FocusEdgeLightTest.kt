@@ -3,9 +3,11 @@ package dev.glasslauncher.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -39,22 +41,24 @@ import org.robolectric.annotation.Config
 class FocusEdgeLightTest {
     @get:Rule val compose = createComposeRule()
 
-    /** One 150x90 dp tile on a solid face, focused or not, settled; the tile's own pixels. */
-    private fun render(focused: Boolean, face: Color): Pair<Bitmap, Float> {
+    /**
+     * One 150x90 dp tile on a solid face, focused or not, settled; the tile's own pixels. [edgeLight] is passed
+     * through, and null leaves it out, i.e. FocusTile's default.
+     */
+    private fun render(focused: Boolean, face: Color, edgeLight: Boolean? = true): Pair<Bitmap, Float> {
         var density = 1f
         compose.setContent {
             density = LocalDensity.current.density
             val requester = remember { FocusRequester() }
             if (focused) LaunchedEffect(Unit) { requester.requestFocus() }
             // Scale 1 and no shadow: the captured bounds are exactly the tile.
-            FocusTile(
-                label = "tile",
-                onClick = {},
-                shape = RoundedCornerShape(15.dp),
-                focusedScale = 1f,
-                shadow = false,
-                modifier = Modifier.size(150.dp, 90.dp).focusRequester(requester).testTag("tile"),
-            ) { Box(Modifier.fillMaxSize().background(face)) }
+            val modifier = Modifier.size(150.dp, 90.dp).focusRequester(requester).testTag("tile")
+            val content: @Composable BoxScope.(Boolean) -> Unit = { Box(Modifier.fillMaxSize().background(face)) }
+            if (edgeLight == null) {
+                FocusTile(label = "tile", onClick = {}, shape = RoundedCornerShape(15.dp), focusedScale = 1f, shadow = false, modifier = modifier, content = content)
+            } else {
+                FocusTile(label = "tile", onClick = {}, shape = RoundedCornerShape(15.dp), focusedScale = 1f, shadow = false, edgeLight = edgeLight, modifier = modifier, content = content)
+            }
         }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(1_000)
@@ -96,6 +100,17 @@ class FocusEdgeLightTest {
         assertEquals("resting top band $top vs face $face", 1f, top / face, 0.03f)
         val bottom = bmp.meanLuma(bmp.height - band, band)
         assertEquals("resting bottom band $bottom vs face $face", 1f, bottom / face, 0.03f)
+    }
+
+    // The light is opt-in, for app tiles and shelf cards: Control Center, pills, thumbnails etc. stay as they were.
+    @Test fun focusedTileWithoutTheOptInShowsNoEdgeLight() {
+        val (bmp, density) = render(focused = true, face = dark, edgeLight = null)
+        val band = ceil(1.25f * density).toInt()
+        val top = bmp.meanLuma(0, band)
+        val face = bmp.meanLuma((20 * density).roundToInt(), band)
+        assertEquals("default top band $top vs face $face", 1f, top / face, 0.03f)
+        val bottom = bmp.meanLuma(bmp.height - band, band)
+        assertEquals("default bottom band $bottom vs face $face", 1f, bottom / face, 0.03f)
     }
 
     @Test fun whiteTileIsUnharmed() {

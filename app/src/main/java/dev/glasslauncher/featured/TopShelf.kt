@@ -209,6 +209,7 @@ fun ExpandedShelf(
                         label = listOfNotNull(card.title, card.subtitle).joinToString(", "),
                         onClick = { card.open(context) },
                         shape = RoundedCornerShape(m.tileRadius),
+                        edgeLight = true,
                         onFocusChange = { if (it) onIndex(i) },
                         modifier = Modifier
                             .width(150.dp)

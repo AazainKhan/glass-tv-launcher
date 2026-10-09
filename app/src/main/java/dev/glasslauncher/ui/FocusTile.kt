@@ -62,6 +62,8 @@ fun FocusTile(
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
     shadow: Boolean = true,
+    /** tvOS 27's focus edge light: for app tiles and shelf cards only (not pills, circles or thumbnails). */
+    edgeLight: Boolean = false,
     onFocusChange: (Boolean) -> Unit = {},
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
@@ -145,25 +147,28 @@ fun FocusTile(
                 // Reduce motion replaces the move-mode wiggle with a plain outline.
                 if (focused && wiggle && prefs.reduceMotion) drawRect(Color.White, style = Stroke(3.dp.toPx()))
             }
-            // tvOS 27 lights only the focused tile's edge: a thin bright line along the top, a fainter one
-            // along the bottom. Static (it fades with focus, no sweep); the brush is built once per tile size.
-            .drawWithCache {
-                val stroke = Stroke(EDGE_LIGHT_WIDTH.toPx())
-                val half = stroke.width / 2
-                // Inset by half the stroke so the line sits wholly inside the tile's edge; the corner is the tile's own.
-                val corner = (shape.createOutline(size, layoutDirection, this) as? Outline.Rounded)?.roundRect?.topLeftCornerRadius
-                val brush = Brush.verticalGradient(*EDGE_LIGHT_STOPS, startY = 0f, endY = size.height)
-                onDrawWithContent {
-                    drawContent()
-                    val strength = lift.coerceAtMost(1f)
-                    if (corner != null && strength >= 0.01f) {
-                        drawRoundRect(
-                            brush, Offset(half, half), Size(size.width - stroke.width, size.height - stroke.width),
-                            corner, alpha = strength, style = stroke,
-                        )
+            // tvOS 27 lights the edge of a focused app tile: a thin bright line along the top, a fainter one
+            // along the bottom. Opt-in via [edgeLight], so other tiles don't carry the modifier at all. Static
+            // (it fades with focus, no sweep); the brush is built once per tile size.
+            .then(
+                if (!edgeLight) Modifier else Modifier.drawWithCache {
+                    val stroke = Stroke(EDGE_LIGHT_WIDTH.toPx())
+                    val half = stroke.width / 2
+                    // Inset by half the stroke so the line sits wholly inside the tile's edge; the corner is the tile's own.
+                    val corner = (shape.createOutline(size, layoutDirection, this) as? Outline.Rounded)?.roundRect?.topLeftCornerRadius
+                    val brush = Brush.verticalGradient(*EDGE_LIGHT_STOPS, startY = 0f, endY = size.height)
+                    onDrawWithContent {
+                        drawContent()
+                        val strength = lift.coerceAtMost(1f)
+                        if (corner != null && strength >= 0.01f) {
+                            drawRoundRect(
+                                brush, Offset(half, half), Size(size.width - stroke.width, size.height - stroke.width),
+                                corner, alpha = strength, style = stroke,
+                            )
+                        }
                     }
-                }
-            }
+                },
+            )
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused
