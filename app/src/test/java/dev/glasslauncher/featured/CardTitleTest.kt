@@ -92,4 +92,23 @@ class CardTitleTest {
         compose.mainClock.advanceTimeBy(5_000)
         assertTrue("with Reduce Motion a focused title stays as it rested", same(resting, shot()))
     }
+
+    @Test fun aLongTitleScrollsTwiceThenRestsWithItsEllipsis() {
+        show("The Extraordinarily Long Title of a Very Popular Series: Season Three")
+        val resting = shot()
+        focused = true
+        shot() // lets the focused layout settle, as above
+        compose.mainClock.advanceTimeBy(200)
+        val start = shot()
+        compose.mainClock.advanceTimeBy(2_300)
+        assertFalse("a focused long title scrolls", same(start, shot()))
+        // Two passes of a few seconds each: long over by a minute, and then Home must be idle with the ellipsis back.
+        compose.mainClock.advanceTimeBy(60_000)
+        assertTrue("after its passes it rests as it was, with its ellipsis", same(resting, shot()))
+    }
+
+    @Test fun thePassesTimeCoversThePausesAndBothPasses() {
+        // 300 px title, 64 px gap, 72 px/s: two passes of ~5.06 s, two 1 s pauses, the margin.
+        assertEquals(12_411.0, titleMarqueeMillis(300f, 64f, 72f).toDouble(), 2.0)
+    }
 }

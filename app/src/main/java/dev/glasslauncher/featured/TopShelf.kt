@@ -247,7 +247,7 @@ fun ExpandedShelf(
 /**
  * The title under a card: one line, ending in an ellipsis when it doesn't fit. While its card is focused a title
  * that doesn't fit scrolls to show all of it, as tvOS does: a short pause, then a steady train-scroll to the end
- * (the text loops round after a gap), stopping, and starting again from the beginning, when focus leaves. A title
+ * (the text loops round after a gap), twice, then resting at its start; focus leaving and coming back starts it again. A title
  * that fits never moves.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -256,18 +256,29 @@ internal fun CardTitle(title: String, focused: Boolean, modifier: Modifier = Mod
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     // Whether the title overflows, read from the ellipsised layout (while focused it is laid out unclipped instead).
     var truncated by remember(title) { androidx.compose.runtime.mutableStateOf(false) }
-    val scrolling = focused && truncated && !reduceMotion
+    // The full title's width (px), from the unclipped layout while it scrolls; and whether this focus's passes are done.
+    var fullWidth by remember(title) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var passesDone by remember(title, focused) { androidx.compose.runtime.mutableStateOf(false) }
+    val scrolling = focused && truncated && !reduceMotion && !passesDone
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // When the last pass has ended (back at its start), the ellipsis returns rather than a word cut mid-letter.
+    androidx.compose.runtime.LaunchedEffect(scrolling, fullWidth) {
+        if (scrolling && fullWidth > 0) {
+            kotlinx.coroutines.delay(with(density) { titleMarqueeMillis(fullWidth.toFloat(), TITLE_MARQUEE_GAP.toPx(), TITLE_MARQUEE_SPEED.toPx()) })
+            passesDone = true
+        }
+    }
     Text(
         title, style = Type.caption, color = Color.White.copy(alpha = 0.85f),
         maxLines = 1,
         // A marquee needs the text unclipped by an ellipsis: only while it scrolls (a title that fits stays as it was).
         softWrap = !scrolling,
         overflow = if (scrolling) TextOverflow.Clip else TextOverflow.Ellipsis,
-        onTextLayout = { if (!scrolling) truncated = it.hasVisualOverflow },
+        onTextLayout = { if (scrolling) fullWidth = it.size.width else if (!passesDone) truncated = it.hasVisualOverflow },
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         modifier = modifier.then(
             if (scrolling) Modifier.basicMarquee(
-                iterations = Int.MAX_VALUE,
+                iterations = TITLE_MARQUEE_PASSES,
                 initialDelayMillis = TITLE_MARQUEE_DELAY_MS,
                 repeatDelayMillis = TITLE_MARQUEE_DELAY_MS,
                 spacing = androidx.compose.foundation.MarqueeSpacing(TITLE_MARQUEE_GAP),
@@ -277,6 +288,21 @@ internal fun CardTitle(title: String, focused: Boolean, modifier: Modifier = Mod
     )
 }
 
+/**
+ * How many times a long title scrolls before it rests at its start. A scroll redraws Home every frame (~30% of a core
+ * on the stick, measured 2026-10-09), so it must end: resting on a card keeps Home idle, as the perf budget wants.
+ */
+private const val TITLE_MARQUEE_PASSES = 2
+
+/**
+ * How long [TITLE_MARQUEE_PASSES] passes of a title [width] px wide take: the first pause, each pass (the title and the
+ * gap after it at [velocity] px/s), the pauses between them, and a small margin so the ellipsis never lands mid-pass.
+ */
+internal fun titleMarqueeMillis(width: Float, gap: Float, velocity: Float): Long {
+    val pass = (width + gap) / velocity * 1000f
+    return (TITLE_MARQUEE_DELAY_MS * TITLE_MARQUEE_PASSES + pass * TITLE_MARQUEE_PASSES).toLong() + TITLE_MARQUEE_MARGIN_MS
+}
+private const val TITLE_MARQUEE_MARGIN_MS = 300L
 private const val TITLE_MARQUEE_DELAY_MS = 1_000
 private val TITLE_MARQUEE_GAP = 32.dp
 private val TITLE_MARQUEE_SPEED = 36.dp
