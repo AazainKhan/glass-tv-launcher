@@ -19,13 +19,18 @@ require_device_access
 DEV='$D'   # resolved on the device: the input node named "Fire TV Remote" (override with KEY_DEVICE)
 GAP="${KEY_GAP_MS:-120}"
 
+# Fire OS swallows the Settings key (scan 249). With the glass-remote-keys Magisk module installed, the
+# physical remote's keymap sends 185 instead, which reaches Glass; injected events skip that keymap, so
+# send 185 ourselves. Without the module, 249 still opens Fire's quick settings, as before.
+SETTINGS_CODE=249
+adb shell "test -d /data/adb/modules/glass-remote-keys && test ! -f /data/adb/modules/glass-remote-keys/disable" 2>/dev/null && SETTINGS_CODE=185
 code() {
   case "$1" in
     up) echo 103 ;; down) echo 108 ;; left) echo 105 ;; right) echo 106 ;;
     select|ok|center|enter) echo 96 ;; back) echo 158 ;; home) echo 172 ;; menu) echo 139 ;;
     play|playpause) echo 164 ;; rew) echo 168 ;; ff) echo 208 ;;
     app1) echo 744 ;; app2) echo 745 ;; app3) echo 746 ;; app4) echo 747 ;; recents) echo 748 ;;
-    settings) echo 249 ;; alexa) echo 217 ;; tv) echo 362 ;; mute) echo 113 ;;
+    settings) echo "$SETTINGS_CODE" ;; alexa) echo 217 ;; tv) echo 362 ;; mute) echo 113 ;;
     *) echo "unknown key: $1" >&2; exit 2 ;;
   esac
 }
