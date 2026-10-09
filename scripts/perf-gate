@@ -22,6 +22,7 @@ static="$(scripts/perf-run --rounds 1 --no-compile down right left | tail -1)"
 result="$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); s=json.loads(sys.argv[2]); r["slideshowIdleCpuPct"]=r["idleCpuPct"]; r["idleCpuPct"]=s["idleCpuPct"]; print(json.dumps(r))' "$result" "$static")"
 scripts/dev-mode off >/dev/null
 echo "$result"
+mkdir -p "$ROOT/build" && echo "$result" > "$ROOT/build/perf-last.json"  # read by scripts/vitals
 python3 - "$result" "$ROOT/perf-budget.json" <<'PY'
 import json, sys
 r = json.loads(sys.argv[1]); b = json.load(open(sys.argv[2]))

@@ -36,6 +36,41 @@ For broad codebase searches, use the `Explore` agent and keep only its conclusio
 - Launch independent subagents in one message so they run in parallel.
 - Keep durable state in `.superpowers/pair/board.md` (one line per item) and the ledger, not in chat. Summarise each finished round there, so a compacted or new session can pick it up.
 
+## Team loop (who does what, where knowledge lives)
+
+**Roles:**
+- **Agent Manager:** tooling, vitals, diagnosis, relaying the user, and raising every user decision with AskUserQuestion.
+- **Yin:** owns the app; the only one who merges to master and uses the stick.
+- **Yang:** implements board items in worktrees.
+- **tvOS 27 research:** the design source.
+Agents message each other with SendMessage. Anything that needs the user goes to Agent Manager.
+
+**Where knowledge lives** (one place per kind, so nobody re-derives or contradicts it):
+
+| What | Where |
+|---|---|
+| Durable rules and how-tos | this `CLAUDE.md` |
+| The user's settled decisions | `docs/decisions.md`. Read before proposing a change; add a line when the user decides. |
+| Live work: who owns what, status, blockers | `.superpowers/pair/board.md`, one line per item (git-ignored, shared on this machine) |
+| The user's bug queue | `reports/inbox/` (`scripts/reports`) |
+| Project health | `scripts/vitals`, also shown at session start; the newest result is in `.superpowers/vitals.md` |
+| Evidence | the Gallery (`tv-live` › `/gallery`) |
+
+**The loop:**
+1. **Session start:** read the vitals summary the hook prints. Anything red (CI, leaks, behind origin, failing checks) is fixed or reported before new work. Then read open reports and the board.
+2. **Pick work:** claim a board item, or take a report. Check `docs/decisions.md` so you build what the user already chose.
+3. **Build:**
+   - work in a worktree;
+   - iterate on the Mac first (shots, previews, focus, strips, compare-ref);
+   - touch the stick only with the lock;
+   - brief subagents per "Working as an agent".
+4. **Prove it:**
+   - `scripts/shots all` (the hooks enforce it);
+   - `scripts/perf-gate` for anything that renders;
+   - `scripts/clip` on the stick for motion.
+5. **Hand off:** update the board line (status plus a one-line result). Close the reports you fixed. Add any new user decision to `docs/decisions.md`. Yin merges. Pushes wait for the user's OK via Agent Manager.
+6. **Health:** Agent Manager runs `scripts/vitals --full` between rounds and chases anything red: CI, stale worktrees, unpushed work, blocked items.
+
 ## Build and run
 
 - **Needs JDK 17 or 21.** The system default is JDK 25, which AGP rejects. `scripts/build` picks 21 automatically. For raw Gradle: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.

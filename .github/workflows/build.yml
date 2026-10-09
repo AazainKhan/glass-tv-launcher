@@ -2,15 +2,16 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ["v*"]
   pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Write only matters for tagged releases (publishing the APK); a permission can't be an expression.
     permissions:
-      contents: ${{ startsWith(github.ref, 'refs/tags/v') && 'write' || 'read' }}
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -36,7 +37,7 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease :app:lintRelease :app:testDebugUnitTest --console=plain
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk glass-tv-launcher-${GITHUB_REF_NAME//\//-}.apk
+        run: cp app/build/outputs/apk/release/app-release.apk "glass-tv-launcher-${GITHUB_REF_NAME//\//-}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: glass-tv-launcher-apk

@@ -5,8 +5,10 @@ ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 cd "$ROOT" 2>/dev/null || exit 0
 reports="$(scripts/reports list 2>/dev/null | grep -v '^no open reports' | head -15)"
 lock="$(scripts/stick-lock status 2>/dev/null)"
-[ -z "$reports" ] && [ -z "$lock" ] && exit 0
-ctx=""
+vitals="$(scripts/vitals --brief 2>/dev/null)"
+ctx="Project vitals (scripts/vitals for details; fix or report anything red before new work):
+$vitals
+"
 [ -n "$reports" ] && ctx+="Open reports from the user's live view or crash watcher (scripts/reports show <id>; close with scripts/reports done <id> \"what you did\"):
 $reports
 "

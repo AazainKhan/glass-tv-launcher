@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Project health in one screen: every vital an agent should know before starting work.
+#   scripts/vitals            fast checks (~5 s): CI, git, leaks, board, reports, device, worktrees, last perf
+#   scripts/vitals --full     also runs the JVM checks (scripts/shots all, ~30 s)
+#   scripts/vitals --brief    one line per problem only (used by the SessionStart hook)
+# Writes .superpowers/vitals.md (newest result, shown in the Gallery) and exits 1 if any vital is red.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
+mode="${1:-}"
+out=(); red=0
+ok()   { out+=("🟢 $1"); }
+warn() { out+=("🟡 $1"); }
+bad()  { out+=("🔴 $1"); red=1; }
+
+# CI on GitHub (the last run on master).
+if command -v gh >/dev/null 2>&1; then
+  ci="$(gh run list -b master -L 1 --json conclusion,status,displayTitle,createdAt --jq '.[0] | "\(.status) \(.conclusion) \(.createdAt[0:16]) \(.displayTitle)"' 2>/dev/null)"
+  case "$ci" in
+    "completed success"*) ok "CI: passing (${ci#completed success })" ;;
+    in_progress*|queued*) warn "CI: running (${ci#* })" ;;
+    "") warn "CI: no runs on master yet" ;;
+    *) bad "CI: ${ci} → gh run view --log-failed" ;;
+  esac
+fi
+
+# Git: sync with origin, uncommitted work in the shared checkout, leaks.
+git fetch -q 2>/dev/null
+ahead=$(git rev-list --count origin/master..master 2>/dev/null || echo 0)
+behind=$(git rev-list --count master..origin/master 2>/dev/null || echo 0)
+dirty=$(git status --porcelain | grep -vc '^??' || true)
+[ "$behind" -gt 0 ] && bad "git: master is $behind behind origin → git pull --rebase"
+[ "$ahead" -gt 0 ] && warn "git: $ahead unpushed commit(s) on master (pushing needs the user's OK)"
+[ "$dirty" -gt 0 ] && warn "git: $dirty modified file(s) in the shared checkout (whose? use a worktree)"
+[ "$ahead$behind$dirty" = "000" ] && ok "git: master in sync, clean"
+if scripts/leak-check >/dev/null 2>&1; then ok "leaks: clean"; else bad "leaks: serial/home path/crash dump tracked → scripts/leak-check"; fi
+
+# Work: the pair board (open items) and the user's bug queue.
+board=.superpowers/pair/board.md
+if [ -f "$board" ]; then
+  open=$(grep -E '^P[0-9]+ \|' "$board" | grep -viE '\| *(merged|done)' | sed -E 's/^(P[0-9]+) \| ([^|]*)\| ([^|]*)\|.*/\1 \2(\3)/' | tr -s ' ' | paste -sd ';' -)
+  blocked=$(grep -E '^P[0-9]+ \|' "$board" | grep -ciE '\| *blocked' || true)
+  [ -n "$open" ] && ok "board: ${open//;/; }" || ok "board: nothing open"
+  [ "$blocked" -gt 0 ] && warn "board: $blocked blocked item(s): check what they wait on"
+fi
+n=$(ls -1 reports/inbox 2>/dev/null | wc -l | tr -d ' ')
+[ "$n" -gt 0 ] && warn "reports: $n open from the user/crash watcher → scripts/reports" || ok "reports: inbox empty"
+
+# Device: connected, lock, installed build vs master.
+if adb get-state >/dev/null 2>&1; then
+  lock="$(scripts/stick-lock status 2>/dev/null)"
+  inst="$(adb shell dumpsys package dev.glasslauncher 2>/dev/null | grep -m1 lastUpdateTime | sed 's/.*=//' | tr -d '\r')"
+  dbg=$(adb shell dumpsys package dev.glasslauncher 2>/dev/null | grep -c DEBUGGABLE)
+  [ "$dbg" -gt 0 ] && warn "stick: a debug build is installed (fine while iterating; release for perf)"
+  ok "stick: ${lock#*: }; Glass installed ${inst:-?}"
+else
+  warn "stick: not connected"
+fi
+
+# Worktrees whose branch is already merged into master (safe to remove).
+stale=$(git worktree list --porcelain | awk '/^worktree /{w=$2} /^branch /{print w" "$2}' | while read -r w b; do
+  b=${b#refs/heads/}; [ "$b" = master ] && continue
+  # Merged AND clean: a fresh branch with uncommitted work in its worktree is active, not stale.
+  git merge-base --is-ancestor "$b" master 2>/dev/null && [ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ] && echo "$(basename "$w")"
+done | paste -sd ' ' -)
+[ -n "$stale" ] && warn "worktrees merged, can be removed: $stale" || ok "worktrees: none stale"
+
+# Performance: the last perf-gate/perf-run result written to the vitals log, if any.
+last_perf=$(grep -h '"p90"' build/perf-last.json 2>/dev/null | tail -1)
+[ -n "$last_perf" ] && ok "perf (last run): $last_perf" || warn "perf: no recent run recorded (scripts/perf-gate writes build/perf-last.json)"
+
+# JVM checks (slow, opt-in).
+if [ "$mode" = --full ]; then
+  if scripts/shots all >/tmp/vitals-shots.txt 2>&1; then ok "JVM checks: screens, focus, previews pass"
+  else bad "JVM checks: failing → $(grep -m1 -A1 FAILED /tmp/vitals-shots.txt | tail -1 | cut -c1-120)"; fi
+fi
+
+mkdir -p .superpowers
+{ echo "# Vitals $(date '+%Y-%m-%d %H:%M')"; echo; printf -- '- %s\n' "${out[@]}"; } > .superpowers/vitals.md
+if [ "$mode" = --brief ]; then printf '%s\n' "${out[@]}" | grep -E '🔴|🟡' || echo "🟢 all vitals green"
+else printf '%s\n' "${out[@]}"; fi
+exit $red
