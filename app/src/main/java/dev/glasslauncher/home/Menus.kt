@@ -211,7 +211,8 @@ private fun ColumnScope.AppMenuBody(
     MenuRow("Hide", { model.hide(app.packageName); closeAll() }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_visibility_off) })
     MenuRow("App Info", { closeAll(); model.appInfo(app) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_info) })
     // The destructive action sits apart from the rest, as in tvOS menus.
-    Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(palette.secondary.copy(alpha = 0.25f)).testTag("menu-separator"))
+    // Equal room above and below (the list's 7 dp row gap plus 5 dp each side), so the line sits centred in a clear gap.
+    Box(Modifier.padding(horizontal = 18.dp, vertical = 5.dp).fillMaxWidth().height(1.dp).background(palette.secondary.copy(alpha = 0.25f)).testTag("menu-separator"))
     MenuRow("Uninstall", { closeAll(); model.uninstall(app) }, destructive = true, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_do_not_disturb_on) })
 }
 
