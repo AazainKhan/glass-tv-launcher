@@ -1,6 +1,7 @@
 package dev.glasslauncher.home
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -320,25 +321,19 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val palette = dev.glasslauncher.ui.LocalPalette.current
     val sink = remember { TitleSink() }
     FullOverlay(active) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .then(
-                    androidx.compose.ui.Modifier.glass(
-                        dev.glasslauncher.glass.LocalBackdrop.current,
-                        androidx.compose.ui.graphics.RectangleShape,
-                        dev.glasslauncher.glass.GlassStyle.overlay(palette.light).copy(highlight = 0f, rim = 0f),
-                    ),
-                ),
-        )
+        // A calm washed page, not glass over Home: through the glass, the grid and the shelf's giant
+        // wordmark ghosted behind the rows (audit 9.3). Tinted faintly by the scene's own colour.
+        val page = if (palette.light) listOf(androidx.compose.ui.graphics.Color(0xFFF2F2F8), androidx.compose.ui.graphics.Color(0xFFE3E6F0))
+            else listOf(androidx.compose.ui.graphics.Color(0xFF22252E), androidx.compose.ui.graphics.Color(0xFF111217))
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(page)))
         androidx.tv.material3.Text(
             sink.title,
-            style = dev.glasslauncher.ui.Type.title.copy(fontSize = dev.glasslauncher.ui.Type.title.fontSize * 0.62f),
-            color = palette.secondary,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+            style = dev.glasslauncher.ui.Type.title,
+            color = palette.primary,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp),
         )
         val wide = sink.wide != null && sink.wide == sink.page
-        androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(top = 70.dp, start = 45.dp, end = 45.dp, bottom = 20.dp)) {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(top = 78.dp, start = 45.dp, end = 45.dp, bottom = 20.dp)) {
             // tvOS 27: the page's muted icon, and under it the page's explanations; only rows on the right.
             if (!wide) androidx.compose.foundation.layout.Column(
                 Modifier.weight(0.42f).fillMaxHeight().padding(end = 36.dp),
@@ -354,12 +349,26 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
             }
             Box(Modifier.weight(if (wide) 1f else 0.58f).fillMaxHeight()) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalTitleSink provides sink) {
-                    Box(Modifier.fillMaxSize().trapFocus(active), content = content)
+                    // The list fades out at its bottom edge instead of being cut off there.
+                    Box(Modifier.fillMaxSize().fadeBottom(36.dp).trapFocus(active), content = content)
                 }
             }
         }
     }
 }
+
+/** Fades content to transparent over its last [height] (an offscreen layer masked by a gradient). */
+fun Modifier.fadeBottom(height: androidx.compose.ui.unit.Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val h = height.toPx()
+        drawRect(
+            androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Black, androidx.compose.ui.graphics.Color.Transparent), startY = size.height - h, endY = size.height),
+            topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - h),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+    }
 
 /**
  * A compact glass menu beside its tile, like the tvOS context menu: to the right of the tile when it

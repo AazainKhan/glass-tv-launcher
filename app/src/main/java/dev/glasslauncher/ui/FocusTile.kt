@@ -150,9 +150,8 @@ fun FocusTile(
             }
             .onKeyEvent { event ->
                 val e = event.nativeKeyEvent
-                when (e.keyCode) {
-                    AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
-                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER, AndroidKeyEvent.KEYCODE_BUTTON_A -> {
+                when {
+                    isSelectKey(e.keyCode) -> {
                         if (e.action == AndroidKeyEvent.ACTION_DOWN) {
                             if (e.repeatCount == 0) {
                                 pressed = true
@@ -173,11 +172,11 @@ fun FocusTile(
                         }
                         true
                     }
-                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> {
+                    e.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || e.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> {
                         if (e.action == AndroidKeyEvent.ACTION_UP) onPlay?.invoke()
                         onPlay != null
                     }
-                    AndroidKeyEvent.KEYCODE_MENU -> {
+                    e.keyCode == AndroidKeyEvent.KEYCODE_MENU -> {
                         if (e.action == AndroidKeyEvent.ACTION_UP) onLongClick?.invoke()
                         onLongClick != null
                     }

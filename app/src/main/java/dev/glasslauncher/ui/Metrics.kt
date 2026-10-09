@@ -51,7 +51,10 @@ data class Metrics(val textScale: Float = 1f) {
     val trayToGrid: Dp = 36.dp
     /** Where a focused grid row settles when scrolled. */
     val gridPivot: Dp = 181.dp
-    /** Floating chrome (status pill) sits closer to the edges than content. */
+    /**
+     * Floating chrome (status pill, Control Center) sits closer to the edges than content: tvOS 27 measures
+     * 36–50 px at 1080p (18–25 dp), inside the 5% content safe area ([inset]) on purpose.
+     */
     val chromeInset: Dp = 22.dp
 }
 

@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.glasslauncher.app
 import androidx.compose.runtime.setValue
@@ -78,8 +80,8 @@ private class CcSizes(k: Float) {
      * Circles are 1×1, pills 2×1 (as tall as a circle), the big tile 2×2 and square, wide rows 4×1, and the
      * panel 4u + 3·gap. Everything below derives from these two.
      */
-    // 54 dp: at 48 the pills cut "Bluetooth" and "Connected"; legibility wins over a smaller grid.
-    val u = (54 * k).dp
+    // 56 dp: the smallest cell whose pills fit "Bluetooth" and "Connected" at the 13 sp floor (JVM test).
+    val u = (56 * k).dp
     val gap = (9 * k).dp
     val round = u
     val pill = u
@@ -230,9 +232,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         scaleX = r.scale; scaleY = r.scale
         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
     }
-    // The tiles' glass (a capture of the screen behind, or Home's own) fades in once they have landed:
-    // sampled through the fade and rise it cost a fifth of the frames, and the moving tiles hide it anyway.
-    // Until then, and while closing, they draw the overlay's smoky fill.
+    // While the tiles move they draw a flat fill matched to their glass (GlassMatch: the scene under them,
+    // tinted and dimmed), and the textured glass fades in once they land; on close it drops back to that
+    // fill. Sampling the texture through the motion cost a third of the frames, and because the fill is the
+    // glass's own colour, the swap no longer flashes white, grey, then smoky (the user's video, plan §11).
     val glassState = LocalBackdrop.current
     LaunchedEffect(exiting) {
         glassState.textureIn.snapTo(0f)
@@ -445,6 +448,15 @@ private fun AlexaPage(sz: CcSizes, closeAll: () -> Unit) {
     }
 }
 
+private const val FILL_FADE_MS = 120
+
+/** A pill's icon disc: white when its toggle is on, fading between the two. */
+@Composable
+private fun discColor(on: Boolean, fg: Color): Color {
+    val a by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(FILL_FADE_MS), label = "disc")
+    return androidx.compose.ui.graphics.lerp(fg.copy(alpha = 0.16f), Color.White, a)
+}
+
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
 @Composable
 private fun PillContent(
@@ -462,7 +474,7 @@ private fun PillContent(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(sz.disc)
-                .then(if (disc) Modifier.background(if (on) Color.White else fg.copy(alpha = 0.16f), CircleShape) else Modifier),
+                .then(if (disc) Modifier.background(discColor(on, fg), CircleShape) else Modifier),
         ) { Glyph(icon, if (on) accent else fg, Modifier.size(sz.discGlyph)) }
         Column(Modifier.padding(start = 7.dp)) {
             Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -512,6 +524,12 @@ private fun CcTile(
         modifier = modifier.size(width, height),
     ) { focused ->
         // A toggle that's on sits white with a blue glyph, like tvOS's Control Center toggles.
+        // Focus and "on" fills fade (never pop), so a focus move cross-fades the white from one tile to the next.
+        val fade = androidx.compose.animation.core.tween<Float>(FILL_FADE_MS)
+        val focusA by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, fade, label = "focus")
+        val onA by androidx.compose.animation.core.animateFloatAsState(if (on && !focused) 1f else 0f, fade, label = "on")
+        // The text and glyph colour switches outright (animating it recomposed every tile's content each
+        // frame); under the fading fill the switch isn't visible.
         val fg = if (focused) palette.onFocusFill else if (on) Blue else palette.primary
         Box(
             Modifier
@@ -520,11 +538,13 @@ private fun CcTile(
                 // fresh glass node on every focus change, which could draw a frame before knowing where it
                 // was (a tile that had just lost focus showed up see-through).
                 .glass(LocalBackdrop.current, shape, CC_GLASS)
-                .then(
-                    if (focused) Modifier.background(palette.focusFill, shape)
-                    else if (on) Modifier.background(Color.White, shape)
-                    else Modifier,
-                ),
+                .drawWithCache {
+                    val outline = shape.createOutline(size, layoutDirection, this)
+                    onDrawBehind {
+                        if (onA > 0f) drawOutline(outline, Color.White, alpha = onA)
+                        if (focusA > 0f) drawOutline(outline, palette.focusFill, alpha = focusA)
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) { content(fg) }
     }

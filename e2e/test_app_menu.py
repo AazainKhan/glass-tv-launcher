@@ -23,6 +23,21 @@ def test_menu_lists_its_actions(tv, home, menu):
     assert tv.tree().focused().rid == f"app:{SAFE_APP}", "focus should return to the app"
 
 
+def test_menu_names_its_app_and_sets_uninstall_apart(tv, home, menu):
+    """The menu says which app it acts on (a header row), and a separator sits above the red Uninstall."""
+    _need(tv, SAFE_APP)
+    tree = menu.open_for(home, SAFE_APP)
+    header = tree.find(rid="menu-header")
+    assert header and header.texts, "the menu has no app-name header"
+    assert not header.focusable, "the header is a label, not a row"
+    sep = tree.find(rid="menu-separator")
+    assert sep, "no separator before Uninstall"
+    uninstall = next(n for n in tree.nodes() if n.focusable and "Uninstall" in n.texts)
+    info = next(n for n in tree.nodes() if n.focusable and "App Info" in n.texts)
+    assert info.bounds[3] <= sep.bounds[1] and sep.bounds[3] <= uninstall.bounds[1], "the separator should sit between App Info and Uninstall"
+    menu.back()
+
+
 def test_edit_home_screen_enters_and_leaves_move_mode(tv, home, menu):
     _need(tv, SAFE_APP)
     menu.open_for(home, SAFE_APP)
@@ -50,7 +65,8 @@ def test_hide_then_show_again_from_settings(tv, home, menu, settings):
     _need(tv, SAFE_APP)
     label = None
     menu.open_for(home, SAFE_APP)
-    label = tv.tree().find(rid=f"app:{SAFE_APP}").desc
+    # The tile reads "Name, New" for a new app; the Hidden Apps row is just the name.
+    label = tv.tree().find(rid=f"app:{SAFE_APP}").desc.removesuffix(", New")
     menu.focus_text("Hide")
     menu.select()
     try:
@@ -63,7 +79,8 @@ def test_hide_then_show_again_from_settings(tv, home, menu, settings):
         settings.focus_text(label)
         settings.select()
         home.reset()
-        tv.wait_for(lambda t: t.find(rid=f"app:{SAFE_APP}"), 8, "the app back on Home")
+        # Back on Home (at the end of the grid, so possibly below the visible rows): focus walks to it.
+        home.focus_app(SAFE_APP)
 
 
 @pytest.mark.slow

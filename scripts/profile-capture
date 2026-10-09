@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Captures the Baseline Profile on the stick without androidx.benchmark, whose root check (`su root id`)
 # hangs under Magisk. Same idea as BaselineProfileRule below API 33: reset the app's profile, drive the
-# everyday Home journey with real remote presses, flush the JIT profile, and dump it with profman as root.
+# everyday Home journey (tray browsing, grid, full-screen shelf, menus, Control Center, app switcher) with real remote presses, flush the JIT profile, and dump it with profman as root.
 # Writes app/src/release/generated/baselineProfiles/baseline-prof.txt (picked up by release builds).
 #   scripts/profile-capture [rounds]     (default 3 rounds of the journey)
 set -euo pipefail
@@ -11,6 +11,7 @@ PKG=dev.glasslauncher
 ROUNDS="${1:-3}"
 OUT="$ROOT/app/src/release/generated/baselineProfiles/baseline-prof.txt"
 key() { "$ROOT/scripts/key" "$@" >/dev/null; }
+act() { adb shell am start -n "$PKG/.MainActivity" -a "$PKG.action.$1" >/dev/null; }
 home() { adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -n "$PKG/.MainActivity" >/dev/null; }
 
 adb shell "su -c 'cmd package compile --reset $PKG'" >/dev/null
@@ -28,6 +29,11 @@ for r in $(seq "$ROUNDS"); do
   key menu wait:700 down down back wait:500                 # app menu
   key down down down down select wait:900 back wait:700     # last row (Settings tile) open/close
   key up up up up wait:500
+  key right left right right left left right left wait:600   # tray browsing (app heroes swap)
+  act CONTROL_CENTER; sleep 1.2                             # Control Center open, move, close
+  key down right left down up wait:400 back wait:900
+  act APP_SWITCHER; sleep 1.2                               # app switcher open, browse, close
+  key right left wait:400 back wait:900
 done
 sleep 2
 adb shell "su -c 'killall -s SIGUSR1 $PKG'"; sleep 3          # ART writes the JIT profile on SIGUSR1

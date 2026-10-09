@@ -65,6 +65,8 @@ object TvHarness {
         val app = ApplicationProvider.getApplicationContext<GlassApp>().app
         // From the defaults every time: the stored config outlives a test, so one test's text size or theme
         // leaked into the next.
+        // Process-wide caches would carry one test's scene into the next.
+        dev.glasslauncher.home.HeroCache.app.trim()
         runBlocking { app.config.update { config(LauncherConfig(tipsSeen = true)) } }
     }
 

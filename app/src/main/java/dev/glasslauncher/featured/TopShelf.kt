@@ -63,7 +63,14 @@ import dev.glasslauncher.ui.Type
  * its slide dissolves in (fixed original size, so the memory-cache key matches).
  */
 fun logoRequest(context: android.content.Context, logo: String): ImageRequest =
-    ImageRequest.Builder(context).data(logo).size(coil3.size.Size.ORIGINAL).transformations(LogoLegibility()).build()
+    // Decoded at the most it is ever drawn (a full-screen wordmark at 1080p), not at the source's size:
+    // some logos are 2000+ px wide and each one sat in the memory cache at full resolution.
+    ImageRequest.Builder(context).data(logo)
+        .size(LOGO_MAX_W, LOGO_MAX_H).scale(coil3.size.Scale.FIT).precision(coil3.size.Precision.INEXACT)
+        .transformations(LogoLegibility()).build()
+
+private const val LOGO_MAX_W = 880
+private const val LOGO_MAX_H = 300
 
 /** Matches the backdrop's dissolve (BackdropState.swap). */
 private const val SLIDE_FADE_MS = 550
@@ -241,7 +248,7 @@ private fun ShelfButton(
             .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { e ->
                 val k = e.nativeKeyEvent
-                val select = k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER || k.keyCode == AndroidKeyEvent.KEYCODE_ENTER
+                val select = dev.glasslauncher.ui.isSelectKey(k.keyCode)
                 if (select) {
                     if (k.action == AndroidKeyEvent.ACTION_DOWN && k.repeatCount == 0) pressed[0] = true
                     if (k.action == AndroidKeyEvent.ACTION_UP && pressed[0]) { pressed[0] = false; onClick() }
@@ -253,10 +260,10 @@ private fun ShelfButton(
         contentAlignment = Alignment.Center,
     ) {
         if (round) {
-            Text("i", style = Type.label, color = fg)
+            ShelfIcon(dev.glasslauncher.R.drawable.ic_info_i, fg, Modifier.size(20.dp))
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
-                if (play) Text("▶", style = Type.label, color = fg, modifier = Modifier.padding(end = 6.dp))
+                if (play) ShelfIcon(dev.glasslauncher.R.drawable.ic_play_arrow, fg, Modifier.padding(end = 4.dp).size(18.dp))
                 Column {
                     Text(label, style = Type.label, color = fg)
                     if (progress != null) Box(Modifier.padding(top = 3.dp).width(64.dp).height(3.dp).background(fg.copy(alpha = 0.3f), CircleShape)) {
@@ -283,7 +290,7 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                 .onKeyEvent { e ->
                     val k = e.nativeKeyEvent
                     // Back (and Select) close the sheet only; Home's own Back would also leave full screen.
-                    val close = k.keyCode == AndroidKeyEvent.KEYCODE_BACK || k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER
+                    val close = k.keyCode == AndroidKeyEvent.KEYCODE_BACK || dev.glasslauncher.ui.isSelectKey(k.keyCode)
                     if (close && k.action == AndroidKeyEvent.ACTION_UP) onClose()
                     close
                 }
@@ -295,3 +302,10 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun ShelfIcon(@androidx.annotation.DrawableRes icon: Int, tint: Color, modifier: Modifier) =
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.res.painterResource(icon), null,
+        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(tint), modifier = modifier,
+    )

@@ -191,6 +191,13 @@ private fun ColumnScope.AppMenuBody(
     // tvOS context menu: a short list beside the tile; Move to… opens a second list in the same place.
     var firstRow = Modifier.focusRequester(first)
     fun f(): Modifier = firstRow.also { firstRow = Modifier }
+    val palette = LocalPalette.current
+    // The menu covers part of its tile, so it names the app it acts on.
+    Text(
+        app.label, style = Type.secondary, color = palette.secondary, maxLines = 1,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 2.dp).testTag("menu-header"),
+    )
     if (overlay.folderId == null) {
         MenuRow("Edit Home Screen", { startMove(appKey(app.packageName)) }, f(), leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_tv) })
     }
@@ -199,6 +206,8 @@ private fun ColumnScope.AppMenuBody(
     MenuRow("Change Icon", { open(Overlay.IconPicker(app)) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_image) })
     MenuRow("Hide", { model.hide(app.packageName); closeAll() }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_visibility_off) })
     MenuRow("App Info", { closeAll(); model.appInfo(app) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_info) })
+    // The destructive action sits apart from the rest, as in tvOS menus.
+    Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(palette.secondary.copy(alpha = 0.25f)).testTag("menu-separator"))
     MenuRow("Uninstall", { closeAll(); model.uninstall(app) }, destructive = true, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_do_not_disturb_on) })
 }
 
@@ -519,10 +528,10 @@ private fun TipsCard(active: Boolean, dismiss: () -> Unit) {
         GlassBoxCard(Modifier.width(620.dp)) {
             Column(Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Welcome to Glass", style = Type.title, color = palette.primary)
-                Tip("☰", "Press Menu, or hold Select, on any app to move it, hide it, change its icon or put it in a folder.")
-                Tip("⚙", "Settings are at the top right. Press Up from the top row.")
-                Tip("▶", "Press Play/Pause on an app or a featured title to open it straight away.")
-                Tip("📱", "Long text like API keys can be typed on your phone. Look for \"Type on Your Phone\".")
+                Tip(dev.glasslauncher.R.drawable.ic_edit_square, "Press Menu, or hold Select, on any app to move it, hide it, change its icon or put it in a folder.")
+                Tip(dev.glasslauncher.R.drawable.ic_settings, "Settings are at the top right. Press Up from the top row.")
+                Tip(dev.glasslauncher.R.drawable.ic_play_arrow, "Press Play/Pause on an app or a featured title to open it straight away.")
+                Tip(dev.glasslauncher.R.drawable.ic_smartphone, "Long text like API keys can be typed on your phone. Look for \"Type on Your Phone\".")
                 Spacer(Modifier.height(6.dp))
                 MenuRow("Get Started", dismiss, Modifier.focusRequester(first))
             }
@@ -553,10 +562,14 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
 }
 
 @Composable
-private fun Tip(symbol: String, text: String) {
+private fun Tip(@androidx.annotation.DrawableRes icon: Int, text: String) {
     val palette = LocalPalette.current
     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(symbol, style = Type.heading, color = palette.primary, modifier = Modifier.width(30.dp))
+        Image(
+            androidx.compose.ui.res.painterResource(icon), null,
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary),
+            modifier = Modifier.size(26.dp),
+        )
         Text(text, style = Type.secondary, color = palette.secondary)
     }
 }

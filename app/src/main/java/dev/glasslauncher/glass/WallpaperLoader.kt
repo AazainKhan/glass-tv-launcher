@@ -47,6 +47,11 @@ class Backdrop(
     val isLight: Boolean,
     /** Luminance of the art (as shown, scrims included) on a [LUMA_COLS]×[LUMA_ROWS] grid. */
     private val luma: FloatArray = FloatArray(0),
+    /**
+     * A software copy of [clearSoftware] (which lives on the GPU) for the CPU work drawn from it once per
+     * surface: the glass's lens edge (LensWarp) and Control Center's matched fill (GlassMatch).
+     */
+    val clearSample: Bitmap? = null,
 ) {
     /**
      * Whether the art behind a region (fractions of the screen) is light, so text placed straight on it
@@ -193,9 +198,10 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // them each frame of a scroll (measured: glass off cut janky frames from 39% to 15%), so they live
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
         val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
+        val clearSample = clear.copy(Bitmap.Config.ARGB_8888, false)
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
         val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma)
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, clearSample)
     }
 
     /**
@@ -206,8 +212,9 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
     suspend fun glassOnly(source: Bitmap): Backdrop = withContext(Dispatchers.Default) {
         blurReady
         val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { it.setHasAlpha(false) }
+        val sample = clear.copy(Bitmap.Config.ARGB_8888, false)
         val gpuClear = (clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear).asImageBitmap()
-        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = false)
+        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = false, clearSample = sample)
     }
 
     /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */

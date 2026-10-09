@@ -37,6 +37,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -65,6 +67,8 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.em
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -264,10 +268,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded)
     val appHeroShown = cfg.background == BackgroundMode.Featured && takeover == null && !expanded && heroApp != null && !titlesDue
     val appHeroPkg = heroApp.takeIf { appHeroShown }
-    // A few app heroes are kept, so moving back and forth along the row never bakes twice.
-    val appHeroes = remember { object : LinkedHashMap<String, dev.glasslauncher.glass.Backdrop>(4, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, dev.glasslauncher.glass.Backdrop>?) = size > 3
-    } }
+    val appHeroes = HeroCache.app
     // Apps whose hero is full-screen art (no logo plate drawn over it).
     val artApps = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val sceneUrl = if (cfg.background == BackgroundMode.Featured && !appHeroShown) hero?.image else null
@@ -1077,7 +1078,7 @@ fun AppCell(
     floatingLabel: Boolean = false,
 ) {
     val art = rememberArt(model, app)
-    val cfg by model.config.collectAsStateWithLifecycle()
+    val isNew by rememberTileValue(model, app.packageName) { model.isNew(app.packageName, it) }
     var bounds by remember { mutableStateOf<Rect?>(null) }
     val anchorStore = LocalMenuAnchor.current
     val launchView = LocalView.current
@@ -1086,7 +1087,7 @@ fun AppCell(
         label = app.label,
         tag = "app:${app.packageName}",
         moving = moving,
-        isNew = model.isNew(app.packageName, cfg),
+        isNew = isNew,
         focusRequester = focusRequester,
         onFocused = onFocused,
         // Launch from the tile as drawn (focused, 1.2x), so the app zooms out of what you see.
@@ -1253,12 +1254,21 @@ fun TileWithLabel(
     }
 }
 
+/**
+ * One value a tile derives from the config. A tile recomposes only when that value changes, not on every
+ * config edit (there are dozens of tiles, and most edits touch nothing they draw).
+ */
+@Composable
+private fun <T> rememberTileValue(model: HomeModel, vararg keys: Any?, derive: (dev.glasslauncher.data.LauncherConfig) -> T): State<T> {
+    val cfg = model.config.collectAsStateWithLifecycle()
+    return remember(model, *keys) { derivedStateOf { derive(cfg.value) } }
+}
+
 @Composable
 fun rememberArt(model: HomeModel, app: AppEntry): ImageBitmap? {
     val context = LocalContext.current
     val graph = context.app
-    val cfg by model.config.collectAsStateWithLifecycle()
-    val spec = model.spec(app, cfg)
+    val spec by rememberTileValue(model, app) { model.spec(app, it) }
     val art by produceState(graph.tileArt.peek(spec), spec) { value = graph.tileArt.load(spec) }
     return art
 }
@@ -1282,8 +1292,28 @@ private suspend fun appHeroBackdrop(
 private fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Modifier) {
     val palette = LocalPalette.current
     val inDock = layout.dock.any { appKey(it.packageName) == key }
-    val hint = if (inDock) "◀ ▶  Rearrange   ·   ▼  Move to Apps   ·   Select  Done"
-    else "◀ ▶ ▲ ▼  Move   ·   ▲ on first row  Add to Top Row   ·   Select  Done"
+    val hint = androidx.compose.ui.text.buildAnnotatedString {
+        // The D-pad directions are drawn as icons (one symbol set), with words for accessibility.
+        fun arrows(vararg d: String) = d.forEachIndexed { i, k -> if (i > 0) append(" "); appendInlineContent(k, k) }
+        if (inDock) {
+            arrows("Left", "Right"); append("  Rearrange   ·   "); arrows("Down"); append("  Move to Apps   ·   Select  Done")
+        } else {
+            arrows("Left", "Right", "Up", "Down"); append("  Move   ·   "); arrows("Up"); append(" on first row  Add to Top Row   ·   Select  Done")
+        }
+    }
+    val arrowIcons = remember(palette.primary) {
+        listOf("Right" to 0f, "Down" to 90f, "Left" to 180f, "Up" to 270f).associate { (k, deg) ->
+            k to androidx.compose.foundation.text.InlineTextContent(
+                androidx.compose.ui.text.Placeholder(1.em, 1.em, androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter),
+            ) {
+                Image(
+                    androidx.compose.ui.res.painterResource(dev.glasslauncher.R.drawable.ic_play_arrow), null,
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary),
+                    modifier = Modifier.fillMaxSize().graphicsLayer { rotationZ = deg },
+                )
+            }
+        }
+    }
     Box(
         modifier
             .padding(bottom = Safe.bottom)
@@ -1291,6 +1321,6 @@ private fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Mod
             .padding(horizontal = 28.dp, vertical = 14.dp)
             .testTag("move-banner"),
     ) {
-        Text(hint, style = Type.secondary, color = palette.primary)
+        androidx.compose.foundation.text.BasicText(hint, style = Type.secondary.copy(color = palette.primary), inlineContent = arrowIcons)
     }
 }

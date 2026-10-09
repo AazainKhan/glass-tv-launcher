@@ -123,8 +123,7 @@ fun MenuRow(
             }
             .onKeyEvent { e ->
                 val k = e.nativeKeyEvent
-                val select = k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER || k.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
-                    k.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                val select = isSelectKey(k.keyCode)
                 if (select) {
                     if (k.action == AndroidKeyEvent.ACTION_DOWN && k.repeatCount == 0) pressed[0] = true
                     if (k.action == AndroidKeyEvent.ACTION_UP) {

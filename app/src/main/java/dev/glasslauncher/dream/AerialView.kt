@@ -85,6 +85,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
             }
             val exo = ExoPlayer.Builder(context)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(cacheFactory(context)))
+                .setLoadControl(VideoBuffer.loadControl())
                 .build()
             player = exo
             exo.setVideoSurfaceView(surface)

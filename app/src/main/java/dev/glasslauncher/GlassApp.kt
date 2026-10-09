@@ -25,10 +25,14 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // The switcher's decoded previews are the cheapest thing to give back (they reload from disk).
+        // Home is hidden (an app opened) or memory is tight: give back what rebuilds quickly on the way back.
+        // The switcher's previews and the decoded logos reload from disk; the cached app heroes re-bake in
+        // a fraction of a second. (The system trims the renderer's textures itself at these levels.)
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
             dev.glasslauncher.system.AppPreviews.trim()
+            dev.glasslauncher.home.HeroCache.app.trim()
             tileArt.trim()
+            SingletonImageLoader.get(this).memoryCache?.clear()
         }
     }
 

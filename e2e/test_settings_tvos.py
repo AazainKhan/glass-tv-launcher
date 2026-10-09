@@ -120,3 +120,14 @@ def test_main_settings_gear_matches_the_other_page_icons(tv, home, settings):
     node = tv.wait_for(lambda t: t.find(rid="settings-icon:Settings"), 4, "the main page's gear")
     width = node.bounds[2] - node.bounds[0]
     assert width <= 260, f"the gear sits on a {width}px tile; it should be the muted icon alone"
+
+
+def test_settings_title_is_a_real_title_and_rows_are_grouped(tv, home, settings):
+    """A page title at tvOS's size (48 px or more), and the main list grouped into sections."""
+    settings.open_from_control_center()
+    tree = tv.tree()
+    title = next((n for n in tree.nodes() if n.text == "Settings" and n.center[1] < 140), None)
+    assert title, "no page title"
+    assert title.bounds[3] - title.bounds[1] >= 44, f"the title is {title.bounds[3] - title.bounds[1]}px tall"
+    sections = [n.text for n in tree.nodes() if n.text and n.text.isupper() and len(n.text) > 3]
+    assert len(sections) >= 2, f"the main list should be grouped into sections, found {sections}"

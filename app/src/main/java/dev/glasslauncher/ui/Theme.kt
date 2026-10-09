@@ -111,10 +111,11 @@ object Type {
     val title get() = TextStyle(fontFamily = displayFamily, fontSize = 24.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
     val heading get() = TextStyle(fontFamily = family, fontSize = 17.5.sp, fontWeight = FontWeight.SemiBold)
     val body get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-    val secondary get() = TextStyle(fontFamily = family, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
-    val caption get() = TextStyle(fontFamily = family, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, lineHeight = 15.sp)
-    val label get() = TextStyle(fontFamily = family, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
-    val overline get() = TextStyle(fontFamily = family, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+    val secondary get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, lineHeight = 18.sp)
+    // 13 sp is the floor: smaller text isn't readable from a sofa (audit 9.3).
+    val caption get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
+    val label get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
+    val overline get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
 
 
     /** For white text straight on busy art: tighter and darker, so the letters keep an edge. */

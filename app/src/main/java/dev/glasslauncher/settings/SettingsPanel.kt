@@ -217,9 +217,21 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     val graph = context.app
     val scope = rememberCoroutineScope()
     PanelTitle("Settings")
+    // Grouped, as tvOS's Settings are, so the list isn't one long run of rows.
+    SectionLabel("Home Screen")
     MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name, chevron = true)
     MenuRow("Display & Text Size", { push(Page.DisplayText) }, value = textSizeName(cfg.textScale), chevron = true)
     MenuRow("Control Center", { push(Page.ControlCenterTiles) }, chevron = true)
+    MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
+    MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
+    MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
+    MenuRow("Screen Saver", { push(Page.Screensaver) }, chevron = true)
+    MenuRow("Widgets", { push(Page.Widgets) }, chevron = true)
+    SectionLabel("Remote & Accessibility")
+    MenuRow("Accessibility", { push(Page.Accessibility) }, chevron = true)
+    MenuRow("Home Button", { push(Page.HomeButton) }, chevron = true)
+    MenuRow("Remote Buttons", { push(Page.RemoteButtons) }, chevron = true)
+    SectionLabel("System")
     MenuRow("Set Up from Phone", {
         open(Overlay.PhoneSetup(
             "Glass TV Launcher Setup",
@@ -245,14 +257,6 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
             }
         })
     }, value = "QR code")
-    MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
-    MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
-    MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
-    MenuRow("Screen Saver", { push(Page.Screensaver) }, chevron = true)
-    MenuRow("Widgets", { push(Page.Widgets) }, chevron = true)
-    MenuRow("Accessibility", { push(Page.Accessibility) }, chevron = true)
-    MenuRow("Home Button", { push(Page.HomeButton) }, chevron = true)
-    MenuRow("Remote Buttons", { push(Page.RemoteButtons) }, chevron = true)
     // Only on rooted devices (su present and granted).
     val rooted by androidx.compose.runtime.produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
     MenuRow("Root", { push(Page.RootTools) }, value = if (rooted) "Detected" else "Not detected", chevron = true)

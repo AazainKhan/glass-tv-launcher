@@ -39,7 +39,7 @@ fun MotionBackground(cfg: ScreensaverConfig, state: BackdropState, light: Boolea
     val app = context.app
     val surface = remember { SurfaceView(context) }
     val player = remember {
-        ExoPlayer.Builder(context).build().apply {
+        ExoPlayer.Builder(context).setLoadControl(dev.glasslauncher.dream.VideoBuffer.loadControl()).build().apply {
             volume = 0f
             repeatMode = Player.REPEAT_MODE_ALL
             setVideoSurfaceView(surface)
