@@ -148,6 +148,19 @@ object Blur {
         return FloatArray(px.size) { i -> val p = px[i]; ((0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f) }
     }
 
+    /** A pale pastel of the image's average colour: white with a hint of its hue, for light-appearance washes. */
+    fun pastel(bitmap: Bitmap): Int {
+        val w = bitmap.width; val h = bitmap.height
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        var r = 0L; var g = 0L; var b = 0L
+        for (p in px) { r += (p shr 16) and 0xFF; g += (p shr 8) and 0xFF; b += p and 0xFF }
+        val hsv = FloatArray(3)
+        android.graphics.Color.RGBToHSV((r / px.size).toInt(), (g / px.size).toInt(), (b / px.size).toInt(), hsv)
+        // Same hue, little saturation, near-white: a lavender, mint or sky page rather than grey.
+        return android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], (hsv[1] * 0.6f).coerceIn(0.06f, 0.16f), 0.97f))
+    }
+
     fun luminance(bitmap: Bitmap): Float {
         val w = bitmap.width; val h = bitmap.height
         val px = IntArray(w * h)

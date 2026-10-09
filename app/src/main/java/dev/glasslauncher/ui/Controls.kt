@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,12 +96,12 @@ fun MenuRow(
     // SYS-02: rows rest on faint glass; the focused row is a solid white capsule. tvOS: the new row is
     // white within a frame (the capsule doesn't slide), the old one fades over ~60 ms.
     val bg by animateColorAsState(
-        if (focused) palette.focusFill else palette.primary.copy(alpha = if (palette.light) 0.06f else 0.08f),
+        if (focused) palette.focusFill else palette.rowFill,
         if (focused) Motion.selectIn() else Motion.selectOut(),
         label = "rowBg",
     )
     val fg = when {
-        destructive -> Color(0xFFFF453A)
+        destructive -> palette.danger
         focused -> palette.onFocusFill
         enabled -> palette.primary
         else -> palette.faint
@@ -113,6 +114,8 @@ fun MenuRow(
             .heightIn(min = 38.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .background(bg, Shapes.pill)
+            // In light appearance the white focus capsule needs an edge to stand out from the bright page.
+            .then(if (focused && palette.light) Modifier.border(1.5.dp, palette.focusRing, Shapes.pill) else Modifier)
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused

@@ -232,6 +232,9 @@ private class GlassNode(
             overlayKey = key
             val tint = (if (opaque) solidTint(style.tint) else style.tint).toArgb()
             val tintShader = LinearGradient(0f, 0f, 0f, 1f, tint, tint, Shader.TileMode.CLAMP)
+            // Light glass (milky tint) keeps only a faint bevel: the 16% shade over its lower third read as a
+            // grey band on light pages (audit 9.1).
+            val lightGlass = style.tint.luminance() > 0.5f && style.tint.alpha >= 0.1f
             val highlight = LinearGradient(
                 0f, 0f, 0f, size.height,
                 // Gloss near the top, clear middle, soft inner shadow at the bottom (the bevel).
@@ -239,9 +242,9 @@ private class GlassNode(
                     Color.White.copy(alpha = style.highlight).toArgb(),
                     Color.Transparent.toArgb(),
                     Color.Transparent.toArgb(),
-                    Color.Black.copy(alpha = 0.16f).toArgb(),
+                    Color.Black.copy(alpha = if (lightGlass) 0.05f else 0.16f).toArgb(),
                 ),
-                floatArrayOf(0f, 0.35f, 0.72f, 1f),
+                floatArrayOf(0f, 0.35f, if (lightGlass) 0.86f else 0.72f, 1f),
                 Shader.TileMode.CLAMP,
             )
             overlayShader = ComposeShader(tintShader, highlight, PorterDuff.Mode.SRC_OVER)

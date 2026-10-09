@@ -131,6 +131,7 @@ fun Modifier.trapFocus(active: Boolean): Modifier =
 @Composable
 fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter()
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     // No dimming behind it (tvOS doesn't dim for these, and a full-screen scrim is an extra GPU pass).
     Box(
         Modifier
@@ -143,23 +144,30 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope
                 .padding(18.dp)
                 .width(width)
                 .fillMaxHeight()
-                .graphicsLayer { translationX = (1f - enter.value) * 80.dp.toPx() }
+                .graphicsLayer { translationX = OverlayMotion.slide(enter.value, reduceMotion) * 80.dp.toPx() }
                 .trapFocus(active),
             content = content,
         )
     }
 }
 
+/** How overlays move in: a slide or slight grow, or with Reduce Motion only a fade. */
+object OverlayMotion {
+    fun scale(enter: Float, reduceMotion: Boolean) = if (reduceMotion) 1f else 0.94f + 0.06f * enter
+    fun slide(enter: Float, reduceMotion: Boolean) = if (reduceMotion) 0f else 1f - enter
+}
+
 /** Fades and scales a full-screen overlay in. */
 @Composable
 fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter()
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     Box(
         Modifier
             .fillMaxSize()
             .graphicsLayer {
                 alpha = enter.value
-                val s = 0.94f + 0.06f * enter.value
+                val s = OverlayMotion.scale(enter.value, reduceMotion)
                 scaleX = s; scaleY = s
             }
             .trapFocus(active),

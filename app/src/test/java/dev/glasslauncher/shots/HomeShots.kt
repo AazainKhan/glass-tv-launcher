@@ -90,6 +90,51 @@ class HomeShots {
     }
 
     @Test fun lightDock() = home(config = { it.copy(theme = ThemeMode.Light) }) { capture("home-dock-light") }
+
+    // Larger text grows the layout (§9.2): the tray still fits on screen and keeps its apps reachable.
+    @Test fun dockLargeText() = home(config = { it.copy(textScale = 1.3f) }) { capture("home-dock-1.3x") }
+    @Test fun dockLargestText() = home(config = { it.copy(textScale = 1.4f) }) { capture("home-dock-1.4x") }
+
+    // Light appearance is a theme of its own (§9.1): every main surface has a light baseline.
+    private val light: (LauncherConfig) -> LauncherConfig = { it.copy(theme = ThemeMode.Light) }
+
+    @Test fun lightGrid() = home(config = light) {
+        compose.press(Button.Down, Button.Right)
+        capture("home-grid-light")
+    }
+
+    @Test fun lightFeaturedRow() = home(config = light) {
+        compose.press(Button.Up)
+        capture("home-featured-row-light")
+    }
+
+    @Test fun lightAppMenu() = home(config = light) {
+        compose.press(Button.Menu)
+        capture("app-menu-light", tolerance = 0.02f, colourNoise = 0.03f)
+    }
+
+    @Test fun lightFolderOpen() = home(config = { c ->
+        val apps = listOf("com.plexapp.android", "org.jellyfin.androidtv", "org.videolan.vlc")
+        c.copy(theme = ThemeMode.Light, folders = listOf(Folder("media", "Media", apps)), order = listOf(folderKey("media")))
+    }) {
+        compose.focusTag(folderKey("media"))
+        compose.press(Button.Select)
+        compose.waitForTag("folder-title")
+        capture("folder-open-light", tolerance = 0.01f)
+    }
+
+    @Test fun lightControlCenter() = home(config = light) {
+        compose.press(Button.Up, Button.Up, Button.Up)
+        compose.press(Button.Select)
+        compose.waitForTag("control-center")
+        capture("control-center-light")
+    }
+
+    @Test fun lightSettings() = home(config = light) {
+        compose.focusTag("settings-tile")
+        compose.press(Button.Select)
+        capture("settings-light", colourNoise = 0.03f)
+    }
 }
 
 internal fun androidx.compose.ui.test.junit4.ComposeTestRule.waitForTag(tag: String) {

@@ -32,8 +32,21 @@ data class Metrics(val textScale: Float = 1f) {
     /** How far the tray's tiles move up to make room under them for the focused app's name. */
     val trayLabel: Dp = (16 * textScale).dp
     val trayRadius: Dp = 30.dp
-    /** Where the tray's top edge sits when Home is at rest, leaving the top shelf above it. */
+    /** Where the tray's top edge sits when Home is at rest, leaving the top shelf above it (tvOS's place). */
     val trayTopAtRest: Dp = 384.dp
+
+    /** The tray's height on a screen [screenWidth] wide: one row of tiles plus its padding. */
+    fun trayHeight(screenWidth: Dp): Dp {
+        val tile = (screenWidth - inset * 2 - gutter * (columns - 1)) / columns
+        return tile / tileAspect + trayPadVertical * 2
+    }
+
+    /**
+     * Where the tray's top sits: tvOS's place, unless larger text makes the tray taller than the room below
+     * it (at 1.4× it ran ~15 dp off a 540 dp screen); then it rises just enough to keep a margin.
+     */
+    fun trayTop(screenWidth: Dp, screenHeight: Dp): Dp =
+        minOf(trayTopAtRest, screenHeight - trayHeight(screenWidth) - 24.dp)
     /** Gap between the tray and the first grid row (tvOS ~72px). */
     val trayToGrid: Dp = 36.dp
     /** Where a focused grid row settles when scrolled. */

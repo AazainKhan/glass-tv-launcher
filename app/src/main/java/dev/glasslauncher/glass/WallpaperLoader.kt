@@ -156,6 +156,9 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // white (more for dark art), in dark towards charcoal (only light art needs it), as tvOS's grid does.
         // Washes grow with each rung, so the scroll blur also fades into the appearance.
         val luminance = Blur.luminance(blurred)
+        // Light appearance washes towards a pastel of the art's own colour (lavender, mint, sky), as tvOS's
+        // light pages are hued, not near-white.
+        val tint = Blur.pastel(blurred)
         val wash = if (light) (0.62f - luminance * 0.45f).coerceIn(0.3f, 0.6f) else ((luminance - 0.35f) * 0.9f).coerceIn(0f, 0.4f)
         // Ten rungs from sharp to fully blurred, so the blur ramps smoothly as Home scrolls to the grid
         // (six rungs read as visible jumps on the long tvOS scroll curve).
@@ -165,7 +168,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         )
         val steps = rungs.mapIndexed { i, (w, h, r) ->
             val t = (i + 1f) / (rungs.size + 1)
-            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * t).also { bakeScrim(it, light, scene, wash * t); Blur.legible(it, light, t * t); it.setHasAlpha(false) }
+            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * t).also { bakeScrim(it, light, scene, wash * t, tint); Blur.legible(it, light, t * t); it.setHasAlpha(false) }
         }
         check()
         val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, light, scene, 0f); it.setHasAlpha(false) }
@@ -176,9 +179,9 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         bakeScrim(source, light, scene, 0f)
         val luma = Blur.lumaGrid(source, Backdrop.LUMA_COLS, Backdrop.LUMA_ROWS)
         // The grid and every glass surface carry text, so both get the legibility range (see Blur.legible).
-        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, light, scene, wash); Blur.legible(it, light) }
+        val blurredScreen = blurred.copy(Bitmap.Config.ARGB_8888, true).also { bakeScrim(it, light, scene, wash, tint); Blur.legible(it, light) }
         // The glass texture gets the appearance wash but not the scrims, so panels keep their own tint.
-        if (wash > 0f) Canvas(blurred).drawColor(washColor(light, wash))
+        if (wash > 0f) Canvas(blurred).drawColor(washColor(light, wash, tint))
         Blur.legible(blurred, light)
         source.setHasAlpha(false)
         blurredScreen.setHasAlpha(false)
@@ -208,13 +211,14 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
     }
 
     /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */
-    private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene, wash: Float) {
+    private fun bakeScrim(bitmap: Bitmap, light: Boolean, scene: Scene, wash: Float, tint: Int = Color.WHITE) {
         val w = bitmap.width.toFloat()
         val h = bitmap.height.toFloat()
         val canvas = Canvas(bitmap)
         // A light wash replaces the darkening scrims as it builds up.
         val scrim = if (light) (1f - wash / 0.4f).coerceIn(0f, 1f) else 1f
-        if (scene == Scene.Hero) {
+        // Light appearance gets no darkening scrims at all: under a pale wash they read as a grey band.
+        if (scene == Scene.Hero && !light) {
             // Top-shelf art darkens under the tray and behind the title, as on tvOS.
             canvas.drawRect(0f, 0f, w, h, Paint().apply {
                 shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, Color.argb((120 * scrim).toInt(), 0, 0, 0), Shader.TileMode.CLAMP)
@@ -228,12 +232,12 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
                 shader = android.graphics.LinearGradient(0f, h * 0.45f, 0f, h, Color.TRANSPARENT, end, Shader.TileMode.CLAMP)
             })
         }
-        if (wash > 0f) canvas.drawColor(washColor(light, wash))
+        if (wash > 0f) canvas.drawColor(washColor(light, wash, tint))
     }
 
-    private fun washColor(light: Boolean, wash: Float): Int {
-        val c = if (light) 255 else 0
-        return Color.argb((wash * 255).toInt(), c, c, c)
+    private fun washColor(light: Boolean, wash: Float, tint: Int = Color.WHITE): Int {
+        if (!light) return Color.argb((wash * 255).toInt(), 0, 0, 0)
+        return Color.argb((wash * 255).toInt(), Color.red(tint), Color.green(tint), Color.blue(tint))
     }
 
     /** Downloads the image so it survives offline boots; returns false if it isn't a decodable image. */

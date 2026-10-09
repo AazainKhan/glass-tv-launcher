@@ -926,7 +926,14 @@ private fun HomeList(
     modifier: Modifier = Modifier,
 ) {
     val m = LocalMetrics.current
-    val cells = remember(layout.grid) { layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings }
+    val screen = androidx.compose.ui.platform.LocalConfiguration.current
+    val trayTop = m.trayTop(screen.screenWidthDp.dp, screen.screenHeightDp.dp)
+    // With larger text the tray holds fewer columns: its other apps lead the grid instead of vanishing.
+    val dockShown = layout.dock.take(m.columns)
+    val dockExtra = layout.dock.drop(m.columns)
+    val cells = remember(layout.grid, dockExtra) {
+        dockExtra.map<dev.glasslauncher.apps.AppEntry, Cell> { Cell.Item(GridItem.App(it)) } + layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings
+    }
     val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
     LazyColumn(
         state = listState,
@@ -935,13 +942,13 @@ private fun HomeList(
         modifier = modifier.fillMaxSize().testTag("home"),
     ) {
         item(key = "shelf") {
-            Box(Modifier.fillMaxWidth().height(m.trayTopAtRest), contentAlignment = Alignment.BottomCenter) {
+            Box(Modifier.fillMaxWidth().height(trayTop), contentAlignment = Alignment.BottomCenter) {
                 if (showHint) ShelfHint(hintAlpha)
             }
         }
         item(key = "dock") {
             DockTray(
-                apps = layout.dock,
+                apps = dockShown,
                 model = model,
                 moving = moving,
                 requester = requester,
@@ -1197,7 +1204,8 @@ fun TileWithLabel(
     Column {
     Box {
         FocusTile(
-            label = label,
+            // The blue dot isn't colour-only: "New" is spoken too.
+            label = if (isNew) "$label, New" else label,
             onClick = onClick,
             onLongClick = onMenu,
             wiggle = moving,

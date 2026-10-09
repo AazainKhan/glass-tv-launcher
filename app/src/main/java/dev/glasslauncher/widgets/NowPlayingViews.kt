@@ -124,11 +124,11 @@ fun NowPlayingHero(item: NowPlaying, onLight: Boolean, playFocus: FocusRequester
         Column(Modifier.padding(start = 36.dp).width(470.dp)) {
             Text(
                 ("Now Playing" + appName(item.packageName).takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()).uppercase(),
-                style = Type.overline, color = fg.copy(alpha = 0.6f),
+                style = Type.overline, color = fg.copy(alpha = 0.78f),
             )
             Text(item.title, style = Type.title, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             item.artist?.let {
-                Text(it, style = Type.body, color = fg.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                Text(it, style = Type.body, color = fg.copy(alpha = 0.82f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             }
             Progress(item, fg, showTimes = true, modifier = Modifier.padding(top = 16.dp).fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 10.dp)) {
@@ -174,7 +174,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             Artwork(item, (46 * scale).dp, (9 * scale).dp)
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 6.dp))
             }
             Row(modifier = Modifier.padding(start = 6.dp)) {

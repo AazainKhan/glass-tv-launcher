@@ -58,6 +58,7 @@ import dev.glasslauncher.ui.Type
  */
 @Composable
 fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, active: Boolean, closeAll: () -> Unit) {
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     val context = LocalContext.current
     val palette = LocalPalette.current
     val backdrop = LocalBackdrop.current
@@ -170,7 +171,8 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                 if (d < -STACKED - 1 || d > 2) continue
                 val id = idAt(i)
                 val app = apps.getOrNull(i)
-                val p by animateFloatAsState(d.toFloat(), androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f), label = "card")
+                // Reduce Motion: the cards jump to their places (the switcher still dissolves in and out).
+                val p by animateFloatAsState(d.toFloat(), if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f), label = "card")
                 var bounds by remember { mutableStateOf<Rect?>(null) }
                 Box(
                     Modifier

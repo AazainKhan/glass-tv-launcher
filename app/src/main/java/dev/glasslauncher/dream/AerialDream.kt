@@ -13,7 +13,10 @@ import dev.glasslauncher.app
 
 /** The view for the chosen screensaver: the photo slideshow, or Aerials. */
 internal fun saverView(context: Context, slideshow: Boolean, nearEndMs: Long = 0L): android.view.View {
-    val cfg = context.app.config.config.value.screensaver
+    val full = context.app.config.config.value
+    // Reduce Motion: the slideshow cross-fades without its slow pan and zoom.
+    val reduceMotion = dev.glasslauncher.ui.UiPrefs.resolve(context, full).reduceMotion
+    val cfg = full.screensaver.let { if (reduceMotion) it.copy(kenBurns = false) else it }
     return if (slideshow) SlideshowView(context, cfg) else AerialView(context, cfg, nearEndMs)
 }
 

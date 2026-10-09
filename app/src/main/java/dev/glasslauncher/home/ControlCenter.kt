@@ -128,6 +128,13 @@ object CcMorph {
 
     /** Tiles grow a touch as they arrive. */
     fun scale(arrival: Float) = 0.96f + 0.04f * arrival
+
+    /** A row's look at progress [t]: with Reduce Motion it only fades (no rise, no grow). */
+    data class RowMotion(val alpha: Float, val rise: Float, val scale: Float)
+
+    fun row(t: Float, row: Int = 0, reduceMotion: Boolean): RowMotion =
+        if (reduceMotion) RowMotion(alpha = t, rise = 0f, scale = 1f)
+        else tiles(t, row).let { a -> RowMotion(alpha = a, rise = 1f - a, scale = scale(a)) }
 }
 
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
@@ -215,11 +222,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         else enter.animateTo(1f, androidx.compose.animation.core.tween(CcMorph.OPEN_MS, easing = CcMorph.openEasing))
     }
     // Each row of tiles arrives on its own beat: a fade, a small rise and a slight grow, top to bottom.
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     fun Modifier.ccRow(row: Int) = graphicsLayer {
-        val a = CcMorph.tiles(enter.value, row)
-        alpha = a
-        translationY = (1f - a) * 14.dp.toPx()
-        scaleX = CcMorph.scale(a); scaleY = scaleX
+        val r = CcMorph.row(enter.value, row, reduceMotion)
+        alpha = r.alpha
+        translationY = r.rise * 14.dp.toPx()
+        scaleX = r.scale; scaleY = r.scale
         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
     }
     // The tiles' glass (a capture of the screen behind, or Home's own) fades in once they have landed:
@@ -249,6 +257,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val from = pill ?: panel?.let { androidx.compose.ui.geometry.Rect(it.right - 107.dp.toPx(), it.top, it.right, it.top + 32.dp.toPx()) } ?: return@Canvas
             val target = panel ?: from
             val e = enter.value
+            // Reduce Motion: no growing capsule, Control Center simply fades in.
+            if (reduceMotion) return@Canvas
             val a = 1f - CcMorph.tiles(e, 0)
             if (a <= 0f) return@Canvas
             val r = CcMorph.rect(e, from, target)

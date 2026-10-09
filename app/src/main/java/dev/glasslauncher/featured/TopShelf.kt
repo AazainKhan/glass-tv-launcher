@@ -157,11 +157,11 @@ fun ExpandedShelf(
                     Column {
                         Wordmark(shown, height = 76.dp)
                         shown.metaLine()?.let {
-                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
+                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.68f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
                         }
                         shown.description?.let {
                             // The whole synopsis in full screen (it was cut at two lines); five covers nearly all.
-                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.7f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.9f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
                 }
@@ -290,7 +290,7 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                 .focusable(),
         ) {
             Text(item.title, style = Type.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            item.metaLine()?.let { Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.65f), modifier = Modifier.padding(top = 8.dp)) }
+            item.metaLine()?.let { Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.72f), modifier = Modifier.padding(top = 8.dp)) }
             item.description?.let { Text(it, style = Type.body, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 16.dp)) }
         }
     }

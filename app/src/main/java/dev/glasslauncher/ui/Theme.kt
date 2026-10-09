@@ -31,7 +31,14 @@ data class Palette(val light: Boolean, val highContrast: Boolean = false) {
     val focusFill = Color.White
     val onFocusFill = Color(0xFF0E1015)
     val scrim = if (light) Color(0x33FFFFFF) else Color(0x66000000)
-    val accent = Color(0xFF5AC8FA)
+    /** The new-app dot and other small accents: deeper in light so it keeps 3:1 on the pastel page. */
+    val accent = if (light) Color(0xFF0A72B8) else Color(0xFF5AC8FA)
+    /** Destructive text (Uninstall, Delete): a darker red in light so it reads on white and on the page. */
+    val danger = if (light) Color(0xFFC4281C) else Color(0xFFFF453A)
+    /** Rows at rest: lighter than the light page (white glass), faint white on dark. */
+    val rowFill = if (light) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.08f)
+    /** A soft ring around the white focus capsule in light, so focus stands out from a bright page (≥3:1). */
+    val focusRing = if (light) Color(0x800E1015) else Color.Transparent
 }
 
 val LocalPalette = staticCompositionLocalOf { Palette(light = false) }

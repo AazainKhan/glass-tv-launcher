@@ -47,3 +47,21 @@ class CcMorphTest {
         assertEquals(1f, CcMorph.scale(1f), 0.0001f)
     }
 }
+
+class ReduceMotionTest {
+    // Reduce Motion (§9.2): things fade, nothing slides, rises or scales.
+    @Test fun controlCenterRowsOnlyFade() {
+        val m = CcMorph.row(0.4f, reduceMotion = true)
+        assertEquals(0f, m.rise, 0f)
+        assertEquals(1f, m.scale, 0f)
+        assertTrue(m.alpha in 0f..1f)
+        val full = CcMorph.row(0.4f, reduceMotion = false)
+        assertTrue("normally rows rise", full.rise > 0f)
+    }
+
+    @Test fun overlaysOnlyFade() {
+        assertEquals(1f, dev.glasslauncher.home.OverlayMotion.scale(0.3f, reduceMotion = true), 0f)
+        assertEquals(0f, dev.glasslauncher.home.OverlayMotion.slide(0.3f, reduceMotion = true), 0f)
+        assertTrue(dev.glasslauncher.home.OverlayMotion.scale(0.3f, reduceMotion = false) < 1f)
+    }
+}

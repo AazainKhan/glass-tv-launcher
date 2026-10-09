@@ -63,7 +63,9 @@ object TvHarness {
         installApps()
         if (featured) seedFeatured()
         val app = ApplicationProvider.getApplicationContext<GlassApp>().app
-        runBlocking { app.config.update { config(it.copy(tipsSeen = true)) } }
+        // From the defaults every time: the stored config outlives a test, so one test's text size or theme
+        // leaked into the next.
+        runBlocking { app.config.update { config(LauncherConfig(tipsSeen = true)) } }
     }
 
     /** Any request fails fast against a dead proxy, so sources fall back to the seeded cache. */

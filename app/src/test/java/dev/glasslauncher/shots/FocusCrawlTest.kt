@@ -20,12 +20,17 @@ class FocusCrawlTest {
 
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Test fun home() {
-        TvHarness.setUp()
+    @Test fun home() = crawlHome("home")
+
+    // Largest text (§9.2): four columns, so the tray's last apps move into the grid; all stay reachable.
+    @Test fun homeLargestText() = crawlHome("home-1.4x") { it.copy(textScale = 1.4f) }
+
+    private fun crawlHome(name: String, config: (dev.glasslauncher.data.LauncherConfig) -> dev.glasslauncher.data.LauncherConfig = { it }) {
+        TvHarness.setUp(config = config)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             compose.waitForHome()
             val graph = FocusCrawler(compose, reset = { scenario.pressHome() }).crawl()
-            graph.save("home")
+            graph.save(name)
             val problems = mutableListOf<String>()
 
             // Focus is never lost.
