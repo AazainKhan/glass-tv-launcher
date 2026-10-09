@@ -25,14 +25,14 @@ class MotionStrips {
 
     @Before fun enabled() = assumeTrue("strips not requested", only.isNotEmpty())
 
-    private fun strip(name: String, vararg setup: Button, button: Button) {
+    private fun strip(name: String, vararg setup: Button, button: Button, frames: Int = 12, stepMs: Long = 32, columns: Int = 4) {
         assumeTrue(only == "all" || only == name)
         TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use {
             compose.waitForHome()
             compose.press(*setup)
             compose.settle()
-            println("strip: " + compose.strip(name, button).absolutePath)
+            println("strip: " + compose.strip(name, button, frames, stepMs, columns).absolutePath)
         }
     }
 
@@ -42,7 +42,18 @@ class MotionStrips {
     @Test fun dockToGrid() = strip("dock-to-grid", button = Button.Down)
     @Test fun gridToDock() = strip("grid-to-dock", Button.Down, button = Button.Up)
     @Test fun openAppMenu() = strip("open-app-menu", button = Button.Menu)
-    @Test fun controlCenterOpen() = strip("control-center-open", Button.Up, Button.Up, Button.Up, button = Button.Select)
-    // Exits can't be stripped here: the harness's Back key doesn't reach OnBackPressedDispatcher.
+    @Test fun controlCenterOpen() = strip("control-center-open", Button.Up, Button.Up, Button.Up, button = Button.Select, frames = 28, stepMs = 28, columns = 7)
+    // Exits: Back goes to the activity's dispatcher directly (the harness's Back key doesn't reach it).
+    @Test fun controlCenterClose() {
+        assumeTrue(only == "all" || only == "control-center-close")
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.settle()
+            val shots = compose.frames({ scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } }, 24, 24)
+            println("strip: " + sheet("control-center-close", shots, 24, 6).absolutePath)
+        }
+    }
     @Test fun settingsPagePush() = strip("settings-page-push", Button.Down, Button.Down, Button.Right, Button.Right, Button.Select, button = Button.Select)
 }

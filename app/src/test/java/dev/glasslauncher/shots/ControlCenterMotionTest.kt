@@ -82,7 +82,7 @@ class ControlCenterMotionTest {
             compose.waitForHome()
             compose.press(Button.Up, Button.Up, Button.Up)
             compose.settle()
-            val opening = compose.frames(Button.Select, frames = 48, stepMs = 16)
+            val opening = compose.frames(Button.Select, frames = 72, stepMs = 16)
             compose.settle()
             val closing = compose.frames({ scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } }, frames = 24, stepMs = 16)
             // The Wi-Fi and Bluetooth pills (not the focused Settings tile, whose white fill fades in by design).
@@ -97,8 +97,9 @@ class ControlCenterMotionTest {
             }
             val open = opening.map(::level)
             val settled = open.last()
-            // Landed at OPEN_MS (420 ms, frame ~26); from then on only the texture's detail may arrive.
-            val landed = open.drop(28)
+            // The tiles are in by ~60% of the spring (~frame 14), bouncing with the bubble until it settles
+            // (~700 ms); from frame 40 on only the texture's detail may arrive (it waits for the settle).
+            val landed = open.drop(40)
             val worst = landed.zipWithNext { a, b -> kotlin.math.abs(b - a) }.maxOrNull() ?: 0f
             assertTrue("tiles changed colour after landing (${"%.1f".format(worst)}/255 in a frame): $landed", worst <= 8f)
             // The landed fill is the glass's own colour: the texture fading in may not shift it (without the
