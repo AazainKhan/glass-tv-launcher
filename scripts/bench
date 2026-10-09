@@ -4,6 +4,9 @@
 #   scripts/bench              all four benchmarks (~10 min)
 #   scripts/bench startup      only the startup ones (class filter by method name prefix)
 #   scripts/bench profile      regenerate the Baseline Profile (app/src/release/generated/…)
+#   scripts/bench coldstart [N]   cold start of the system's own relaunch after a force-stop (median of N,
+#                                 default 10, from logcat 'Displayed'); no macrobenchmark,
+#                                 so it works despite the root-detection hang below. Prints JSON.
 # Needs Magisk root for the adb Shell user (Fire OS 8 is below API 33), and the stick free.
 # KNOWN ISSUE: androidx.benchmark 1.5.0 detects root with `su root id`, which Magisk's su answers with
 # nothing (it hangs under the test runner), so `profile` and the profiled runs hang at startup.
@@ -23,6 +26,22 @@ trap restore_a11y EXIT
 # macOS bash 3.2 skips the EXIT trap when the script is killed; turn signals into a normal exit.
 trap "exit 130" INT TERM HUP
 adb shell settings delete secure enabled_accessibility_services >/dev/null
+if [ "${1:-}" = coldstart ]; then
+  # Glass is a privileged Home app: after a force-stop the system relaunches it at once, so `am start -W`
+  # only reaches the running instance (TotalTime 0). Time the system's own relaunch from logcat instead.
+  n="${2:-10}"; pkg=dev.glasslauncher; times=()
+  for _ in $(seq 1 "$n"); do
+    adb logcat -c; adb shell am force-stop "$pkg"
+    t=""; for _ in $(seq 1 30); do
+      t="$(adb logcat -d -s ActivityTaskManager:I | sed -n "s/.*Displayed $pkg\/.MainActivity: +\(.*\)ms.*/\1/p" | tail -1)"
+      [ -n "$t" ] && break; sleep 0.5
+    done
+    # "+1s234" -> 1234
+    times+=("$(echo "$t" | awk -F's' 'NF==2{print $1*1000+$2; next}{print $1}')"); sleep 4
+  done
+  python3 -c 'import json,statistics,sys; t=[int(x) for x in sys.argv[1:] if x]; print(json.dumps({"coldStartMsMedian": statistics.median(t), "min": min(t), "max": max(t), "samples": t}))' "${times[@]}"
+  exit
+fi
 if [ "${1:-}" = profile ]; then
   ./gradlew :app:generateBaselineProfile --console=plain -q
   find app/src -path '*generated/baselineProfiles*' -type f -exec wc -l {} +
