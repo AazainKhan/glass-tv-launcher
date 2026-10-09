@@ -98,5 +98,17 @@ class MotionStrips {
             println("strip: " + sheet("control-center-close", shots, 24, 6).absolutePath)
         }
     }
+    // Focus moves to the next tray app: the tray glass dissolves with the backdrop (P23).
+    @Test fun trayHeroSwap() {
+        assumeTrue(only == "all" || only == "tray-hero-swap")
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome(); compose.settle()
+            val shots = ArrayList<android.graphics.Bitmap>()
+            compose.trayHeroSwap(shots)
+            val every = 3
+            println("strip: " + sheet("tray-hero-swap", shots.filterIndexed { i, _ -> i in 12..(12 + 12 * every) && i % every == 0 }, 16L * every, 5).absolutePath)
+        }
+    }
     @Test fun settingsPagePush() = strip("settings-page-push", Button.Down, Button.Down, Button.Right, Button.Right, Button.Select, button = Button.Select)
 }

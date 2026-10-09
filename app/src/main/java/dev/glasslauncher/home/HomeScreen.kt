@@ -292,11 +292,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 artApps[appHeroPkg] = art != null
                 art
             }?.also { appHeroes[key] = it }
-            // A short fade: during one the backdrop and every glass surface draw twice, and this changes as
-            // focus moves along the row.
-            if (baked != null) { // The tray and pill snap to the new hero's glass while the backdrop dissolves: cross-fading them
-            // too drew every glass surface twice per frame (perf-gate p90 14 ms vs 11).
-            backdrop.glassFades = false
+            // A short fade (APP_HERO_FADE_MS): the tray and pill dissolve with the backdrop on the same clock
+            // (state.fade), else their glass changes colour before the background does. Only those two draw
+            // twice, only for these 200 ms.
+            if (baked != null) {
+            backdrop.glassFades = true
             backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); return@LaunchedEffect }
         }
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
