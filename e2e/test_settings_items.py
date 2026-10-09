@@ -50,12 +50,17 @@ def test_hidden_apps_show_and_hide_again(tv, home, settings):
 
 
 def test_icon_pack_page_explains_and_links_to_packs(tv, home, settings):
+    """Get an Icon Pack lists only what opens on this device (the Appstore's own activity, Downloader, ES File
+    Explorer, downloaded .apk files to install), or says what to do instead."""
     settings.open_from_control_center()
     settings.open_page("Icon Pack")
     tree = tv.tree()
-    assert tree.has_text("None") and tree.has_text("Search the Appstore")
-    settings.focus_text("Search the Appstore")
-    tv.wait_for(lambda t: any("Nova" in n.text for n in t.nodes()), 3, "which packs work, beside the Appstore row")
+    assert tree.has_text("None")
+    offered = [label for label in ("Open the Amazon Appstore", "Open Downloader", "Open ES File Explorer", "Import from File…")
+               if tree.has_text(label)]
+    installs = [n for n in tree.nodes() if n.text.startswith("Install ") and n.text.endswith(".apk")]
+    assert offered or installs or tree.has_text("Nothing here can fetch a pack"), "the page offers no way to get a pack and doesn't say so"
+    assert any("Nova" in n.text for n in tree.nodes()), "the page should say which packs work"
 
 
 def test_24_hour_time_changes_the_clock(tv, home, settings):

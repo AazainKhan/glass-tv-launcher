@@ -513,8 +513,32 @@ private fun ColumnScope.HideMorePage(model: HomeModel, layout: HomeLayout, f: Mo
 
 @Composable
 private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
-    val graph = LocalContext.current.app
-    val packs = remember { graph.iconPacks.installed() }
+    val context = LocalContext.current
+    val graph = context.app
+    // Re-read when the page comes back from a store or the installer: that is when a new pack appears.
+    var refresh by remember { mutableStateOf(0) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refresh++ }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val packs = remember(refresh) { graph.iconPacks.installed() }
+    val sources = remember(refresh) { dev.glasslauncher.apps.IconPackSources.available(context) }
+    val canPick = remember { dev.glasslauncher.apps.IconPackSources.canPickFiles(context) }
+    val toast = { text: String -> android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show() }
+    val pickApk = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val ok = try { context.startActivity(dev.glasslauncher.apps.IconPackSources.installIntent(uri)); true }
+                catch (_: android.content.ActivityNotFoundException) { false } catch (_: SecurityException) { false }
+            if (!ok) toast("Couldn't open that file. This TV may have no package installer.")
+        }
+    }
+    // Only real icon packs (their manifest declares a launcher theme), and each asks first: nothing else from
+    // Downloads is ever offered for install here.
+    val apks by androidx.compose.runtime.produceState(emptyList<String>(), refresh) { value = dev.glasslauncher.apps.IconPackSources.downloadedIconPacks() }
+    val confirm = dev.glasslauncher.home.LocalConfirm.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     PanelTitle("Icon Pack")
     MenuRow("None", { model.edit { it.copy(iconPack = null) } }, f, value = if (cfg.iconPack == null) "✓" else null)
     packs.forEach { pack ->
@@ -522,10 +546,40 @@ private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: M
     }
     if (packs.isEmpty()) Hint("No icon packs installed yet.")
     SectionLabel("Get an Icon Pack")
-    val context = LocalContext.current
-    MenuRow("Search the Appstore", {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("amzn://apps/android?s=icon%20pack")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    }, chevron = true, help = "Any ADW- or Nova-compatible pack works. Most are made for phones, so expect square icons.")
+    // Only what opens on this device. A downloaded .apk in the Downloads folder is installed from here.
+    apks.forEach { path ->
+        val name = java.io.File(path).name
+        MenuRow("Install $name", {
+            confirm(dev.glasslauncher.home.Overlay.Confirm(
+                title = "Install this icon pack?",
+                message = "$name, from the Downloads folder, will be installed on this TV as an app, using root access to the package installer. An icon pack needs no permissions of its own. Only install packs you trust.",
+                confirm = "Install",
+            ) {
+                // Not tied to this page: leaving it mid-install must not cancel the report (pm keeps running anyway).
+                context.app.scope.launch {
+                    val (ok, said) = dev.glasslauncher.apps.IconPackSources.install(context, path)
+                    toast(if (ok) "Installed. Pick it in the list above." else "Couldn't install: ${said.ifBlank { "the installer refused it" }}")
+                    refresh++
+                }
+            })
+        }, chevron = true)
+    }
+    sources.forEach { source ->
+        MenuRow(source.label, {
+            if (!dev.glasslauncher.apps.IconPackSources.open(context, source)) toast("Couldn't open ${source.label.removePrefix("Open ")}.")
+        }, chevron = true)
+    }
+    if (canPick) {
+        MenuRow("Import from File…", {
+            pickApk.launch(arrayOf(dev.glasslauncher.apps.IconPackSources.APK_MIME, "application/octet-stream"))
+        }, chevron = true, help = "Pick an icon pack's .apk (for example from a USB drive or Downloads) and install it.")
+    }
+    if (apks.isEmpty() && sources.isEmpty() && !canPick) {
+        Hint("Nothing here can fetch a pack. Put an icon pack's .apk in the Downloads folder and it will be listed to install (only real icon packs are).")
+    } else if (apks.isEmpty()) {
+        Hint("Download an icon pack's .apk with Downloader or ES File Explorer into Downloads and it is listed here to install (other files are not).")
+    }
+    Hint("Any ADW- or Nova-compatible pack works. Most are made for phones, so expect square icons.")
 }
 
 private fun screensaverName(mode: ScreensaverMode) = when (mode) {

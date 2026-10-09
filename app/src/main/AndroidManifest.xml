@@ -79,6 +79,15 @@
             <action android:name="android.intent.action.OPEN_DOCUMENT" />
             <data android:mimeType="*/*" />
         </intent>
+        <!-- Icon packs: where a store can be reached from (Settings > Icon Pack > Get an Icon Pack). -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="amzn" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="market" />
+        </intent>
         <intent>
             <action android:name="org.adw.launcher.THEMES" />
         </intent>
