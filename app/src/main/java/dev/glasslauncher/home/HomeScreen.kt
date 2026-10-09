@@ -222,6 +222,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     var moving by remember { mutableStateOf<String?>(null) }
     // The app being rearranged inside the open folder (Rearrange Folder in its app menu).
     var folderMoving by remember { mutableStateOf<String?>(null) }
+    // While an app is being moved the layout is edited in memory and saved once, when the move ends.
+    val inMove = moving != null || folderMoving != null
+    LaunchedEffect(inMove) { if (inMove) model.beginMove() else model.endMove() } // begun at once by the entry points below
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { model.endMove() } }
     LaunchedEffect(overlays.none { it is Overlay.FolderOpen }) { if (overlays.none { it is Overlay.FolderOpen }) folderMoving = null }
     var lastFocused by remember { mutableStateOf<String?>(null) }
     var focusedRow by remember { mutableIntStateOf(1) }
@@ -819,9 +823,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                                 open = ::open,
                                 close = ::closeTop,
                                 closeAll = ::closeAll,
-                                startMove = { key -> closeAll(); moving = key },
+                                startMove = { key -> model.beginMove(); closeAll(); moving = key },
                                 folderMoving = folderMoving,
-                                startFolderMove = { key -> closeTop(); folderMoving = key },
+                                startFolderMove = { key -> model.beginMove(); closeTop(); folderMoving = key },
                                 stopFolderMove = { folderMoving = null },
                             )
                         }

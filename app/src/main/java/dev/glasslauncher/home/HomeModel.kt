@@ -17,6 +17,8 @@ import dev.glasslauncher.data.folderKey
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -48,9 +50,26 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
 
     private val graph = application.app
     private val store = graph.config
-    val config: StateFlow<LauncherConfig> = store.config
 
-    val layout: StateFlow<HomeLayout> = combine(graph.apps.apps(), store.config) { apps, cfg ->
+    /**
+     * While an app is being moved (Edit Home Screen, Rearrange Folder) the config is edited here, in memory, and
+     * written once when the move ends ([endMove]): a held D-pad is many steps, and each used to be a disk write
+     * and a round trip through the saved copy before the screen followed. Null otherwise.
+     */
+    private val moving = kotlinx.coroutines.flow.MutableStateFlow<LauncherConfig?>(null)
+
+    /**
+     * The config in effect: the saved one, with the move's working layout (dock, grid order, folders) while moving.
+     * Everything else always comes from the saved copy, so a setting changed meanwhile is never shown stale.
+     */
+    val config: StateFlow<LauncherConfig> = combine(store.config, moving) { saved, working ->
+        if (working == null) saved else saved.copy(dock = working.dock, order = working.order, folders = working.folders)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, store.config.value)
+
+    /** The saved config (what is on disk or about to be), without a move's working layout. */
+    val savedConfig: StateFlow<LauncherConfig> get() = store.config
+
+    val layout: StateFlow<HomeLayout> = combine(graph.apps.apps(), config) { apps, cfg ->
         buildLayout(apps, cfg)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeLayout())
 
@@ -60,9 +79,13 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
                 if (!l.loaded) return@collect
                 seedDefaults(l.installed)
                 seedSeen(l.installed)
-                // Render every tile ahead of time so scrolling never waits on bitmap generation.
+                // Draw (or read back from disk) the tiles ahead of time, in the order they appear on screen, so
+                // scrolling never waits on bitmap generation and what is seen first is ready first.
                 val cfg = config.value
-                l.installed.forEach { graph.tileArt.load(spec(it, cfg)) }
+                val onScreen = l.dock + l.grid.filterIsInstance<GridItem.App>().map { it.app } +
+                    l.grid.filterIsInstance<GridItem.FolderItem>().flatMap { it.apps }
+                val rest = l.installed.filter { app -> onScreen.none { it.packageName == app.packageName } }
+                graph.tileArt.preload((onScreen + rest).map { spec(it, cfg) })
             }
         }
     }
@@ -208,7 +231,45 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun edit(transform: (LauncherConfig) -> LauncherConfig) {
+        // Moving: change the working layout now (the screen follows at once); it is saved when the move ends.
+        // A change that touches anything but the layout is saved straight away, as before.
+        val working = moving.value
+        if (working != null) {
+            val next = transform(working)
+            val layoutOnly = next.copy(dock = working.dock, order = working.order, folders = working.folders) == working
+            moving.update { c -> c?.let(transform) }
+            if (layoutOnly) return
+        }
         viewModelScope.launch { store.update(transform) }
+    }
+
+    /** How many times the config has been written to disk (tests and measurements). */
+    val saveCount: Int get() = store.writes
+
+    /** A move starts: from here edits stay in memory until [endMove]. */
+    fun beginMove() {
+        moveEpoch++
+        if (moving.value == null) moving.value = store.config.value
+    }
+
+    /** Counts moves begun: an [endMove] still catching up must not drop the working layout of a move begun since. */
+    private var moveEpoch = 0
+
+    /**
+     * The move is over: its result is saved in one write (only the layout parts: other changes made meanwhile are
+     * kept). The working copy stays in effect until the saved copy has caught up, so the screen never steps back.
+     */
+    fun endMove() {
+        val working = moving.value ?: return
+        val epoch = moveEpoch
+        viewModelScope.launch {
+            store.update { c -> c.copy(dock = working.dock, order = working.order, folders = working.folders) }
+            kotlinx.coroutines.withTimeoutOrNull(1_000) {
+                store.config.first { it.dock == working.dock && it.order == working.order && it.folders == working.folders }
+            }
+            // Another move began meanwhile: it keeps (and saves) its own working layout.
+            if (epoch == moveEpoch) moving.value = null
+        }
     }
 
     private suspend fun seedDefaults(installed: List<AppEntry>) {

@@ -18,6 +18,9 @@ import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
@@ -34,10 +37,22 @@ class LoadedTile(val image: ImageBitmap, val glow: Int)
  * tile so phone-style square icons never look out of place.
  */
 
-class TileArt(context: Context, private val iconPacks: IconPacks) {
+class TileArt(context: Context, private val iconPacks: IconPacks, private val disk: TileDiskCache? = TileDiskCache(File(context.cacheDir, "tiles-v$DISK_VERSION"))) {
+
+    private val contextCacheDir: File = context.cacheDir
 
     private val res = context.resources
     private val pm: PackageManager = context.packageManager
+
+    /** Renders and disk reads happen here, not in a caller's scope: a caller that goes away mustn't cancel a load others wait on. */
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+    private val inFlight = HashMap<TileSpec, kotlinx.coroutines.Deferred<LoadedTile>>()
+    private var preloading: kotlinx.coroutines.Job? = null
+    private var lastPreload: List<TileSpec> = emptyList()
+
+    /** How many tiles were drawn (not found in memory or on disk): for tests and the cold-start measurements. */
+    private val renderCount = java.util.concurrent.atomic.AtomicInteger()
+    val rendered: Int get() = renderCount.get()
     private val cache = object : LruCache<TileSpec, LoadedTile>(16 * 1024 * 1024) {
         override fun sizeOf(key: TileSpec, value: LoadedTile) = value.image.width * value.image.height * 4
     }
@@ -76,16 +91,80 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
 
     suspend fun load(spec: TileSpec): ImageBitmap = loadTile(spec).image
 
+    /**
+     * The tile: from memory, else from the disk cache, else drawn (and then written to disk). A spec that is already
+     * being loaded is waited for, not loaded again (the home screen, the preload and each cell all ask).
+     */
     suspend fun loadTile(spec: TileSpec): LoadedTile {
         cache.get(spec)?.let { return it }
-        val tile = withContext(Dispatchers.Default) {
-            val soft = render(spec)
-            val glow = glowColor(soft)
-            // GPU-only copy: a software tile would be held twice (native heap plus its texture).
-            LoadedTile((soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap(), glow)
+        val job = synchronized(inFlight) {
+            inFlight[spec] ?: scope.async {
+                try { produce(spec).also { cache.put(spec, it) } } finally { synchronized(inFlight) { inFlight.remove(spec) } }
+            }.also { inFlight[spec] = it }
         }
-        cache.put(spec, tile)
-        return tile
+        return job.await()
+    }
+
+    private fun produce(spec: TileSpec): LoadedTile {
+        val key = diskKey(spec)
+        val soft = key?.let { disk?.get(it) } ?: run {
+            renderCount.incrementAndGet()
+            render(spec).also { bitmap -> key?.let { disk?.put(it, bitmap) } }
+        }
+        val glow = glowColor(soft)
+        // GPU-only copy: a software tile would be held twice (native heap plus its texture).
+        return LoadedTile((soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap(), glow)
+    }
+
+    /**
+     * Loads [specs] in the order given (the home screen's on-screen order: tray, then the grid), one at a time,
+     * stopping short of [limit]. A newer list replaces an older one still running; loads already in flight are
+     * shared, so nothing is drawn twice.
+     */
+    fun preload(specs: List<TileSpec>, limit: Int = PRELOAD_LIMIT) {
+        val wanted = specs.take(limit)
+        // The same list again (a layout change that moved no tile) leaves the running preload alone.
+        if (wanted == lastPreload && preloading?.isActive == true) return
+        lastPreload = wanted
+        preloading?.cancel()
+        preloading = scope.launch {
+            for (spec in wanted) {
+                ensureActive()
+                if (cache.get(spec) == null) {
+                    try { loadTile(spec) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+                }
+            }
+        }
+    }
+
+    /**
+     * What a drawn tile depends on, as a string: the app (package, activity and when it was last updated), the custom
+     * image (path, size, time), and the icon pack (name and when it was updated). Null when something is unknown (an
+     * app with no update time): such a tile is just not cached on disk.
+     */
+    internal fun diskKey(spec: TileSpec): String? {
+        val app = spec.app
+        if (app.updated == 0L) return null
+        val custom = spec.customIcon?.let { path ->
+            val f = File(path)
+            if (!f.exists()) return null
+            "$path:${f.length()}:${f.lastModified()}"
+        }
+        val pack = spec.iconPack?.let { name ->
+            val updated = runCatching { pm.getPackageInfo(name, 0).lastUpdateTime }.getOrNull() ?: return null
+            "$name:$updated"
+        }
+        return "v$DISK_VERSION|${app.packageName}|${app.component.className}|${app.updated}|$custom|$pack|${WIDTH}x$HEIGHT"
+    }
+
+    /** Tidies the disk cache (call once, off the main thread). */
+    fun trimDisk() {
+        disk?.trim()
+        // Directories of older drawing versions are no use any more.
+        runCatching {
+            File(contextCacheDir, "").listFiles { f -> f.isDirectory && f.name.startsWith("tiles-v") && f.name != "tiles-v$DISK_VERSION" }
+                ?.forEach { it.deleteRecursively() }
+        }
     }
 
     /** Icon on a coloured backing, used for folder previews and menus. */
@@ -356,6 +435,9 @@ class TileArt(context: Context, private val iconPacks: IconPacks) {
         // 5:3, the tvOS app tile shape.
         const val WIDTH = 340
         const val HEIGHT = 204
+        /** Bumped whenever the drawing changes, so tiles drawn by an older build are not reused from disk. */
+        const val DISK_VERSION = 1
+        const val PRELOAD_LIMIT = 48
         private const val PROBE = 96
 
         /**

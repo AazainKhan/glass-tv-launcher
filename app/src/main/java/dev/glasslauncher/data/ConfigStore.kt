@@ -28,10 +28,15 @@ class ConfigStore(private val context: Context, scope: CoroutineScope) {
         runBlocking { flow.first() },
     )
 
+    /** How many times the config was written to disk (tests and measurements). */
+    @Volatile var writes = 0
+        private set
+
     suspend fun update(transform: (LauncherConfig) -> LauncherConfig) {
         context.dataStore.edit { prefs ->
             prefs[key] = json.encodeToString(LauncherConfig.serializer(), transform(decode(prefs[key])))
         }
+        writes++ // after the write: a reader that sees the count change can read the saved config
     }
 
     fun export(): String = json.encodeToString(LauncherConfig.serializer(), config.value)

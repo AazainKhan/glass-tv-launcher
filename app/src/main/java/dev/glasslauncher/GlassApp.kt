@@ -43,6 +43,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         scope.launch(Dispatchers.Default) { runCatching { wallpapers.prewarm() } }
         // The tile shadows bake once (a few ms to tens of ms on the stick): off the UI thread, before the first tile draws.
         scope.launch(Dispatchers.Default) { dev.glasslauncher.ui.TileShadow.focus; dev.glasslauncher.ui.TileShadow.contact; dev.glasslauncher.ui.TileShadow.glow }
+        // Old tiles on disk (changed apps, removed packs) are cleared away once per start, off the main thread.
+        scope.launch(Dispatchers.IO) { runCatching { tileArt.trimDisk() } }
         scope.launch(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
         scope.launch(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
         // A store visit cut short (Glass restarted): put Glass back as Home.
