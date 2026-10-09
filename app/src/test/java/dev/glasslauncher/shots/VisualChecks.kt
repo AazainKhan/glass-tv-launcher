@@ -93,6 +93,65 @@ class VisualChecks {
         if (problems.isNotEmpty()) fail("$name ghost frames:\n" + problems.joinToString("\n"))
     }
 
+    // ── continuity: things that move must move continuously ──────────────────────────────────
+
+    // Every focus move and transition on Home, plus move mode (the user's report: P20).
+    @Test fun dockRightIsContinuous() = continuous("dock-right", Button.Right)
+    @Test fun dockToGridIsContinuous() = continuous("dock-to-grid", Button.Down)
+    @Test fun gridToDockIsContinuous() = continuous("grid-to-dock", Button.Up, Button.Down)
+    @Test fun dockToFeaturedIsContinuous() = continuous("dock-to-featured", Button.Up)
+    @Test fun featuredToDockIsContinuous() = continuous("featured-to-dock", Button.Down, Button.Up)
+    @Test fun appMenuIsContinuous() = continuous("open-app-menu", Button.Menu)
+    @Test fun settingsPageIsContinuous() = continuous("settings-page-push", Button.Select, Button.Down, Button.Down, Button.Right, Button.Right, Button.Select)
+    @Test fun controlCenterIsContinuous() = continuous("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up)
+    // Move mode: Menu on the first dock app, "Move" (second row), then move it right / down.
+    @Test fun moveModeRightIsContinuous() = expectFail("P20") { continuous("move-right", Button.Right, Button.Menu, Button.Down, Button.Select) }
+    @Test fun moveModeDownIsContinuous() = expectFail("P20") { continuous("move-down", Button.Down, Button.Menu, Button.Down, Button.Select) }
+
+    /**
+     * Records [button]'s transition with every watched element's bounds per frame, and fails when an
+     * element jumps: one frame's move is large (> [JUMP_MIN_PX]) and far bigger than its typical
+     * per-frame motion ([JUMP_RATIO]x the median of its moving frames), or it teleports (one big
+     * move with no motion around it). Bounds are layout positions, so graphicsLayer-only motion isn't
+     * seen; confirm flags against `scripts/shots strips`.
+     */
+    private fun continuous(name: String, button: Button, vararg setup: Button) = onHome {
+        compose.press(*setup)
+        compose.settle()
+        val track = ArrayList<Map<String, Box>>()
+        compose.mainClock.autoAdvance = false
+        try {
+            track += tagged()
+            compose.onRoot().performKeyInput { pressKey(button.key) }
+            repeat(FRAMES) {
+                if (it == 0) compose.mainClock.advanceTimeByFrame() else compose.mainClock.advanceTimeBy(STEP_MS)
+                track += tagged()
+            }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+        val problems = mutableListOf<String>()
+        val names = track.flatMap { it.keys }.toSet()
+        for (n in names) {
+            val boxes = track.map { it[n] }
+            val steps = boxes.zipWithNext().mapIndexedNotNull { i, (a, b) ->
+                if (a == null || b == null) null else i to max(
+                    max(abs(((a.l + a.r) - (b.l + b.r)) / 2), abs(((a.t + a.b) - (b.t + b.b)) / 2)),
+                    max(abs((a.r - a.l) - (b.r - b.l)), abs((a.b - a.t) - (b.b - b.t))),
+                )
+            }
+            // A jump is a spike: one frame's move far bigger than BOTH neighbours (an ease-out's fast first
+            // frame isn't, since the next frame is still large). A move with nothing around it is a teleport.
+            val byFrame = steps.toMap()
+            for ((i, d) in steps) {
+                if (d <= JUMP_MIN_PX) continue
+                val around = max(byFrame[i - 1] ?: 0, byFrame[i + 1] ?: 0)
+                if (d > JUMP_RATIO * max(around, 1)) problems += "$n jumps ${d}px in one frame at ${i * STEP_MS} ms (neighbouring frames move ${around}px)"
+            }
+        }
+        if (problems.isNotEmpty()) fail("$name discontinuities:\n" + problems.distinct().take(15).joinToString("\n"))
+    }
+
     // ── Control Center material (P10) ───────────────────────────────────────────────────────────
 
     @Test fun controlCenterIsOneMaterial() = controlCenter { frames, tiles, _, _ ->
@@ -272,6 +331,12 @@ class VisualChecks {
         return boxes.groupBy { it.name }.flatMap { (name, list) -> list.mapIndexed { i, b -> (if (i == 0) name else "$name#$i") to b } }.toMap()
     }
 
+    /** Only test-tagged nodes: their tags are stable identities across frames (text labels aren't). */
+    private fun tagged(): Map<String, Box> =
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.TestTag), useUnmergedTree = true)
+            .fetchSemanticsNodes().groupBy { it.config[SemanticsProperties.TestTag] }
+            .filterValues { it.size == 1 }.mapValues { it.value.single().toBox() }
+
     private fun descendants(n: SemanticsNode): List<SemanticsNode> = n.children.flatMap { listOf(it) + descendants(it) }
 
     private fun SemanticsNode.toBox(): Box {
@@ -320,5 +385,7 @@ class VisualChecks {
         const val GHOST_PIXELS = 0.10f
         const val GREY_SHARE = 0.10f
         const val LIT_MIN = 200f
+        const val JUMP_MIN_PX = 40
+        const val JUMP_RATIO = 4
     }
 }

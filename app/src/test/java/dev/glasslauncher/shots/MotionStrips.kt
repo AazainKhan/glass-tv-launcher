@@ -4,6 +4,9 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.glasslauncher.MainActivity
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
@@ -43,6 +46,45 @@ class MotionStrips {
     @Test fun dockToGrid() = strip("dock-to-grid", button = Button.Down)
     @Test fun gridToDock() = strip("grid-to-dock", Button.Down, button = Button.Up)
     @Test fun openAppMenu() = strip("open-app-menu", button = Button.Menu)
+    // The status pill over white, light and dark scenes, side by side (P18: too smoky on light backgrounds).
+    @Test fun statusPillOnBackgrounds() {
+        assumeTrue(only == "all" || only == "status-pill")
+        val white = java.io.File.createTempFile("white", ".png").apply {
+            val b = android.graphics.Bitmap.createBitmap(1920, 1080, android.graphics.Bitmap.Config.ARGB_8888)
+            b.eraseColor(android.graphics.Color.WHITE)
+            outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        val scenes = listOf(
+            "white" to dev.glasslauncher.data.Wallpaper(dev.glasslauncher.data.WallpaperKind.File, white.absolutePath),
+            "light preset" to dev.glasslauncher.data.Wallpaper(dev.glasslauncher.data.WallpaperKind.Preset, "dawn"),
+            "dark preset" to dev.glasslauncher.data.Wallpaper(dev.glasslauncher.data.WallpaperKind.Preset, "aurora"),
+        )
+        val crops = scenes.map { (label, wp) ->
+            TvHarness.setUp(config = { it.copy(background = dev.glasslauncher.data.BackgroundMode.Wallpaper, wallpaperDark = wp, wallpaperLight = wp) })
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome(); compose.settle()
+                val full = compose.onRoot().captureToImage().asAndroidBitmap()
+                val pill = compose.onAllNodes(androidx.compose.ui.test.hasTestTag("status-pill"), useUnmergedTree = true).fetchSemanticsNodes().first().boundsInRoot
+                val pad = 40
+                val l = (pill.left.toInt() - pad).coerceAtLeast(0); val t = (pill.top.toInt() - pad).coerceAtLeast(0)
+                label to android.graphics.Bitmap.createBitmap(full, l, t, (pill.width.toInt() + 2 * pad).coerceAtMost(full.width - l), (pill.height.toInt() + 2 * pad).coerceAtMost(full.height - t))
+            }
+        }
+        val w = crops.maxOf { it.second.width } * 3; val h = crops.maxOf { it.second.height } * 3 + 30
+        val sheet = android.graphics.Bitmap.createBitmap(w * crops.size, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(sheet); canvas.drawColor(android.graphics.Color.DKGRAY)
+        val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.YELLOW; textSize = 24f }
+        crops.forEachIndexed { i, (label, b) ->
+            canvas.drawBitmap(android.graphics.Bitmap.createScaledBitmap(b, b.width * 3, b.height * 3, true), (i * w).toFloat(), 30f, null)
+            canvas.drawText(label, i * w + 8f, 24f, text)
+        }
+        val out = java.io.File("build/strips/status-pill-backgrounds.png").apply { parentFile?.mkdirs() }
+        out.outputStream().use { sheet.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        println("strip: " + out.absolutePath)
+    }
+
+    @Test fun moveModeRight() = strip("move-mode-right", Button.Menu, Button.Down, Button.Select, button = Button.Right, frames = 12, stepMs = 28, columns = 6)
+    @Test fun moveModeDown() = strip("move-mode-down", Button.Menu, Button.Down, Button.Select, button = Button.Down, frames = 12, stepMs = 28, columns = 6)
     @Test fun controlCenterOpen() = strip("control-center-open", Button.Up, Button.Up, Button.Up, button = Button.Select, frames = 28, stepMs = 28, columns = 7)
     // Exits: Back goes to the activity's dispatcher directly (the harness's Back key doesn't reach it).
     @Test fun controlCenterClose() {
