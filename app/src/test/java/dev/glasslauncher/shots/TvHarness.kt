@@ -50,6 +50,12 @@ object TvHarness {
         "com.estrongs.android.pop" to FakeApp("ES File Explorer", 0xFF1E88E5.toInt(), 0xFF42A5F5.toInt()),
     )
 
+    /** The dock HomeModel's defaults would pick from [fakeApps], Netflix first. */
+    private val DOCK = listOf(
+        "com.netflix.ninja", "com.amazon.firetv.youtube", "com.apple.atve.amazon.appletv",
+        "com.disney.disneyplus", "com.plexapp.android", "com.stremio.one",
+    )
+
     /** Package -> label, in install order. */
     val apps: Map<String, String> get() = fakeApps.mapValues { it.value.label }
 
@@ -67,7 +73,9 @@ object TvHarness {
         // leaked into the next.
         // Process-wide caches would carry one test's scene into the next.
         dev.glasslauncher.home.HeroCache.app.trim()
-        runBlocking { app.config.update { config(LauncherConfig(tipsSeen = true)) } }
+        // The dock is seeded here, not by HomeModel.seedDefaults: that runs after the first layout, so which
+        // app got the first focus (and its hero) depended on whether the test was the JVM's first (cold) or not.
+        runBlocking { app.config.update { config(LauncherConfig(tipsSeen = true, seededDefaults = true, dock = DOCK)) } }
     }
 
     /** Any request fails fast against a dead proxy, so sources fall back to the seeded cache. */

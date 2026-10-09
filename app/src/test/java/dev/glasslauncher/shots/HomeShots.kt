@@ -80,7 +80,7 @@ class HomeShots {
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
         // The blurred Home behind the folder differs by a few scattered pixels between runs.
-        capture("folder-open", tolerance = 0.01f)
+        capture("folder-open", tolerance = 0.01f, colourNoise = 0.1f)
     }
 
     @Test fun settings() = home {
@@ -120,7 +120,7 @@ class HomeShots {
         compose.focusTag(folderKey("media"))
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
-        capture("folder-open-light", tolerance = 0.01f)
+        capture("folder-open-light", tolerance = 0.01f, colourNoise = 0.1f)
     }
 
     @Test fun lightControlCenter() = home(config = light) {

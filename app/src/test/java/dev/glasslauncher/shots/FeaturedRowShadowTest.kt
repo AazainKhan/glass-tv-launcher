@@ -39,9 +39,10 @@ class FeaturedRowShadowTest {
 
             // The bounds are the layout's; the focused card is drawn FOCUSED_SCALE times bigger about its centre.
             val bottom = card.bottom + card.height * (FOCUSED_SCALE - 1f) / 2f
-            // Mean luma of a strip under the middle of the card, per 3 px row, from just under its bottom edge.
-            val x0 = card.center.x.roundToInt() - 40
-            val x1 = card.center.x.roundToInt() + 40
+            // Mean luma of a strip under the card's left end, per 3 px row, from just under its bottom edge.
+            // The card's title is centred under it, so the strip sits at the left end, clear of the text.
+            val x0 = card.left.roundToInt() + 8
+            val x1 = card.left.roundToInt() + 44
             val top = bottom.roundToInt() + 4
             val rows = (top until image.height - 3 step 3).map { y ->
                 var sum = 0.0
