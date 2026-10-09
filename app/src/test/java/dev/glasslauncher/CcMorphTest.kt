@@ -21,14 +21,17 @@ class CcMorphTest {
         assertRect(panel, CcMorph.rect(1f, pill, panel))
     }
 
-    // The bubble swells out of the pill's centre: its centre travels straight to the panel's centre while it grows.
-    @Test fun swellsFromThePillsCentre() {
+    // The bubble stretches out of the pill: its width grows with the open and its sides, top and bottom travel
+    // linearly to the panel's, except that the bottom lags (the capsule stretches down late, so it is never a disc).
+    @Test fun stretchesOutOfThePill() {
         for (t in listOf(0.1f, 0.3f, 0.5f, 0.8f)) {
             val r = CcMorph.rect(t, pill, panel)
-            assertEquals(pill.center.x + (panel.center.x - pill.center.x) * t, r.center.x, 0.01f)
-            assertEquals(pill.center.y + (panel.center.y - pill.center.y) * t, r.center.y, 0.01f)
+            assertEquals(pill.left + (panel.left - pill.left) * t, r.left, 0.01f)
+            assertEquals(pill.right + (panel.right - pill.right) * t, r.right, 0.01f)
+            assertEquals(pill.top + (panel.top - pill.top) * t, r.top, 0.01f)
             assertEquals(pill.width + (panel.width - pill.width) * t, r.width, 0.01f)
-            assertEquals(pill.height + (panel.height - pill.height) * t, r.height, 0.01f)
+            assertTrue("t=$t the bottom lags the linear path", r.bottom < pill.bottom + (panel.bottom - pill.bottom) * t - 1f)
+            assertTrue("t=$t the bubble only grows", r.height >= pill.height - 0.01f)
         }
     }
 
@@ -125,6 +128,66 @@ class CcMorphTest {
         assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} < visible landing $landedMs", CcMorph.CLOSE_MS >= landedMs)
         assertTrue("CLOSE_MS ${CcMorph.CLOSE_MS} keeps the invisible tail (landing $landedMs, settle $closeMs)", CcMorph.CLOSE_MS <= landedMs + 40)
         assertTrue("open settles in ${openMs} ms", openMs < 1000)
+    }
+
+    // The first frames are the pill's capsule stretching, never a round disc: while the bubble is less than a
+    // quarter open its aspect stays within 25% of the pill's (the user's phone video: "a dark round disc").
+    @Test fun earlyBubbleKeepsThePillsCapsuleAspect() {
+        val aspect = pill.width / pill.height
+        for (i in 0..25) {
+            val t = i / 100f
+            val r = CcMorph.rect(t, pill, panel)
+            val got = r.width / r.height
+            assertTrue("t=$t aspect $got vs the pill's $aspect", got in aspect * 0.75f..aspect * 1.25f)
+        }
+        // Along the real open spring, the frames before 25% progress are the same capsule.
+        val v = CcMorph.openSpring.vectorize(Float.VectorConverter)
+        val a = androidx.compose.animation.core.AnimationVector1D(0f); val b = androidx.compose.animation.core.AnimationVector1D(1f)
+        val z = androidx.compose.animation.core.AnimationVector1D(0f)
+        var seen = 0
+        for (ms in 0..300 step 4) {
+            val e = v.getValueFromNanos(ms * 1_000_000L, a, b, z).value
+            if (e > 0.25f) break
+            val r = CcMorph.rect(CcMorph.bubble(e, closing = false), pill, panel)
+            assertTrue("at $ms ms (e=$e) the bubble is ${r.width} x ${r.height}", r.width / r.height >= aspect * 0.75f)
+            seen++
+        }
+        assertTrue("the spring has early frames to check", seen >= 3)
+        // It still ends as the tall panel.
+        assertRect(panel, CcMorph.rect(1f, pill, panel))
+    }
+
+    // The bubble stays attached to the pill: its top and right edges leave the pill's smoothly, no drift away from it.
+    @Test fun earlyBubbleStaysAttachedToThePill() {
+        for (t in listOf(0.05f, 0.1f, 0.2f)) {
+            val r = CcMorph.rect(t, pill, panel)
+            assertTrue("top $t", r.top in panel.top - 0.01f..pill.top + 0.01f)
+            assertTrue("t=$t bubble covers the pill's centre", r.contains(pill.center))
+        }
+    }
+
+    // Tiles are solid early: each reaches 90% opacity within the first 40% of its own arrival, so there is no
+    // stretch of translucent ghost tiles (the user's video).
+    @Test fun tilesAreSolidEarlyInTheirArrival() {
+        for (row in 0..5) {
+            // Find the spring progress at which this row is 40% arrived.
+            val start = 0.6f + row * 0.03f
+            val span = 1f - 0.6f - 5 * 0.03f
+            val e = start + span * 0.4f
+            assertEquals("arrival at e=$e", 0.4f, CcMorph.tiles(e, row), 0.001f)
+            assertTrue("row $row alpha ${CcMorph.row(e, row, reduceMotion = false).alpha} at 40% of its arrival",
+                CcMorph.row(e, row, reduceMotion = false).alpha >= 0.9f)
+            assertEquals(0f, CcMorph.row(start - 0.01f, row, reduceMotion = false).alpha, 0f)
+            assertEquals(1f, CcMorph.row(1f, row, reduceMotion = false).alpha, 0f)
+        }
+    }
+
+    // The bubble keeps its colour behind the arriving tiles and only then fades, so the two never add up to a hole.
+    @Test fun bubbleStaysSolidUntilTheTilesAreIn() {
+        assertEquals(1f, CcMorph.bubbleAlpha(0f), 0f)
+        assertEquals(1f, CcMorph.bubbleAlpha(0.3f), 0f)
+        assertEquals(0f, CcMorph.bubbleAlpha(1f), 0f)
+        assertTrue(CcMorph.bubbleAlpha(0.6f) in 0.01f..0.99f)
     }
 
     @Test fun tilesGrowSlightlyAsTheyArrive() {

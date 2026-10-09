@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import dev.glasslauncher.home.ccSurface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -182,7 +183,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
         Modifier.width(width)
             .bringIntoViewRequester(reveal)
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
-            .glass(LocalBackdrop.current, shape, GlassStyle.shelf(false).copy(legible = true)).testTag("now-playing-card").padding((12 * scale).dp),
+            .ccSurface(shape).testTag("now-playing-card").padding((12 * scale).dp),
     ) {
         // One row (art, track and progress, then the controls), so Control Center fits on screen with it.
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -124,11 +124,6 @@ data class GlassStyle(
     val clear: Boolean = false,
     /** Clear glass that carries text: samples the text-safe copy of the clear texture. */
     val legible: Boolean = false,
-    /**
-     * Before its texture fades in, draw the flat colour the glass settles to (GlassMatch) rather than a
-     * generic tint, so the swap shows no change of colour (Control Center's tiles, plan §11).
-     */
-    val matchedFlat: Boolean = false,
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
@@ -252,9 +247,6 @@ private class GlassNode(
             // a flat translucent slab), and texture shaders here tipped the GPU over budget.
             val flat = when {
                 state.reduceTransparency -> solidTint(style.tint)
-                // Control Center's overlay before its glass fades in: the smoky fill over the live screen.
-                // Matched to the glass it fades into (same colour, minus the texture's detail): no flash.
-                style.matchedFlat && backdrop?.clearSample != null -> matchedFill(backdrop.clearSample, root)
                 state.translucentWindow -> Color(0x7A2A2E37)
                 else -> Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f)
             }
@@ -307,27 +299,6 @@ private class GlassNode(
         if (texture < 0.5f) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))
         else drawRim(outline)
         drawContent()
-    }
-
-    private var matchKey: Any? = null
-    private var matchColor = Color.Unspecified
-
-    /** The flat colour this surface's glass settles to (GlassMatch), cached per backdrop, size and place. */
-    private fun matchedFill(source: android.graphics.Bitmap, root: IntSize): Color {
-        if (root == IntSize.Zero) return Color(0x7A2A2E37)
-        val key = listOf(source, cachedSize, origin, style.tint, state.sceneDim)
-        if (key != matchKey) {
-            val sx = source.width / root.width.toFloat()
-            val sy = source.height / root.height.toFloat()
-            matchColor = runCatching {
-                GlassMatch.fill(
-                    GlassMatch.average(source, origin.x * sx, origin.y * sy, cachedSize.width * sx, cachedSize.height * sy),
-                    style.tint, state.sceneDim,
-                )
-            }.getOrDefault(Color(0x7A2A2E37))
-            matchKey = key
-        }
-        return matchColor
     }
 
     private fun solidTint(tint: Color): Color =

@@ -5,10 +5,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 
 /**
- * The flat colour a glass surface settles to: the scene behind it (averaged), under the glass's tint, then
- * the scene's dim. Control Center draws this while its tiles move and fades the real texture in once they
- * land (sampling it through the motion cost a third of the frames), and because the two match, the swap
- * shows only the texture's detail arriving, never a change of colour (plan §11).
+ * The flat colour a surface over the scene takes: the scene behind it (averaged), under a tint, then the
+ * scene's dim. Control Center computes it once per open for the whole panel and draws every tile, and the
+ * bubble that grows into the panel, in that one colour (no texture to fade in, nothing sampled per frame).
  */
 object GlassMatch {
     fun fill(average: Color, tint: Color, dim: Float): Color {
@@ -26,5 +25,16 @@ object GlassMatch {
             r += android.graphics.Color.red(p); g += android.graphics.Color.green(p); b += android.graphics.Color.blue(p); n++
         }
         return Color(r / n / 255f, g / n / 255f, b / n / 255f)
+    }
+
+    /**
+     * [fill] for the screen rectangle [left],[top],[width],[height] (root pixels, [rootWidth] by [rootHeight]),
+     * averaged from [source], which covers the whole root at its own resolution. Null if it can't be sampled.
+     */
+    fun regionFill(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float): Color? {
+        if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
+        val sx = source.width / rootWidth.toFloat()
+        val sy = source.height / rootHeight.toFloat()
+        return runCatching { fill(average(source, left * sx, top * sy, width * sx, height * sy), tint, dim) }.getOrNull()
     }
 }

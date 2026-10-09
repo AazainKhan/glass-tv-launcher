@@ -4,6 +4,8 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.glasslauncher.MainActivity
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.onRoot
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -67,7 +69,10 @@ class ControlCenterMotionTest {
             val moving = steps.count { it > total * 0.02f }
             val worst = steps.maxOrNull() ?: 0f
             assertTrue("nothing changed while opening: $levels", total > 3f)
-            assertTrue("a sudden jump: ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one 16 ms frame: $levels", worst < total * 0.3f)
+            // Tiles are solid within the first 30% of their arrival (no ghosts), so this area, mostly the white
+            // Settings tile and its row, now lands in two or three frames rather than a long fade: one frame may
+            // take most of it, but not all of it, and the grow before it must be gradual (the 12 moving frames).
+            assertTrue("a sudden jump: ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one 16 ms frame: $levels", worst < total * 0.95f)
             assertTrue("the opening spans only $moving frames (want a grow over many): $levels", moving >= 12)
         }
     }
@@ -111,6 +116,102 @@ class ControlCenterMotionTest {
             val brightest = close.maxOrNull() ?: 0f
             assertTrue("closing never moved (Back didn't close Control Center): $close", kotlin.math.abs(close.last() - close.first()) > 3f)
             assertTrue("closing brightened the tiles to ${"%.1f".format(brightest)} (settled ${"%.1f".format(settled)}): $close", brightest <= settled + 4f)
+        }
+    }
+    /** Where each Control Center tile is, in the captured image's pixels (by its accessibility label). */
+    private fun tileBounds(): Map<String, android.graphics.RectF> {
+        val labels = listOf("Settings, Fire TV", "Wi-Fi", "Bluetooth", "Launcher Settings", "Game Controllers", "Theme", "Screen Saver", "App Switcher", "Free Memory")
+        val out = LinkedHashMap<String, android.graphics.RectF>()
+        for (label in labels) {
+            val node = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("label $label") { n ->
+                n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription)?.any { it == label || (label != "Settings, Fire TV" && it.startsWith(label)) } == true
+            }, useUnmergedTree = true).fetchSemanticsNodes().firstOrNull() ?: continue
+            val b = node.boundsInRoot
+            out[label] = android.graphics.RectF(b.left, b.top, b.right, b.bottom)
+        }
+        return out
+    }
+
+    /** Mean colour (r, g, b) of the tile's ink-free top band: the material, without its glyph or label. */
+    private fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF): FloatArray {
+        val k = b.width / rootW.toFloat()
+        val x0 = ((r.left + r.width() * 0.35f) * k).toInt(); val x1 = ((r.left + r.width() * 0.65f) * k).toInt().coerceAtLeast(x0 + 1)
+        val y0 = ((r.top + r.height() * 0.08f) * k).toInt(); val y1 = ((r.top + r.height() * 0.16f) * k).toInt().coerceAtLeast(y0 + 1)
+        val sum = FloatArray(3); var n = 0
+        for (y in y0 until y1) for (x in x0 until x1) {
+            val c = b.getPixel(x.coerceIn(0, b.width - 1), y.coerceIn(0, b.height - 1))
+            sum[0] += (c shr 16 and 0xFF); sum[1] += (c shr 8 and 0xFF); sum[2] += (c and 0xFF); n++
+        }
+        return FloatArray(3) { sum[it] / n }
+    }
+
+    /**
+     * The user's phone video: tiles were not one colour while Control Center opened (each tinted from the scene
+     * right behind it, a texture then swapping in tile by tile). Every tile now draws one flat shared fill:
+     * after the tiles land none moves more than 4/255 between frames, and the unfocused tiles of every kind
+     * (pills, round buttons, the wide pill) sit within 6/255 of each other, on landing and when settled.
+     */
+    @Test fun everyTileIsOneMaterialFromLandingOn() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up)
+            compose.settle()
+            val frames = compose.frames(Button.Select, frames = 60, stepMs = 16, scale = 0.5f)
+            compose.settle()
+            val rootW = compose.onRoot().fetchSemanticsNode().size.width
+            val tiles = tileBounds()
+            assertTrue("found only ${tiles.keys}", tiles.size >= 5)
+            val landed = 20   // ~340 ms: every row has arrived (the spring's first pass over 1 is ~280 ms)
+            for ((name, r) in tiles) {
+                val seq = frames.drop(landed).map { material(it, rootW, r) }
+                val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f
+                assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 between frames after landing", worst <= 4f)
+            }
+            val unfocused = tiles.filterKeys { it != "Settings, Fire TV" }
+            for (at in listOf(landed, frames.lastIndex)) {
+                val means = unfocused.mapValues { material(frames[at], rootW, it.value) }
+                for (c in 0..2) {
+                    val lo = means.values.minOf { it[c] }; val hi = means.values.maxOf { it[c] }
+                    assertTrue("tiles are not one material in frame $at (channel $c spread ${"%.1f".format(hi - lo)}/255): " +
+                        means.mapValues { e -> e.value.map { "%.0f".format(it) } }, hi - lo <= 6f)
+                }
+            }
+        }
+    }
+
+    /**
+     * No ghosts: the focused white Settings tile goes from the bubble's colour to white within a frame or two
+     * (not a stretch of grey), and the dim over the rest of the screen never steps.
+     */
+    @Test fun whiteTileIsNotAGhostAndTheDimIsContinuous() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up)
+            compose.settle()
+            val frames = compose.frames(Button.Select, frames = 40, stepMs = 16, scale = 0.5f)
+            compose.settle()
+            val rootW = compose.onRoot().fetchSemanticsNode().size.width
+            val settings = tileBounds()["Settings, Fire TV"] ?: error("no Settings tile")
+            val l = frames.map { f -> material(f, rootW, settings).let { (it[0] * 3 + it[1] * 6 + it[2]) / 10 } }
+            val lo = l.min(); val hi = l.last()
+            assertTrue("the Settings tile never turned white: $l", hi - lo > 60f)
+            val grey = l.count { it > lo + 0.15f * (hi - lo) && it < lo + 0.85f * (hi - lo) }
+            assertTrue("the white tile read as grey for $grey frames: $l", grey <= 3)
+
+            // The dim: a patch of the screen left of the panel darkens smoothly; no frame takes most of it at once.
+            val dim = frames.map { f ->
+                var sum = 0L; var n = 0
+                for (y in (f.height * 0.1f).toInt() until (f.height * 0.9f).toInt() step 2)
+                    for (x in (f.width * 0.05f).toInt() until (f.width * 0.35f).toInt() step 2) {
+                        val c = f.getPixel(x, y); sum += ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10; n++
+                    }
+                sum.toFloat() / n
+            }
+            val total = kotlin.math.abs(dim.last() - dim.first())
+            val worst = dim.zipWithNext { a, b -> kotlin.math.abs(b - a) }.maxOrNull() ?: 0f
+            assertTrue("the dim stepped ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one frame: $dim", total < 2f || worst <= total * 0.4f)
         }
     }
 }
