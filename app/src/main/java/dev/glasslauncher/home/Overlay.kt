@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.Composable
@@ -343,9 +347,7 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
                 // One purposeful line: the focused row's help, else the page's own caption. Never a pile.
                 val words = sink.help?.takeIf { it.first == sink.page }?.second
                     ?: sink.captions.firstOrNull { it.first == sink.page }?.second
-                androidx.compose.animation.Crossfade(words, animationSpec = androidx.compose.animation.core.tween(160), label = "settings-help", modifier = Modifier.padding(bottom = 18.dp).then(Modifier.defaultMinSize(minHeight = 60.dp))) { w ->
-                    if (w != null) androidx.tv.material3.Text(w, style = dev.glasslauncher.ui.Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
+                SettingsHelp(words)
             }
             Box(Modifier.weight(if (wide) 1f else 0.58f).fillMaxHeight()) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalTitleSink provides sink) {
@@ -356,6 +358,46 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
         }
     }
 }
+
+/**
+ * The words under a Settings page's icon. The slot is a fixed height whatever the text (a longer help, or a
+ * font with taller lines, overflows below it rather than growing it), so the icon above never moves as the text
+ * changes. A change is a cross-fade in place. Both texts fill the slot's full width and centre inside it: with
+ * wrap-content widths the container was as wide as the wider text, the narrower one sat at its left edge, and
+ * when the old text left the container narrowed and re-centred, which read as the text sliding left to right.
+ */
+@Composable
+internal fun SettingsHelp(words: String?) {
+    val palette = dev.glasslauncher.ui.LocalPalette.current
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    Box(Modifier.fillMaxWidth().padding(bottom = 18.dp).height(60.dp).testTag("settings-help"), contentAlignment = Alignment.TopCenter) {
+        androidx.compose.animation.AnimatedContent(
+            targetState = words,
+            modifier = Modifier.fillMaxWidth().wrapContentHeight(align = Alignment.Top, unbounded = true),
+            transitionSpec = {
+                val ms = if (reduceMotion) 0 else HELP_FADE_MS
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(ms)) togetherWith
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(ms)))
+                    // No size animation: the default one clips and animates the height, which wipes a
+                    // multi-line text in from the top instead of just fading it.
+                    .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() })
+            },
+            contentAlignment = Alignment.TopCenter,
+            label = "settings-help",
+        ) { w ->
+            if (w != null) androidx.tv.material3.Text(
+                w, style = dev.glasslauncher.ui.Type.secondary, color = palette.secondary,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                // Bounded: more than this would run off the bottom of the screen.
+                maxLines = HELP_MAX_LINES, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+private const val HELP_FADE_MS = 160
+private const val HELP_MAX_LINES = 4
 
 /** Fades content to transparent over its last [height] (an offscreen layer masked by a gradient). */
 fun Modifier.fadeBottom(height: androidx.compose.ui.unit.Dp): Modifier = this
