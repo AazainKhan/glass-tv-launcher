@@ -965,7 +965,13 @@ private fun HomeList(
     // Move mode: a changed layout makes the cells that moved glide to their new spots.
     val glide = remember { GlideTracker() }
     remember(layout) { if (moving != null) glide.generation++; glide.generation }
-    CompositionLocalProvider(LocalGlide provides glide) {
+    // Provided only while moving (and for the tail of the last glide): the rest of the time no cell tracks its
+    // placement, so scrolling the grid costs nothing for it.
+    var gliding by remember { mutableStateOf(false) }
+    LaunchedEffect(moving != null) {
+        if (moving != null) gliding = true else { delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
+    }
+    CompositionLocalProvider(LocalGlide provides glide.takeIf { gliding || moving != null }) {
     LazyColumn(
         state = listState,
         userScrollEnabled = false,
@@ -1096,6 +1102,15 @@ private fun DockTray(
     }
 }
 
+/**
+ * A tile's last layout coordinates. Its window bounds are worked out only when a click or a menu needs them,
+ * not on every placement (a scrolling grid places every tile each frame).
+ */
+private class TileBounds {
+    var coords: androidx.compose.ui.layout.LayoutCoordinates? = null
+    fun rect(): Rect? = coords?.takeIf { it.isAttached }?.boundsInWindow()
+}
+
 @Composable
 fun AppCell(
     app: AppEntry,
@@ -1111,7 +1126,7 @@ fun AppCell(
     val tile = rememberTile(model, app)
     val art = tile?.image
     val isNew by rememberTileValue(model, app.packageName) { model.isNew(app.packageName, it) }
-    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val tileBounds = remember { TileBounds() }
     val anchorStore = LocalMenuAnchor.current
     val launchView = LocalView.current
     val transition = LocalAppTransition.current
@@ -1125,17 +1140,17 @@ fun AppCell(
         onFocused = onFocused,
         // Launch from the tile as drawn (focused, 1.2x), so the app zooms out of what you see.
         onClick = {
-            val from = bounds?.let { val dx = it.width * 0.1f; val dy = it.height * 0.1f; Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy) }
+            val from = tileBounds.rect()?.let { val dx = it.width * 0.1f; val dy = it.height * 0.1f; Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy) }
             when {
                 transition != null && from != null -> transition.open(app, from, art, launchView)
                 launch != null -> launch(app, from)
                 else -> model.launch(app, launchView, from)
             }
         },
-        onMenu = { anchorStore.bounds = bounds; onMenu() },
+        onMenu = { anchorStore.bounds = tileBounds.rect(); onMenu() },
         showLabel = showLabel,
         floatingLabel = floatingLabel,
-        tileModifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
+        tileModifier = Modifier.onGloballyPositioned { tileBounds.coords = it },
     ) {
         art?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
@@ -1151,7 +1166,7 @@ private fun FolderCell(
     onOpen: () -> Unit,
     onMenu: () -> Unit,
 ) {
-    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val tileBounds = remember { TileBounds() }
     val anchorStore = LocalMenuAnchor.current
     TileWithLabel(
         label = item.folder.name,
@@ -1160,8 +1175,8 @@ private fun FolderCell(
         isNew = false,
         focusRequester = focusRequester,
         onFocused = onFocused,
-        onClick = { anchorStore.bounds = bounds; onOpen() },
-        tileModifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
+        onClick = { anchorStore.bounds = tileBounds.rect(); onOpen() },
+        tileModifier = Modifier.onGloballyPositioned { tileBounds.coords = it },
         onMenu = onMenu,
         glassBackground = true,
     ) {

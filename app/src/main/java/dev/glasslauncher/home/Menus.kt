@@ -413,6 +413,11 @@ private fun FolderView(
     val swallowSelect = remember { booleanArrayOf(false) }
     val glide = remember { GlideTracker() }
     remember(folder.apps) { if (rearranging != null) glide.generation++; glide.generation }
+    // Provided only while rearranging (and for the tail of the last glide), as on Home.
+    var gliding by remember { mutableStateOf(false) }
+    LaunchedEffect(rearranging != null) {
+        if (rearranging != null) gliding = true else { kotlinx.coroutines.delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
+    }
     // The home screen behind is shown blurred (a snapshot, Home not drawn), with a frosted panel and a
     // capsule name above it.
     val backdropEnter = rememberOverlayEnter()
@@ -506,7 +511,7 @@ private fun FolderView(
                     .testTag("folder-panel"),
             ) {
                 val folderAnchor = LocalMenuAnchor.current
-                androidx.compose.runtime.CompositionLocalProvider(LocalGlide provides glide) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalGlide provides glide.takeIf { gliding || rearranging != null }) {
                 // The scroller fills the panel (its clip must not cut a focused tile's shadow or name short).
                 Column(
                     verticalArrangement = Arrangement.spacedBy(FolderGeometry.rowGap),

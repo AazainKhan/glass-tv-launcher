@@ -28,7 +28,13 @@ import kotlin.math.roundToInt
 class GlideTracker {
     var generation = 0
     internal val last = HashMap<String, Pair<Offset, Int>>()
+
+    /** Forgets where cells were: positions kept from before a scroll would make the next move glide from the wrong place. */
+    fun reset() { last.clear() }
 }
+
+/** How long the glide stays on after a move ends, so the last placement finishes instead of snapping (see GlideSpec). */
+const val GLIDE_TAIL_MS = 600L
 
 val LocalGlide = compositionLocalOf<GlideTracker?> { null }
 
