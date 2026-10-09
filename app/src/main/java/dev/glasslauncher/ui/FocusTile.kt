@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalView
 import android.view.SoundEffectConstants
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * A focusable surface with tvOS-style motion: spring lift and scale with a soft shadow, and a
@@ -107,24 +108,37 @@ fun FocusTile(
     Box(
         modifier
             .drawBehind {
-                // Pre-blurred shadow bitmap instead of animated elevation, which the render thread
-                // would otherwise re-tessellate every frame.
-                // Every tile sits slightly above the backdrop (tvOS 27): a soft, close shadow at rest
-                // that grows, drops and darkens as the tile lifts on focus.
+                // Pre-blurred shadow bitmaps instead of animated elevation, which the render thread
+                // would otherwise re-tessellate every frame (see TileShadow for the numbers).
+                // tvOS 27: a resting tile has a tight contact shadow; on focus a wide soft one fades in,
+                // drops away and the contact one fades out. Both follow the tile's animated scale.
                 if (shadow) {
-                    // tvOS 27 tiles cast a clear soft shadow straight down even at rest (inspo
-                    // home-grid-scroll): darker and a touch lower than before; focus deepens and drops it.
-                    val spread = 1.05f + 0.05f * lift
-                    val w = size.width * scale * spread
-                    val h = size.height * scale * (spread + 0.06f * lift)
-                    val drop = (6.dp.toPx() + 10.dp.toPx() * lift)
-                    drawImage(
-                        TileShadow.image,
-                        dstOffset = IntOffset(((size.width - w) / 2).toInt(), ((size.height - h) / 2 + drop).toInt()),
-                        dstSize = IntSize(w.toInt(), h.toInt()),
-                        alpha = 0.5f + 0.2f * lift,
-                        filterQuality = FilterQuality.Low,
-                    )
+                    val k = size.width / 250f
+                    // Touch both bitmaps so their one-time bake lands on the first tile drawn, not the first focus.
+                    val focusImage = TileShadow.focus
+                    val contactImage = TileShadow.contact
+                    val focusAlpha = TileShadow.alpha(TileShadow.Kind.Focus, lift)
+                    if (focusAlpha > 0.002f) {
+                        val r = TileShadow.destRect(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)
+                        drawImage(
+                            focusImage,
+                            dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                            alpha = focusAlpha,
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
+                    val contactAlpha = TileShadow.alpha(TileShadow.Kind.Contact, lift)
+                    if (contactAlpha > 0.002f) {
+                        val r = TileShadow.destRect(TileShadow.Kind.Contact, size.width, size.height, scale, lift, k)
+                        drawImage(
+                            contactImage,
+                            dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                            alpha = contactAlpha,
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
                 }
             }
             .graphicsLayer {
