@@ -2,7 +2,8 @@
 // (vendor 0x0171, product 0x0427), so the remote's key layout applies and Glass sees real key events.
 // Used by scripts/key while the Bluetooth remote sleeps (its input node disappears, and an injected
 // `input keyevent` Select doesn't click Glass's tiles on Fire OS).
-//   glass-press <gap_ms> <code>[:hold_ms] | w<ms> ...     (w<ms> waits)
+//   glass-press <gap_ms> <code>[:hold_ms] | w<ms> | g ...  (w<ms> waits; g runs $GLASS_PRESS_GUARD with sh and,
+//   if it fails, stops there with exit 3: scripts/key's check before a Select, inside the one device session)
 // Build: zig cc -target arm-linux-musleabi -static -O2 -o glass-press glass-press.c
 #include <fcntl.h>
 #include <linux/uinput.h>
@@ -38,6 +39,11 @@ int main(int argc, char **argv) {
   usleep(350 * 1000);  // InputReader has to open the new device before events count
   for (int i = 2; i < argc; i++) {
     if (argv[i][0] == 'w') { usleep(atoi(argv[i] + 1) * 1000); continue; }
+    if (argv[i][0] == 'g') {
+      const char *guard = getenv("GLASS_PRESS_GUARD");
+      if (guard && *guard && system(guard) != 0) { usleep(150 * 1000); ioctl(fd, UI_DEV_DESTROY); close(fd); return 3; }
+      continue;
+    }
     int code = atoi(argv[i]);
     char *c = strchr(argv[i], ':');
     int hold = c ? atoi(c + 1) : 0;

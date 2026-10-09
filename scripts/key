@@ -13,6 +13,11 @@
 #
 # Keys: up down left right select back home menu play rew ff
 #       app1-app4 (the app buttons) recents settings alexa tv mute
+#
+# Safety: Select (also ok/center/enter and holds) is refused, and the run stops (exit 3), when what it would
+# press controls the user's real devices: Amazon Smart Home or Alexa in front, or Control Center showing its
+# Alexa page (tools/uinput/glass-guard.sh, run on the device right before each Select, ~70 ms), so a sequence
+# that navigates there first is caught too.
 set -euo pipefail
 source "$(dirname "$0")/lib/device.sh"
 require_device_access
@@ -45,6 +50,8 @@ keycode() {
 ms() { awk "BEGIN{printf \"%.3f\", $1/1000}"; }
 
 [ $# -gt 0 ] || { sed -n '2,11p' "$0"; exit 2; }
+GUARD=/data/local/tmp/glass-guard.sh
+is_select() { case "$1" in select|ok|center|enter) return 0 ;; *) return 1 ;; esac; }
 cmds=""; alt=""; vr=""   # vr: glass-press arguments (virtual remote); alt: the same sequence via `input keyevent`, for devices without the remote (emulator)
 for arg in "$@"; do
   case "$arg" in
@@ -64,10 +71,12 @@ for arg in "$@"; do
       cmds+="$s"; alt+="$s"; vr+=" w400" ;;
     hold:*:*)
       rest="${arg#hold:}"; c=$(code "${rest#*:}")
+      if is_select "${rest#*:}"; then cmds+="sh $GUARD || exit 3;"; alt+="sh $GUARD || exit 3;"; vr+=" g"; fi
       cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sleep $(ms "${rest%%:*}");sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");"
       alt+="input keyevent --longpress KEYCODE_$(keycode "${rest#*:}");"; vr+=" $c:${rest%%:*}" ;;
     *)
       c=$(code "$arg")
+      if is_select "$arg"; then cmds+="sh $GUARD || exit 3;"; alt+="sh $GUARD || exit 3;"; vr+=" g"; fi
       cmds+="sendevent $DEV 1 $c 1;sendevent $DEV 0 0 0;sendevent $DEV 1 $c 0;sendevent $DEV 0 0 0;sleep $(ms "$GAP");"
       alt+="input keyevent KEYCODE_$(keycode "$arg");"; vr+=" $c" ;;
   esac
@@ -78,7 +87,10 @@ find_dev="D=${KEY_DEVICE:-\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4}
 # events: an injected `input keyevent` Select doesn't click Glass's tiles on Fire OS. Emulators without
 # either fall back to `input keyevent` (~0.9 s a press).
 VR=/data/local/tmp/glass-press
-if ! adb shell "test -x $VR" 2>/dev/null; then
-  adb push "$(dirname "$0")/../tools/uinput/glass-press" "$VR" >/dev/null 2>&1 && adb shell chmod 755 "$VR" || true
-fi
-adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds elif [ -x $VR ] && [ \"\$(getprop ro.kernel.qemu)\" != 1 ]; then $VR $GAP$vr; else $alt fi"
+# Push glass-press and the Select guard when they are missing or differ from this checkout's.
+for f in glass-press glass-guard.sh; do
+  local_sum=$(md5 -q "$(dirname "$0")/../tools/uinput/$f" 2>/dev/null || md5sum "$(dirname "$0")/../tools/uinput/$f" | cut -d' ' -f1)
+  [ "$(adb shell "md5sum /data/local/tmp/$f 2>/dev/null" | cut -d' ' -f1)" = "$local_sum" ] && continue
+  adb push "$(dirname "$0")/../tools/uinput/$f" "/data/local/tmp/$f" >/dev/null 2>&1 && adb shell chmod 755 "/data/local/tmp/$f" || true
+done
+adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds elif [ -x $VR ] && [ \"\$(getprop ro.kernel.qemu)\" != 1 ]; then GLASS_PRESS_GUARD='sh $GUARD' $VR $GAP$vr; else $alt fi"
