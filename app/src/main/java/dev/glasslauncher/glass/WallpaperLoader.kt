@@ -49,7 +49,7 @@ class Backdrop(
     private val luma: FloatArray = FloatArray(0),
     /**
      * A software copy of [clearSoftware] (which lives on the GPU) for the CPU work drawn from it once per
-     * surface: the glass's lens edge (LensWarp) and Control Center's matched fill (GlassMatch).
+     * surface: Control Center's matched fill (GlassMatch).
      */
     val clearSample: Bitmap? = null,
 ) {

@@ -38,13 +38,8 @@ import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
-private val EDGE_BAND = 10.dp
-private val EDGE_SHIFT = 9.dp
 /** The rim is this much brighter than each style's [GlassStyle.rim] (§10-B: brighter and softer). */
 private const val RIM_GAIN = 1.3f
-/** The drawBitmapMesh lens edge (§10-B); off when it costs frames. */
-private const val LENS_EDGE = true
-private const val SOFT_RIM = true
 
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
 @Stable
@@ -129,8 +124,6 @@ data class GlassStyle(
     val clear: Boolean = false,
     /** Clear glass that carries text: samples the text-safe copy of the clear texture. */
     val legible: Boolean = false,
-    /** The refracted edge band on clear glass (off for Control Center's dozen small tiles: frame cost). */
-    val edge: Boolean = true,
     /**
      * Before its texture fades in, draw the flat colour the glass settles to (GlassMatch) rather than a
      * generic tint, so the swap shows no change of colour (Control Center's tiles, plan §11).
@@ -148,7 +141,7 @@ data class GlassStyle(
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
 
         /**
-         * Control Center tiles: the dock's clear glass (lightly blurred art, refracted edge, rim), sampled
+         * Control Center tiles: the dock's clear glass (lightly blurred art, rim), sampled
          * from the text-safe copy of that texture so labels keep 4.5:1 on any art.
          */
         fun control(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.2f), 0.22f, 0.55f, clear = true, legible = true)
@@ -191,13 +184,6 @@ private class GlassNode(
     private var prevShaderSource: ImageBitmap? = null
     private var prevShader: BitmapShader? = null
     private val prevMatrix = Matrix()
-    // The lens-warped fill (current scene, and the outgoing one during a cross-fade).
-    private val lens = LensWarp.Buffers()
-    private val prevLens = LensWarp.Buffers()
-    private var lensKey: Any? = null
-    private var lensShader: BitmapShader? = null
-    private var prevLensKey: Any? = null
-    private var prevLensShader: BitmapShader? = null
     private var overlayShader: Shader? = null
     private var overlayKey: Any? = null
     private val matrix = Matrix()
@@ -275,9 +261,7 @@ private class GlassNode(
             drawOutline(outline, flat, alpha = 1f - texture)
         }
         if (source != null && root != IntSize.Zero && texture > 0f) {
-            // The lens edge draws from the clear texture's software copy (the texture itself is on the GPU).
-            val lensOn = LENS_EDGE && clear && style.edge && !style.legible && backdrop?.clearSample != null
-            val fill: Shader = if (lensOn) lensFill(backdrop!!.clearSample!!, source, root, current = true) else {
+            val fill: Shader = run {
                 if (source !== shaderSource) {
                     shaderSource = source
                     backdropShader = BitmapShader(source.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -293,8 +277,7 @@ private class GlassNode(
             val fade = state.fade.value
             val previousSource = previous?.let { if (style.useOverlay) null else if (clear) (if (style.legible) it.clearLegible else it.clearSoftware) else it.blurredSoftware }
             if (previousSource != null && fade < 1f) {
-                val prevSample = previous?.clearSample
-                val prevFill: Shader = if (lensOn && prevSample != null) lensFill(prevSample, previousSource, root, current = false) else {
+                val prevFill: Shader = run {
                     if (previousSource !== prevShaderSource) {
                         prevShaderSource = previousSource
                         prevShader = BitmapShader(previousSource.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -307,7 +290,7 @@ private class GlassNode(
                 drawOutline(outline, ShaderBrush(ComposeShader(prevFill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
                 drawOutline(outline, ShaderBrush(ComposeShader(fill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = fade * texture)
             } else {
-                prevShaderSource = null; prevShader = null; prevLensKey = null; prevLensShader = null
+                prevShaderSource = null; prevShader = null
                 drawOutline(outline, ShaderBrush(ComposeShader(fill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
             }
             // Glass over a dimmed scene (Control Center's) samples the scene as dimmed, like everything around
@@ -324,31 +307,6 @@ private class GlassNode(
         if (texture < 0.5f) drawOutline(outline, Color.White.copy(alpha = 0.22f), style = Stroke(width = 1.dp.toPx()))
         else drawRim(outline)
         drawContent()
-    }
-
-    /**
-     * Liquid Glass bends light at its edge: the band just inside the outline shows the content from slightly
-     * beyond it, compressed (LensWarp). The warped patch is redrawn only when this surface's size, place,
-     * or backdrop changes, and is then the surface's one fill: no extra pass per frame.
-     */
-    private fun DrawScope.lensFill(sample: android.graphics.Bitmap, source: ImageBitmap, root: IntSize, current: Boolean): Shader {
-        val sx = source.width / root.width.toFloat()
-        val sy = source.height / root.height.toFloat()
-        val band = bandPx()
-        val beyond = EDGE_SHIFT.toPx()
-        val key = listOf(source, size, origin, root, band, beyond)
-        if (current && key == lensKey) return lensShader!!
-        if (!current && key == prevLensKey) return prevLensShader!!
-        val warped = LensWarp.render(
-            sample, origin.x * sx, origin.y * sy, size.width * sx, size.height * sy,
-            band * sx, beyond * sx, if (current) lens else prevLens,
-        )
-        // The patch is in the backdrop's (quarter-resolution) pixels with its corner at this surface's.
-        val shader = BitmapShader(warped, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
-            setLocalMatrix(Matrix().apply { setScale(1f / sx, 1f / sy) })
-        }
-        if (current) { lensKey = key; lensShader = shader } else { prevLensKey = key; prevLensShader = shader }
-        return shader
     }
 
     private var matchKey: Any? = null
@@ -372,16 +330,13 @@ private class GlassNode(
         return matchColor
     }
 
-    /** The refracted edge, scaled down on small shapes (the status pill) so it stays a rim, not a band. */
-    private fun androidx.compose.ui.unit.Density.bandPx() = minOf(EDGE_BAND.toPx(), cachedSize.height * 0.2f)
-
     private fun solidTint(tint: Color): Color =
         if (tint.luminance() > 0.5f) Color(0xF2F4F5F8) else Color(0xF21A1D25)
 
     private fun DrawScope.drawRim(outline: Outline) {
         // Edges are defined by light, not lines: bright along the top, fading out down the sides, and a
-        // little light caught by the bottom edge too (tvOS 27's glossier rim). Two passes: a soft 3 dp glow
-        // so the edge reads as light, and a brighter 1 dp core on it.
+        // little light caught by the bottom edge too (tvOS 27's glossier rim). One 1 dp pass: a soft 3 dp glow
+        // under it and the drawBitmapMesh lens edge (§10-B) together took perf-gate p90 from 12 to 19 ms.
         val rim = (style.rim * RIM_GAIN).coerceAtMost(1f)
         fun brush(a: Float) = Brush.verticalGradient(
             0f to Color.White.copy(alpha = a),
@@ -389,9 +344,6 @@ private class GlassNode(
             0.8f to Color.White.copy(alpha = a * 0.05f),
             1f to Color.White.copy(alpha = a * 0.3f),
         )
-        // The soft glow only on the big surfaces (tray, pill): on a dozen small Control Center tiles each
-        // extra ring adds up.
-        if (SOFT_RIM && style.edge) drawOutline(outline, brush(rim * 0.3f), style = Stroke(width = 3.dp.toPx()))
         drawOutline(outline, brush(rim), style = Stroke(width = 1.dp.toPx()))
     }
 }

@@ -148,7 +148,7 @@ private val CC_BLEED = 16.dp
 // The tray's clear glass, the same in either theme (its text-safe copy washed milky in light theme), with
 // a faint darkening for the labels; no edge band on a dozen small tiles (frame cost).
 // A faint highlight only: the tray's sheen, repeated on a dozen small tiles, read as glossy and shiny.
-private val CC_GLASS = GlassStyle.shelf(false).copy(tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.06f), highlight = 0.03f, edge = false, matchedFlat = true)
+private val CC_GLASS = GlassStyle.shelf(false).copy(tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.06f), highlight = 0.03f, matchedFlat = true)
 
 /** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
 /** How much Control Center mutes the screen behind it; its glass samples the scene muted by the same amount. */
