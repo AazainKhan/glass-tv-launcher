@@ -5,7 +5,7 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 ## Commits
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, type one of feat, fix, perf, refactor, test, docs, build, ci, chore, style. Mark breaking changes with `!` or a `BREAKING CHANGE:` footer. Example: `fix(focus): stop Right at row ends`.
-- The repo is public (github.com/AazainKhan/glass-tv-launcher). Commits use the noreply email set in the repo config. Before pushing, `git grep -nI -e G072JM -e /Users/aazain` must print nothing (no device serials, home paths or crash dumps), then `git pull --rebase`.
+- The repo is public (github.com/AazainKhan/glass-tv-launcher). Commits use the noreply email set in the repo config. Before pushing, `scripts/leak-check` must say clean (no device serials, home paths or crash dumps), then `git pull --rebase`.
 
 ## Working as an agent (models, prompts, context)
 

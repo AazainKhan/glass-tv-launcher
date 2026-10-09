@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Pre-push check for the public repo: fails if tracked files contain the stick's serial, a home
+# path, or crash dumps. Patterns are assembled from parts so this file never matches itself.
+#   scripts/leak-check            check the working tree's tracked files
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+serial="G072""JM"; home="/Users/""aaz""ain"
+hits="$(git grep -nI -e "$serial" -e "$home" 2>/dev/null)"
+dumps="$(git ls-files | grep -E '(^|/)(hs_err|replay)_pid[0-9]+\.log$')"
+if [ -n "$hits$dumps" ]; then
+  printf 'leak-check: FAILED\n%s\n%s\n' "$hits" "$dumps" >&2; exit 1
+fi
+echo "leak-check: clean"
