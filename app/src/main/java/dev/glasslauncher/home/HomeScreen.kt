@@ -452,6 +452,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Control Center over Home reuses Home's own glass (no screen capture needed).
     val homeScene = backdrop.backdrop
     LaunchedEffect(homeVisible, homeScene) { ControlCenterWindow.homeBackdrop = homeScene.takeIf { homeVisible } }
+    // The effect above can't run once an app hides Home (no frames), so the lifecycle clears it on STOP.
+    val latestScene = androidx.compose.runtime.rememberUpdatedState(homeScene)
+    val homeLifecycle = LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(homeLifecycle) {
+        val observer = ControlCenterWindow.homeLifecycleObserver { latestScene.value }
+        homeLifecycle.addObserver(observer)
+        onDispose { homeLifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown) {
         // Only while titles show: an app's own hero never advances or bakes slides.
         if (!homeVisible || takeover != null || appHeroShown) return@LaunchedEffect

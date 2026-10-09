@@ -88,6 +88,28 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
 
         var homeBackdrop by mutableStateOf<dev.glasslauncher.glass.Backdrop?>(null)
 
+        /** Whether Glass's activity is started (Home is on screen). Lifecycle-driven, so it is right while an app hides Home and no frame runs. */
+        @Volatile var homeStarted = true
+
+        /**
+         * The glass Control Center samples for this open: Home's own scene only when Glass is the front app (null
+         * [frontPkg]) and its activity is started; otherwise null, and the caller captures the app on screen.
+         */
+        fun sceneFor(frontPkg: String?, glassStarted: Boolean, homeBackdrop: dev.glasslauncher.glass.Backdrop?): dev.glasslauncher.glass.Backdrop? =
+            if (frontPkg == null && glassStarted) homeBackdrop else null
+
+        /**
+         * Home's lifecycle hook: [homeBackdrop] is cleared on STOP and restored (from [scene]) on START, off the
+         * frame clock (a stopped Home composes nothing, so an effect there can't clear it).
+         */
+        fun homeLifecycleObserver(scene: () -> dev.glasslauncher.glass.Backdrop?) = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> { homeStarted = false; homeBackdrop = null }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> { homeStarted = true; homeBackdrop = scene() }
+                else -> Unit
+            }
+        }
+
         /** Where Home's status pill is, so Control Center can grow out of it (Home keeps this current). */
         @Volatile var pillBounds: androidx.compose.ui.geometry.Rect? = null
     }
@@ -132,7 +154,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             open = true
             lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         }
-        val home = homeBackdrop
+        val front = (service as? dev.glasslauncher.system.RemoteKeysService)?.frontApp
+        val home = sceneFor(front, homeStarted, homeBackdrop)
         overHome = home != null
         if (home != null) {
             app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(home, animate = false) }
