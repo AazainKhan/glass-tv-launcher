@@ -122,6 +122,7 @@ private sealed interface Page {
     data object RootTools : Page
     data object DisplayText : Page
     data object TextSize : Page
+    data object Font : Page
     data object ControlCenterTiles : Page
     data object Freezer : Page
     data object RootLog : Page
@@ -203,6 +204,7 @@ fun SettingsPanel(
                 Page.RootTools -> RootToolsPage(f, ::push)
                 Page.DisplayText -> DisplayTextPage(model, cfg, f, ::push)
                 Page.TextSize -> TextSizePage(model, cfg, f)
+                Page.Font -> FontPage(model, cfg, f)
                 Page.ControlCenterTiles -> ControlCenterTilesPage(model, cfg, f)
                 Page.Freezer -> FreezerPage(f)
                 Page.RootLog -> RootLogPage(f)
@@ -223,7 +225,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     // Grouped, as tvOS's Settings are, so the list isn't one long run of rows.
     SectionLabel("Home Screen")
     MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name, chevron = true)
-    MenuRow("Display & Text Size", { push(Page.DisplayText) }, value = textSizeName(cfg.textScale), chevron = true)
+    MenuRow("Display & Text", { push(Page.DisplayText) }, value = textSizeName(cfg.textScale), chevron = true)
     MenuRow("Control Center", { push(Page.ControlCenterTiles) }, chevron = true)
     MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
@@ -1102,15 +1104,16 @@ private val TEXT_SIZES = listOf(1f to "Default", 1.1f to "Large", 1.2f to "Large
 
 private fun textSizeName(scale: Float) = TEXT_SIZES.minByOrNull { kotlin.math.abs(it.first - scale) }!!.second
 
-/** tvOS 27's Display & Text Size page: Bold Text and Text Size, then Contrast. Fire TV's own options are linked, not copied. */
+/** tvOS 27's Display & Text page: Bold Text and Text Size, then Contrast. Fire TV's own options are linked, not copied. */
 @Composable
 private fun ColumnScope.DisplayTextPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
     val context = LocalContext.current
     val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
-    PanelTitle("Display & Text Size")
+    PanelTitle("Display & Text")
     SectionLabel("Text")
     ToggleRow("Bold Text", cfg.boldText, { v -> screen.dissolve { model.edit { it.copy(boldText = v) } } }, f)
     MenuRow("Text Size", { push(Page.TextSize) }, value = textSizeName(cfg.textScale), chevron = true)
+    MenuRow("Font", { push(Page.Font) }, value = cfg.font.label, chevron = true)
     SectionLabel("Contrast")
     ToggleRow("Increase Contrast", cfg.increaseContrast, { v -> screen.dissolve { model.edit { it.copy(increaseContrast = v) } } })
     ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } },
@@ -1119,6 +1122,20 @@ private fun ColumnScope.DisplayTextPage(model: HomeModel, cfg: LauncherConfig, f
     MenuRow("Fire TV Accessibility", {
         SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Accessibility" })
     }, chevron = true, help = "High Contrast Text, Screen Magnifier and captions: Fire TV settings for every app.")
+}
+
+/** Settings › Display & Text › Font: the interface typeface; the page itself changes with it. */
+@Composable
+private fun ColumnScope.FontPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
+    PanelTitle("Font")
+    dev.glasslauncher.data.UiFont.entries.forEachIndexed { i, font ->
+        MenuRow(
+            font.label, { if (cfg.font != font) screen.dissolve { model.edit { it.copy(font = font) } } },
+            if (i == 0) f else Modifier, value = if (cfg.font == font) "✓" else null,
+        )
+    }
+    Hint("Inter is Glass's own face. System, Condensed and Serif are the TV's.")
 }
 
 /** A five-step slider: Left/Right changes the size, and the page grows with it as you go. */

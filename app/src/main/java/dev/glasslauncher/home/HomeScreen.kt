@@ -181,6 +181,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     backdrop.reduceTransparency = prefs.reduceTransparency
     backdrop.light = !dark
     Type.bold = cfg.boldText
+    Type.font = cfg.font
 
     var lastDockFocused by remember { mutableStateOf<String?>(null) }
     // Featured content drives the live backdrop. In "Focused app" mode the shelf follows the focused

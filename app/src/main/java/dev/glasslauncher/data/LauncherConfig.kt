@@ -33,8 +33,10 @@ data class LauncherConfig(
     val background: BackgroundMode = BackgroundMode.Featured,
     /** Text Size, tvOS-style: 1.0 default, up to 1.3; tiles and gutters grow with it. */
     val textScale: Float = 1f,
-    /** Settings › Display & Text Size. */
+    /** Settings › Display & Text. */
     val boldText: Boolean = false,
+    /** Settings › Display & Text › Font: the typeface of the whole interface. */
+    val font: UiFont = UiFont.Inter,
     val increaseContrast: Boolean = false,
     /** Control Center tiles turned off in Settings › Control Center (ids in CONTROL_CENTER_TILES). */
     val ccHidden: Set<String> = emptySet(),
@@ -127,3 +129,12 @@ fun appKey(pkg: String) = "app:$pkg"
 fun folderKey(id: String) = "folder:$id"
 
 enum class ScreensaverMode { Aerials, Slideshow, System }
+
+/** The interface typeface choices (Settings › Display & Text › Font). Inter is bundled; the others are the TV's own faces. */
+@kotlinx.serialization.Serializable
+enum class UiFont(val label: String) {
+    Inter("Inter"),
+    System("System"),
+    Condensed("Condensed"),
+    Serif("Serif"),
+}

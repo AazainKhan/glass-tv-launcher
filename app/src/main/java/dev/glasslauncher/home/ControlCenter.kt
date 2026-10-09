@@ -78,7 +78,7 @@ import kotlinx.coroutines.withContext
 private val Blue = Color(0xFF0A84FF)
 
 /**
- * Tile sizes grow with the text size (Settings › Display & Text Size), so labels keep fitting instead of
+ * Tile sizes grow with the text size (Settings › Display & Text), so labels keep fitting instead of
  * being cut off: at Larger the Wi-Fi network name was truncated in a fixed 128 dp pill.
  */
 private class CcSizes(k: Float) {

@@ -2,7 +2,7 @@
 
 import pytest
 
-ROWS = ["Appearance", "Display & Text Size", "Control Center", "Set Up from Phone", "Top Shelf Content", "Hidden Apps", "Icon Pack", "Screen Saver",
+ROWS = ["Appearance", "Display & Text", "Control Center", "Set Up from Phone", "Top Shelf Content", "Hidden Apps", "Icon Pack", "Screen Saver",
         "Widgets", "Accessibility", "Home Button", "Remote Buttons", "Updates", "Backup & Restore", "About"]
 
 
@@ -55,12 +55,12 @@ def test_root_log_lists_actions(tv, home, settings, rooted):
         "Root Log is empty"
 
 
-def test_display_and_text_size_page(tv, home, settings):
+def test_display_and_text_page(tv, home, settings):
     settings.open_from_control_center()
-    settings.open_page("Display & Text Size")
+    settings.open_page("Display & Text")
     rows = settings.all_rows()
-    for row in ["Bold Text", "Text Size", "Increase Contrast", "Reduce Transparency", "Fire TV Accessibility"]:
-        assert row in rows, f"Display & Text Size has no '{row}'"
+    for row in ["Bold Text", "Text Size", "Font", "Increase Contrast", "Reduce Transparency", "Fire TV Accessibility"]:
+        assert row in rows, f"Display & Text has no '{row}'"
     for row in ["Bold Text", "Increase Contrast", "Reduce Transparency"]:
         assert settings.toggle_state(row) is not None, f"'{row}' isn't a switch"
 
@@ -71,7 +71,7 @@ def test_text_size_slider_grows_control_center_without_cutting_text(tv, home, se
     small = cc.tile(cc.open(), "Wi-Fi").bounds
     home.reset()
     settings.open_from_control_center()
-    settings.open_page("Display & Text Size")
+    settings.open_page("Display & Text")
     settings.open_page("Text Size")
     slider = tv.wait_for(lambda t: t.find(rid="text-size-slider"), 4, "the slider")
     settings.focus(lambda n: n.rid == "text-size-slider", "the slider")
@@ -87,7 +87,7 @@ def test_text_size_slider_grows_control_center_without_cutting_text(tv, home, se
     finally:
         home.reset()
         settings.open_from_control_center()
-        settings.open_page("Display & Text Size")
+        settings.open_page("Display & Text")
         settings.open_page("Text Size")
         settings.focus(lambda n: n.rid == "text-size-slider", "the slider")
         tv.press(*["left"] * 5)
@@ -143,7 +143,7 @@ def test_remote_buttons_are_a_2x2_grid(tv, home, settings):
 
 @pytest.mark.emulator_gap  # flaky on the emulator only, passes on the stick (P22)
 def test_rows_are_slim_with_a_gap_between_them(tv, home, settings):
-    """tvOS 27 Settings: rows about 35 dp tall with a clear gap between them (Display & Text Size).
+    """tvOS 27 Settings: rows about 35 dp tall with a clear gap between them (Display & Text).
     Measured on screen: accessibility bounds are padded up to the 48 dp minimum touch target."""
     settings.open_from_control_center()
     tree = tv.tree()

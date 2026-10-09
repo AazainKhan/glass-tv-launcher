@@ -34,7 +34,7 @@ def test_each_page_has_its_own_icon(tv, home, settings):
 
 def test_text_size_name_sits_above_the_slider(tv, home, settings):
     settings.open_from_control_center()
-    settings.open_page("Display & Text Size")
+    settings.open_page("Display & Text")
     settings.open_page("Text Size")
     tree = tv.wait_for(lambda t: t.find(rid="text-size-slider") and t, 4, "the slider")
     slider = tree.find(rid="text-size-slider")
@@ -88,7 +88,7 @@ def test_left_text_follows_the_focused_row(tv, home, settings):
 def test_left_column_holds_one_short_text(tv, home, settings):
     """Purposeful text: at most one short line of words on the left of any page, never a pile."""
     settings.open_from_control_center()
-    rows = [r for r in ["Appearance", "Display & Text Size", "Control Center", "Top Shelf Content", "Hidden Apps", "Icon Pack",
+    rows = [r for r in ["Appearance", "Display & Text", "Control Center", "Top Shelf Content", "Hidden Apps", "Icon Pack",
                         "Screen Saver", "Widgets", "Home Button", "Remote Buttons", "Accessibility", "Updates", "Backup & Restore", "Root"]
             if any(r in n.texts for n in tv.tree().nodes()) or True]
     piles = {}

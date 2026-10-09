@@ -245,7 +245,8 @@ private fun SettingsPageIcon(title: String) {
 
 private val SETTINGS_ICONS = mapOf(
     "Appearance" to dev.glasslauncher.R.drawable.ic_dark_mode,
-    "Display & Text Size" to dev.glasslauncher.R.drawable.ic_format_size,
+    "Display & Text" to dev.glasslauncher.R.drawable.ic_format_size,
+    "Font" to dev.glasslauncher.R.drawable.ic_format_size,
     "Text Size" to dev.glasslauncher.R.drawable.ic_format_size,
     "Control Center" to dev.glasslauncher.R.drawable.ic_tune,
     "Top Shelf Content" to dev.glasslauncher.R.drawable.ic_tv,

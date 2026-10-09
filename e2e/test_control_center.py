@@ -242,7 +242,7 @@ def test_control_center_shows_the_weather_reading(tv, home, cc):
 
 
 def test_text_size_is_not_in_control_center(tv, home, cc):
-    assert not cc.tile(cc.open(), "Text Size"), "Text Size moved to Settings › Display & Text Size"
+    assert not cc.tile(cc.open(), "Text Size"), "Text Size moved to Settings › Display & Text"
 
 
 def test_control_center_tiles_can_be_turned_off_in_settings(tv, home, cc, settings):

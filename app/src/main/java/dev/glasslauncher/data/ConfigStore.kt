@@ -46,6 +46,7 @@ class ConfigStore(private val context: Context, scope: CoroutineScope) {
             ?: LauncherConfig()
 
     companion object {
-        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
+        /** coerceInputValues: a stored enum value this build doesn't know (a renamed or removed option) falls back to the field's default instead of failing the whole decode, which would reset every setting. */
+        val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true; prettyPrint = true }
     }
 }

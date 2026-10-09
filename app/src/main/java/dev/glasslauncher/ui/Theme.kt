@@ -97,26 +97,39 @@ val InterBold = FontFamily(
     Font(R.font.inter_display_bold, FontWeight.Bold),
 )
 
+/** The TV's own faces, for Settings › Display & Text › Font. */
+private val CondensedFamily by lazy { FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)) }
+
 /**
  * 10-foot type scale. The UI renders at 960x540dp on a 1080p panel, so 1sp = 2px:
  * body 16sp = 32px (tvOS minimum 29pt), secondary 14.5sp = 29px, titles >= 56px.
  */
 object Type {
-    /** Settings › Display & Text Size › Bold Text: every style one weight heavier. Snapshot state, so text recomposes. */
+    /** Settings › Display & Text › Bold Text: every style one weight heavier. Snapshot state, so text recomposes. */
     var bold by androidx.compose.runtime.mutableStateOf(false)
-    private val family get() = if (bold) InterBold else InterFamily
-    private val displayFamily get() = InterDisplay
+    /** Settings › Display & Text › Font. Snapshot state, so text recomposes. */
+    var font by androidx.compose.runtime.mutableStateOf(dev.glasslauncher.data.UiFont.Inter)
+    val family: FontFamily get() = when (font) {
+        dev.glasslauncher.data.UiFont.Inter -> if (bold) InterBold else InterFamily
+        dev.glasslauncher.data.UiFont.System -> FontFamily.SansSerif
+        dev.glasslauncher.data.UiFont.Condensed -> CondensedFamily
+        dev.glasslauncher.data.UiFont.Serif -> FontFamily.Serif
+    }
+    /** Bold Text for the TV's own faces: one step heavier (Inter does it through its [InterBold] family instead). */
+    private fun w(base: FontWeight): FontWeight =
+        if (bold && font != dev.glasslauncher.data.UiFont.Inter) FontWeight((base.weight + 100).coerceAtMost(900)) else base
+    private val displayFamily: FontFamily get() = if (font == dev.glasslauncher.data.UiFont.Inter) InterDisplay else family
 
     // Sized to tvOS 27's measured type at 1080p (body ~28 px, secondary ~25 px): smaller than before.
-    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp, lineHeight = 38.sp)
-    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 24.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
-    val heading get() = TextStyle(fontFamily = family, fontSize = 17.5.sp, fontWeight = FontWeight.SemiBold)
-    val body get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-    val secondary get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, lineHeight = 18.sp)
+    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 34.sp, fontWeight = w(FontWeight.Bold), letterSpacing = (-0.6).sp, lineHeight = 38.sp)
+    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 24.5.sp, fontWeight = w(FontWeight.Bold), letterSpacing = (-0.4).sp)
+    val heading get() = TextStyle(fontFamily = family, fontSize = 17.5.sp, fontWeight = w(FontWeight.SemiBold))
+    val body get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = w(FontWeight.Medium))
+    val secondary get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = w(FontWeight.Medium), lineHeight = 18.sp)
     // 13 sp is the floor: smaller text isn't readable from a sofa (audit 9.3).
-    val caption get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
-    val label get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
-    val overline get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+    val caption get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = w(FontWeight.Medium), lineHeight = 17.sp)
+    val label get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = w(FontWeight.SemiBold), letterSpacing = 0.1.sp)
+    val overline get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = w(FontWeight.SemiBold), letterSpacing = 1.2.sp)
 
 
     /** For white text straight on busy art: tighter and darker, so the letters keep an edge. */

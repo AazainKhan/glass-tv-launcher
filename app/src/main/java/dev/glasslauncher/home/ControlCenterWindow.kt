@@ -340,6 +340,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val homeScene = homeBackdrop
         LaunchedEffect(homeScene, overHome) { if (overHome && homeScene != null && backdrop.backdrop !== homeScene) backdrop.swap(homeScene, animate = false) }
         dev.glasslauncher.ui.Type.bold = cfg.boldText
+        dev.glasslauncher.ui.Type.font = cfg.font
         CompositionLocalProvider(
             LocalBackdrop provides backdrop,
             dev.glasslauncher.ui.LocalPalette provides palette,
