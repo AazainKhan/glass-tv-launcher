@@ -21,7 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.glasslauncher.app
@@ -292,7 +294,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 }
                 if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
                     PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
-                    PageIcon(R.drawable.ic_home, "Alexa", selected = page == 1) { page = 1 }
+                    // The Alexa app's own icon (loaded once per open); the mic if it isn't installed.
+                    val alexaIcon = remember(active) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }
+                    if (alexaIcon != null) PageIcon("Alexa", selected = page == 1, onShow = { page = 1 }) {
+                        Image(alexaIcon, null, modifier = Modifier.size(26.dp).clip(CircleShape))
+                    } else PageIcon(R.drawable.ic_mic, "Alexa", selected = page == 1) { page = 1 }
                 }
             }
             val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
@@ -410,6 +416,15 @@ private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color) {
 @Composable
 private fun PageIcon(@DrawableRes icon: Int, label: String, selected: Boolean, onShow: () -> Unit) {
     val palette = LocalPalette.current
+    PageIcon(label, selected, onShow) { lit ->
+        Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (lit) palette.onFocusFill else palette.primary), modifier = Modifier.size(20.dp))
+    }
+}
+
+/** The same disc around any [content] (given whether the disc is lit), for art that keeps its own colours. */
+@Composable
+private fun PageIcon(label: String, selected: Boolean, onShow: () -> Unit, content: @Composable (lit: Boolean) -> Unit) {
+    val palette = LocalPalette.current
     FocusTile(
         label = label, onClick = onShow, shape = CircleShape, focusedScale = 1.08f, shadow = false,
         onFocusChange = { if (it) onShow() },
@@ -420,9 +435,7 @@ private fun PageIcon(@DrawableRes icon: Int, label: String, selected: Boolean, o
             Modifier.fillMaxSize().glass(LocalBackdrop.current, CircleShape, CC_GLASS)
                 .then(if (lit) Modifier.background(palette.focusFill, CircleShape) else Modifier),
             contentAlignment = Alignment.Center,
-        ) {
-            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (lit) palette.onFocusFill else palette.primary), modifier = Modifier.size(20.dp))
-        }
+        ) { content(lit) }
     }
 }
 
