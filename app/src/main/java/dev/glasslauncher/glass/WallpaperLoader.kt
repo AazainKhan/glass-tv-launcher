@@ -117,6 +117,21 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         return fromHeroArt(hero, light).also { hero.recycle() }
     }
 
+    /**
+     * A Cover Flow shelf's background (P33): the focused album or playlist cover filling the screen, very mildly
+     * blurred, with a glossy sheen across the top and a darker bottom so the titles read. Baked once per cover
+     * (nothing live), then baked like any backdrop, so the glass around it is tinted from it.
+     */
+    suspend fun coverFromUrl(url: String, light: Boolean = false): Backdrop? {
+        val request = coil3.request.ImageRequest.Builder(context).data(url).size(COVER_SRC, COVER_SRC).allowHardware(false)
+            .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
+        val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: return null
+        val cover = image.toBitmap()
+        val scene = withContext(Dispatchers.Default) { blurReady; coverScene(cover) }
+        cover.recycle()
+        return fromImage(scene, light = light).also { scene.recycle() }
+    }
+
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
     fun prewarm() {
         blurReady
@@ -337,6 +352,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
 
         const val HERO_W = 1280
         const val HERO_H = 720
+        /** A cover is fetched this big for its background: it is blurred, so more would only cost memory. */
+        const val COVER_SRC = 640
         const val SHARP_W = 1920
         const val SHARP_H = 1080
         const val BLUR_W = 192

@@ -281,7 +281,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
     val takeoverArt = takeover?.art
-    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg) {
+    // An expanded shelf of square covers (Spotify's albums and playlists) is a Cover Flow (P33): its background is
+    // the focused cover, softly blurred and glossy, not the art drawn sharp.
+    val coverShelf = expanded && feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg, coverShelf) {
         if (takeoverArt != null) {
             backdrop.glassFades = true
             backdrop.swap(graph.wallpapers.fromImage(dev.glasslauncher.widgets.backdropArt(takeoverArt), light = !dark), animate = backdrop.backdrop != null)
@@ -309,11 +312,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
         // baking the wallpaper only to throw it away (the two bakes used to run in parallel at startup).
         if (sceneUrl == null && cfg.background == BackgroundMode.Featured && featuredCfg != null && backdrop.backdrop == null) delay(1_200)
-        val ready = prebaked[0]?.takeIf { it.first == sceneUrl }?.second?.takeIf { it.isLight == !dark }
+        val ready = prebaked[0]?.takeIf { it.first == sceneUrl && !coverShelf }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
-        if (ready == null && expanded) delay(220) // let quick left/right browsing settle before re-baking the glass
+        // Let quick left/right browsing settle before re-baking the glass (a Cover Flow scrolls in quick steps).
+        if (ready == null && expanded) delay(if (coverShelf) COVER_SETTLE_MS else 220)
         backdrop.glassFades = true
-        val next = ready ?: sceneUrl?.let { runCatching { graph.wallpapers.fromUrl(it, light = !dark) }.getOrNull() } ?: graph.wallpapers.load(wallpaper, light = !dark)
+        val next = ready ?: sceneUrl?.let {
+            runCatching { if (coverShelf) graph.wallpapers.coverFromUrl(it, light = !dark) else graph.wallpapers.fromUrl(it, light = !dark) }.getOrNull()
+        } ?: graph.wallpapers.load(wallpaper, light = !dark)
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement.
         backdrop.swap(next, animate = backdrop.backdrop != null)
     }
@@ -1038,6 +1044,10 @@ private fun HomeList(
     }
     }
 }
+
+
+/** How long a Cover Flow rests on a cover before its background is baked (P33): quick steps don't each bake. */
+private const val COVER_SETTLE_MS = 150L
 
 /** tvOS shows "⌃ Swipe up for full screen" just above the tray. */
 @Composable
