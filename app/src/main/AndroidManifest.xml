@@ -53,6 +53,7 @@
     <queries>
         <package android:name="com.phairplay.firetv" />
         <package android:name="com.phairplay.googletv" />
+        <package android:name="com.amazon.vizzini" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
