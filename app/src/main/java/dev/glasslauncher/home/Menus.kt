@@ -412,7 +412,7 @@ private fun FolderView(
     }
     val swallowSelect = remember { booleanArrayOf(false) }
     val glide = remember { GlideTracker() }
-    remember(folder.apps) { if (rearranging != null) glide.generation++ }
+    remember(folder.apps) { if (rearranging != null) glide.generation++; glide.generation }
     // The home screen behind is shown blurred (a snapshot, Home not drawn), with a frosted panel and a
     // capsule name above it.
     val backdropEnter = rememberOverlayEnter()

@@ -963,7 +963,7 @@ private fun HomeList(
     val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
     // Move mode: a changed layout makes the cells that moved glide to their new spots.
     val glide = remember { GlideTracker() }
-    remember(layout) { if (moving != null) glide.generation++ }
+    remember(layout) { if (moving != null) glide.generation++; glide.generation }
     CompositionLocalProvider(LocalGlide provides glide) {
     LazyColumn(
         state = listState,
