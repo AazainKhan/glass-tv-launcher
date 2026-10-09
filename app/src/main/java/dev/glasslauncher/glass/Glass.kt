@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 /** The rim is this much brighter than each style's [GlassStyle.rim] (§10-B: brighter and softer). */
 private const val RIM_GAIN = 1.3f
 
+/** Peak alpha of light glass's bottom-edge shade (a cool mid-tone, not black): it stays lighter than the page. */
+private const val LIGHT_EDGE_SHADE = 0.03f
+
 /** Shared state for every glass surface: the current wallpaper and the size of the screen it covers. */
 @Stable
 class BackdropState {
@@ -225,19 +228,26 @@ private class GlassNode(
             overlayKey = key
             val tint = (if (opaque) solidTint(style.tint) else style.tint).toArgb()
             val tintShader = LinearGradient(0f, 0f, 0f, 1f, tint, tint, Shader.TileMode.CLAMP)
-            // Light glass (milky tint) keeps only a faint bevel: the 16% shade over its lower third read as a
-            // grey band on light pages (audit 9.1).
+            // Light glass (milky tint) has no black bevel: even 5% black over its lower part read as a grey
+            // band, darker than the page behind (P14). Its bottom edge is a faint cool shade that eases in
+            // over the lower 40% (smoothstep stops), so there's no start line and it never goes below the page.
             val lightGlass = style.tint.luminance() > 0.5f && style.tint.alpha >= 0.1f
-            val highlight = LinearGradient(
+            val gloss = Color.White.copy(alpha = style.highlight).toArgb()
+            val clearColor = Color.Transparent.toArgb()
+            val highlight = if (lightGlass) {
+                val shade = Color(0xFF7A84A6)
+                val ease = floatArrayOf(0f, 0.16f, 0.5f, 0.84f, 1f)
+                LinearGradient(
+                    0f, 0f, 0f, size.height,
+                    intArrayOf(gloss, clearColor, clearColor) + IntArray(ease.size - 1) { shade.copy(alpha = LIGHT_EDGE_SHADE * ease[it + 1]).toArgb() },
+                    floatArrayOf(0f, 0.35f, 0.6f) + FloatArray(ease.size - 1) { 0.6f + 0.4f * (it + 1) / (ease.size - 1) },
+                    Shader.TileMode.CLAMP,
+                )
+            } else LinearGradient(
                 0f, 0f, 0f, size.height,
                 // Gloss near the top, clear middle, soft inner shadow at the bottom (the bevel).
-                intArrayOf(
-                    Color.White.copy(alpha = style.highlight).toArgb(),
-                    Color.Transparent.toArgb(),
-                    Color.Transparent.toArgb(),
-                    Color.Black.copy(alpha = if (lightGlass) 0.05f else 0.16f).toArgb(),
-                ),
-                floatArrayOf(0f, 0.35f, if (lightGlass) 0.86f else 0.72f, 1f),
+                intArrayOf(gloss, clearColor, clearColor, Color.Black.copy(alpha = 0.16f).toArgb()),
+                floatArrayOf(0f, 0.35f, 0.72f, 1f),
                 Shader.TileMode.CLAMP,
             )
             overlayShader = ComposeShader(tintShader, highlight, PorterDuff.Mode.SRC_OVER)
