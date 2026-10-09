@@ -94,6 +94,7 @@ import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.Text
 import dev.glasslauncher.app
 import dev.glasslauncher.apps.AppEntry
+import dev.glasslauncher.apps.LoadedTile
 import dev.glasslauncher.data.BackgroundMode
 import dev.glasslauncher.data.FeaturedSourceId
 import dev.glasslauncher.data.LauncherConfig
@@ -1077,7 +1078,8 @@ fun AppCell(
     showLabel: Boolean = true,
     floatingLabel: Boolean = false,
 ) {
-    val art = rememberArt(model, app)
+    val tile = rememberTile(model, app)
+    val art = tile?.image
     val isNew by rememberTileValue(model, app.packageName) { model.isNew(app.packageName, it) }
     var bounds by remember { mutableStateOf<Rect?>(null) }
     val anchorStore = LocalMenuAnchor.current
@@ -1088,6 +1090,7 @@ fun AppCell(
         tag = "app:${app.packageName}",
         moving = moving,
         isNew = isNew,
+        glowColor = tile?.let { Color(it.glow) },
         focusRequester = focusRequester,
         onFocused = onFocused,
         // Launch from the tile as drawn (focused, 1.2x), so the app zooms out of what you see.
@@ -1190,6 +1193,8 @@ fun TileWithLabel(
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onMenu: () -> Unit,
+    /** The colour the tile glows in under it, once its art has loaded (see [FocusTile]). */
+    glowColor: Color? = null,
     glassBackground: Boolean = false,
     showLabel: Boolean = true,
     /** In the tray: the name still shows on focus, in the tray's own bottom padding (no row gap to reserve). */
@@ -1211,6 +1216,7 @@ fun TileWithLabel(
             onLongClick = onMenu,
             wiggle = moving,
             shadow = !glassBackground,
+            glowColor = glowColor,
             shape = RoundedCornerShape(m.tileRadius),
             onFocusChange = { focused = it; if (it) onFocused() },
             modifier = Modifier
@@ -1265,12 +1271,16 @@ private fun <T> rememberTileValue(model: HomeModel, vararg keys: Any?, derive: (
 }
 
 @Composable
-fun rememberArt(model: HomeModel, app: AppEntry): ImageBitmap? {
+fun rememberArt(model: HomeModel, app: AppEntry): ImageBitmap? = rememberTile(model, app)?.image
+
+/** The app's tile art with its glow colour, null until it has loaded. */
+@Composable
+fun rememberTile(model: HomeModel, app: AppEntry): LoadedTile? {
     val context = LocalContext.current
     val graph = context.app
     val spec by rememberTileValue(model, app) { model.spec(app, it) }
-    val art by produceState(graph.tileArt.peek(spec), spec) { value = graph.tileArt.load(spec) }
-    return art
+    val tile by produceState(graph.tileArt.peekTile(spec), spec) { value = graph.tileArt.loadTile(spec) }
+    return tile
 }
 
 /**

@@ -24,8 +24,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onKeyEvent
@@ -60,6 +62,8 @@ fun FocusTile(
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
     shadow: Boolean = true,
+    /** The colour the tile glows in under it ([TileShadow.glowAlpha] sets how strongly); null for no glow. Needs [shadow]. */
+    glowColor: Color? = null,
     onFocusChange: (Boolean) -> Unit = {},
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
@@ -68,6 +72,8 @@ fun FocusTile(
     val longFired = remember { booleanArrayOf(false) }
     val prefs = LocalUiPrefs.current
     val view = LocalView.current
+    val glowTint = remember(glowColor) { glowColor?.let { ColorFilter.tint(it, BlendMode.SrcIn) } }
+    val glowAlpha = if (glowColor != null) TileShadow.glowAlpha(glowColor) else 0f
 
     val scale by animateFloatAsState(
         when {
@@ -117,6 +123,18 @@ fun FocusTile(
                     // Touch both bitmaps so their one-time bake lands on the first tile drawn, not the first focus.
                     val focusImage = TileShadow.focus
                     val contactImage = TileShadow.contact
+                    // The tile-coloured glow goes down first, under both shadows, at a strength that doesn't change with focus.
+                    if (glowTint != null && glowAlpha > 0.002f) {
+                        val r = TileShadow.destRect(TileShadow.Kind.Glow, size.width, size.height, scale, lift, k)
+                        drawImage(
+                            TileShadow.glow,
+                            dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                            alpha = glowAlpha,
+                            colorFilter = glowTint,
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
                     val focusAlpha = TileShadow.alpha(TileShadow.Kind.Focus, lift)
                     if (focusAlpha > 0.002f) {
                         val r = TileShadow.destRect(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)

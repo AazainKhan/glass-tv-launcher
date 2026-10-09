@@ -2,6 +2,7 @@ package dev.glasslauncher.ui
 
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlin.math.abs
@@ -15,12 +16,14 @@ import kotlin.math.sqrt
 
 /**
  * The shadows under app tiles, as tvOS 27 casts them: a wide soft one that drops away as a tile takes
- * focus, and a tight one that holds a resting tile just above the backdrop.
+ * focus, and a tight one that holds a resting tile just above the backdrop. Under both sits a glow in the
+ * tile's own colour (tvOS blurs a copy of the tile's art there), strong under saturated tiles and absent under white ones.
  *
- * Each is a black rounded rectangle blurred once with an exact Gaussian and drawn scaled with the tile
+ * Each is a rounded rectangle blurred once with an exact Gaussian and drawn scaled with the tile
  * (a blur animated per frame would re-tessellate on the render thread). Sizes are in "u", tvOS's 1080p
  * pixels with a tile 250 u wide, so the same numbers hold at any tile size: draw at `k = tile width / 250`
- * pixels per u. The bitmaps are black with only alpha varying; their peak strength is applied when drawing.
+ * pixels per u. The shadows are black and the glow white, only alpha varying (the glow is tinted to the tile
+ * when drawn); their peak strength is applied when drawing.
  *
  * The blur is done here, not by [dev.glasslauncher.glass.Blur]: its radius means a different thing on the
  * stick's GPU path than on the JVM fallback, so a profile checked in a unit test would not be the one on screen.
@@ -49,15 +52,34 @@ object TileShadow {
 
         /** A resting tile's shadow: 6 u lower, 0.10 dark, gone about 14 u below the tile. */
         Contact(250f, 150f, 30f, 2.5f, 20f, 1f, 0.10f, 6f),
+
+        /** The tile-coloured glow: 10 u lower, up to 0.30 strong (see [glowAlpha]), at rest and focused alike. */
+        Glow(250f, 150f, 30f, 5f, 20f, 1f, 0.30f, 10f),
     }
 
     val focus: ImageBitmap by lazy { bake(Kind.Focus) }
     val contact: ImageBitmap by lazy { bake(Kind.Contact) }
+    val glow: ImageBitmap by lazy { bake(Kind.Glow) }
 
     /** The draw alpha for [kind] at focus value [lift] (0 resting, 1 focused; springs overshoot, so it is clamped). */
     fun alpha(kind: Kind, lift: Float): Float {
         val l = lift.coerceIn(0f, 1f)
-        return kind.peak * if (kind == Kind.Focus) l else 1f - l
+        return kind.peak * when (kind) {
+            Kind.Focus -> l
+            Kind.Contact -> 1f - l
+            Kind.Glow -> 1f
+        }
+    }
+
+    /**
+     * How strongly a tile of [color] glows: [Kind.Glow]'s peak for a bright, saturated colour, fading to nothing
+     * for white, grey and black, and only part way for dark colours (HSV saturation times brightness over 0.4).
+     */
+    fun glowAlpha(color: Color): Float {
+        val hi = max(color.red, max(color.green, color.blue))
+        val lo = min(color.red, min(color.green, color.blue))
+        val saturation = if (hi > 0f) (hi - lo) / hi else 0f
+        return Kind.Glow.peak * saturation * min(1f, hi / 0.4f)
     }
 
     /**
@@ -129,6 +151,7 @@ object TileShadow {
                 across[row + x] = sum
             }
         }
+        val rgb = if (kind == Kind.Glow) 0xFFFFFF else 0
         val pixels = IntArray(w * h)
         val column = FloatArray(w)
         for (y in by0 until by1) {
@@ -138,7 +161,7 @@ object TileShadow {
                 val row = i * w
                 for (x in bx0 until bx1) column[x] += across[row + x] * weight
             }
-            for (x in bx0 until bx1) pixels[y * w + x] = (column[x] * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24
+            for (x in bx0 until bx1) pixels[y * w + x] = ((column[x] * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24) or rgb
         }
 
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
