@@ -63,11 +63,15 @@ fun describe(node: SemanticsNode): String {
  */
 @OptIn(ExperimentalTestApi::class)
 /** Presses [button] and captures [frames] frames [stepMs] apart on a paused clock (scaled by [scale]). */
-fun ComposeTestRule.frames(button: Button, frames: Int, stepMs: Long, scale: Float = 0.25f): List<Bitmap> {
+fun ComposeTestRule.frames(button: Button, frames: Int, stepMs: Long, scale: Float = 0.25f): List<Bitmap> =
+    frames({ onRoot().performKeyInput { pressKey(button.key) } }, frames, stepMs, scale)
+
+/** Frames after [start] (e.g. the activity's Back, which overlays take through their BackHandler). */
+fun ComposeTestRule.frames(start: () -> Unit, frames: Int, stepMs: Long, scale: Float = 0.25f): List<Bitmap> {
     mainClock.autoAdvance = false
     val shots = ArrayList<Bitmap>(frames)
     try {
-        onRoot().performKeyInput { pressKey(button.key) }
+        start()
         repeat(frames) {
             if (it == 0) mainClock.advanceTimeByFrame() else mainClock.advanceTimeBy(stepMs)
             val full = onRoot().captureToImage().asAndroidBitmap()

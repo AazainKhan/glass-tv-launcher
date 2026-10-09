@@ -131,6 +131,11 @@ data class GlassStyle(
     val legible: Boolean = false,
     /** The refracted edge band on clear glass (off for Control Center's dozen small tiles: frame cost). */
     val edge: Boolean = true,
+    /**
+     * Before its texture fades in, draw the flat colour the glass settles to (GlassMatch) rather than a
+     * generic tint, so the swap shows no change of colour (Control Center's tiles, plan §11).
+     */
+    val matchedFlat: Boolean = false,
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
@@ -263,7 +268,8 @@ private class GlassNode(
                 state.reduceTransparency -> solidTint(style.tint)
                 // Control Center's overlay before its glass fades in: the smoky fill over the live screen.
                 // Matched to the glass it fades into (same colour, minus the texture's detail): no flash.
-                state.translucentWindow -> backdrop?.clearSample?.let { matchedFill(it, root) } ?: Color(0x7A2A2E37)
+                style.matchedFlat && backdrop?.clearSample != null -> matchedFill(backdrop.clearSample, root)
+                state.translucentWindow -> Color(0x7A2A2E37)
                 else -> Color.White.copy(alpha = if (style.tint.luminance() > 0.5f) style.tint.alpha else 0.09f)
             }
             drawOutline(outline, flat, alpha = 1f - texture)

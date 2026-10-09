@@ -70,4 +70,45 @@ class ControlCenterMotionTest {
             assertTrue("the opening spans only $moving frames (want a grow over many): $levels", moving >= 12)
         }
     }
+
+    /**
+     * Plan §11 (the user's video): the tiles keep one colour through open and close. Each tile's area may not
+     * jump between consecutive frames once it is in place, and closing never brightens it past its settled
+     * look (the old swap flashed white, then grey, then smoky).
+     */
+    @Test fun tilesKeepOneColourThroughOpenAndClose() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up)
+            compose.settle()
+            val opening = compose.frames(Button.Select, frames = 48, stepMs = 16)
+            compose.settle()
+            val closing = compose.frames({ scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } }, frames = 24, stepMs = 16)
+            // The Wi-Fi and Bluetooth pills (not the focused Settings tile, whose white fill fades in by design).
+            fun level(b: android.graphics.Bitmap): Float {
+                var sum = 0L; var n = 0
+                for (y in (b.height * 0.17f).toInt() until (b.height * 0.33f).toInt() step 2)
+                    for (x in (b.width * 0.86f).toInt() until (b.width * 0.95f).toInt() step 2) {
+                        val c = b.getPixel(x, y)
+                        sum += ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10; n++
+                    }
+                return sum.toFloat() / n
+            }
+            val open = opening.map(::level)
+            val settled = open.last()
+            // Landed at OPEN_MS (420 ms, frame ~26); from then on only the texture's detail may arrive.
+            val landed = open.drop(28)
+            val worst = landed.zipWithNext { a, b -> kotlin.math.abs(b - a) }.maxOrNull() ?: 0f
+            assertTrue("tiles changed colour after landing (${"%.1f".format(worst)}/255 in a frame): $landed", worst <= 8f)
+            // The landed fill is the glass's own colour: the texture fading in may not shift it (without the
+            // matched fill it dropped ~10/255, 57 to 47).
+            val shift = landed.maxOf { kotlin.math.abs(it - settled) }
+            assertTrue("the tiles shifted ${"%.1f".format(shift)}/255 while their glass faded in: $landed", shift <= 4f)
+            val close = closing.map(::level)
+            val brightest = close.maxOrNull() ?: 0f
+            assertTrue("closing never moved (Back didn't close Control Center): $close", kotlin.math.abs(close.last() - close.first()) > 3f)
+            assertTrue("closing brightened the tiles to ${"%.1f".format(brightest)} (settled ${"%.1f".format(settled)}): $close", brightest <= settled + 4f)
+        }
+    }
 }
