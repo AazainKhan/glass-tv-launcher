@@ -386,9 +386,18 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     fun exists(key: String) = key == SETTINGS_TILE_KEY ||
         layout.dock.any { appKey(it.packageName) == key } || layout.grid.any { it.key == key }
-    /** Where focus goes when [key] has left Home: the folder the app went into, else the first app. */
+    /** The tiles of the layout before the last change, by area (tray, grid): who a tile's neighbours were. */
+    val before = remember { PreviousTiles() }
+
+    /**
+     * Where focus goes when [key] has left Home: the folder the app went into; else its neighbour where it stood
+     * (the next tile in the same area, else the previous one), so Hide or Uninstall leaves focus in place and
+     * only the gap closes; else the first app.
+     */
     fun replacement(key: String): String? =
-        layout.grid.firstOrNull { it is GridItem.FolderItem && it.apps.any { a -> appKey(a.packageName) == key } }?.key ?: firstKey()
+        layout.grid.firstOrNull { it is GridItem.FolderItem && it.apps.any { a -> appKey(a.packageName) == key } }?.key
+            ?: before.neighbour(key, ::exists)
+            ?: firstKey()
 
     fun tryFocus(key: String) = runCatching { requester(key).requestFocus(FocusDirection.Enter) }.getOrDefault(false)
 
@@ -551,6 +560,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(layout) {
         val last = lastFocused ?: return@LaunchedEffect
         if (overlays.isEmpty() && !expanded && moving == null && !exists(last)) focusKey(last)
+    }
+    // After the effect above has chosen its target (it does so before its first suspension), the layout just
+    // shown becomes "before" for the next change.
+    LaunchedEffect(layout) {
+        before.dock = layout.dock.map { appKey(it.packageName) }
+        before.grid = layout.grid.map { it.key } + SETTINGS_TILE_KEY
     }
     LaunchedEffect(backdrop.backdrop) {
         if (overlays.isNotEmpty()) {
@@ -866,6 +881,19 @@ private fun BoxScope.StartupMark(loading: Boolean, alpha: () -> Float) {
         color = Color.White,
         modifier = Modifier.align(Alignment.Center).graphicsLayer { this.alpha = breath.value * alpha() },
     )
+}
+
+/** Home's tile keys as they were before the last layout change, tray and grid apart. */
+private class PreviousTiles {
+    var dock: List<String> = emptyList()
+    var grid: List<String> = emptyList()
+
+    /** The nearest tile still on Home next to [key] in the area it was in: those after it first, then those before. */
+    fun neighbour(key: String, exists: (String) -> Boolean): String? {
+        val area = listOf(dock, grid).firstOrNull { key in it } ?: return null
+        val i = area.indexOf(key)
+        return (area.drop(i + 1) + area.take(i).reversed()).firstOrNull(exists)
+    }
 }
 
 private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: HomeModel, columns: Int, done: () -> Unit) {
