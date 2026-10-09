@@ -21,7 +21,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The Control Center's Alexa button shows the installed Alexa app's icon, or nothing when it can't. */
+/** The Control Center's Alexa button shows the installed Alexa app's logo, or nothing (the mic) when it can't. */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35])
@@ -47,9 +47,14 @@ class AlexaIconTest {
         assertNull(AlexaIcon.load(pm, 52))
     }
 
-    @Test fun theInstalledAppsIconAtTheRequestedSize() {
+    /** Stands in for Alexa's named logo drawable, which a fake package can't carry. */
+    private val blueLogo = { _: PackageManager, _: ApplicationInfo ->
+        BitmapDrawable(context.resources, Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(0, 160, 255)) })
+    }
+
+    @Test fun theLogoAtTheRequestedSize() {
         install()
-        val icon = AlexaIcon.load(pm, 52)
+        val icon = AlexaIcon.load(pm, 52, blueLogo)
         assertNotNull(icon)
         assertEquals(52, icon!!.width)
         assertEquals(52, icon.height)
@@ -59,6 +64,12 @@ class AlexaIconTest {
 
     @Test fun nullWhenAlexaIsDisabled() {
         install(enabled = false)
+        assertNull(AlexaIcon.load(pm, 52, blueLogo))
+    }
+
+    @Test fun nullRatherThanTheGenericAppIconWhenThereIsNoLogo() {
+        // Fire OS's Alexa: an app icon (Android's robot) but the real logo is a named drawable.
+        install()
         assertNull(AlexaIcon.load(pm, 52))
     }
 
@@ -71,6 +82,6 @@ class AlexaIconTest {
             override fun setColorFilter(filter: ColorFilter?) {}
             @Suppress("OVERRIDE_DEPRECATION") override fun getOpacity() = PixelFormat.OPAQUE
         })
-        assertNull(AlexaIcon.load(pm, 52))
+        assertNull(AlexaIcon.load(pm, 52) { p, _ -> p.getApplicationIcon(AlexaIcon.PACKAGE) })
     }
 }
