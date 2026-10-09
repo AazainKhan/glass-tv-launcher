@@ -83,6 +83,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
 
         /** Home's baked scene while Home is on screen: Control Center's glass over Home samples it directly. */
         private const val CAPTURE_WAIT_MS = 120L
+        /** The latest an over-app open attaches (from show), however long the capture and its bake take. */
+        private const val ATTACH_CAP_MS = 280L
 
         var homeBackdrop by mutableStateOf<dev.glasslauncher.glass.Backdrop?>(null)
 
@@ -138,6 +140,9 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         } else captureThenAttach(::attach)
     }
 
+    /** Counts over-app opens, so a stale timer can tell it belongs to an earlier one. */
+    private var shows = 0
+
     /** The pending window removal of a close, cancelled if Control Center re-opens meanwhile. */
     private var removal: Runnable? = null
 
@@ -179,51 +184,71 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(baked, animate = false) }
     }
 
-    /** The app's last preview (already on the CPU, no readback), when a fresh capture isn't possible. */
-    private fun usePreview() {
-        val pkg = (service as? dev.glasslauncher.system.RemoteKeysService)?.frontApp ?: return
+    /**
+     * Puts a baked capture in place: before the window attaches (still [pending]) it goes straight in, so Control
+     * Center's first frame already has its sheet; after, only if the open has nothing yet.
+     */
+    private suspend fun install(baked: dev.glasslauncher.glass.Backdrop) {
+        if (view == null) { if (pending) backdrop.swap(baked, animate = false) }
+        else if (backdrop.backdrop == null) apply(baked)
+    }
+
+    /**
+     * The app's last preview (already on the CPU, no readback), when a fresh capture isn't possible: baked (with
+     * Control Center's sheet) and put in place, then [then] (the attach).
+     */
+    private fun usePreview(then: () -> Unit = {}) {
+        val pkg = (service as? dev.glasslauncher.system.RemoteKeysService)?.frontApp ?: return then()
         capture?.cancel()
         capture = app.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
             val baked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 dev.glasslauncher.system.AppPreviews.load(service, pkg)?.let { runCatching { app.wallpapers.glassOnly(it) }.getOrNull() }
-            } ?: return@launch
-            if (backdrop.backdrop == null) apply(baked)
+            }
+            baked?.let { install(it) }
+            then()
         }
     }
 
     /**
-     * Over another app: capture the screen, and copy it off the GPU before the window appears. That copy
-     * runs on the render thread, so made during the opening it cost frames (perf: 20% janky vs 6%). The
-     * open waits for it at most [CAPTURE_WAIT_MS]; past that, or if the capture fails (rate-limited to one
-     * a second, shared with the app switcher's previews), the app's last preview stands in.
+     * Over another app: capture the screen, copy it off the GPU and bake it (the clear texture and Control
+     * Center's sheet, off the main thread) before the window appears, so the open draws the real glass from its
+     * first frame and does no work of its own. The copy runs on the render thread, so made during the opening it
+     * cost frames (perf: 20% janky vs 6%). The capture gets at most [CAPTURE_WAIT_MS]; past that, or if it fails
+     * (rate-limited to one a second, shared with the app switcher's previews), the app's last preview stands in.
+     * The window attaches by [ATTACH_CAP_MS] whatever happens (then with the flat material for that open).
      */
     private fun captureThenAttach(attach: () -> Unit) {
         var attached = false
-        val go = { if (!attached) { attached = true; attach() } }
+        var shotIn = false
+        // Timers of an earlier show (closed and re-opened quickly) must not attach this one early.
+        val token = ++shows
+        val go = { if (!attached && token == shows) { attached = true; attach() } }
         if (android.os.Build.VERSION.SDK_INT < 30) { go(); return }
-        handler.postDelayed({ if (!attached) { go(); usePreview() } }, CAPTURE_WAIT_MS)
+        handler.postDelayed({ if (!attached && !shotIn) usePreview(then = go) }, CAPTURE_WAIT_MS)
+        handler.postDelayed({ go() }, ATTACH_CAP_MS)
         val ok = runCatching {
             service.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, service.mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
                     val buffer = result.hardwareBuffer
                     val shot = android.graphics.Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
                     buffer.close()
-                    if (shot == null || attached) { shot?.recycle(); return }
+                    if (shot == null || attached || shotIn) { shot?.recycle(); return }
+                    shotIn = true
                     val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
                     shot.recycle()
-                    go()
                     capture?.cancel()
                     capture = app.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
                         val baked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                             runCatching { app.wallpapers.glassOnly(soft) }.getOrNull().also { soft.recycle() }
-                        } ?: return@launch
-                        apply(baked)
+                        }
+                        baked?.let { install(it) }
+                        go()
                     }
                 }
-                override fun onFailure(errorCode: Int) { go(); usePreview() }
+                override fun onFailure(errorCode: Int) { if (!shotIn) { shotIn = true; usePreview(then = go) } }
             })
         }.isSuccess
-        if (!ok) { go(); usePreview() }
+        if (!ok) { shotIn = true; usePreview(then = go) }
     }
 
     /** Another app (or Home) came forward: Control Center belongs to what was on screen when it opened. */

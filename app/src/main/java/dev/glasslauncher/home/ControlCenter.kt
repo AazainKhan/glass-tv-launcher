@@ -57,7 +57,6 @@ import dev.glasslauncher.data.ThemeMode
 import dev.glasslauncher.dream.AerialActivity
 import dev.glasslauncher.system.SystemControls
 import dev.glasslauncher.glass.LocalBackdrop
-import kotlinx.coroutines.flow.first
 import dev.glasslauncher.glass.GlassMatch
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.toArgb
@@ -188,23 +187,14 @@ internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCcBubble(
 private val CC_BLEED = 16.dp
 
 /**
- * Control Center's one material: a small bitmap of the scene behind the panel (the clear texture's pixels
- * under the panel, blurred, with a faint tint and the wash's dim baked in), made once before each open starts. Every
- * tile, the page discs, the Now Playing card and the bubble draw their part of it: one draw each, mapped
- * panel-relative, so they read as one sheet of glass and never sample anything per frame.
+ * Control Center's one material: a small bitmap of the scene behind the panel (the backdrop's clear texture,
+ * blurred, with a faint tint and the wash's dim baked in), baked with the backdrop itself ([GlassMatch.ccSheet],
+ * off the main thread), so an open only picks it up. Every tile, the page discs, the Now Playing card and the
+ * bubble draw their part of it: one draw each, mapped by window position, so they read as one sheet of glass and
+ * never sample anything per frame.
  */
 internal object CcMaterial {
-    /** How long an open waits for the sheet to bake before it starts without it (one flat colour for that open). */
-    const val BAKE_WAIT_MS = 60L
-    /** Where the bake runs (tests run it inline). */
-    var bakeContext: kotlin.coroutines.CoroutineContext = kotlinx.coroutines.Dispatchers.Default
-    /** Test hook: runs before each bake, in [bakeContext] (a test holds it to make the bake late). */
-    var beforeBake: suspend () -> Unit = {}
-
-    /** The tint over the scene: a faint darkening for the labels. */
-    val tint = Color.Black.copy(alpha = 0.06f)
-    val lightTint = Color.White.copy(alpha = 0.2f)
-    /** With no scene to average: one fixed smoky colour. */
+    /** With no baked sheet (no backdrop yet): one fixed smoky colour. */
     val fallback = Color(0xFF23262D)
     /** The rim every tile keeps so it has an edge: a single thin stroke, lit from the top-left. */
     fun rimBrush(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.Brush.linearGradient(
@@ -215,33 +205,30 @@ internal object CcMaterial {
         start = androidx.compose.ui.geometry.Offset.Zero, end = androidx.compose.ui.geometry.Offset(size.width, size.height),
     )
 
-    /** The sheet's average colour (49 pixels, cheap on the main thread): what an open draws if [bake] missed its head start. */
-    fun flat(backdrop: dev.glasslauncher.glass.Backdrop?, root: androidx.compose.ui.unit.IntSize, panel: androidx.compose.ui.geometry.Rect?, light: Boolean): Color {
-        val sample = backdrop?.clearSample ?: return fallback
-        panel ?: return fallback
-        return GlassMatch.regionFill(sample, root.width, root.height, panel.left, panel.top, panel.width, panel.height, if (light) lightTint else tint, CC_DIM_ALPHA) ?: fallback
-    }
-
-    /** The baked sheet for [panel] (off the main thread); null if there is nothing to sample. */
-    fun bake(backdrop: dev.glasslauncher.glass.Backdrop?, root: androidx.compose.ui.unit.IntSize, panel: androidx.compose.ui.geometry.Rect, light: Boolean): Pair<GlassMatch.Sheet, android.graphics.Bitmap>? {
-        val sample = backdrop?.clearSample ?: return null
-        val sheet = GlassMatch.panelSheet(sample, root.width, root.height, panel.left, panel.top, panel.width, panel.height, if (light) lightTint else tint, CC_DIM_ALPHA) ?: return null
-        val bmp = android.graphics.Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, android.graphics.Bitmap.Config.ARGB_8888)
-        return sheet to (bmp.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { bmp.recycle() } ?: bmp)
-    }
-
     /**
      * Tests only: the sheet of the latest open (so they can compare the tiles with it). Never set unless a test
-     * turns [recordLast] on, so release builds keep no reference to a sheet or its bitmap; cleared when the open closes.
+     * turns [recordLast] on, so release builds keep no extra reference to a sheet; cleared when the open closes.
      */
     @androidx.annotation.VisibleForTesting @Volatile var last: CcSheet? = null
     @androidx.annotation.VisibleForTesting @Volatile var recordLast = false
 }
 
-/** The material for one open: the baked [bitmap] over [panel] (window pixels), or, for an open whose bake missed its head start, the one [flat] colour. */
+/**
+ * The material for one open: the backdrop's baked sheet ([baked], owned by the backdrop) placed on a root of
+ * [root] pixels, or, with none, the one [flat] colour. Making one does no pixel work.
+ */
 @androidx.compose.runtime.Stable
-internal class CcSheet(val bitmap: android.graphics.Bitmap?, val panel: androidx.compose.ui.geometry.Rect, val flat: Color, val pixels: GlassMatch.Sheet? = null) {
-    private fun shader(tx: Float, ty: Float): android.graphics.BitmapShader? = bitmap?.let {
+internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.compose.ui.unit.IntSize) {
+    val bitmap: android.graphics.Bitmap? get() = baked?.bitmap
+    /** The sheet's pixels (tests only: kept when [GlassMatch.keepPixels] is on). */
+    val pixels: GlassMatch.Sheet? get() = baked?.pixels
+    val flat: Color get() = CcMaterial.fallback
+    /** The window rectangle the sheet covers. */
+    val panel: androidx.compose.ui.geometry.Rect = baked?.let {
+        androidx.compose.ui.geometry.Rect(it.left * root.width, it.top * root.height, it.right * root.width, it.bottom * root.height)
+    } ?: androidx.compose.ui.geometry.Rect.Zero
+
+    private fun shader(tx: Float, ty: Float): android.graphics.BitmapShader? = bitmap?.takeIf { !panel.isEmpty }?.let {
         android.graphics.BitmapShader(it, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP).apply {
             setLocalMatrix(android.graphics.Matrix().apply { setScale(panel.width / it.width, panel.height / it.height); postTranslate(panel.left + tx, panel.top + ty) })
         }
@@ -262,40 +249,58 @@ internal class CcSheet(val bitmap: android.graphics.Bitmap?, val panel: androidx
     }
 }
 
-internal val LocalCcSheet = androidx.compose.runtime.staticCompositionLocalOf<CcSheet?> { null }
-
-/** A Control Center surface: [sheet] in [shape] with the one thin rim; one draw, no texture of its own. */
-internal fun Modifier.ccSurface(shape: Shape, sheet: CcSheet?): Modifier = this then CcSurfaceElement(shape, sheet)
-
-private data class CcSurfaceElement(val shape: Shape, val sheet: CcSheet?) : androidx.compose.ui.node.ModifierNodeElement<CcSurfaceNode>() {
-    override fun create() = CcSurfaceNode(shape, sheet)
-    override fun update(node: CcSurfaceNode) { node.shape = shape; node.sheet = sheet; node.reset(); node.invalidateDraw() }
+/**
+ * Holds the open's [CcSheet]. Provided once (it never changes identity), and read only while drawing, so taking or
+ * dropping a sheet redraws the surfaces instead of recomposing the whole panel.
+ */
+@androidx.compose.runtime.Stable
+internal class CcSheetRef {
+    var sheet by androidx.compose.runtime.mutableStateOf<CcSheet?>(null)
 }
 
-private class CcSurfaceNode(var shape: Shape, var sheet: CcSheet?) : Modifier.Node(), androidx.compose.ui.node.DrawModifierNode, androidx.compose.ui.node.GlobalPositionAwareModifierNode {
-    private var origin = androidx.compose.ui.geometry.Offset.Zero
+internal val LocalCcSheet = androidx.compose.runtime.staticCompositionLocalOf<CcSheetRef?> { null }
+
+/** A Control Center surface: the open's sheet in [shape] with the one thin rim; one draw, no texture of its own. */
+internal fun Modifier.ccSurface(shape: Shape, sheet: CcSheetRef?): Modifier = this then CcSurfaceElement(shape, sheet)
+
+private data class CcSurfaceElement(val shape: Shape, val sheet: CcSheetRef?) : androidx.compose.ui.node.ModifierNodeElement<CcSurfaceNode>() {
+    override fun create() = CcSurfaceNode(shape, sheet)
+    override fun update(node: CcSurfaceNode) { node.shape = shape; node.ref = sheet; node.reset(); node.invalidateDraw() }
+}
+
+private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.Node(), androidx.compose.ui.node.DrawModifierNode, androidx.compose.ui.node.GlobalPositionAwareModifierNode {
+    private var origin: androidx.compose.ui.geometry.Offset? = null
     private var cachedSize = androidx.compose.ui.geometry.Size.Unspecified
     private var outline: androidx.compose.ui.graphics.Outline? = null
     private var brush: androidx.compose.ui.graphics.Brush? = null
+    private var brushFor: CcSheet? = null
     private var rim: androidx.compose.ui.graphics.Brush? = null
 
     fun reset() { brush = null; outline = null; rim = null }
 
     override fun onGloballyPositioned(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
         val p = coordinates.positionInWindow()
-        if (p != origin) { origin = p; brush = null; invalidateDraw() }
+        // A focused tile's 1.02 lift moves its corner a couple of pixels each frame of the scale; the sheet's cells
+        // are ~12 px and blurred, so that is not worth new shaders every frame. Only a real move re-maps it.
+        val o = origin
+        if (o == null || kotlin.math.abs(p.x - o.x) > MOVE_PX || kotlin.math.abs(p.y - o.y) > MOVE_PX) { origin = p; brush = null; invalidateDraw() }
     }
 
     override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
         if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null }
         val o = outline ?: return drawContent()
-        val b = brush ?: (sheet?.brushAt(origin, size.height) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
+        // Read while drawing: a new sheet redraws this surface (and only that).
+        val sheet = ref?.sheet
+        if (sheet !== brushFor) { brushFor = sheet; brush = null }
+        val b = brush ?: (sheet?.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
         drawOutline(o, b)
         // Liquid Glass's edge, one stroke: bright at the top-left, faint at the bottom-right, almost nothing between.
         val r = rim ?: CcMaterial.rimBrush(size).also { rim = it }
         drawOutline(o, r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
         drawContent()
     }
+
+    private companion object { const val MOVE_PX = 4f }
 }
 
 /** The bubble as a clip for the panel: the tiles show through it as it grows (nothing fades in). */
@@ -311,9 +316,8 @@ private class CcBubble(val rect: androidx.compose.ui.geometry.Rect, val b: Float
 internal class CcPhase { var landed = false }
 internal val LocalCcPhase = androidx.compose.runtime.staticCompositionLocalOf { CcPhase() }
 
-/** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
-/** How much Control Center mutes the screen behind it; its glass samples the scene muted by the same amount. */
-internal const val CC_DIM_ALPHA = 0.42f
+/** How much Control Center mutes the screen behind it (tvOS 27 dims rather than blurs); its sheet is baked muted by the same amount. */
+internal const val CC_DIM_ALPHA = GlassMatch.CC_DIM
 /** The time, date and weather share one opacity, slightly muted, as tvOS's header. */
 private const val HEADER_ALPHA = 0.85f
 private val CC_DIM = Color.Black.copy(alpha = CC_DIM_ALPHA)
@@ -388,20 +392,23 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val phase = remember { CcPhase() }
     val glassState = LocalBackdrop.current
     var panel by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    // The tallest the panel has been (the Controls page; the Alexa page is shorter): the sheet is made for this, so
-    // a re-open, which starts on the Controls page before it has been laid out again, never maps to a short page.
-    var tallest by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    // The material of this open, decided once before the spring starts (see [prepareSheet]) and never re-keyed
-    // by a later backdrop swap: a tile then never changes colour once it has appeared.
-    var sheet by remember { androidx.compose.runtime.mutableStateOf<CcSheet?>(null) }
+    // The material of this open: the backdrop's own sheet, baked with the backdrop (it covers the right half of
+    // the screen, so every page and text size), taken as the open starts and never re-keyed by a later backdrop
+    // swap: a tile never changes colour once it has appeared. Nothing is baked or waited for here.
+    val sheetRef = remember { CcSheetRef() }
     val pill = ControlCenterWindow.pillBounds
-    val light = palette.light
+    val exitingNow = androidx.compose.runtime.rememberUpdatedState(exiting)
+    fun takeSheet() {
+        val root = glassState.rootSize
+        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root)
+        if (CcMaterial.recordLast) CcMaterial.last = sheetRef.sheet
+    }
     // The window keeps this composition across opens, so everything per open starts here, not in remember.
     LaunchedEffect(exiting) {
         if (!exiting) {
             phase.landed = false
-            // Re-opening during a close that is still visible keeps the sheet it has; otherwise bake a fresh one.
-            if (sheet == null || enter.value < 0.02f) sheet = prepareSheet(glassState, { tallest }, light)
+            // Re-opening during a close that is still visible keeps the sheet it has; otherwise take the backdrop's.
+            if (sheetRef.sheet == null || enter.value < 0.02f) takeSheet()
         }
         // Reduce Motion: no growing bubble, a plain fade (a bounce would pulse the opacity).
         if (reduceMotion) enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())
@@ -409,7 +416,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         else enter.animateTo(1f, CcMorph.openSpring)
         phase.landed = true
         // Closed: let go of this open's sheet (the cached composition would otherwise hold it until the next open).
-        if (exiting && enter.value < 0.02f) { sheet = null; CcMaterial.last = null }
+        if (exiting && enter.value < 0.02f) { sheetRef.sheet = null; CcMaterial.last = null }
+    }
+    // A backdrop (or the window's size) that arrives before the open has visibly started is still taken; once the
+    // bubble is under way the open keeps what it has.
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.snapshotFlow { glassState.backdrop?.ccSheet to glassState.rootSize }.collect { (offered, root) ->
+            val have = sheetRef.sheet
+            if (!exitingNow.value && enter.value < 0.02f && offered != null && (have?.baked !== offered || have.root != root)) takeSheet()
+        }
     }
     // The bubble's bounds now: from the very first frame (before the panel is measured, it's simply the pill).
     fun androidx.compose.ui.unit.Density.bubbleNow(): CcBubble? {
@@ -418,17 +433,19 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         val r = CcMorph.rect(b, from, panel ?: from, CcMorph.squeeze(b, exiting, closeFrom))
         return CcBubble(r, b, CcMorph.radius(b, r, 26.dp.toPx()))
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz, LocalCcSheet provides sheet, LocalCcPhase provides phase) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz, LocalCcSheet provides sheetRef, LocalCcPhase provides phase) {
     Box(Modifier.fillMaxSize()) {
-        // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent layer,
-        // and over another app (an overlay window) the system composites it without redrawing anything.
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter.value.coerceIn(0f, 1f) }.background(CC_DIM))
-        // The bubble: the pill's capsule on the first frame and the panel's outline by the end, drawn from the
-        // same sheet as the tiles. It fills the gaps between the clipped-in tiles, then fades to clear them.
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent rect whose alpha
+            // follows the spring (drawn, not a layer with alpha, which would be a full-screen offscreen pass), and
+            // over another app (an overlay window) the system composites it without redrawing anything.
+            val e = enter.value.coerceIn(0f, 1f)
+            if (e > 0f) drawRect(CC_DIM, alpha = e)
+            // The bubble: the pill's capsule on the first frame and the panel's outline by the end, drawn from the
+            // same sheet as the tiles. It fills the gaps between the clipped-in tiles, then fades to clear them.
             // Reduce Motion: no growing bubble, Control Center simply fades in.
             if (reduceMotion) return@Canvas
-            val material = sheet ?: return@Canvas
+            val material = sheetRef.sheet ?: return@Canvas
             val bubble = bubbleNow() ?: return@Canvas
             val a = CcMorph.bubbleAlpha(bubble.b)
             if (a <= 0f) return@Canvas
@@ -439,7 +456,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .onGloballyPositioned { val r = it.boundsInWindow(); panel = r; if (tallest == null || r.height >= tallest!!.height) tallest = r }
+                .onGloballyPositioned { panel = it.boundsInWindow() }
                 // One layer for the panel and every tile: clipped to the growing bubble (nothing fades), or with
                 // Reduce Motion a plain fade of the whole panel.
                 .graphicsLayer {
@@ -574,40 +591,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         }
     }
     }
-}
-
-/**
- * Makes the open's material before the spring starts: waits (at most [CcMaterial.BAKE_WAIT_MS]) for the layout,
- * the backdrop and the baked sheet, once. A bake that misses the head start is dropped for this open: the open
- * draws the one flat average instead (or the fixed smoky colour when there is nothing to sample), so a tile
- * can't change colour after it has appeared.
- */
-private suspend fun prepareSheet(
-    state: dev.glasslauncher.glass.BackdropState,
-    panel: () -> androidx.compose.ui.geometry.Rect?,
-    light: Boolean,
-): CcSheet {
-    var backdrop: dev.glasslauncher.glass.Backdrop? = null
-    var rect: androidx.compose.ui.geometry.Rect? = null
-    var root = androidx.compose.ui.unit.IntSize.Zero
-    var baked: Pair<GlassMatch.Sheet, android.graphics.Bitmap>? = null
-    kotlinx.coroutines.withTimeoutOrNull(CcMaterial.BAKE_WAIT_MS) {
-        androidx.compose.runtime.snapshotFlow { Triple(state.backdrop, state.rootSize, panel()) }
-            .first { (b, r, p) -> b != null && r != androidx.compose.ui.unit.IntSize.Zero && p != null }
-            .let { (b, r, p) -> backdrop = b; root = r; rect = p }
-        val b = backdrop; val p = rect
-        baked = withContext(CcMaterial.bakeContext) {
-            CcMaterial.beforeBake()
-            val t0 = android.os.SystemClock.elapsedRealtime()
-            CcMaterial.bake(b, root, p!!, light).also {
-                // Fire OS drops Log.d from apps, so debug builds log at info level.
-                if (dev.glasslauncher.BuildConfig.DEBUG) android.util.Log.i("CcMaterial", "bake ${android.os.SystemClock.elapsedRealtime() - t0}ms")
-            }
-        }
-    }
-    val p = rect ?: panel() ?: androidx.compose.ui.geometry.Rect.Zero
-    // Only a bake that finished inside the head start is used; its flat average is what a failed one falls back to.
-    return CcSheet(baked?.second, p, CcMaterial.flat(backdrop, root, rect, light), baked?.first).also { if (CcMaterial.recordLast) CcMaterial.last = it }
 }
 
 @Composable

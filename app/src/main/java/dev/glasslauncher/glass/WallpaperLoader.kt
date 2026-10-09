@@ -47,11 +47,8 @@ class Backdrop(
     val isLight: Boolean,
     /** Luminance of the art (as shown, scrims included) on a [LUMA_COLS]×[LUMA_ROWS] grid. */
     private val luma: FloatArray = FloatArray(0),
-    /**
-     * A software copy of [clearSoftware] (which lives on the GPU) for the CPU work drawn from it once per
-     * surface: Control Center's matched fill (GlassMatch).
-     */
-    val clearSample: Bitmap? = null,
+    /** Control Center's material (see [GlassMatch.ccSheet]), baked here so opening Control Center does no work. */
+    val ccSheet: GlassMatch.PanelSheet? = null,
 ) {
     /**
      * Whether the art behind a region (fractions of the screen) is light, so text placed straight on it
@@ -198,23 +195,24 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // them each frame of a scroll (measured: glass off cut janky frames from 39% to 15%), so they live
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
         val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
-        val clearSample = clear.copy(Bitmap.Config.ARGB_8888, false)
+        // Control Center's sheet comes from the same clear texture, here, so its open has nothing to bake.
+        val ccSheet = GlassMatch.ccSheet(clear)
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
         val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, clearSample)
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, ccSheet)
     }
 
     /**
      * Glass textures only, for Control Center's overlay window (a capture of the screen behind it): the
-     * tray's clear texture, one small blur instead of the full ladder (~550 ms
+     * tray's clear texture and Control Center's sheet, one small blur instead of the full ladder (~550 ms
      * there, which cost frames while Control Center opened). Nothing here is drawn full screen.
      */
     suspend fun glassOnly(source: Bitmap): Backdrop = withContext(Dispatchers.Default) {
         blurReady
         val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { it.setHasAlpha(false) }
-        val sample = clear.copy(Bitmap.Config.ARGB_8888, false)
+        val ccSheet = GlassMatch.ccSheet(clear)
         val gpuClear = (clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear).asImageBitmap()
-        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = false, clearSample = sample)
+        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = false, ccSheet = ccSheet)
     }
 
     /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */

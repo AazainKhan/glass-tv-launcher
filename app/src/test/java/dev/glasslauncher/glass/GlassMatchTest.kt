@@ -51,4 +51,21 @@ class GlassMatchTest {
         // The crop is read from the right place: the sheet's left edge is darker in red than its right edge.
         assertTrue(android.graphics.Color.red(sheet.pixels[0]) < android.graphics.Color.red(sheet.pixels[sheet.width - 1]))
     }
+
+    // Over another app the capture is baked by glassOnly: it carries the sheet too, so the open has nothing to bake.
+    @Test fun theOverAppCaptureCarriesTheSheet() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val loader = WallpaperLoader(context, okhttp3.OkHttpClient())
+        val shot = bitmap(192, 108) { x, _ -> if (x < 96) 0xFF0A0C12.toInt() else 0xFF8A2A24.toInt() }
+        GlassMatch.keepPixels = true
+        val backdrop = try { kotlinx.coroutines.runBlocking { loader.glassOnly(shot) } } finally { GlassMatch.keepPixels = false }
+        val sheet = backdrop.ccSheet
+        org.junit.Assert.assertNotNull("glassOnly made no Control Center sheet", sheet)
+        // The right half of the screen, full height, at ~6 dp cells: tens of KB, not a screen-sized copy.
+        val px = sheet!!.pixels!!
+        assertTrue("sheet ${px.width}x${px.height}, ${px.pixels.size * 4} bytes", px.width == GlassMatch.CC_COLS && px.pixels.size * 4 <= 32 * 1024)
+        assertEquals(0.5f, sheet.left, 0f); assertEquals(1f, sheet.bottom, 0f)
+        // It is the scene on the right (red), not the dark left half.
+        assertTrue(android.graphics.Color.red(px.pixels[px.pixels.size / 2]) > 2 * android.graphics.Color.blue(px.pixels[px.pixels.size / 2]))
+    }
 }

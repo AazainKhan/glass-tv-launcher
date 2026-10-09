@@ -6,9 +6,9 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 
 /**
- * The flat colour a surface over the scene takes: the scene behind it (averaged), under a tint, then the
- * scene's dim. Control Center computes it once per open for the whole panel and draws every tile, and the
- * bubble that grows into the panel, in that one colour (no texture to fade in, nothing sampled per frame).
+ * Control Center's material: the scene behind the panel, under a tint, then the scene's dim ([fill]), baked as a
+ * small soft sheet ([ccSheet]) with each backdrop, so every tile and the bubble draw their part of one picture and
+ * nothing is sampled when Control Center opens or while it animates.
  */
 object GlassMatch {
     fun fill(average: Color, tint: Color, dim: Float): Color {
@@ -46,13 +46,54 @@ object GlassMatch {
     class Sheet(val pixels: IntArray, val width: Int, val height: Int)
 
     /**
+     * Control Center's material, baked with the backdrop: [bitmap] covers the screen rectangle [left]..[right] ×
+     * [top]..[bottom] (fractions of the root). [pixels] is kept only for tests ([keepPixels]).
+     */
+    class PanelSheet(val bitmap: Bitmap, val left: Float, val top: Float, val right: Float, val bottom: Float, val pixels: Sheet?)
+
+    /** Tests only: how many sheets have been baked (Control Center's open must not add one). */
+    @androidx.annotation.VisibleForTesting @Volatile var sheetBakes = 0
+    /** Tests only: keep each [PanelSheet]'s pixels (release builds keep just the small GPU bitmap). */
+    @androidx.annotation.VisibleForTesting @Volatile var keepPixels = false
+
+    /** Control Center's tint over the scene: a faint darkening for the labels. */
+    val CC_TINT = Color.Black.copy(alpha = 0.06f)
+    /** How much Control Center mutes the screen behind it; its sheet is the scene muted by the same amount. */
+    const val CC_DIM = 0.42f
+    /**
+     * The screen region the sheet covers (fractions of the root): the right half, full height. Control Center's
+     * panel sits top-right and is never wider than this at any text size (about 40% at the largest), so one
+     * sheet serves every page and every text size, and nothing about the panel needs to be known when it is baked.
+     */
+    const val CC_LEFT = 0.5f
+    /** Cells across [CC_LEFT]..1: about 6 dp each, as Control Center's panel had. */
+    const val CC_COLS = 80
+
+    /**
+     * Control Center's sheet, baked from a backdrop's clear texture [clear] (which covers the root) when the
+     * backdrop is baked, off the main thread: [panelSheet] over the right half, uploaded as a small hardware
+     * bitmap (80x90, ~28 KB). Opening Control Center then only maps it; null if [clear] can't be read.
+     */
+    fun ccSheet(clear: Bitmap): PanelSheet? {
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        val w = clear.width.toFloat(); val h = clear.height.toFloat()
+        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, CC_TINT, CC_DIM, CC_COLS) ?: return null
+        val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
+        val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft
+        // Fire OS drops Log.d from apps, so debug builds log at info level.
+        if (dev.glasslauncher.BuildConfig.DEBUG) android.util.Log.i("CcMaterial", "sheet bake ${android.os.SystemClock.elapsedRealtime() - t0}ms (${sheet.width}x${sheet.height}, ${sheet.pixels.size * 4} bytes) on ${Thread.currentThread().name}")
+        return PanelSheet(bitmap, CC_LEFT, 0f, 1f, 1f, sheet.takeIf { keepPixels })
+    }
+
+    /**
      * A small blurred, tinted and dimmed picture of the rectangle [left],[top],[width],[height] (root pixels) of
      * [source], which covers the root: [cols] cells across, each the mean of a few samples, then one 3x3 box blur,
      * then [fill]. The scene stays visible: nothing is averaged towards one colour. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.
      */
     fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = COLS): Sheet? {
         if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
-        val rows = (cols * height / width).toInt().coerceIn(2, 64)
+        sheetBakes++
+        val rows = (cols * height / width).toInt().coerceIn(2, 128)
         val sx = source.width / rootWidth.toFloat(); val sy = source.height / rootHeight.toFloat()
         // The crop of the panel from the (480x270) sample, read once in one call: about 70x160 px, so the whole
         // bake is a few thousand integer operations, not thousands of getPixel calls.

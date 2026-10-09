@@ -252,35 +252,25 @@ class ControlCenterMotionTest {
     }
 
     /**
-     * The bake can land late on the stick. The material is decided once, when the open starts (the bake gets a
-     * short head start, 60 ms); one that misses it is ignored for this open, so a tile never changes colour
-     * (flat to sheet) after it has appeared. Here the bake is held until the open is under way, then released.
+     * The device measured the open-time bake at 224 ms, past the open's 60 ms head start, so every open drew the
+     * flat fallback. The sheet is baked with the backdrop (off the main thread, before Control Center is asked
+     * for): Home's backdrop already carries it, and opening Control Center bakes nothing and draws that very sheet.
      */
-    @Test fun aLateBakeNeverChangesATilesColour() {
+    @Test fun theSheetIsBakedWithTheBackdropNotAtOpen() {
         TvHarness.setUp()
-        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
-        dev.glasslauncher.home.CcMaterial.beforeBake = { gate.await() }
-        try {
-            ActivityScenario.launch(MainActivity::class.java).use {
-                compose.waitForHome()
-                compose.press(Button.Up, Button.Up, Button.Up)
-                compose.settle()
-                // Released at frame 30 (~480 ms): long after the 60 ms head start, mid-bounce, before the tiles stop moving.
-                val frames = compose.frames(Button.Select, frames = 60, stepMs = 16, scale = 0.5f, onFrame = { if (it == 30) gate.complete(Unit) })
-                compose.settle()
-                val rootW = compose.onRoot().fetchSemanticsNode().size.width
-                val tiles = tileBounds().filterKeys { it != "Settings, Fire TV" }
-                assertTrue("found only ${tiles.keys}", tiles.size >= 5)
-                for ((name, r) in tiles) {
-                    val seq = frames.drop(20).map { material(it, rootW, r) }
-                    val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f
-                    assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 when the late bake landed", worst <= 3f)
-                }
-                val last = tiles.mapValues { material(frames.last(), rootW, it.value) }
-                for (c in 0..2) assertTrue("a flat open is one colour, channel $c: ${last.mapValues { it.value.toList() }}", last.values.maxOf { it[c] } - last.values.minOf { it[c] } <= 3f)
-            }
-        } finally {
-            dev.glasslauncher.home.CcMaterial.beforeBake = {}
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up)
+            compose.settle()
+            val home = dev.glasslauncher.home.ControlCenterWindow.homeBackdrop ?: error("Home has no backdrop")
+            val baked = home.ccSheet
+            org.junit.Assert.assertNotNull("Home's backdrop carries no Control Center sheet before Control Center opens", baked)
+            val bakes = dev.glasslauncher.glass.GlassMatch.sheetBakes
+            compose.frames(Button.Select, frames = 30, stepMs = 16, scale = 0.5f)
+            compose.settle()
+            org.junit.Assert.assertEquals("opening Control Center baked a sheet", bakes, dev.glasslauncher.glass.GlassMatch.sheetBakes)
+            val used = dev.glasslauncher.home.CcMaterial.last ?: error("Control Center has no material")
+            org.junit.Assert.assertSame("Control Center does not draw the backdrop's own sheet", baked!!.bitmap, used.bitmap)
         }
     }
 
