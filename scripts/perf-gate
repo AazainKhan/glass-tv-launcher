@@ -6,6 +6,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"; require_device_access
+hold_stick "$0" "$@"
 cd "$ROOT"
 build=1; rounds=3
 while [ $# -gt 0 ]; do case "$1" in --no-build) build=0; shift ;; --rounds) rounds="$2"; shift 2 ;; *) shift ;; esac; done

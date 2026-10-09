@@ -7,69 +7,76 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, type one of feat, fix, perf, refactor, test, docs, build, ci, chore, style. Mark breaking changes with `!` or a `BREAKING CHANGE:` footer. Example: `fix(focus): stop Right at row ends`.
 - The repo is public (github.com/AazainKhan/glass-tv-launcher). Commits use the noreply email set in the repo config. Before pushing, `scripts/leak-check` must say clean (no device serials, home paths or crash dumps), then `git pull --rebase`.
 
-## Working as an agent (models, prompts, context)
+## How the agents work
 
-**Pick the model per subagent** (Agent tool `model`). Use the cheapest one that can do the job reliably:
+**Lanes.** Stay in yours. Findings for someone else's area go on the board, never as a patch.
 
-| Model | Use it for |
-|---|---|
-| `haiku` (Haiku 5.5) | Mechanical and read-only work: running `scripts/shots`/`perf-run`/`e2e` and summarising the output; logcat or Gradle-log triage; grep/file audits (leak checks, finding usages); listing baselines or reports; simple renames. |
-| `sonnet` (Sonnet 5.5) | Well-specified implementation: a board item with files, constraints and acceptance commands spelled out; writing tests; refactors; re-recording and reviewing baselines. |
-| `opus` (Opus 5.5) | Ambiguous or cross-cutting judgement: design and motion diagnosis, perfetto/GPU analysis, reviewing an implementer's diff, merge decisions. Use `fable` (Fable 5.1) only when a hard problem stalls. |
+| Agent | Lane | Subagents |
+|---|---|---|
+| **Agent Manager** | Tooling, CI, hooks, publishing, the user's rules, vitals, and diagnosis handoffs. Raises every user decision with AskUserQuestion. Takes no app bugs. | Haiku 5.5 for runs and audits |
+| **Yin** (Opus) | Design calls, reviews, merges to master, stick time, Control Center. Reads `tvos27-inspo` directly for design. | Sonnet implements; Haiku 5.5 runs checks |
+| **Yang** (Sonnet) | Features and fixes on worktree branches, JVM tests, emulator runs. | Haiku 5.5 for parallel test and baseline runs |
 
-For broad codebase searches, use the `Explore` agent and keep only its conclusion.
+The tvOS research session is idle. Pushes to the public repo happen only with the user's OK, relayed by Agent Manager.
 
-**Brief subagents so they can work without asking.** A good prompt states:
-1. the goal and why it matters (the user's words or report);
-2. the evidence paths (strip, video, Gallery tab, report id), not a paraphrase;
-3. the files to touch and the files NOT to touch (who owns what, per `board.md`);
-4. the rules that apply: GPU performance rules, Conventional Commits, a worktree, no stick unless you hold the lock;
-5. the exact acceptance commands (`scripts/shots verify …`, `scripts/perf-gate`, a named test);
-6. what to return: a short summary with paths, numbers and failures, under ~200 words, not raw logs or full diffs.
+**Board first.** `.superpowers/pair/board.md` is the single source of truth for work. The SessionStart hook prints its open items next to vitals and reports.
+- Read it at the start of each turn.
+- Claim an item before starting; update its status and a one-line result as you go; close it when done.
+- A new user request gets a board item with a named owner before anyone works on it.
+- SendMessage is for urgent interrupts only (a broken build, a stick collision, a decision blocking someone), not status updates.
 
-**Keep the context small:**
-- Delegate searches, logs and long command output to subagents.
-- Pipe commands through `tail`/`grep`; `scripts/shots` already prints a short report; use `--level digest` for agent-device.
-- Look at images at 960 px (`scripts/shot`) or as zoomed crops. Look once and write down what you saw.
-- Use the Gallery instead of re-reading screenshots, and point the user at it instead of pasting images.
-- Run long jobs (Gradle, `bench`, `e2e`) in the background and wait for the notification instead of polling.
-- Launch independent subagents in one message so they run in parallel.
-- Keep durable state in `.superpowers/pair/board.md` (one line per item) and the ledger, not in chat. Summarise each finished round there, so a compacted or new session can pick it up.
+**Devices: the emulator is the queue, the stick is for looks and speed.**
+- **Functional, focus and e2e checks run on the emulator.** `scripts/e2e` defaults to it: it boots `scripts/emulator`, installs a debug build, and skips stick-only tests (marked `@pytest.mark.stick`, or listed in `STICK_ONLY_MODULES` in e2e/conftest.py). For your own commands: `eval "$(scripts/emulator env)"`, then `scripts/key`, `shot`, `tv` act on it.
+- **The stick is only for looks** (`scripts/clip`, tv-live) **and performance** (`scripts/perf-gate`, `scripts/bench`, `scripts/e2e --stick -m perf`). Always use a time-boxed lock: `scripts/stick-lock hold <who> [--max 30] -- <command>` renews itself while the command runs and releases it at the end. `bench`, `perf-gate`, `clip` and `e2e --stick` do this on their own. If someone else holds the lock, they fail fast instead of colliding.
 
-## Team loop (who does what, where knowledge lives)
+**Models.** Use the cheapest one that's reliable:
+- **Haiku 5.5:** mechanical work only: run scripts and summarise, grep and audits, re-record baselines, draft tests. Never visual or design judgement.
+- **Sonnet 5.5:** specified implementation.
+- **Opus 5.5:** judgement: design, diagnosis, reviews, merges. Fable 5.1 only if a hard problem stalls.
 
-**Roles:**
-- **Agent Manager:** tooling, vitals, diagnosis, relaying the user, and raising every user decision with AskUserQuestion.
-- **Yin:** owns the app; the only one who merges to master and uses the stick.
-- **Yang:** implements board items in worktrees.
-- **tvOS 27 research:** the design source.
-Agents message each other with SendMessage. Anything that needs the user goes to Agent Manager.
+**Subagent briefs** are self-contained:
+1. the goal, in the user's words;
+2. evidence paths (strip, video, Gallery tab, report id);
+3. the files to touch and NOT touch (per the board);
+4. the rules (GPU, Conventional Commits, worktree, lock);
+5. exact acceptance commands;
+6. what to return: under ~200 words with paths and numbers, no raw logs.
 
-**Where knowledge lives** (one place per kind, so nobody re-derives or contradicts it):
+**Context:**
+- Delegate logs and searches.
+- Look at images at 960 px or as crops, once.
+- Point at the Gallery instead of pasting images.
+- Background long jobs and wait for the notification.
+- Launch parallel subagents in one message.
+- Keep state on the board, not in chat.
+
+**Automated eyes.** `scripts/shots all` (run by the Stop and pre-commit hooks) includes `VisualChecks`:
+- **Ghost frames:** no element that appears during a transition stays half-transparent for more than 2 frames.
+- **Control Center material:**
+  - tiles don't change colour after landing;
+  - unfocused tiles agree;
+  - the Settings tile is never grey.
+- A check with a known open bug is wrapped in `expectFail("Pn")`: it shows as skipped while the bug exists and fails once it passes, so the marker gets removed when the item closes. Today the three Control Center checks expect P10.
+
+**Where knowledge lives:**
 
 | What | Where |
 |---|---|
-| Durable rules and how-tos | this `CLAUDE.md` |
-| The user's settled decisions | `docs/decisions.md`. Read before proposing a change; add a line when the user decides. |
-| Live work: who owns what, status, blockers | `.superpowers/pair/board.md`, one line per item (git-ignored, shared on this machine) |
+| Rules and how-tos | this file |
+| The user's settled decisions | `docs/decisions.md`. Read it before proposing a change; add a line when the user decides. |
+| Live work | the board |
 | The user's bug queue | `reports/inbox/` (`scripts/reports`) |
-| Project health | `scripts/vitals`, also shown at session start; the newest result is in `.superpowers/vitals.md` |
-| Evidence | the Gallery (`tv-live` › `/gallery`) |
+| Health | `scripts/vitals` (`--full` adds the JVM checks); Agent Manager runs it between rounds and chases anything red |
+| Evidence | the Gallery |
 
 **The loop:**
-1. **Session start:** read the vitals summary the hook prints. Anything red (CI, leaks, behind origin, failing checks) is fixed or reported before new work. Then read open reports and the board.
-2. **Pick work:** claim a board item, or take a report. Check `docs/decisions.md` so you build what the user already chose.
-3. **Build:**
-   - work in a worktree;
-   - iterate on the Mac first (shots, previews, focus, strips, compare-ref);
-   - touch the stick only with the lock;
-   - brief subagents per "Working as an agent".
-4. **Prove it:**
-   - `scripts/shots all` (the hooks enforce it);
-   - `scripts/perf-gate` for anything that renders;
-   - `scripts/clip` on the stick for motion.
-5. **Hand off:** update the board line (status plus a one-line result). Close the reports you fixed. Add any new user decision to `docs/decisions.md`. Yin merges. Pushes wait for the user's OK via Agent Manager.
-6. **Health:** Agent Manager runs `scripts/vitals --full` between rounds and chases anything red: CI, stale worktrees, unpushed work, blocked items.
+1. Read the board and vitals.
+2. Claim.
+3. Build in a worktree, Mac first, then the emulator.
+4. Prove it: `scripts/shots all`, plus `perf-gate` and a clip on the stick for anything that renders.
+5. Update the board.
+6. Yin merges.
+7. Agent Manager gets the user's OK and pushes.
 
 ## Build and run
 
@@ -102,7 +109,7 @@ Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination G
 - Compose pads accessibility bounds up to the 48 dp minimum touch target: measure drawn sizes from a screenshot, not from node bounds.
 - Perf measurements: open overlays from the grid (Home's featured slideshow cross-fades every few seconds and lands at random in the window), warm up once (first open decodes and composes), and don't read the tree inside the measured window (uiautomator makes Glass build its accessibility tree mid-animation).
 
-`scripts/e2e` (pytest in `e2e/`, see its README): 43 tests over every main flow on the real stick, real remote presses, state from the accessibility tree. Run it after changes to navigation, overlays, Control Center, Settings, app launching or Fire OS integration. `uiautomator dump` refuses while something animates (move mode's wiggle), so those checks read the screen instead.
+`scripts/e2e` (pytest in `e2e/`, see its README): tests over every main flow, with real remote presses and state from the accessibility tree. **It runs on the emulator by default** (Fire-OS-only modules are skipped); use `scripts/e2e --stick` for the full suite on the real Fire TV under a self-renewing lock. Run it after changes to navigation, overlays, Control Center, Settings, app launching or Fire OS integration. `uiautomator dump` refuses while something animates (move mode's wiggle), so those checks read the screen instead.
 
 ## Dev loop: see it, check it, measure it
 

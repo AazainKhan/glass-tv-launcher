@@ -1,20 +1,47 @@
 #!/usr/bin/env bash
-# Device end-to-end suite (e2e/, pytest): drives the real stick with remote presses and checks what's on
-# screen through the accessibility tree. Takes the stick lock for the run.
-#   scripts/e2e                      everything except the perf gate
-#   scripts/e2e --build              build and install a release first
+# Device end-to-end suite (e2e/, pytest): drives a TV with remote presses and checks what's on screen
+# through the accessibility tree.
+#
+# Default target: the Android TV emulator (scripts/emulator), started if needed, so functional and
+# focus checks never queue for the stick. Use --stick for Fire-OS-only tests and perf; that takes a
+# self-renewing stick lock for the run (scripts/stick-lock hold).
+#   scripts/e2e                      emulator, everything except perf and stick-only tests
+#   scripts/e2e --stick              the real Fire TV (all tests except perf)
+#   scripts/e2e --build              build and install first (debug on the emulator, release on the stick)
 #   scripts/e2e -m "not slow"        quick pass (no app launches)
-#   scripts/e2e -m perf              just the perf gate
+#   scripts/e2e --stick -m perf      just the perf gate (stick only)
 #   scripts/e2e -k control_center    one area
 # Failures leave a screenshot and the accessibility tree in build/e2e/.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# Set ANDROID_SERIAL when more than one device is attached.
-export TV_SERIAL="${TV_SERIAL:-${ANDROID_SERIAL:-}}" TV_OWNER="${TV_OWNER:-glass-e2e}"
-"$ROOT/scripts/stick-lock" take "$TV_OWNER" >/dev/null
-trap '"$ROOT/scripts/stick-lock" release "$TV_OWNER" >/dev/null 2>&1 || true' EXIT
-if [ "${1:-}" = --build ]; then shift; "$ROOT/scripts/build" release >/dev/null; sleep 8; fi
-args=("$@")
+target=emulator; build=0; args=()
+for a in "$@"; do
+  case "$a" in
+    --stick) target=stick ;;
+    --emulator) target=emulator ;;
+    --build) build=1 ;;
+    *) args+=("$a") ;;
+  esac
+done
+export TV_OWNER="${TV_OWNER:-glass-e2e}"
+if [ "$target" = emulator ]; then
+  export GLASS_TARGET=emulator
+  "$ROOT/scripts/emulator" start >/dev/null
+  eval "$("$ROOT/scripts/emulator" env)"
+  if [ "$build" = 1 ] || ! adb shell pm path dev.glasslauncher >/dev/null 2>&1; then
+    (cd "$ROOT" && JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 21)}" ./gradlew :app:assembleDebug --console=plain -q)
+    "$ROOT/scripts/emulator" install debug >/dev/null
+  fi
+else
+  export GLASS_TARGET=stick
+  # Pick the stick even if an emulator is attached to the default adb server.
+  source "$ROOT/scripts/lib/device.sh"
+  export TV_SERIAL="${TV_SERIAL:-$ANDROID_SERIAL}"
+  [ "$build" = 1 ] && { "$ROOT/scripts/build" release >/dev/null; sleep 8; }
+fi
 case " ${args[*]:-} " in *" -m "*) ;; *) args+=(-m "not perf") ;; esac
 cd "$ROOT/e2e"
-python3 -m pytest "${args[@]}"
+if [ "$target" = stick ]; then
+  exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- python3 -m pytest "${args[@]}"
+fi
+exec python3 -m pytest "${args[@]}"

@@ -20,6 +20,21 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "root: needs Magisk root on the device")
     config.addinivalue_line("markers", "slow: launches other apps or restarts things")
     config.addinivalue_line("markers", "perf: frame-time measurements (scripts/perf-gate)")
+    config.addinivalue_line("markers", "stick: needs the real Fire TV (Fire OS, Amazon apps, its remote); skipped on the emulator")
+
+
+# Modules that only make sense on Fire OS: Amazon's launcher and apps, Fire's settings and Alexa.
+# Tests elsewhere can opt in with @pytest.mark.stick. Everything else runs on the emulator too.
+STICK_ONLY_MODULES = {"test_device_setup", "test_launch_and_remote"}
+
+
+def pytest_collection_modifyitems(config, items):
+    if os.environ.get("GLASS_TARGET") != "emulator":
+        return
+    skip = pytest.mark.skip(reason="stick-only: run with scripts/e2e --stick")
+    for item in items:
+        if item.get_closest_marker("stick") or item.get_closest_marker("perf") or item.module.__name__ in STICK_ONLY_MODULES:
+            item.add_marker(skip)
 
 
 def _only_device() -> str:

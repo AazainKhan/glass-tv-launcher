@@ -3,6 +3,10 @@
 #   scripts/stick-lock take "<who>" [minutes=30]   claim the device (renew by taking again)
 #   scripts/stick-lock release ["<who>"]
 #   scripts/stick-lock status
+#   scripts/stick-lock hold "<who>" [--max <minutes>] -- <command…>
+#       take the lock (fails fast if someone else holds it), renew it every minute while the
+#       command runs, release it when it ends. Use this for anything long (bench, perf-gate, e2e
+#       --stick, clips) so a run never outlives its lock. --max (default 60) caps the run.
 # Input scripts (key, clip, tv-type, perf-run, dev-mode) refuse while another owner holds it.
 # Export TV_OWNER="<who>" in your session so your own scripts pass.
 set -euo pipefail
@@ -22,5 +26,28 @@ case "${1:-status}" in
   status)
     owner="$(lock_owner)"
     if [ -n "$owner" ]; then echo "$ANDROID_SERIAL: locked by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)"; else echo "$ANDROID_SERIAL: free"; fi ;;
-  *) sed -n '2,7p' "$0"; exit 2 ;;
+  hold)
+    who="${2:?usage: scripts/stick-lock hold <who> [--max <minutes>] -- <command…>}"; shift 2
+    max=60
+    [ "${1:-}" = --max ] && { max="$2"; shift 2; }
+    [ "${1:-}" = -- ] && shift
+    [ $# -gt 0 ] || { echo "hold: no command" >&2; exit 2; }
+    owner="$(lock_owner)"
+    if [ -n "$owner" ] && [ "$owner" != "$who" ]; then
+      echo "stick-lock: held by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M); not starting" >&2; exit 3
+    fi
+    deadline=$(( $(date +%s) + max * 60 ))
+    echo "$(( $(date +%s) + 300 )) $who" > "$f"
+    # Renew a 5-minute window every minute until the command ends or --max is reached.
+    ( while sleep 60; do
+        [ "$(date +%s)" -ge "$deadline" ] && { echo "stick-lock: $who hit --max ${max}m; lock not renewed" >&2; exit 0; }
+        [ "$(lock_owner)" = "$who" ] || exit 0
+        echo "$(( $(date +%s) + 300 )) $who" > "$f"
+      done ) &
+    renewer=$!
+    trap 'kill $renewer 2>/dev/null || true; wait $renewer 2>/dev/null || true; if [ "$(lock_owner)" = "$who" ]; then rm -f "$f"; fi' EXIT
+    rc=0; TV_OWNER="$who" "$@" || rc=$?
+    exit $rc
+    ;;
+  *) sed -n '2,12p' "$0"; exit 2 ;;
 esac

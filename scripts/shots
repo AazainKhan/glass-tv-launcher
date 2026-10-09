@@ -6,6 +6,7 @@
 #   scripts/shots previews [record]  component @Previews (app/src/debug/.../preview/) vs their baselines
 #   scripts/shots focus               crawl Home's focus graph -> app/build/focus-graph/home.md
 #   scripts/shots strips [name|all]   frame strips of transitions -> app/build/strips/*.png
+#   scripts/shots visual             automated eyes: ghost frames + Control Center material (VisualChecks)
 #   scripts/shots all                 verify + focus (what CI runs, via testDebugUnitTest)
 #   GLASS_SHOTS_TIME=10:05 scripts/shots verify   run with the on-screen clock pinned to another time (default 09:41);
 #                                     baselines must pass at every time of day
@@ -33,8 +34,9 @@ case "$cmd" in
   previews)
     if [ "$arg" = record ]; then gradle :app:recordRoborazziDebug --tests '*Preview*'; else gradle :app:verifyRoborazziDebug --tests '*Preview*'; fi
     report; echo "baselines: app/src/test/screenshots/previews/" ;;
+  visual) gradle :app:testDebugUnitTest --tests '*VisualChecks*'; report ;;
   focus)  gradle :app:testDebugUnitTest --tests '*FocusCrawlTest*'; report; echo "graph: app/build/focus-graph/home.md" ;;
   strips) gradle :app:testDebugUnitTest --tests '*MotionStrips*' -Pstrips="${arg:-all}"; report; ls app/build/strips/*.png ;;
-  all)    gradle :app:verifyRoborazziDebug --tests '*HomeShots*' --tests '*FocusCrawlTest*' --tests '*Preview*'; report ;;
+  all)    gradle :app:verifyRoborazziDebug --tests '*HomeShots*' --tests '*FocusCrawlTest*' --tests '*Preview*' --tests '*VisualChecks*'; report ;;
   *) sed -n '2,10p' "$0"; exit 2 ;;
 esac

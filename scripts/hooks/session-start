@@ -6,7 +6,12 @@ cd "$ROOT" 2>/dev/null || exit 0
 reports="$(scripts/reports list 2>/dev/null | grep -v '^no open reports' | head -15)"
 lock="$(scripts/stick-lock status 2>/dev/null)"
 vitals="$(scripts/vitals --brief 2>/dev/null)"
-ctx="Project vitals (scripts/vitals for details; fix or report anything red before new work):
+board_open="$(grep -E '^P[0-9]+ \|' .superpowers/pair/board.md 2>/dev/null | grep -viE '\| *(merged|done)' | cut -c1-160)"
+ctx="BOARD FIRST: .superpowers/pair/board.md is the single source of truth. Claim, update and close items there; new user requests get an item with an owner before work starts. SendMessage only for urgent interrupts.
+Open board items:
+${board_open:-none}
+
+Project vitals (scripts/vitals for details; fix or report anything red before new work):
 $vitals
 "
 [ -n "$reports" ] && ctx+="Open reports from the user's live view or crash watcher (scripts/reports show <id>; close with scripts/reports done <id> \"what you did\"):

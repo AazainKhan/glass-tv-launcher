@@ -130,7 +130,21 @@ class TV:
     def sh(self, cmd: str, timeout: float = 60) -> str:
         return self.adb("shell", cmd, timeout=timeout)
 
+    @property
+    def is_emulator(self) -> bool:
+        """The Android TV emulator (scripts/emulator), not the Fire TV stick."""
+        if not hasattr(self, "_emu"):
+            self._emu = self.sh("getprop ro.kernel.qemu").strip() == "1"
+        return self._emu
+
     def su(self, cmd: str, timeout: float = 60) -> str:
+        if self.is_emulator:
+            # Emulator images have no Magisk su; a root adbd gives the same access.
+            if not getattr(self, "_rooted_adbd", False):
+                self.adb("root", timeout=30)
+                self.adb("wait-for-device", timeout=60)
+                self._rooted_adbd = True
+            return self.sh(cmd, timeout=timeout)
         return self.adb("shell", "su", "-c", cmd, timeout=timeout)
 
     def script(self, name: str, *args: str, timeout: float = 600) -> str:
