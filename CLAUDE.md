@@ -56,7 +56,7 @@ The tvOS research session is idle. Pushes to the public repo happen only with th
   - tiles don't change colour after landing;
   - unfocused tiles agree;
   - the Settings tile is never grey.
-- A check with a known open bug is wrapped in `expectFail("Pn")`: it shows as skipped while the bug exists and fails once it passes, so the marker gets removed when the item closes. Today the three Control Center checks expect P10.
+- A check with a known open bug is wrapped in `expectFail("Pn")`: it shows as skipped while the bug exists and fails once it passes, so the marker gets removed when the item closes. Today the three Control Center checks expect P17.
 
 **Where knowledge lives:**
 

@@ -50,7 +50,7 @@ class VisualChecks {
 
     @Test fun appMenuHasNoGhostFrames() = noGhosts("open-app-menu", Button.Menu)
     @Test fun settingsPageHasNoGhostFrames() = noGhosts("settings-page-push", Button.Select, Button.Down, Button.Down, Button.Right, Button.Right, Button.Select)
-    @Test fun controlCenterHasNoGhostFrames() = expectFail("P10") { noGhosts("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up) }
+    @Test fun controlCenterHasNoGhostFrames() = expectFail("P17") { noGhosts("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up) }
 
     /** Presses [setup], then [button], and checks every element that appeared for long half-transparent runs. */
     private fun noGhosts(name: String, button: Button, vararg setup: Button) = onHome {
@@ -81,7 +81,7 @@ class VisualChecks {
 
     // ── Control Center material (P10) ───────────────────────────────────────────────────────────
 
-    @Test fun controlCenterIsOneMaterial() = expectFail("P10") { controlCenter { frames, tiles, settings ->
+    @Test fun controlCenterIsOneMaterial() = expectFail("P17") { controlCenter { frames, tiles, settings ->
         val landed = frames.takeLast(LANDED_FRAMES)
         val problems = mutableListOf<String>()
         // (a) No tile changes colour once Control Center has landed.
@@ -91,7 +91,8 @@ class VisualChecks {
             if (drift > LANDED_DRIFT) problems += "${t.name} changes ${"%.1f".format(drift)} levels after landing"
         }
         // (b) The unfocused glass tiles agree with each other (one material).
-        val glass = tiles.filter { it != settings }.map { it to mean(landed.last().bitmap, band(it)) }
+        // Lit tiles (on/focused: a white or solid fill by design) aren't glass; compare the rest.
+        val glass = tiles.filter { it != settings }.map { it to mean(landed.last().bitmap, band(it)) }.filter { luminance(it.second) < LIT_MIN }
         for ((a, ma) in glass) for ((b, mb) in glass) {
             val diff = (0..2).maxOf { abs(ma[it] - mb[it]) }
             if (a.name < b.name && diff > MATERIAL_DELTA) problems += "${a.name} vs ${b.name} differ by ${"%.0f".format(diff)} levels"
@@ -99,7 +100,7 @@ class VisualChecks {
         if (problems.isNotEmpty()) fail("Control Center material:\n" + problems.distinct().take(12).joinToString("\n"))
     } }
 
-    @Test fun controlCenterSettingsNeverGrey() = expectFail("P10") { controlCenter { frames, _, settings ->
+    @Test fun controlCenterSettingsNeverGrey() = expectFail("P17") { controlCenter { frames, _, settings ->
         settings ?: throw AssertionError("no Settings tile found in Control Center")
         val grey = frames.withIndex().filter { (_, f) -> luminance(mean(f.bitmap, inner(settings!!))) in GREY_MIN..GREY_MAX }
         if (grey.isNotEmpty()) fail("Settings tile is grey at ${grey.joinToString { "${it.index * STEP_MS} ms" }}")
@@ -203,5 +204,6 @@ class VisualChecks {
         const val MATERIAL_DELTA = 12f
         const val GREY_MIN = 90f
         const val GREY_MAX = 205f
+        const val LIT_MIN = 200f
     }
 }
