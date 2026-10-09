@@ -42,9 +42,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import dev.glasslauncher.R
-import dev.glasslauncher.glass.GlassStyle
-import dev.glasslauncher.glass.LocalBackdrop
-import dev.glasslauncher.glass.glass
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.Type

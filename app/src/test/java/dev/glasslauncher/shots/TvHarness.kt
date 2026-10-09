@@ -92,6 +92,9 @@ object TvHarness {
      * first-run tips are marked seen so they don't trap focus.
      */
     fun setUp(featured: Boolean = true, config: (LauncherConfig) -> LauncherConfig = { it }) {
+        // Control Center's material bake runs inline here, so a paused clock sees the same open every time.
+        dev.glasslauncher.home.CcMaterial.bakeContext = kotlinx.coroutines.Dispatchers.Unconfined
+        dev.glasslauncher.home.CcMaterial.beforeBake = {}
         blockNetwork()
         pinClock()
         useBitmapFactoryForImages()

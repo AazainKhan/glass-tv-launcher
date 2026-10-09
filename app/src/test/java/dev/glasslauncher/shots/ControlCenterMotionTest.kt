@@ -6,11 +6,58 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.glasslauncher.MainActivity
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+
+/** The ink-free band of a tile (below its sheen, above its glyph and labels), as fractions of its height. */
+internal const val BAND0 = 0.15f
+internal const val BAND1 = 0.22f
+
+/** Mean colour of the baked sheet's cells under the window-pixel rectangle: what a tile showing the sheet should average to. */
+internal fun sheetMean(sheet: dev.glasslauncher.home.CcSheet, x0: Float, y0: Float, x1: Float, y1: Float): FloatArray {
+    val px = sheet.pixels ?: error("no baked sheet (the flat fallback was used)")
+    fun cx(x: Float) = ((x - sheet.panel.left) / sheet.panel.width * px.width).toInt().coerceIn(0, px.width - 1)
+    fun cy(y: Float) = ((y - sheet.panel.top) / sheet.panel.height * px.height).toInt().coerceIn(0, px.height - 1)
+    val sum = FloatArray(3); var n = 0
+    for (j in cy(y0)..cy(y1)) for (i in cx(x0)..cx(x1)) {
+        val c = px.pixels[i + j * px.width]
+        sum[0] += (c shr 16 and 0xFF); sum[1] += (c shr 8 and 0xFF); sum[2] += (c and 0xFF); n++
+    }
+    return FloatArray(3) { sum[it] / n }
+}
+
+/** Mean colour (r, g, b) of the tile's ink-free top band: the material, without its glyph or label. */
+internal fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF): FloatArray {
+    val k = b.width / rootW.toFloat()
+    val x0 = ((r.left + r.width() * 0.35f) * k).toInt(); val x1 = ((r.left + r.width() * 0.65f) * k).toInt().coerceAtLeast(x0 + 1)
+    val y0 = ((r.top + r.height() * BAND0) * k).toInt(); val y1 = ((r.top + r.height() * BAND1) * k).toInt().coerceAtLeast(y0 + 1)
+    val sum = FloatArray(3); var n = 0
+    for (y in y0 until y1) for (x in x0 until x1) {
+        val c = b.getPixel(x.coerceIn(0, b.width - 1), y.coerceIn(0, b.height - 1))
+        sum[0] += (c shr 16 and 0xFF); sum[1] += (c shr 8 and 0xFF); sum[2] += (c and 0xFF); n++
+    }
+    return FloatArray(3) { sum[it] / n }
+}
+
+
+/** Fraction of the pixels in the top band of [r] (the tile's ink-free strip) that are neither near [lo] (not revealed) nor near [hi] (white). */
+internal fun greyFraction(f: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF, lo: Float, hi: Float): Float {
+    val k = f.width / rootW.toFloat(); val range = hi - lo
+    var grey = 0; var n = 0
+    for (y in ((r.top + r.height() * BAND0) * k).toInt()..((r.top + r.height() * BAND1) * k).toInt())
+        for (x in ((r.left + r.width() * 0.35f) * k).toInt()..((r.left + r.width() * 0.65f) * k).toInt()) {
+            val c = f.getPixel(x.coerceIn(0, f.width - 1), y.coerceIn(0, f.height - 1))
+            val v = ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10f
+            if (v > lo + 0.25f * range && v < hi - 0.1f * range) grey++
+            n++
+        }
+    return grey.toFloat() / n
+}
 
 /**
  * Control Center's opening, frame by frame on a paused clock: the panel grows in over many frames like an
@@ -19,7 +66,6 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = TV)
 class ControlCenterMotionTest {
-    private companion object { const val SPREAD = 10f }
 
     @get:Rule val compose = createEmptyComposeRule()
     @get:Rule val pinnedClock = PinnedClockRule()
@@ -131,25 +177,11 @@ class ControlCenterMotionTest {
         return out
     }
 
-    /** Mean colour (r, g, b) of the tile's ink-free top band: the material, without its glyph or label. */
-    private fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF): FloatArray {
-        val k = b.width / rootW.toFloat()
-        val x0 = ((r.left + r.width() * 0.35f) * k).toInt(); val x1 = ((r.left + r.width() * 0.65f) * k).toInt().coerceAtLeast(x0 + 1)
-        val y0 = ((r.top + r.height() * 0.08f) * k).toInt(); val y1 = ((r.top + r.height() * 0.16f) * k).toInt().coerceAtLeast(y0 + 1)
-        val sum = FloatArray(3); var n = 0
-        for (y in y0 until y1) for (x in x0 until x1) {
-            val c = b.getPixel(x.coerceIn(0, b.width - 1), y.coerceIn(0, b.height - 1))
-            sum[0] += (c shr 16 and 0xFF); sum[1] += (c shr 8 and 0xFF); sum[2] += (c and 0xFF); n++
-        }
-        return FloatArray(3) { sum[it] / n }
-    }
-
     /**
      * The user's phone video: tiles were not one colour while Control Center opened (each tinted from the scene
      * right behind it, a texture then swapping in tile by tile). Every tile now draws one flat shared fill:
      * after the tiles land none moves more than 3/255 between frames, and the unfocused tiles of every kind
-     * (pills, round buttons, the wide pill) sit within SPREAD/255 of each other, on landing and when settled
-     * (they are parts of one baked sheet of the scene, so they differ only by the sheet's slow gradient).
+     * (pills, round buttons, the wide pill) show the one baked sheet, on landing and when settled.
      */
     @Test fun everyTileIsOneMaterialFromLandingOn() {
         TvHarness.setUp()
@@ -168,14 +200,13 @@ class ControlCenterMotionTest {
                 val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f
                 assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 between frames after landing", worst <= 3f)
             }
-            val unfocused = tiles.filterKeys { it != "Settings, Fire TV" }
-            for (at in listOf(landed, frames.lastIndex)) {
-                val means = unfocused.mapValues { material(frames[at], rootW, it.value) }
-                for (c in 0..2) {
-                    val lo = means.values.minOf { it[c] }; val hi = means.values.maxOf { it[c] }
-                    assertTrue("tiles are not one material in frame $at (channel $c spread ${"%.1f".format(hi - lo)}/255): " +
-                        means.mapValues { e -> e.value.map { "%.0f".format(it) } }, hi - lo <= SPREAD)
-                }
+            // One material: each unfocused tile shows its own part of the one baked sheet (the sheet's cells
+            // under its band, already tinted and dimmed), within 4/255, on landing and when settled.
+            val sheet = dev.glasslauncher.home.CcMaterial.last ?: error("Control Center made no sheet")
+            for (at in listOf(landed, frames.lastIndex)) for ((name, r) in tiles.filterKeys { it != "Settings, Fire TV" }) {
+                val want = sheetMean(sheet, r.left + r.width() * 0.35f, r.top + r.height() * BAND0, r.left + r.width() * 0.65f, r.top + r.height() * BAND1)
+                val got = material(frames[at], rootW, r)
+                for (c in 0..2) assertTrue("$name is not the sheet's colour in frame $at (channel $c: ${"%.1f".format(got[c])} vs ${"%.1f".format(want[c])})", kotlin.math.abs(got[c] - want[c]) <= 4f)
             }
         }
     }
@@ -201,18 +232,7 @@ class ControlCenterMotionTest {
             // the bubble's dark colour (not revealed yet) or white; only the clip's own antialiased edge may be
             // between (a fade shows as the whole band grey).
             val range = hi - lo
-            val worstGrey = frames.maxOf { f ->
-                val k = f.width / rootW.toFloat()
-                var grey = 0; var n = 0
-                for (y in ((settings.top + settings.height() * 0.08f) * k).toInt()..((settings.top + settings.height() * 0.16f) * k).toInt())
-                    for (x in ((settings.left + settings.width() * 0.35f) * k).toInt()..((settings.left + settings.width() * 0.65f) * k).toInt()) {
-                        val c = f.getPixel(x.coerceIn(0, f.width - 1), y.coerceIn(0, f.height - 1))
-                        val v = ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10f
-                        if (v > lo + 0.25f * range && v < hi - 0.1f * range) grey++
-                        n++
-                    }
-                grey.toFloat() / n
-            }
+            val worstGrey = frames.maxOf { f -> greyFraction(f, rootW, settings, lo, hi) }
             assertTrue("a frame has ${"%.0f".format(worstGrey * 100)}% grey pixels on the Settings tile: $l", worstGrey <= 0.25f)
             assertTrue("the Settings tile settled ${"%.1f".format(hi)} but never reached white-ish", hi > 200f)
 
@@ -228,6 +248,73 @@ class ControlCenterMotionTest {
             val total = kotlin.math.abs(dim.last() - dim.first())
             val worst = dim.zipWithNext { a, b -> kotlin.math.abs(b - a) }.maxOrNull() ?: 0f
             assertTrue("the dim stepped ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one frame: $dim", total < 2f || worst <= total * 0.4f)
+        }
+    }
+
+    /**
+     * The bake can land late on the stick. The material is decided once, when the open starts (the bake gets a
+     * short head start, 60 ms); one that misses it is ignored for this open, so a tile never changes colour
+     * (flat to sheet) after it has appeared. Here the bake is held until the open is under way, then released.
+     */
+    @Test fun aLateBakeNeverChangesATilesColour() {
+        TvHarness.setUp()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        dev.glasslauncher.home.CcMaterial.beforeBake = { gate.await() }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome()
+                compose.press(Button.Up, Button.Up, Button.Up)
+                compose.settle()
+                // Released at frame 30 (~480 ms): long after the 60 ms head start, mid-bounce, before the tiles stop moving.
+                val frames = compose.frames(Button.Select, frames = 60, stepMs = 16, scale = 0.5f, onFrame = { if (it == 30) gate.complete(Unit) })
+                compose.settle()
+                val rootW = compose.onRoot().fetchSemanticsNode().size.width
+                val tiles = tileBounds().filterKeys { it != "Settings, Fire TV" }
+                assertTrue("found only ${tiles.keys}", tiles.size >= 5)
+                for ((name, r) in tiles) {
+                    val seq = frames.drop(20).map { material(it, rootW, r) }
+                    val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f
+                    assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 when the late bake landed", worst <= 3f)
+                }
+                val last = tiles.mapValues { material(frames.last(), rootW, it.value) }
+                for (c in 0..2) assertTrue("a flat open is one colour, channel $c: ${last.mapValues { it.value.toList() }}", last.values.maxOf { it[c] } - last.values.minOf { it[c] } <= 3f)
+            }
+        } finally {
+            dev.glasslauncher.home.CcMaterial.beforeBake = {}
+        }
+    }
+
+    /**
+     * The wash covers the whole screen, the expanded Top Shelf row included: at rest, what is outside the panel
+     * is at most 0.58 as bright as it was before Control Center opened (CC_DIM_ALPHA is 0.42 black).
+     */
+    @Test fun theDimCoversTheWholeScreenAtRest() {
+        // Two states: the featured row expanded (the Top Shelf), and the plain Home with the dock focused.
+        for (ups in listOf(1, 0)) {
+            TvHarness.setUp()
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome()
+                compose.press(*Array(ups) { Button.Up })
+                compose.settle()
+                // Home as it is the moment before Select opens Control Center (focus on the status pill).
+                compose.press(*Array(3 - ups) { Button.Up })
+                compose.settle()
+                fun luma(b: android.graphics.Bitmap, y0: Float, y1: Float): Float {
+                    var sum = 0L; var n = 0
+                    for (y in (b.height * y0).toInt() until (b.height * y1).toInt() step 4)
+                        for (x in (b.width * 0.02f).toInt() until (b.width * 0.64f).toInt() step 4) {
+                            val c = b.getPixel(x, y); sum += ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10; n++
+                        }
+                    return sum.toFloat() / n
+                }
+                val b0 = compose.onRoot().captureToImage().asAndroidBitmap()
+                compose.press(Button.Select)
+                compose.settle()
+                val b1 = compose.onRoot().captureToImage().asAndroidBitmap()
+                // The whole screen, and the bottom band separately (the shelf's cards sit there).
+                val ratios = listOf(Triple("screen", 0.04f, 0.96f), Triple("top", 0.04f, 0.3f), Triple("middle", 0.3f, 0.7f), Triple("bottom band", 0.70f, 0.96f)).map { (name, y0, y1) -> name to luma(b1, y0, y1) / luma(b0, y0, y1) }
+                assertTrue("with $ups Ups first, outside the panel the screen is as bright as before by $ratios (want <= 0.58 each)", ratios.all { it.second <= 0.58f + 0.01f })
+            }
         }
     }
 }

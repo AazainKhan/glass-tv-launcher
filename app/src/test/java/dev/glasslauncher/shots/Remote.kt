@@ -63,16 +63,17 @@ fun describe(node: SemanticsNode): String {
  */
 @OptIn(ExperimentalTestApi::class)
 /** Presses [button] and captures [frames] frames [stepMs] apart on a paused clock (scaled by [scale]). */
-fun ComposeTestRule.frames(button: Button, frames: Int, stepMs: Long, scale: Float = 0.25f): List<Bitmap> =
-    frames({ onRoot().performKeyInput { pressKey(button.key) } }, frames, stepMs, scale)
+fun ComposeTestRule.frames(button: Button, frames: Int, stepMs: Long, scale: Float = 0.25f, onFrame: (Int) -> Unit = {}): List<Bitmap> =
+    frames({ onRoot().performKeyInput { pressKey(button.key) } }, frames, stepMs, scale, onFrame)
 
 /** Frames after [start] (e.g. the activity's Back, which overlays take through their BackHandler). */
-fun ComposeTestRule.frames(start: () -> Unit, frames: Int, stepMs: Long, scale: Float = 0.25f): List<Bitmap> {
+fun ComposeTestRule.frames(start: () -> Unit, frames: Int, stepMs: Long, scale: Float = 0.25f, onFrame: (Int) -> Unit = {}): List<Bitmap> {
     mainClock.autoAdvance = false
     val shots = ArrayList<Bitmap>(frames)
     try {
         start()
         repeat(frames) {
+            onFrame(it)
             if (it == 0) mainClock.advanceTimeByFrame() else mainClock.advanceTimeBy(stepMs)
             val full = onRoot().captureToImage().asAndroidBitmap()
             shots += Bitmap.createScaledBitmap(full, (full.width * scale).toInt(), (full.height * scale).toInt(), true)

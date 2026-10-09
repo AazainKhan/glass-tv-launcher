@@ -39,8 +39,8 @@ object GlassMatch {
         return runCatching { fill(average(source, left * sx, top * sy, width * sx, height * sy), tint, dim) }.getOrNull()
     }
 
-    /** How much of the scene's own variation across the panel the sheet keeps. */
-    const val VARIATION = 0.2f
+    /** Cells across the sheet: about 6 dp each on the panel, a blur near the tray's clear glass. */
+    const val COLS = 40
 
     /** A baked sheet: [pixels] (ARGB) of [width]×[height]. */
     class Sheet(val pixels: IntArray, val width: Int, val height: Int)
@@ -48,9 +48,9 @@ object GlassMatch {
     /**
      * A small blurred, tinted and dimmed picture of the rectangle [left],[top],[width],[height] (root pixels) of
      * [source], which covers the root: [cols] cells across, each the mean of a few samples, then one 3x3 box blur,
-     * calmed towards the mean ([VARIATION]), then [fill]. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.
+     * then [fill]. The scene stays visible: nothing is averaged towards one colour. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.
      */
-    fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = 20, variation: Float = VARIATION): Sheet? {
+    fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = COLS): Sheet? {
         if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
         val rows = (cols * height / width).toInt().coerceIn(2, 64)
         val sx = source.width / rootWidth.toFloat(); val sy = source.height / rootHeight.toFloat()
@@ -79,10 +79,7 @@ object GlassMatch {
                 out[i + j * cols] = sum / n
             }
         }
-        // Calm: only a [variation] share of how far each cell is from the panel's mean survives, so the sheet is
-        // one material with a faint drift of the scene's colour, not a patchwork of dark and maroon tiles.
-        fun calm(c: FloatArray) = blur(c).let { x -> val m = x.average().toFloat(); FloatArray(x.size) { m + (x[it] - m) * variation } }
-        val br = calm(r); val bg = calm(g); val bbl = calm(b)
+        val br = blur(r); val bg = blur(g); val bbl = blur(b)
         val pixels = IntArray(cols * rows) { Color(br[it], bg[it], bbl[it]).let { c -> fill(c, tint, dim).toArgb() } }
         return Sheet(pixels, cols, rows)
     }

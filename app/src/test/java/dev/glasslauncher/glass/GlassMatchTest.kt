@@ -32,13 +32,14 @@ class GlassMatchTest {
         assertTrue(sheet.pixels.all { kotlin.math.abs(android.graphics.Color.red(it) - android.graphics.Color.red(want)) <= 1 })
     }
 
-    // A scene that is dark on top and red below gives a sheet with only a faint drift between the two.
-    @Test fun theSheetKeepsOnlyAFaintDriftOfTheScene() {
+    // The sheet shows the scene: dark on top and red below stays dark on top and red below, by the full difference.
+    @Test fun theSheetShowsTheSceneItIsMadeFrom() {
         val scene = bitmap(48, 27) { _, y -> if (y < 14) 0xFF0A0C12.toInt() else 0xFF8A2A24.toInt() }
-        val sheet = GlassMatch.panelSheet(scene, 960, 540, 600f, 0f, 300f, 540f, Color.Black.copy(alpha = 0.06f), 0.42f)!!
-        val top = android.graphics.Color.red(sheet.pixels[0]); val bottom = android.graphics.Color.red(sheet.pixels[sheet.pixels.size - 1])
-        val raw = android.graphics.Color.red(GlassMatch.fill(Color(0x8A / 255f, 0f, 0f), Color.Black.copy(alpha = 0.06f), 0.42f).toArgb()) - android.graphics.Color.red(GlassMatch.fill(Color(0x0A / 255f, 0f, 0f), Color.Black.copy(alpha = 0.06f), 0.42f).toArgb())
-        assertTrue("drift ${bottom - top} of ${raw}", bottom - top in 1..(raw / 3))
+        val tint = Color.Black.copy(alpha = 0.06f)
+        val sheet = GlassMatch.panelSheet(scene, 960, 540, 600f, 0f, 300f, 540f, tint, 0.42f)!!
+        val top = android.graphics.Color.red(sheet.pixels[2 * sheet.width + 5]); val bottom = android.graphics.Color.red(sheet.pixels[(sheet.height - 3) * sheet.width + 5])
+        val raw = android.graphics.Color.red(GlassMatch.fill(Color(0x8A / 255f, 0f, 0f), tint, 0.42f).toArgb()) - android.graphics.Color.red(GlassMatch.fill(Color(0x0A / 255f, 0f, 0f), tint, 0.42f).toArgb())
+        assertTrue("drift ${bottom - top} of $raw", bottom - top >= raw * 0.9f)
         assertTrue(GlassMatch.panelSheet(scene, 0, 540, 0f, 0f, 1f, 1f, Color.Black, 0f) == null)
     }
 }
