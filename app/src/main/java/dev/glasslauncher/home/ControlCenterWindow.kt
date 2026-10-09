@@ -193,6 +193,13 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         else if (backdrop.backdrop == null) apply(baked)
     }
 
+    /** The appearance in use now (the theme setting, or the system's when it follows it): its sheet is baked for it. */
+    private fun lightNow(): Boolean = when (app.config.config.value.theme) {
+        ThemeMode.Dark -> false
+        ThemeMode.Light -> true
+        ThemeMode.System -> (service.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) != android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
     /**
      * The app's last preview (already on the CPU, no readback), when a fresh capture isn't possible: baked (with
      * Control Center's sheet) and put in place, then [then] (the attach).
@@ -202,7 +209,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         capture?.cancel()
         capture = app.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
             val baked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                dev.glasslauncher.system.AppPreviews.load(service, pkg)?.let { runCatching { app.wallpapers.glassOnly(it) }.getOrNull() }
+                dev.glasslauncher.system.AppPreviews.load(service, pkg)?.let { runCatching { app.wallpapers.glassOnly(it, lightNow()) }.getOrNull() }
             }
             baked?.let { install(it) }
             then()
@@ -239,7 +246,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                     capture?.cancel()
                     capture = app.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
                         val baked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                            runCatching { app.wallpapers.glassOnly(soft) }.getOrNull().also { soft.recycle() }
+                            runCatching { app.wallpapers.glassOnly(soft, lightNow()) }.getOrNull().also { soft.recycle() }
                         }
                         baked?.let { install(it) }
                         go()

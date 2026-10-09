@@ -212,6 +212,41 @@ class ControlCenterMotionTest {
     }
 
     /**
+     * Light appearance has its own glass: over the same scene its settled tiles are clearly brighter than the dark
+     * appearance's, and Control Center's text keeps 4.5:1 on them. Control Center is one look in both themes (white
+     * text on glass over the dimmed screen, see ControlCenter()), so the text is the dark palette's in both.
+     */
+    @Test fun lightAppearanceGetsALightGlassThatKeepsItsTextLegible() {
+        fun lum(c: FloatArray): Float {
+            fun lin(v: Float) = (v / 255f).let { if (it <= 0.04045f) it / 12.92f else Math.pow(((it + 0.055f) / 1.055f).toDouble(), 2.4).toFloat() }
+            return 0.2126f * lin(c[0]) + 0.7152f * lin(c[1]) + 0.0722f * lin(c[2])
+        }
+        fun ratio(a: Float, b: Float) = (maxOf(a, b) + 0.05f) / (minOf(a, b) + 0.05f)
+        // Mean luminance of the unfocused tiles' ink-free band once settled, and the worst text contrast on them.
+        fun measure(theme: dev.glasslauncher.data.ThemeMode): Pair<Float, Float> {
+            TvHarness.setUp(config = { it.copy(theme = theme) })
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome()
+                compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+                compose.waitForTag("control-center")
+                compose.settle()
+                val frame = compose.frames({}, frames = 2, stepMs = 16, scale = 0.5f).last()
+                val rootW = compose.onRoot().fetchSemanticsNode().size.width
+                val text = lum(dev.glasslauncher.ui.Palette(light = false).primary.let { floatArrayOf(it.red * 255f, it.green * 255f, it.blue * 255f) })
+                val tiles = tileBounds().filterKeys { it != "Settings, Fire TV" }.values.map { lum(material(frame, rootW, it)) }
+                assertTrue("found no tiles", tiles.size >= 5)
+                return tiles.average().toFloat() to tiles.minOf { ratio(text, it) }
+            }
+        }
+        val (dark, darkContrast) = measure(dev.glasslauncher.data.ThemeMode.Dark)
+        val (light, lightContrast) = measure(dev.glasslauncher.data.ThemeMode.Light)
+        println("CC tile luminance: dark ${"%.3f".format(dark)} (text ${"%.1f".format(darkContrast)}:1), light ${"%.3f".format(light)} (text ${"%.1f".format(lightContrast)}:1)")
+        assertTrue("light tiles ($light) are not clearly brighter than dark ones ($dark)", light > dark * 1.5f)
+        assertTrue("light text is ${"%.2f".format(lightContrast)}:1 on the tiles", lightContrast >= 4.5f)
+        assertTrue("dark text is ${"%.2f".format(darkContrast)}:1 on the tiles", darkContrast >= 4.5f)
+    }
+
+    /**
      * No ghosts: the focused white Settings tile goes from the bubble's colour to white within a frame or two
      * (not a stretch of grey), and the dim over the rest of the screen never steps.
      */

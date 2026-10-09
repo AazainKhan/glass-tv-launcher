@@ -28,20 +28,6 @@ object GlassMatch {
         return Color(r / n / 255f, g / n / 255f, b / n / 255f)
     }
 
-    /**
-     * [fill] for the screen rectangle [left],[top],[width],[height] (root pixels, [rootWidth] by [rootHeight]),
-     * averaged from [source], which covers the whole root at its own resolution. Null if it can't be sampled.
-     */
-    fun regionFill(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float): Color? {
-        if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
-        val sx = source.width / rootWidth.toFloat()
-        val sy = source.height / rootHeight.toFloat()
-        return runCatching { fill(average(source, left * sx, top * sy, width * sx, height * sy), tint, dim) }.getOrNull()
-    }
-
-    /** Cells across the sheet: about 6 dp each on the panel, a blur near the tray's clear glass. */
-    const val COLS = 40
-
     /** A baked sheet: [pixels] (ARGB) of [width]×[height]. */
     class Sheet(val pixels: IntArray, val width: Int, val height: Int)
 
@@ -56,8 +42,10 @@ object GlassMatch {
     /** Tests only: keep each [PanelSheet]'s pixels (release builds keep just the small GPU bitmap). */
     @androidx.annotation.VisibleForTesting @Volatile var keepPixels = false
 
-    /** Control Center's tint over the scene: a faint darkening for the labels. */
+    /** Control Center's tint over the scene in dark appearance: a faint darkening for the labels. */
     val CC_TINT = Color.Black.copy(alpha = 0.06f)
+    /** In light appearance: a white veil (20%, as before the shared sheet) so the glass reads lighter; Control Center keeps white text on it, so the dim is baked in as well. */
+    val CC_TINT_LIGHT = Color.White.copy(alpha = 0.2f)
     /** How much Control Center mutes the screen behind it; its sheet is the scene muted by the same amount. */
     const val CC_DIM = 0.42f
     /**
@@ -74,10 +62,10 @@ object GlassMatch {
      * backdrop is baked, off the main thread: [panelSheet] over the right half, uploaded as a small hardware
      * bitmap (80x90, ~28 KB). Opening Control Center then only maps it; null if [clear] can't be read.
      */
-    fun ccSheet(clear: Bitmap): PanelSheet? {
+    fun ccSheet(clear: Bitmap, light: Boolean = false): PanelSheet? {
         val t0 = android.os.SystemClock.elapsedRealtime()
         val w = clear.width.toFloat(); val h = clear.height.toFloat()
-        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, CC_TINT, CC_DIM, CC_COLS) ?: return null
+        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, CC_DIM, CC_COLS) ?: return null
         val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
         val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft
         // Fire OS drops Log.d from apps, so debug builds log at info level.
@@ -90,7 +78,7 @@ object GlassMatch {
      * [source], which covers the root: [cols] cells across, each the mean of a few samples, then one 3x3 box blur,
      * then [fill]. The scene stays visible: nothing is averaged towards one colour. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.
      */
-    fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = COLS): Sheet? {
+    fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = 40): Sheet? {
         if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
         sheetBakes++
         val rows = (cols * height / width).toInt().coerceIn(2, 128)

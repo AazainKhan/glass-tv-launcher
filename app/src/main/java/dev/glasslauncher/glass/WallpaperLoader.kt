@@ -196,7 +196,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
         val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
         // Control Center's sheet comes from the same clear texture, here, so its open has nothing to bake.
-        val ccSheet = GlassMatch.ccSheet(clear)
+        val ccSheet = GlassMatch.ccSheet(clear, light)
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
         val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
         return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, ccSheet)
@@ -207,12 +207,12 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
      * tray's clear texture and Control Center's sheet, one small blur instead of the full ladder (~550 ms
      * there, which cost frames while Control Center opened). Nothing here is drawn full screen.
      */
-    suspend fun glassOnly(source: Bitmap): Backdrop = withContext(Dispatchers.Default) {
+    suspend fun glassOnly(source: Bitmap, light: Boolean = false): Backdrop = withContext(Dispatchers.Default) {
         blurReady
         val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { it.setHasAlpha(false) }
-        val ccSheet = GlassMatch.ccSheet(clear)
+        val ccSheet = GlassMatch.ccSheet(clear, light)
         val gpuClear = (clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear).asImageBitmap()
-        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = false, ccSheet = ccSheet)
+        Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = light, ccSheet = ccSheet)
     }
 
     /** [wash] (0..1) is the appearance wash: white in light appearance, black in dark. */

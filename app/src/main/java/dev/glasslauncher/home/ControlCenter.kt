@@ -196,6 +196,8 @@ private val CC_BLEED = 16.dp
 internal object CcMaterial {
     /** With no baked sheet (no backdrop yet): one fixed smoky colour. */
     val fallback = Color(0xFF23262D)
+    /** The same, in light appearance. */
+    val fallbackLight = Color(0xFFD6D9E3)
     /** The rim every tile keeps so it has an edge: a single thin stroke, lit from the top-left. */
     fun rimBrush(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.Brush.linearGradient(
         0f to Color.White.copy(alpha = 0.55f),
@@ -218,11 +220,12 @@ internal object CcMaterial {
  * [root] pixels, or, with none, the one [flat] colour. Making one does no pixel work.
  */
 @androidx.compose.runtime.Stable
-internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.compose.ui.unit.IntSize) {
+internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.compose.ui.unit.IntSize, val light: Boolean = false) {
     val bitmap: android.graphics.Bitmap? get() = baked?.bitmap
     /** The sheet's pixels (tests only: kept when [GlassMatch.keepPixels] is on). */
     val pixels: GlassMatch.Sheet? get() = baked?.pixels
-    val flat: Color get() = CcMaterial.fallback
+    /** The one colour used when there is no baked sheet. */
+    private val flat: Color get() = if (light) CcMaterial.fallbackLight else CcMaterial.fallback
     /** The window rectangle the sheet covers. */
     val panel: androidx.compose.ui.geometry.Rect = baked?.let {
         androidx.compose.ui.geometry.Rect(it.left * root.width, it.top * root.height, it.right * root.width, it.bottom * root.height)
@@ -320,7 +323,7 @@ internal val LocalCcPhase = androidx.compose.runtime.staticCompositionLocalOf { 
 internal const val CC_DIM_ALPHA = GlassMatch.CC_DIM
 /** The time, date and weather share one opacity, slightly muted, as tvOS's header. */
 private const val HEADER_ALPHA = 0.85f
-private val CC_DIM = Color.Black.copy(alpha = CC_DIM_ALPHA)
+private val CC_DIM_COLOR = Color.Black.copy(alpha = CC_DIM_ALPHA)
 
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
 val CONTROL_CENTER_TILES = listOf(
@@ -400,7 +403,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val exitingNow = androidx.compose.runtime.rememberUpdatedState(exiting)
     fun takeSheet() {
         val root = glassState.rootSize
-        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root)
+        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root, glassState.backdrop?.isLight == true)
         if (CcMaterial.recordLast) CcMaterial.last = sheetRef.sheet
     }
     // The window keeps this composition across opens, so everything per open starts here, not in remember.
@@ -440,7 +443,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // follows the spring (drawn, not a layer with alpha, which would be a full-screen offscreen pass), and
             // over another app (an overlay window) the system composites it without redrawing anything.
             val e = enter.value.coerceIn(0f, 1f)
-            if (e > 0f) drawRect(CC_DIM, alpha = e)
+            if (e > 0f) drawRect(CC_DIM_COLOR, alpha = e)
             // The bubble: the pill's capsule on the first frame and the panel's outline by the end, drawn from the
             // same sheet as the tiles. It fills the gaps between the clipped-in tiles, then fades to clear them.
             // Reduce Motion: no growing bubble, Control Center simply fades in.
@@ -461,7 +464,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 // Reduce Motion a plain fade of the whole panel.
                 .graphicsLayer {
                     val origin = panel
-                    if (reduceMotion) { alpha = enter.value.coerceIn(0f, 1f); return@graphicsLayer }
+                    if (reduceMotion) { alpha = enter.value.coerceIn(0f, 1f); compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; return@graphicsLayer }
                     val bubble = bubbleNow()
                     if (origin == null || bubble == null) { alpha = 0f; return@graphicsLayer }
                     if (bubble.b < 1f || exiting) {
