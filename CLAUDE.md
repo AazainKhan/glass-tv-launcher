@@ -51,6 +51,7 @@ The tvOS research session is idle. Pushes to the public repo happen only with th
 - Launch parallel subagents in one message.
 - Keep state on the board, not in chat.
 - Read state cheaply: `scripts/board` and `scripts/vitals --brief`, not whole files; `scripts/shots` already prints a short report.
+- Before a context reset, write `.superpowers/handoff/<agent>.md` (≤25 lines: role, items and status, branch, next step, numbers, open questions, gotchas). A fresh session reads it first; the SessionStart hook lists them.
 - At each milestone (item merged, round done), write the one-line result to the board, then compact or start fresh. Durable state lives in the repo, the board and decisions.md, so nothing is lost.
 - Don't re-read the same strip, clip or log: note what you saw, with numbers, the first time.
 

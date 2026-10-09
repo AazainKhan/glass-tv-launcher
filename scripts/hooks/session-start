@@ -8,6 +8,7 @@ lock="$(scripts/stick-lock status 2>/dev/null)"
 vitals="$(scripts/vitals --brief 2>/dev/null)"
 board_open="$(grep -E '^P[0-9]+ \|' .superpowers/pair/board.md 2>/dev/null | grep -viE '\| *(merged|done)' | cut -c1-160)"
 ctx="BOARD FIRST: .superpowers/pair/board.md is the single source of truth. Claim, update and close items there; new user requests get an item with an owner before work starts. SendMessage only for urgent interrupts.
+Handoffs (read yours first if you are a fresh Agent Manager, Yin or Yang session): $(ls .superpowers/handoff/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
 Open board items:
 ${board_open:-none}
 
