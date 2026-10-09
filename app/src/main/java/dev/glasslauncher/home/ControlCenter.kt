@@ -114,10 +114,13 @@ private val CC_BLEED = 16.dp
 /** The tray's clear glass (its text-safe texture, and no refracted edge per tile), for every Control Center surface. */
 // The tray's clear glass, the same in either theme (its text-safe copy washed milky in light theme), with
 // a faint darkening for the labels; no edge band on a dozen small tiles (frame cost).
-private val CC_GLASS = GlassStyle.shelf(false).copy(tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.10f), edge = false)
+// A faint highlight only: the tray's sheen, repeated on a dozen small tiles, read as glossy and shiny.
+private val CC_GLASS = GlassStyle.shelf(false).copy(tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.06f), highlight = 0.03f, edge = false)
 
 /** The dark, muted wash behind Control Center (tvOS 27 dims rather than blurs). */
-private val CC_DIM = Color.Black.copy(alpha = 0.42f)
+/** How much Control Center mutes the screen behind it; its glass samples the scene muted by the same amount. */
+internal const val CC_DIM_ALPHA = 0.42f
+private val CC_DIM = Color.Black.copy(alpha = CC_DIM_ALPHA)
 
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
 val CONTROL_CENTER_TILES = listOf(

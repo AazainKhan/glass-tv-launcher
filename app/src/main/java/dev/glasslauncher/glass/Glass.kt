@@ -50,6 +50,8 @@ class BackdropState {
      * composites the app behind it.
      */
     var translucentWindow = false
+    /** The scene behind this glass is dimmed by this much (Control Center's wash): glass samples it dimmed too. */
+    var sceneDim = 0f
     var backdrop by mutableStateOf<Backdrop?>(null)
         private set
     /** The backdrop being faded out after a scene change; only non-null for the duration of [fade]. */
@@ -282,6 +284,9 @@ private class GlassNode(
                 prevShaderSource = null; prevShader = null
                 drawOutline(outline, ShaderBrush(ComposeShader(backdropShader!!, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
             }
+            // Glass over a dimmed scene (Control Center's) samples the scene as dimmed, like everything around
+            // it: without this its tiles looked brighter and more colourful than the muted screen beside them.
+            if (state.sceneDim > 0f) drawOutline(outline, Color.Black.copy(alpha = state.sceneDim * texture))
             // The refracted edge is one stroke on the big tray; on a dozen small Control Center tiles it
             // took frames to 23 ms, so text-carrying clear glass keeps the texture and rim only.
             if (clear && !style.legible && style.edge) drawEdgeBand(source, (if (previousSource != null) fade else 1f) * texture)

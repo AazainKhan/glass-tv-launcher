@@ -64,7 +64,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
      * screenshot, ~100 ms) and bakes it into the same clear-glass textures as the tray. Until then (or
      * without the capture) the tiles draw a smoky translucent tint over the live app.
      */
-    private val backdrop = BackdropState().apply { translucentWindow = true }
+    private val backdrop = BackdropState().apply { translucentWindow = true; sceneDim = CC_DIM_ALPHA }
     private var capture: kotlinx.coroutines.Job? = null
     private val app get() = service.app
 
