@@ -101,6 +101,7 @@ def test_app_button_opens_its_app(tv, home):
 
 
 EARLY_ACCESS = "com.amazon.tv.earlyaccess"
+EARLY_ACCESS_SCREEN = "com.amazon.tv.settings.v2"
 
 
 def test_early_access_is_not_on_home(tv, home):
@@ -117,11 +118,13 @@ def test_holding_back_escapes_any_app(tv, home):
         pytest.skip("Glass TV Launcher Remote Buttons (accessibility) is off")
     tv.launch(EARLY_ACCESS)
     try:
-        tv.wait_until(lambda: tv.resumed_package() == EARLY_ACCESS, 10, "Early Access in front")
+        # The stub hands off to Fire TV Settings' information screen, which is the one that swallows the keys.
+        tv.wait_until(lambda: tv.resumed_package() in (EARLY_ACCESS, EARLY_ACCESS_SCREEN), 10, "Early Access in front")
         tv.press("wait:1")  # makes sure scripts/key has pushed glass-press
         tv.sh("/data/local/tmp/glass-press 120 158:1900")  # KEY_BACK held 1.9 s on the virtual remote
         tv.wait_until(lambda: tv.resumed_package() == GLASS, 6, "Glass after holding Back")
     finally:
         tv.sh(f"am force-stop {EARLY_ACCESS}")
+        tv.sh(f"am force-stop {EARLY_ACCESS_SCREEN}")
         if tv.resumed_package() != GLASS:
             tv.home_intent()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import subprocess
 from pathlib import Path
 
@@ -55,6 +56,13 @@ def home(tv: TV) -> Home:
     h.reset()
     before = _config(tv)
     yield h
+    # A Control Center window still attached once Control Center is closed is invisible but takes every
+    # Select (seen once on 2026-10-09: no tile, menu row or button responded until it was removed).
+    def stale_cc() -> bool:
+        return "Glass Control Center" in tv.sh("dumpsys window windows | grep 'Window #'") and not tv.tree().find(rid="control-center")
+    if stale_cc():
+        time.sleep(1.5)  # it may still be playing its close
+        assert not stale_cc(), "a closed Control Center left its window attached (it swallows Select)"
     after = _config(tv)
     changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k) and k not in VOLATILE)
     assert not changed, f"the test left launcher settings changed: {changed}"

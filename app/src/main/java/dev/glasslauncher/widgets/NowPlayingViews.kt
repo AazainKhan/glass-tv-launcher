@@ -78,9 +78,24 @@ private fun clock(ms: Long): String {
 }
 
 @Composable
-private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifier: Modifier = Modifier) {
+private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifier: Modifier = Modifier, inlineTimes: Boolean = false) {
     val pos = rememberPosition(item)
     val f = if (item.durationMs > 0) (pos.toFloat() / item.durationMs).coerceIn(0f, 1f) else 0f
+    if (inlineTimes && item.durationMs > 0) {
+        // Control Center's card: elapsed, the bar, remaining on one line (a line shorter, so the panel
+        // fits on screen with the 13 sp type floor). Times kept out of accessibility, as below.
+        val digits = Type.caption.copy(fontFeatureSettings = "tnum")
+        Row(modifier.fillMaxWidth().clearAndSetSemantics { testTag = "np-times" }, verticalAlignment = Alignment.CenterVertically) {
+            Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f))
+            Canvas(Modifier.weight(1f).padding(horizontal = 6.dp).height(5.dp)) {
+                val r = CornerRadius(size.height / 2)
+                drawRoundRect(color.copy(alpha = 0.28f), cornerRadius = r)
+                drawRoundRect(color, size = Size(size.width * f, size.height), cornerRadius = r)
+            }
+            Text("-" + clock(item.durationMs - pos), style = digits, color = color.copy(alpha = 0.75f))
+        }
+        return
+    }
     Column(modifier) {
         Canvas(Modifier.fillMaxWidth().height(5.dp)) {
             val r = CornerRadius(size.height / 2)
@@ -175,7 +190,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 6.dp))
+                Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 4.dp), inlineTimes = true)
             }
             Row(modifier = Modifier.padding(start = 6.dp)) {
                 Transport(R.drawable.ic_skip_previous, "Previous Track", scale, 34) { item.previous() }

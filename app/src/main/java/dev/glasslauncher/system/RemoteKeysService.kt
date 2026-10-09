@@ -29,14 +29,19 @@ class RemoteKeysService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         // Escape hatch: holding Back for 1.5 s goes Home from any app, even one that swallows Back, Home
-        // and Recents (Fire TV Early Access did). The press itself still reaches the app.
-        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN && event.repeatCount > 0 &&
-            event.eventTime - event.downTime >= ESCAPE_HOLD_MS && !escaped) {
-            escaped = true
-            runCatching { startActivity(HomeSetup.homeIntent(this)) }
-            return true
+        // and Recents (Fire TV Early Access did). The press itself still reaches the app. Timed from the
+        // first down, not from key repeats: the system makes those after accessibility services have seen
+        // the key, so a held Back reaches this service as just a down and, later, an up.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN) {
+            if (event.repeatCount == 0) {
+                escaped = false
+                handler.removeCallbacks(escape)
+                handler.postDelayed(escape, ESCAPE_HOLD_MS)
+            }
+            if (escaped) return true
         }
         if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+            handler.removeCallbacks(escape)
             val was = escaped
             escaped = false
             if (was) return true
@@ -51,6 +56,10 @@ class RemoteKeysService : AccessibilityService() {
     }
 
     private var escaped = false
+    private val escape = Runnable {
+        escaped = true
+        runCatching { startActivity(HomeSetup.homeIntent(this)) }
+    }
 
     private fun run(action: RemoteAction) {
         when (action) {
