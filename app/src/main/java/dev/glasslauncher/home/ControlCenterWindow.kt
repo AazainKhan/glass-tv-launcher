@@ -133,9 +133,10 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     fun show() {
         if (view != null) {
             if (exiting) { exiting = false; open = true; removal?.let(handler::removeCallbacks); takesInput(true) }
+            android.util.Log.i("ControlCenterWindow", "show: already attached (exiting=$exiting)")
             return
         }
-        if (pending) return
+        if (pending) { android.util.Log.i("ControlCenterWindow", "show: an open is already pending"); return }
         exiting = false
         pending = true
         shownAt = android.os.SystemClock.uptimeMillis()
@@ -158,7 +159,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             // A hide() while the capture was pending withdrew the open.
             if (view != null || !pending) return
             pending = false
-            runCatching { windows.addView(v, params) }.onFailure { return }
+            runCatching { windows.addView(v, params) }.onFailure { android.util.Log.w("ControlCenterWindow", "show: addView failed", it); return }
             view = v
             open = true
             lifecycleRegistry.currentState = Lifecycle.State.RESUMED

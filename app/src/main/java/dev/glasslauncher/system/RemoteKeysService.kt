@@ -70,7 +70,11 @@ class RemoteKeysService : AccessibilityService() {
                     ?: Intent(Intent.ACTION_VIEW, android.net.Uri.parse("amzn://apps/android?p=${action.pkg}"))
                 runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
-            RemoteAction.ControlCenter -> controlCenter.toggle()
+            RemoteAction.ControlCenter -> {
+                // Always logged (P50: a first press after an install was lost once and never reproduced).
+                Log.i(TAG, "Settings key: Control Center ${if (controlCenter.showing) "close" else "open"} (front=${front ?: "Glass"})")
+                controlCenter.toggle()
+            }
             RemoteAction.AppSwitcher -> home(MainActivity.ACTION_APP_SWITCHER)
             RemoteAction.TvSettings -> home(MainActivity.ACTION_TV_SETTINGS)
             RemoteAction.Home -> performGlobalAction(GLOBAL_ACTION_HOME)
