@@ -16,7 +16,10 @@ import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.glasslauncher.MainActivity
+import dev.glasslauncher.home.CcMaterial
+import dev.glasslauncher.home.CcSheet
 import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
@@ -30,8 +33,9 @@ import kotlin.math.max
  * Stop and pre-commit hooks enforce them):
  * - ghost frames: an element that appears during a transition must not sit half-transparent for
  *   more than [GHOST_MAX_RUN] frames;
- * - Control Center: one material (tiles agree), no colour change after landing, and the Settings
- *   tile is never caught passing through grey.
+ * - Control Center: one material (every unlit tile shows the open's baked sheet at its own position), no
+ *   colour change after landing, and the Settings tile is never caught half-grey (measured per pixel: a tile
+ *   being uncovered by the growing bubble is part white, part dark, never grey).
  *
  * A check with a known open bug is marked with its board item via [expectFail]: it reports as
  * skipped while it still fails, and FAILS once it starts passing so the marker gets removed.
@@ -50,10 +54,17 @@ class VisualChecks {
 
     @Test fun appMenuHasNoGhostFrames() = noGhosts("open-app-menu", Button.Menu)
     @Test fun settingsPageHasNoGhostFrames() = noGhosts("settings-page-push", Button.Select, Button.Down, Button.Down, Button.Right, Button.Right, Button.Select)
-    @Test fun controlCenterHasNoGhostFrames() = expectFail("P17") { noGhosts("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up) }
+    @Test fun controlCenterHasNoGhostFrames() = noGhosts("control-center-open", Button.Select, Button.Up, Button.Up, Button.Up, dimRef = ::unclaimedPatch)
 
-    /** Presses [setup], then [button], and checks every element that appeared for long half-transparent runs. */
-    private fun noGhosts(name: String, button: Button, vararg setup: Button) = onHome {
+    /**
+     * Presses [setup], then [button], and checks every element that appeared for long half-transparent runs.
+     * Measured per pixel ([ghostPixelFraction]): an element being uncovered by a growing clip has pixels that are
+     * fully drawn or not there yet, never half-way, so only a real fade trips it. [dimRef] is a patch of the screen
+     * that no element arrives in: while a wash dims the whole screen it says by how much, so what the element's
+     * pixels are compared with is the dimmed scene, not the scene before the wash (a darkening backdrop is not an
+     * element fading in).
+     */
+    private fun noGhosts(name: String, button: Button, vararg setup: Button, dimRef: ((Bitmap) -> Box)? = null) = onHome {
         compose.press(*setup)
         compose.settle()
         val before = capture()
@@ -62,16 +73,19 @@ class VisualChecks {
         compose.settle()
         val arrived = tags().filterKeys { it !in beforeTags }.values.filter { (it.r - it.l) >= 24 && (it.b - it.t) >= 16 }
         val last = frames.last()
+        val ratios = frames.map { f -> dimRef?.let { r -> dimRatio(before, f, r(before)) } ?: floatArrayOf(1f, 1f, 1f) }
         val problems = arrived.mapNotNull { box ->
+            var run = 0; var worst = 0
+            // Without a dimming wash the element's mean colour tells (the long-standing measure, unchanged for the
+            // menus); with one, per pixel against the dimmed scene.
             val bg = mean(before, box); val fin = mean(last, box)
             val d = FloatArray(3) { fin[it] - bg[it] }
             val dd = d.sumOf { (it * it).toDouble() }.toFloat()
-            if (dd < 30f * 30f) return@mapNotNull null // can't tell it from what was behind
-            var run = 0; var worst = 0
-            for (f in frames) {
-                val m = mean(f, box)
-                val a = (0..2).sumOf { ((m[it] - bg[it]) * d[it]).toDouble() }.toFloat() / dd
-                run = if (a in 0.2f..0.8f) run + 1 else 0
+            if (dimRef == null && dd < 30f * 30f) return@mapNotNull null // can't tell it from what was behind
+            for ((i, f) in frames.withIndex()) {
+                val ghost = if (dimRef != null) ghostPixelFraction(before, f, last, box, ratios[i]) > GHOST_PIXELS
+                else (0..2).sumOf { ((mean(f, box)[it] - bg[it]) * d[it]).toDouble() }.toFloat() / dd in 0.2f..0.8f
+                run = if (ghost) run + 1 else 0
                 worst = max(worst, run)
             }
             if (worst > GHOST_MAX_RUN) "${box.name}: half-transparent for $worst frames (${worst * STEP_MS} ms)" else null
@@ -81,7 +95,7 @@ class VisualChecks {
 
     // ── Control Center material (P10) ───────────────────────────────────────────────────────────
 
-    @Test fun controlCenterIsOneMaterial() = expectFail("P17") { controlCenter { frames, tiles, settings ->
+    @Test fun controlCenterIsOneMaterial() = controlCenter { frames, tiles, _, _ ->
         val landed = frames.takeLast(LANDED_FRAMES)
         val problems = mutableListOf<String>()
         // (a) No tile changes colour once Control Center has landed.
@@ -90,34 +104,134 @@ class VisualChecks {
             val drift = means.maxOf { m -> means.maxOf { n -> (0..2).maxOf { abs(m[it] - n[it]) } } }
             if (drift > LANDED_DRIFT) problems += "${t.name} changes ${"%.1f".format(drift)} levels after landing"
         }
-        // (b) The unfocused glass tiles agree with each other (one material).
-        // Lit tiles (on/focused: a white or solid fill by design) aren't glass; compare the rest.
-        val glass = tiles.filter { it != settings }.map { it to mean(landed.last().bitmap, band(it)) }.filter { luminance(it.second) < LIT_MIN }
-        for ((a, ma) in glass) for ((b, mb) in glass) {
-            val diff = (0..2).maxOf { abs(ma[it] - mb[it]) }
-            if (a.name < b.name && diff > MATERIAL_DELTA) problems += "${a.name} vs ${b.name} differ by ${"%.0f".format(diff)} levels"
+        // (b) Each unlit glass tile (page discs included) shows the open's baked sheet at its own position: that is
+        // what "one material" means. The sheet is the scene behind the panel, so tiles are NOT the same colour as
+        // each other (a dark navy corner up top, a warm one lower down); only their sheet is shared.
+        val sheet = CcMaterial.last ?: throw AssertionError("Control Center made no sheet")
+        val rootW = landed.last().bitmap.width
+        for (t in tiles) {
+            val got = mean(landed.last().bitmap, band(t))
+            if (luminance(got) >= LIT_MIN) continue // lit (on / focused): a white or solid fill by design, not glass
+            val want = sheetMean(sheet, t.l + (t.r - t.l) * 0.35f, t.t + (t.b - t.t) * BAND0, t.l + (t.r - t.l) * 0.65f, t.t + (t.b - t.t) * BAND1)
+            val off = (0..2).maxOf { abs(got[it] - want[it]) }
+            if (off > SHEET_DELTA) problems += "${t.name} is ${"%.0f".format(off)} levels off the sheet at its position (got ${got.joinToString { "%.0f".format(it) }}, sheet ${want.joinToString { "%.0f".format(it) }})"
         }
         if (problems.isNotEmpty()) fail("Control Center material:\n" + problems.distinct().take(12).joinToString("\n"))
-    } }
+    }
 
-    @Test fun controlCenterSettingsNeverGrey() = expectFail("P17") { controlCenter { frames, _, settings ->
+    @Test fun controlCenterSettingsNeverGrey() = controlCenter { frames, _, settings, before ->
         settings ?: throw AssertionError("no Settings tile found in Control Center")
-        val grey = frames.withIndex().filter { (_, f) -> luminance(mean(f.bitmap, inner(settings!!))) in GREY_MIN..GREY_MAX }
-        if (grey.isNotEmpty()) fail("Settings tile is grey at ${grey.joinToString { "${it.index * STEP_MS} ms" }}")
-    } }
+        val sheet = CcMaterial.last ?: throw AssertionError("Control Center made no sheet")
+        val box = inner(settings)
+        val grey = frames.withIndex().mapNotNull { (i, f) ->
+            val ratio = dimRatio(before, f.bitmap, unclaimedPatch(before))
+            val share = greyPixelFraction(f.bitmap, box) { x, y, c ->
+                isNear(c, 0xFFFFFFFF.toInt()) || // the lit fill
+                    isNear(c, scaled(before.getPixel(x, y), ratio)) || // the scene behind, dimmed so far (not uncovered yet)
+                    isNear(c, sheetAt(sheet, x, y)) // the bubble's or the tile's own glass
+            }
+            if (share > GREY_SHARE) i to share else null
+        }
+        if (grey.isNotEmpty()) fail("Settings tile is part grey at ${grey.joinToString { "${it.first * STEP_MS} ms (${"%.0f".format(it.second * 100)}% of its pixels)" }}")
+    }
 
     /** Opens Control Center from the dock and hands over its frames, its tiles and the Settings tile. */
-    private fun controlCenter(check: (List<Frame>, List<Box>, Box?) -> Unit) = onHome {
+    private fun controlCenter(check: (List<Frame>, List<Box>, Box?, Bitmap) -> Unit) = onHome {
         compose.press(Button.Up, Button.Up, Button.Up)
         compose.settle()
+        val before = capture()
         val frames = record(Button.Select, FRAMES, STEP_MS).map { Frame(it) }
         compose.settle()
         val panel = compose.onAllNodes(hasTestTag("control-center"), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()
             ?: throw AssertionError("Control Center didn't open")
         val tiles = descendants(panel).filter { it.config.contains(SemanticsProperties.Focused) }.map { it.toBox() }
         val settings = tiles.firstOrNull { it.name.contains("Settings") && !it.name.contains("Launcher") }
-        check(frames, tiles, settings)
+        check(frames, tiles, settings, before)
     }
+
+    // ── per-pixel measurements ───────────────────────────────────────────────────────────────────
+
+    /** A patch of Home's top-left that no Control Center element arrives in: only the dim wash changes it. */
+    private fun unclaimedPatch(b: Bitmap) = Box("dim reference", b.width * 3 / 100, b.height * 4 / 100, b.width * 40 / 100, b.height * 28 / 100)
+
+    /** How much of each channel [frame] keeps of [before] over [ref] (1 = untouched, 0.58 = Control Center's dim at rest). */
+    private fun dimRatio(before: Bitmap, frame: Bitmap, ref: Box): FloatArray {
+        val a = mean(before, ref); val f = mean(frame, ref)
+        return FloatArray(3) { if (a[it] < 1f) 1f else (f[it] / a[it]).coerceAtMost(1f) }
+    }
+
+    private fun scaled(c: Int, ratio: FloatArray): Int =
+        (0xFF shl 24) or ((((c shr 16) and 0xff) * ratio[0]).toInt() shl 16) or ((((c shr 8) and 0xff) * ratio[1]).toInt() shl 8) or ((c and 0xff) * ratio[2]).toInt()
+
+    private fun isNear(a: Int, b: Int, tol: Int = NEAR): Boolean =
+        abs(((a shr 16) and 0xff) - ((b shr 16) and 0xff)) <= tol && abs(((a shr 8) and 0xff) - ((b shr 8) and 0xff)) <= tol && abs((a and 0xff) - (b and 0xff)) <= tol
+
+    private fun sheetAt(sheet: CcSheet, x: Int, y: Int): Int {
+        val m = sheetMean(sheet, x.toFloat(), y.toFloat(), x.toFloat(), y.toFloat())
+        return (0xFF shl 24) or (m[0].toInt() shl 16) or (m[1].toInt() shl 8) or m[2].toInt()
+    }
+
+    /**
+     * The share of [box]'s pixels that [accepts] rejects: a pixel that is fully drawn, or not there yet, is accepted;
+     * a pixel caught half-way between (a half-transparent fill) is not. Per pixel, so an element being uncovered by a
+     * growing clip (some pixels drawn, some not) is not mistaken for one that is half-transparent.
+     */
+    private fun greyPixelFraction(f: Bitmap, box: Box, accepts: (Int, Int, Int) -> Boolean): Float {
+        var bad = 0; var n = 0
+        for (y in box.t.coerceIn(0, f.height - 1) until box.b.coerceIn(0, f.height) step 2) for (x in box.l.coerceIn(0, f.width - 1) until box.r.coerceIn(0, f.width) step 2) {
+            if (!accepts(x, y, f.getPixel(x, y))) bad++
+            n++
+        }
+        return if (n == 0) 0f else bad / n.toFloat()
+    }
+
+    /**
+     * The share of [box]'s distinguishable pixels (those whose final colour differs from the scene behind, [before]
+     * dimmed by [ratio], by 30+ levels) that sit between the two (20-80% of the way from the scene to the final colour).
+     */
+    private fun ghostPixelFraction(before: Bitmap, f: Bitmap, last: Bitmap, box: Box, ratio: FloatArray): Float {
+        var ghost = 0; var n = 0
+        for (y in box.t.coerceIn(0, f.height - 1) until box.b.coerceIn(0, f.height) step 2) for (x in box.l.coerceIn(0, f.width - 1) until box.r.coerceIn(0, f.width) step 2) {
+            val bg = scaled(before.getPixel(x, y), ratio); val fin = last.getPixel(x, y); val c = f.getPixel(x, y)
+            val d = IntArray(3) { ((fin shr (16 - 8 * it)) and 0xff) - ((bg shr (16 - 8 * it)) and 0xff) }
+            val dd = d.sumOf { it * it }
+            if (dd < 30 * 30) continue
+            val a = (0..2).sumOf { (((c shr (16 - 8 * it)) and 0xff) - ((bg shr (16 - 8 * it)) and 0xff)) * d[it] }.toFloat() / dd
+            n++
+            if (a in 0.2f..0.8f) ghost++
+        }
+        return if (n == 0) 0f else ghost / n.toFloat()
+    }
+
+    private fun solid(w: Int, h: Int, argb: Int) = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { it.eraseColor(argb) }
+    private fun halves(w: Int, h: Int, left: Int, right: Int) = solid(w, h, right).also { b -> for (y in 0 until h) for (x in 0 until w / 2) b.setPixel(x, y, left) }
+
+    /** The measurement itself, on synthetic frames (P17): a half-white fill is caught, a half-uncovered white one is not. */
+    @Test fun greyMeasurementCatchesAHalfTransparentFill() {
+        val dark = 0xFF202020.toInt(); val white = 0xFFFFFFFF.toInt()
+        val box = Box("tile", 0, 0, 100, 100)
+        val ok = { _: Int, _: Int, c: Int -> isNear(c, white) || isNear(c, dark) }
+        val half = solid(100, 100, (0xFF shl 24) or (((0x20 + 0xFF) / 2) * 0x010101)) // 50% white over the dark
+        assertTrue("a 50% white fill must be caught (${greyPixelFraction(half, box, ok)})", greyPixelFraction(half, box, ok) > GREY_SHARE)
+        assertTrue("a half-uncovered white tile (white | dark) must not be", greyPixelFraction(halves(100, 100, white, dark), box, ok) <= GREY_SHARE)
+        assertTrue("a white tile must not be", greyPixelFraction(solid(100, 100, white), box, ok) <= GREY_SHARE)
+    }
+
+    /** The ghost measurement on synthetic frames (P17): a fading element is caught; a clip, and a darkening scene, are not. */
+    @Test fun ghostMeasurementTellsAFadeFromAClipAndFromTheDim() {
+        val box = Box("icon", 0, 0, 100, 100)
+        val noDim = floatArrayOf(1f, 1f, 1f)
+        val before = solid(100, 100, 0xFF202020.toInt()); val last = solid(100, 100, 0xFFFFFFFF.toInt())
+        val fade = solid(100, 100, 0xFF909090.toInt())
+        assertTrue("a 50% fade must be caught", ghostPixelFraction(before, fade, last, box, noDim) > GHOST_PIXELS)
+        assertTrue("half-uncovered must not be", ghostPixelFraction(before, halves(100, 100, 0xFFFFFFFF.toInt(), 0xFF202020.toInt()), last, box, noDim) <= GHOST_PIXELS)
+        // The Screen Saver case: the scene (86) dims to 70 on the way to a tile of glass that is 59 at rest.
+        val scene = solid(100, 100, 0xFF565656.toInt()); val glass = solid(100, 100, 0xFF3B3B3B.toInt()); val dimming = solid(100, 100, 0xFF464646.toInt())
+        val ratio = floatArrayOf(70 / 86f, 70 / 86f, 70 / 86f)
+        assertTrue("a scene dimming under a tile that isn't there yet is not a fade", ghostPixelFraction(scene, dimming, glass, box, ratio) <= GHOST_PIXELS)
+        assertTrue("(without the dim the same frames read as a fade, which was the P17 false positive)", ghostPixelFraction(scene, dimming, glass, box, noDim) > GHOST_PIXELS)
+    }
+
 
     // ── harness ──────────────────────────────────────────────────────────────────────────────────
 
@@ -170,10 +284,10 @@ class VisualChecks {
         return Box(name, r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt())
     }
 
-    /** A band near the top of a tile, clear of its icon and label: the material itself. */
+    /** A band near the top of a tile, clear of its icon, its label and the bevel: the material itself (as the Control Center motion tests' band). */
     private fun band(b: Box): Box {
         val w = b.r - b.l; val h = b.b - b.t
-        return Box(b.name, b.l + w * 3 / 10, b.t + h * 8 / 100, b.r - w * 3 / 10, b.t + h * 22 / 100)
+        return Box(b.name, b.l + w * 35 / 100, b.t + h * 15 / 100, b.r - w * 35 / 100, b.t + h * 22 / 100)
     }
 
     /** The middle of a tile, inset from its rounded corners. */
@@ -201,9 +315,10 @@ class VisualChecks {
         const val GHOST_MAX_RUN = 2
         const val LANDED_FRAMES = 8
         const val LANDED_DRIFT = 3f
-        const val MATERIAL_DELTA = 12f
-        const val GREY_MIN = 90f
-        const val GREY_MAX = 205f
+        const val SHEET_DELTA = 6f
+        const val NEAR = 20
+        const val GHOST_PIXELS = 0.10f
+        const val GREY_SHARE = 0.10f
         const val LIT_MIN = 200f
     }
 }
