@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +54,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import dev.glasslauncher.app
@@ -406,13 +410,13 @@ private fun FolderView(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 22.dp)
+                
                 .onGloballyPositioned { panelBounds = it.boundsInWindow() }
                 .graphicsLayer {
                     val from = anchor; val to = panelBounds
                     if (from != null && to != null && to.width > 0f) {
                         val m = morph.value
-                        val s0 = (from.width / 500.dp.toPx()).coerceIn(0.15f, 1f)
+                        val s0 = (from.width / FolderGeometry.panelWidth.toPx()).coerceIn(0.15f, 1f)
                         val sc = s0 + (1f - s0) * m
                         scaleX = sc; scaleY = sc
                         translationX = (from.center.x - to.center.x) * (1f - m)
@@ -420,6 +424,7 @@ private fun FolderView(
                     }
                 },
         ) {
+            Spacer(Modifier.height(FolderGeometry.capsuleTop))
             FocusTile(
                 label = "Folder name, ${folder.folder.name}",
                 shape = Shapes.pill,
@@ -428,52 +433,108 @@ private fun FolderView(
                 onClick = { open(Overlay.TextInput("Rename Folder", folder.folder.name) { model.renameFolder(folderId, it) }) },
                 modifier = Modifier.testTag("folder-title"),
             ) { focused ->
-                Text(
-                    folder.folder.name,
-                    style = Type.heading,
-                    textAlign = TextAlign.Center,
-                    color = if (focused) palette.onFocusFill else palette.primary,
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
+                        .defaultMinSize(minWidth = FolderGeometry.capsuleWidth, minHeight = FolderGeometry.capsuleHeight)
                         // Glass stays put under the focus fill (a swapped-in glass node can draw before it's positioned).
                         .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
                         .then(
                             if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                         )
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                )
+                        .padding(horizontal = 24.dp),
+                ) {
+                    Text(
+                        folder.folder.name,
+                        style = Type.heading,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        color = if (focused) palette.onFocusFill else palette.primary,
+                    )
+                }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(FolderGeometry.panelTop - FolderGeometry.capsuleTop - FolderGeometry.capsuleHeight))
+            // A fixed 3 x 3 panel (tvOS keeps its size however few apps are in it); more than nine scroll.
+            val panelShape = RoundedCornerShape(FolderGeometry.panelRadius)
             Box(
                 Modifier
-                    .width(500.dp)
-                    .glass(LocalBackdrop.current, RoundedCornerShape(30.dp), GlassStyle.panel(palette.light))
-                    .padding(horizontal = 30.dp, vertical = 26.dp),
+                    .size(FolderGeometry.panelWidth, FolderGeometry.panelHeight)
+                    .glass(LocalBackdrop.current, panelShape, GlassStyle.panel(palette.light))
+                    .clip(panelShape)
+                    .testTag("folder-panel"),
             ) {
-                Column {
-                    val folderAnchor = LocalMenuAnchor.current
-                    folder.apps.chunked(3).forEachIndexed { rowIndex, row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(30.dp), modifier = Modifier.fillMaxWidth()) {
+                val folderAnchor = LocalMenuAnchor.current
+                // The scroller fills the panel (its clip must not cut a focused tile's shadow or name short).
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(FolderGeometry.rowGap),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = FolderGeometry.padX, end = FolderGeometry.padX, top = FolderGeometry.padY, bottom = FolderGeometry.padBottom),
+                ) {
+                    folder.apps.chunked(FolderGeometry.COLUMNS).forEachIndexed { rowIndex, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(FolderGeometry.colGap)) {
                             row.forEachIndexed { i, app ->
                                 val key = appKey(app.packageName)
                                 val req = remember(key, rowIndex, i) { if (rowIndex == 0 && i == 0) first else requesters.getOrPut(key) { FocusRequester() } }
-                                Box(Modifier.weight(1f)) {
+                                Box(Modifier.width(FolderGeometry.tileWidth)) {
                                     AppCell(
                                         app = app,
                                         model = model,
                                         moving = false,
                                         focusRequester = req,
                                         onFocused = { lastFocused.value = key },
+                                        // The name shows under the focused tile; no row space is reserved for it (the pitch is tvOS's).
+                                        showLabel = false,
+                                        floatingLabel = true,
                                         onMenu = { open(Overlay.AppMenu(app, inDock = false, folderId = folderId, anchor = folderAnchor.bounds)) },
                                     )
                                 }
                             }
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * tvOS 27's open folder, measured from the 1080p reference and halved to dp: a 604 x 385 dp panel (fixed:
+ * three columns by three rows) with Home-sized tiles on a 200 x 121 dp pitch, and the name in a capsule above.
+ */
+internal object FolderGeometry {
+    const val COLUMNS = 3
+    const val ROWS = 3
+    private val home = dev.glasslauncher.ui.Metrics()
+    /** Home's tile on the 960 dp screen at normal text size (6 columns): 125 dp. The folder does not follow Text Size. */
+    val tileWidth: Dp = (960.dp - home.inset * 2 - home.gutter * 5) / 6
+    val tileHeight: Dp = tileWidth / home.tileAspect
+    /** Left edge to left edge: 400 px. */
+    val colPitch: Dp = tileWidth * 1.6f
+    val colGap: Dp = colPitch - tileWidth
+    /** Top to top: 242 px. */
+    val rowPitch: Dp = 121.dp
+    val rowGap: Dp = rowPitch - tileHeight
+    val padX: Dp = 39.5.dp
+    val padY: Dp = 26.dp
+    /** Under the last row: room for the focused tile's name. */
+    val padBottom: Dp = 42.dp
+    val panelWidth: Dp = padX * 2 + tileWidth * COLUMNS + colGap * (COLUMNS - 1)
+    val panelHeight: Dp = 385.dp
+    val panelRadius: Dp = 35.dp
+    /** Panel and capsule tops, from the screen top (150 and 28 px). */
+    val panelTop: Dp = 75.dp
+    val capsuleTop: Dp = 14.dp
+    val capsuleWidth: Dp = 115.dp
+    val capsuleHeight: Dp = 50.dp
+
+    /** Rows [apps] apps take; more than [ROWS] scroll. */
+    fun rows(apps: Int): Int = (apps + COLUMNS - 1) / COLUMNS
+    fun scrolls(apps: Int): Boolean = rows(apps) > ROWS
+
+    /** Where tile [index] sits inside the panel, before scrolling. */
+    fun tileOffset(index: Int): Pair<Dp, Dp> = Pair(padX + colPitch * (index % COLUMNS), padY + rowPitch * (index / COLUMNS))
 }
 
 @Composable

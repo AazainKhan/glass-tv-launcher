@@ -46,6 +46,11 @@ class HomeShots {
         compose.stableImage().captureRoboImage(shot(name), roborazziOptions = options)
     }
 
+    /** Six apps in the folder, none of them in the default dock: two rows of the 3 x 3 panel, like the tvOS frame. */
+    private val FOLDER_APPS = listOf(
+        "org.jellyfin.androidtv", "org.videolan.vlc", "com.hbo.hbonow", "tv.twitch.android.viewer", "com.esaba.downloader", "com.estrongs.android.pop",
+    )
+
     @Test fun dock() = home { capture("home-dock") }
 
     @Test fun featuredRow() = home {
@@ -74,7 +79,7 @@ class HomeShots {
     }
 
     @Test fun folderOpen() = home(config = { c ->
-        val apps = listOf("com.plexapp.android", "org.jellyfin.androidtv", "org.videolan.vlc")
+        val apps = FOLDER_APPS
         c.copy(folders = listOf(Folder("media", "Media", apps)), order = listOf(folderKey("media")))
     }) {
         compose.focusTag(folderKey("media"))
@@ -82,6 +87,8 @@ class HomeShots {
         compose.settle()
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
+        // Like the reference frame: focus on the last tile of the second row, so its name shows under it.
+        compose.press(Button.Right, Button.Right, Button.Down)
         // The blurred Home behind the folder differs by a few scattered pixels between runs.
         capture("folder-open", tolerance = 0.01f)
     }
@@ -117,7 +124,7 @@ class HomeShots {
     }
 
     @Test fun lightFolderOpen() = home(config = { c ->
-        val apps = listOf("com.plexapp.android", "org.jellyfin.androidtv", "org.videolan.vlc")
+        val apps = FOLDER_APPS
         c.copy(theme = ThemeMode.Light, folders = listOf(Folder("media", "Media", apps)), order = listOf(folderKey("media")))
     }) {
         compose.focusTag(folderKey("media"))
@@ -125,6 +132,7 @@ class HomeShots {
         compose.settle()
         compose.press(Button.Select)
         compose.waitForTag("folder-title")
+        compose.press(Button.Right, Button.Right, Button.Down)
         capture("folder-open-light", tolerance = 0.01f)
     }
 
