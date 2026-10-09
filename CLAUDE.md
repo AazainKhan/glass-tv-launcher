@@ -22,6 +22,7 @@ The tvOS research session is idle. Pushes to the public repo happen only with th
 **Board first.** `.superpowers/pair/board.md` is the single source of truth for work. The SessionStart hook prints its open items next to vitals and reports.
 - Read it at the start of each turn.
 - Claim an item before starting; update its status and a one-line result as you go; close it when done.
+- Take new ids only from `scripts/board add <owner> "<note>"`: it assigns the next free number under a lock, so two agents never reuse one. `scripts/board` lists open items; `scripts/board set Pn "<status>"` updates one.
 - A new user request gets a board item with a named owner before anyone works on it.
 - SendMessage is for urgent interrupts only (a broken build, a stick collision, a decision blocking someone), not status updates.
 

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# The shared work board (.superpowers/pair/board.md): the single source of truth for who does what.
+#   scripts/board                       open items
+#   scripts/board add <owner> "<note>"  new item with the next free id (atomic: no two agents get the same P-number)
+#   scripts/board set <Pn> "<status>"   change an item's status column
+# Edit notes by hand if you must, but always take new ids from `add`.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+B="$ROOT/.superpowers/pair/board.md"; LOCK="$B.lock"
+with_lock() { local n=0; until mkdir "$LOCK" 2>/dev/null; do n=$((n + 1)); [ $n -gt 50 ] && { echo "board is locked ($LOCK)" >&2; exit 1; }; sleep 0.1; done; trap 'rmdir "$LOCK"' EXIT; "$@"; }
+add() {
+  local next; next=$(( $(grep -oE '^P[0-9]+' "$B" | tr -d P | sort -n | tail -1) + 1 ))
+  echo "P$next | $1 | todo | - | $2" >> "$B"; echo "P$next"
+}
+set_status() {
+  grep -qE "^$1 \|" "$B" || { echo "no item $1" >&2; exit 1; }
+  awk -v id="$1" -v st="$2" 'BEGIN{FS=OFS=" | "} $1==id{$3=st} {print}' "$B" > "$B.tmp" && mv "$B.tmp" "$B"
+  grep -E "^$1 \|" "$B" | cut -c1-120
+}
+case "${1:-}" in
+  "") grep -E '^P[0-9]+ \|' "$B" | grep -viE '\| *(merged|done)' | cut -c1-160 ;;
+  add) with_lock add "${2:?owner}" "${3:?note}" ;;
+  set) with_lock set_status "${2:?Pn}" "${3:?status}" ;;
+  *) sed -n '2,7p' "$0"; exit 2 ;;
+esac
