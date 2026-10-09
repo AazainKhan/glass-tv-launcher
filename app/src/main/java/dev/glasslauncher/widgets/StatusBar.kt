@@ -19,14 +19,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
-import dev.glasslauncher.ui.TileShadow
-import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -78,13 +73,11 @@ fun StatusPill(
             onLongClick = onSelect,
             shape = Shapes.pill,
             focusedScale = 1.08f,
-            // Over light art the capsule separates from it by its edge (tvOS light glass): a soft shadow here and a
-            // thin rim below, not a darker fill. Dark art keeps the bare glass.
-            shadow = onLight,
+            // Over light art the capsule separates from it by its edge (tvOS light glass): a faint halo (below)
+            // and a thin rim, not a darker fill. Dark art keeps the bare glass.
+            shadow = false,
             modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-pill")
-                // A resting tile's contact shadow is 0.10, too faint to hold a white capsule off a light page: a
-                // second pass of the same baked bitmap (no new blur, one more drawImage) doubles it.
-                .then(if (onLight) Modifier.drawBehind { drawContactShadow() } else Modifier)
+                .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier)
                 // Control Center grows out of exactly this capsule.
                 .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
         ) { focused ->
@@ -97,7 +90,7 @@ fun StatusPill(
                     // eased shade at the bottom), and the edge does the separating (see shadow above, rim below).
                     // Glass stays put under the focus fill.
                     .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f)) else GlassStyle.shelf(palette.light))
-                    .then(if (onLight) Modifier.border(1.dp, Color.Black.copy(alpha = 0.10f), Shapes.pill) else Modifier)
+                    .then(if (onLight) Modifier.border(1.dp, Color.Black.copy(alpha = 0.22f), Shapes.pill) else Modifier)
                     .then(
                         if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
                     )
@@ -120,18 +113,29 @@ fun StatusPill(
 
 
 
-private const val EXTRA_CONTACT_ALPHA = 0.14f
+private const val HALO_ALPHA = 0.08f
+private const val HALO_STEPS = 6
 
-private fun DrawScope.drawContactShadow() {
-    val r = TileShadow.destRect(TileShadow.Kind.Contact, size.width, size.height, 1f, 0f, size.width / 250f)
-    if (r.isEmpty) return
-    drawImage(
-        TileShadow.contact,
-        dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
-        dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
-        alpha = EXTRA_CONTACT_ALPHA,
-        filterQuality = FilterQuality.Medium,
-    )
+/**
+ * A faint halo round the capsule: [HALO_STEPS] abutting capsule-shaped bands of 1.5 dp, black, strongest at the
+ * edge and fading to nothing about 9 dp out (a squared falloff). Centred, with a 1.5 dp drop so it is a touch
+ * stronger below. Plain strokes: no bitmap, no blur, no layer.
+ */
+private fun DrawScope.drawHalo() {
+    val band = 1.5.dp.toPx()
+    val drop = 1.5.dp.toPx()
+    for (i in 0 until HALO_STEPS) {
+        val out = band * i + band / 2
+        val fall = 1f - i / HALO_STEPS.toFloat()
+        val r = size.height / 2 + out
+        drawRoundRect(
+            Color.Black.copy(alpha = HALO_ALPHA * fall * fall),
+            topLeft = Offset(-out, -out + drop),
+            size = androidx.compose.ui.geometry.Size(size.width + 2 * out, size.height + 2 * out),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = band),
+        )
+    }
 }
 
 @Composable
