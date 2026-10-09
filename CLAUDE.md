@@ -2,6 +2,11 @@
 
 Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire TV. Kotlin + Jetpack Compose for TV, single `:app` module, package `dev.glasslauncher`. The roadmap and goals are in `README.md`.
 
+## Commits
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, type one of feat, fix, perf, refactor, test, docs, build, ci, chore, style. Mark breaking changes with `!` or a `BREAKING CHANGE:` footer. Example: `fix(focus): stop Right at row ends`.
+- The repo is public (github.com/AazainKhan/glass-tv-launcher). Commits use the noreply email set in the repo config. Before pushing, `git grep -nI -e G072JM -e /Users/aazain` must print nothing (no device serials, home paths or crash dumps), then `git pull --rebase`.
+
 ## Build and run
 
 - **Needs JDK 17 or 21.** The system default is JDK 25, which AGP rejects. `scripts/build` picks 21 automatically. For raw Gradle: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
