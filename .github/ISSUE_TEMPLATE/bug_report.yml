@@ -1,0 +1,34 @@
+name: Bug report
+description: Something doesn't work
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device and OS
+      description: For example "Fire TV Stick 4K Max, Fire OS 8", "Chromecast with Google TV, Android 14", "Shield TV 2019".
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Glass TV Launcher version
+      description: Settings → About.
+    validations:
+      required: true
+  - type: dropdown
+    id: root
+    attributes:
+      label: Is the device rooted?
+      options: ["No", "Yes"]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce

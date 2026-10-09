@@ -1,6 +1,6 @@
 id=glass-remote-keys
-name=Glass Launcher Remote Buttons
+name=Glass TV Launcher Remote Buttons
 version=1
 versionCode=1
-author=Glass Launcher
-description=Gives the Fire TV remote's app and Recent Apps buttons spare key codes so Glass Launcher can map them. Uninstall to restore Fire TV's behaviour.
+author=Glass TV Launcher
+description=Gives the Fire TV remote's app and Recent Apps buttons spare key codes so Glass TV Launcher can map them. Uninstall to restore Fire TV's behaviour.

@@ -1,4 +1,4 @@
-# Glass Launcher
+# Glass TV Launcher
 
 An open-source, Apple TV–style home screen for Android TV, Google TV and Fire TV. It has liquid-glass surfaces, tvOS-like focus motion, folders, a featured "top shelf" from the services you use, and Apple's Aerial screensaver videos. It's built to stay smooth on a Fire TV Stick.
 
@@ -26,11 +26,11 @@ An open-source, Apple TV–style home screen for Android TV, Google TV and Fire 
 
 ## Install
 
-Download the latest APK from [Releases](https://github.com/AazainKhan/glass-launcher/releases) and sideload it (for example with the Downloader app). Requires Android 9 or newer.
+Download the latest APK from [Releases](https://github.com/AazainKhan/glass-tv-launcher/releases) and sideload it (for example with the Downloader app). Requires Android 9 or newer.
 
 ### Make it your home screen
 
-- **Google TV / Android TV:** Settings → Home Button → *Make Glass Launcher the Default*.
+- **Google TV / Android TV:** Settings → Home Button → *Make Glass TV Launcher the Default*.
 - **Fire TV:** Fire OS has no default-launcher picker. Either:
   - turn on *Home Button Takeover* in Settings (an accessibility service that only watches for the stock launcher's window), or
   - from a computer:
@@ -39,15 +39,32 @@ Download the latest APK from [Releases](https://github.com/AazainKhan/glass-laun
     adb shell pm disable-user --user 0 com.amazon.tv.launcher
     ```
 
-    Undo with `adb shell pm enable com.amazon.tv.launcher`.
+    Undo with `adb shell pm enable com.amazon.tv.launcher`. Keep this command to hand: with the stock launcher disabled and Glass removed, the stick has no home screen until you re-enable it over adb.
 
-### Optional one-time permission
+### Optional one-time permissions
 
-Lets Glass set itself as the screensaver and switch on its Home-button fallback without opening system menus:
+Everything works without these; they only save you trips through system menus or unlock a feature. Run from a computer with `adb`:
 
 ```bash
+# Set itself as the screensaver and switch on the Home-button fallback
 adb shell pm grant dev.glasslauncher android.permission.WRITE_SECURE_SETTINGS
+# Recent apps in the app switcher (otherwise only apps opened from Glass are listed)
+adb shell appops set dev.glasslauncher GET_USAGE_STATS allow
+# Show the Wi-Fi network name in Control Center
+adb shell pm grant dev.glasslauncher android.permission.ACCESS_FINE_LOCATION
 ```
+
+Two more switches live in the system settings: *Notification access* (Now Playing) and the optional accessibility services (*Home Button Takeover*, *Remote Buttons* for Control Center over apps and remapped remote buttons).
+
+## Known limits
+
+- **Tested on a Fire TV Stick 4K (2nd gen) only.** Other Fire TV, Android TV and Google TV devices should work but haven't been verified. [Tell us how it runs](../../issues/new?template=device_report.yml).
+- **TV only.** The UI is built for a D-pad remote at 1080p (960×540 dp) in landscape. There is no touch or mouse support, so it isn't usable on phones or tablets.
+- **Some Google TV / Chromecast firmware** keeps its own launcher in front; Glass may not be able to become the default there.
+- **Fire TV only features:** the Alexa and Smart Home tiles in Control Center, and the Amazon Appstore shortcuts, do nothing on other devices.
+- **Optional root features** (Continue Watching rows, Fire TV app art, memory tuning) appear only when the device is rooted and are off otherwise.
+- **Aerial videos** come from an undocumented Apple feed, and streaming availability from an unofficial JustWatch endpoint. Either can change or stop working without notice.
+- **English only** for now.
 
 ## Using it with a remote
 
@@ -61,19 +78,21 @@ adb shell pm grant dev.glasslauncher android.permission.WRITE_SECURE_SETTINGS
 
 ## Building
 
-Needs JDK 17 or 21 and the Android SDK. `scripts/build` installs on the connected TV and launches the app.
+Needs JDK 17 or 21 and the Android SDK.
 
 ```bash
-scripts/build release
+./gradlew :app:assembleRelease   # builds app/build/outputs/apk/release/ (no device needed)
+scripts/build release            # also installs on the connected TV and launches it
 ```
 
-UI checks on a real TV use [agent-device](https://github.com/callstackincubator/agent-device) (`scripts/tv snapshot -i`, `scripts/tv tv-remote press down`, …). Every tile has a stable id such as `app:com.netflix.ninja`. See `CLAUDE.md` for the performance rules this project holds itself to.
+UI checks on a real TV use [agent-device](https://github.com/callstackincubator/agent-device) (`scripts/tv snapshot -i`, `scripts/tv tv-remote press down`, …). Every tile has a stable id such as `app:com.netflix.ninja`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the test setup and the performance rules this project holds itself to.
 
 Releases are built by GitHub Actions when a `v*` tag is pushed. Set the `RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS` and `RELEASE_KEY_PASSWORD` secrets to sign with your own key.
 
 ## Credits and licences
 
-- Glass Launcher is licensed under [Apache-2.0](LICENSE).
+- Third-party components and trademark notices: [THIRD_PARTY.md](THIRD_PARTY.md). Glass TV Launcher is not affiliated with Apple, Amazon or Google.
+- Glass TV Launcher is licensed under [Apache-2.0](LICENSE).
 - [Inter](https://rsms.me/inter/) by Rasmus Andersson, SIL Open Font License ([licenses/Inter-OFL.txt](licenses/Inter-OFL.txt)).
 - Icons from [Material Symbols](https://fonts.google.com/icons) by Google, Apache-2.0 (`app/src/main/res/drawable/ic_*.xml`).
 - Aerial videos are streamed from Apple's servers and are © Apple.

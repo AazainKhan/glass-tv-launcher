@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Frees the remote's Settings button for Glass Launcher. Fire OS catches it by its kernel key code
+# Frees the remote's Settings button for Glass TV Launcher. Fire OS catches it by its kernel key code
 # (249) before apps see it, so the kernel keymap is changed to emit 185 instead, a code the key
 # layout doesn't name: it reaches Glass as KEYCODE_UNKNOWN with scan code 185.
 # The remote gets a fresh keymap whenever it reconnects (after every sleep), so this re-applies on

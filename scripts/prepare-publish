@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Pre-publish audit and clean single-commit copy builder. The public history was already cleaned in place;
+# keep this as a pre-push check (`scripts/prepare-publish --dry-run` lists personal data still present).
+# Builds a clean, single-commit copy of the project for the public repo, without touching this checkout.
+#   scripts/prepare-publish [--dry-run] [--out DIR]
+# Copies every non-ignored file except author tooling, scans the copy for personal data, and (unless the
+# scan finds something or --dry-run is set) commits it as one commit on `main`. It never pushes; the push
+# command is printed at the end. Set PUBLISH_NAME / PUBLISH_EMAIL to choose the commit author.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="${TMPDIR:-/tmp}/glass-tv-launcher-publish"
+DRY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY=1 ;;
+    --out) OUT="$2"; shift ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+NAME="${PUBLISH_NAME:-AazainKhan}"
+EMAIL="${PUBLISH_EMAIL:-AazainKhan@users.noreply.github.com}"
+
+# Author tooling and files that only make sense on the author's machine.
+EXCLUDE=(.claude .mcp.json agent-device.json CLAUDE.md reports hs_err_pid replay_pid)
+
+cd "$ROOT"
+if [ -n "$(git status --porcelain)" ]; then
+  echo "warning: working tree has uncommitted changes; the copy includes them as they are now." >&2
+fi
+
+rm -rf "$OUT"; mkdir -p "$OUT"
+git ls-files -co --exclude-standard -z | while IFS= read -r -d '' f; do
+  skip=0
+  for x in "${EXCLUDE[@]}"; do case "$f" in "$x"|"$x"/*|"$x"*) skip=1 ;; esac; done
+  [ -e "$f" ] || skip=1
+  [ "$skip" = 1 ] && continue
+  mkdir -p "$OUT/$(dirname "$f")"; cp -p "$f" "$OUT/$f"
+done
+
+# Personal data scan. Add patterns here as they come up.
+# The device serial prefix is split so this file never contains it literally (the public repo is scanned for it).
+PATTERNS='/Users/[A-Za-z]|firestick-unlocked|G072'"JM"'|aazainkhan@gmail|hs_err_pid|\.claude/|CLAUDE\.md'
+if hits=$(grep -rInE "$PATTERNS" "$OUT" --exclude-dir=.git --exclude=prepare-publish --exclude=.gitignore 2>/dev/null); then
+  echo "Personal or author-only references remain in the copy:" >&2
+  echo "$hits" | cut -c1-200 >&2
+  [ "$DRY" = 1 ] || { echo "Fix these in the source, then rerun (or use --dry-run to just list them)." >&2; exit 1; }
+fi
+[ "$DRY" = 1 ] && { echo "dry run: copy left in $OUT, nothing committed"; exit 0; }
+
+cd "$OUT"
+git init -q -b main
+git add -A
+GIT_AUTHOR_NAME="$NAME" GIT_AUTHOR_EMAIL="$EMAIL" GIT_COMMITTER_NAME="$NAME" GIT_COMMITTER_EMAIL="$EMAIL" \
+  git commit -q -m "Glass TV Launcher"
+echo "Clean copy committed in $OUT ($(git ls-files | wc -l | tr -d ' ') files)."
+echo "Review it, then publish with:"
+echo "  cd $OUT && git remote add origin https://github.com/AazainKhan/glass-tv-launcher.git && git push -u origin main"

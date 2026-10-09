@@ -1,0 +1,23 @@
+name: Device compatibility report
+description: Tell us how it runs on your TV, box or stick
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device, Android/Fire OS version
+    validations:
+      required: true
+  - type: dropdown
+    id: home
+    attributes:
+      label: Could you make it the home screen?
+      options: ["Yes, normally", "Yes, with Home Button Takeover", "Yes, with adb", "No"]
+  - type: dropdown
+    id: smooth
+    attributes:
+      label: Performance
+      options: ["Smooth", "Mostly smooth", "Laggy"]
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything that looked wrong (clipped layout on 720p/4K, missing tiles, etc.)

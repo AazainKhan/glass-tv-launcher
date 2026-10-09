@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lets Glass Launcher map the Fire TV remote's app buttons, Recent Apps and Settings (Settings ›
+# Lets Glass TV Launcher map the Fire TV remote's app buttons, Recent Apps and Settings (Settings ›
 # Remote Buttons). Fire OS consumes those inside the system, so this Magisk module overlays the
 # remote's key layout with spare gamepad codes that reach Glass's accessibility service:
 #   APP_1..APP_4 -> BUTTON_9..BUTTON_12, RECENTS -> BUTTON_13

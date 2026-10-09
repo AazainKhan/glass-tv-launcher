@@ -17,3 +17,12 @@ app/src/test/screenshots/**/*_compare.png
 
 .pytest_cache/
 __pycache__/
+
+# JVM crash dumps and signing material
+hs_err_pid*.log
+replay_pid*.log
+*.apk
+*.jks
+*.keystore
+.impeccable/
+.superpowers/
