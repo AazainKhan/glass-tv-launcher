@@ -14,7 +14,7 @@ add() {
 }
 set_status() {
   grep -qE "^$1 \|" "$B" || { echo "no item $1" >&2; exit 1; }
-  awk -v id="$1" -v st="$2" 'BEGIN{FS=OFS=" | "} $1==id{$3=st} {print}' "$B" > "$B.tmp" && mv "$B.tmp" "$B"
+  awk -v id="$1" -v st="$2" 'BEGIN{FS=" [|] "; OFS=" | "} $1==id{$3=st} {print}' "$B" > "$B.tmp" && mv "$B.tmp" "$B"
   grep -E "^$1 \|" "$B" | cut -c1-120
 }
 case "${1:-}" in
