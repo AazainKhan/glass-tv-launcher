@@ -190,7 +190,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 4.dp), inlineTimes = true)
+                Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 2.dp), inlineTimes = true)
             }
             Row(modifier = Modifier.padding(start = 6.dp)) {
                 Transport(R.drawable.ic_skip_previous, "Previous Track", scale, 34) { item.previous() }

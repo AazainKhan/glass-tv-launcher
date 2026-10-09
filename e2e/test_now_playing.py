@@ -85,6 +85,14 @@ def test_up_from_the_tray_reaches_the_controls_then_control_center(tv, home, pla
     home.select()
     tv.wait_for(lambda t: t.find(rid="control-center"), 6, "Control Center from the pill while music plays")
     card = tv.wait_for(lambda t: t.find(rid="now-playing-card"), 4, "the Now Playing card")
+    # Control Center opens on a spring that overshoots a little: measure once it has settled.
+    last = [None]
+    def settled(t):
+        c = t.find(rid="now-playing-card")
+        done = c is not None and c.bounds == last[0]
+        last[0] = c.bounds if c else None
+        return done and c
+    card = tv.wait_for(settled, 4, "the Now Playing card to settle")
     assert card.bounds[3] <= 1080 - 30, f"the card should keep a margin above the bottom edge ({card.bounds})"
     home.back()
 
