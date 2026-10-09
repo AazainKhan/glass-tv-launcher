@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,7 +89,7 @@ private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifie
         }
         // Kept out of accessibility: they change every second, which would chatter in a screen reader and
         // keeps uiautomator from ever seeing the screen idle.
-        if (showTimes && item.durationMs > 0) Row(Modifier.fillMaxWidth().padding(top = 6.dp).clearAndSetSemantics { }) {
+        if (showTimes && item.durationMs > 0) Row(Modifier.fillMaxWidth().padding(top = 6.dp).clearAndSetSemantics { testTag = "np-times" }) {
             // Tabular digits: the times keep their width as they tick, so nothing re-lays out each second.
             val digits = Type.caption.copy(fontFeatureSettings = "tnum")
             Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f))
@@ -166,7 +167,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
         Modifier.width(width)
             .bringIntoViewRequester(reveal)
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
-            .glass(LocalBackdrop.current, shape, GlassStyle.shelf(false).copy(legible = true)).padding((12 * scale).dp).testTag("now-playing-card"),
+            .glass(LocalBackdrop.current, shape, GlassStyle.shelf(false).copy(legible = true)).testTag("now-playing-card").padding((12 * scale).dp),
     ) {
         // One row (art, track and progress, then the controls), so Control Center fits on screen with it.
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -174,7 +175,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                Progress(item, palette.primary, showTimes = false, modifier = Modifier.padding(top = 6.dp))
+                Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 6.dp))
             }
             Row(modifier = Modifier.padding(start = 6.dp)) {
                 Transport(R.drawable.ic_skip_previous, "Previous Track", scale, 34) { item.previous() }

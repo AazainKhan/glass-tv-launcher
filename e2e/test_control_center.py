@@ -351,4 +351,30 @@ def test_header_lines_are_evenly_spaced(tv, home, cc):
     bands.append((start, rows[-1]))
     assert len(bands) == 3, f"expected three lines of text, found {bands}"
     gaps = [bands[1][0] - bands[0][1], bands[2][0] - bands[1][1]]
-    assert min(gaps) >= 8 and abs(gaps[0] - gaps[1]) <= 3, f"uneven header spacing: gaps {gaps} px"
+    assert min(gaps) >= 22 and abs(gaps[0] - gaps[1]) <= 4, f"header lines too tight or uneven: gaps {gaps} px"
+
+
+def test_one_gap_everywhere_and_smaller_round_buttons(tv, home, cc):
+    """One grid: the same gap between tiles, pills, rows and the round buttons; the round buttons are
+    smaller than the pills and sit with that same gap."""
+    cc.open()
+    tree = tv.tree()
+    b = lambda d: tree.find(desc_prefix=d).bounds
+    wifi, bt, launcher = b("Wi-Fi"), b("Bluetooth"), b("Launcher Settings")
+    rounds = sorted((n.bounds for n in tree.nodes() if n.desc.split(",")[0] in
+                     ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Performance", "Free Memory")),
+                    key=lambda r: (r[1], r[0]))
+    first_row = [r for r in rounds if r[1] == rounds[0][1]]
+    gaps = {
+        "wifi→bluetooth": bt[1] - wifi[3],
+        "bluetooth→launcher": launcher[1] - bt[3],
+        "launcher→round row": rounds[0][1] - launcher[3],
+        "round→round": first_row[1][0] - first_row[0][2],
+    }
+    if len(rounds) > len(first_row):
+        gaps["round row→round row"] = rounds[len(first_row)][1] - first_row[0][3]
+    base = gaps["wifi→bluetooth"]
+    assert all(abs(g - base) <= 4 for g in gaps.values()), f"uneven gaps: {gaps}"
+    round_size = rounds[0][3] - rounds[0][1]
+    pill = wifi[3] - wifi[1]
+    assert round_size < pill * 0.9, f"round buttons ({round_size}px) should be smaller than the pills ({pill}px)"

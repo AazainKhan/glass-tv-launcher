@@ -73,15 +73,16 @@ private val Blue = Color(0xFF0A84FF)
  * being cut off: at Larger the Wi-Fi network name was truncated in a fixed 128 dp pill.
  */
 private class CcSizes(k: Float) {
-    val gap = 8.dp
+    // One gap for everything: tiles, pills, rows, the round buttons and the music card.
+    val gap = 10.dp
     val pill = (47 * k).dp
+    /** Round buttons: a little smaller than a pill's height, set on the same gap. */
+    val round = (40 * k).dp
     val pillWidth = (128 * k).dp
     val big = pill * 2 + gap
     // The big tile matches a pill's width so the second row of pills lines up under it.
     val bigWidth = pillWidth
     val column = pillWidth * 2 + gap
-    // Round buttons sit on the same four-across rhythm as tvOS, even when fewer are shown.
-    val roundGap = (column - pill * 4) / 3
     val disc = (28 * k).dp
     val discGlyph = (17 * k).dp
     val roundGlyph = (23 * k).dp
@@ -238,16 +239,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
-                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-date"))
+                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = 0.7f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 6.dp).testTag("cc-date"))
                     // Equal air between the three lines as drawn: the clock's own leading already sits under it,
                     // so the weather line gets the matching gap above (e2e measures the ink).
-                    cfg.weather?.let { Box(Modifier.padding(top = 5.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) } }
+                    cfg.weather?.let { Box(Modifier.padding(top = 11.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = 0.7f), Type.secondary) } }
                 }
                 if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
                     PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0) { page = 0 }
                     PageIcon(R.drawable.ic_home, "Alexa", selected = page == 1) { page = 1 }
                 }
             }
+            val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
             Column(
@@ -317,11 +319,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     }
                 }
             }
-            rounds.chunked(4).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(sz.roundGap)) { row.forEach { it() } }
+            // Centred under the tiles as one block, rows sharing a left edge.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Column(Modifier.width(sz.round * 4 + sz.gap * 3), verticalArrangement = Arrangement.spacedBy(sz.gap)) {
+                    rounds.chunked(4).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) { row.forEach { it() } }
+                    }
+                }
             }
-            // Always takes its line, so the column doesn't jump as focus moves on and off the round buttons.
-            Text(
+            // The focused round button's name. It takes its line (so the column doesn't jump as focus moves),
+            // except while music plays: then the music card follows the buttons on the grid's gap instead.
+            if (np == null) Text(
                 roundLabel?.replace(", ", " · ") ?: freed?.let { "$it MB freed" } ?: "",
                 style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
                 color = headerColor,
@@ -332,7 +340,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             }
             // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
-            val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
             np?.let { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) }
             }
         }
@@ -430,7 +437,7 @@ private fun Round(@DrawableRes icon: Int, label: String, on: Boolean = false, on
     var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
     // The caption follows the button while focused, including its state (Theme · Light → Dark).
     LaunchedEffect(focused, label) { if (focused) onLabel(label) }
-    CcTile(label, null, CircleShape, sz.pill, sz.pill, onClick = onClick, on = on, onFocusChange = { f ->
+    CcTile(label, null, CircleShape, sz.round, sz.round, onClick = onClick, on = on, onFocusChange = { f ->
         focused = f
         if (!f) onLabel(null)
     }) { fg ->

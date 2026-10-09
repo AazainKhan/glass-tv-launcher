@@ -138,3 +138,19 @@ def test_down_from_the_controls_and_pill_returns_to_the_tray(tv, home, playing):
     tv.press("down")
     back = tv.wait_for(lambda t: t.focused() and t.focused().rid.startswith("app:") and t.focused(), 4, "focus back on the tray")
     assert back.rid == start.rid, f"expected {start.rid}, landed on {back.rid}"
+
+
+def test_control_center_music_card_sits_on_the_grid_with_times(tv, home, playing):
+    """The music card follows the round buttons with the grid's gap, and shows elapsed and remaining time."""
+    from pages import ControlCenter
+    cc = ControlCenter(tv)
+    cc.open()
+    tree = tv.wait_for(lambda t: t.find(rid="now-playing-card") and t, 6, "the music card")
+    wifi, bt = tree.find(desc_prefix="Wi-Fi").bounds, tree.find(desc_prefix="Bluetooth").bounds
+    gap = bt[1] - wifi[3]
+    card = tree.find(rid="now-playing-card").bounds
+    above = max(n.bounds[3] for n in tree.nodes() if n.desc.split(",")[0] in
+                ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Performance", "Free Memory"))
+    assert abs((card[1] - above) - gap) <= 4, f"the card sits {card[1] - above}px below the buttons; the grid's gap is {gap}px"
+    assert tree.find(rid="np-times"), "the card should show elapsed and remaining time"
+    tv.press("back")
