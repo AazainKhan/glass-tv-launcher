@@ -17,3 +17,6 @@ The user's settled decisions, so agents don't re-open them. Newest first. One li
 
 ## 2026-10-09 · Control Center opens by splitting the pill (P49)
 The user approved: the status pill pinches into two liquid drops (Settings page, Alexa page) and every control grows out of the nearer drop; close reverses into the pill. No clipped bubble or rect reveal. Deliberate departure from measured tvOS (which never splits glass in CC), like P7. Feel: crisp, no bounce (open ~350–400 ms, close ~250 ms). Top Shelf titles that are cut off scroll twice when focused, then rest with their ellipsis (an endless loop cost ~30% of a core).
+
+## 2026-10-09 · No glow under unfocused app icons (P60)
+The user decided: remove the icon-coloured resting glow entirely (it was uneven between apps). Like tvOS, only the focused tile gets its soft shadow and lift.
