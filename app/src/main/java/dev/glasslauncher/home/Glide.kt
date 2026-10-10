@@ -10,16 +10,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -65,15 +65,16 @@ fun Modifier.glide(key: String): Modifier {
     var lifted by remember(key) { mutableStateOf(false) }
     return this
         .zIndex(if (lifted) -1f else 0f)
-        // A tile taken off Home fades and shrinks a little where it stands before the others close the gap.
-        .graphicsLayer {
-            if (key in tracker.leaving) {
+        // A tile taken off Home fades and shrinks a little where it stands before the others close the gap. Only
+        // that tile gets a layer (a layer on every cell would clip the shadows at rest).
+        .then(
+            if (key in tracker.leaving) Modifier.graphicsLayer {
                 val a = tracker.leaveAlpha.value
                 alpha = a
                 val sc = 0.9f + 0.1f * a
                 scaleX = sc; scaleY = sc
-            }
-        }
+            } else Modifier,
+        )
         .onGloballyPositioned { c ->
             val now = c.positionInRoot()
             val before = tracker.last[key]
