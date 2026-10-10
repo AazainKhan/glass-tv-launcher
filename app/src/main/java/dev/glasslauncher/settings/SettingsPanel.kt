@@ -768,6 +768,7 @@ private fun AerialThumb(v: dev.glasslauncher.dream.AerialVideo, hidden: Boolean,
     val above = with(androidx.compose.ui.platform.LocalDensity.current) { AERIALS_BRING_ABOVE.toPx() }
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var thumbFocused by remember { mutableStateOf(false) }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.onSizeChanged { size = it }.bringIntoViewRequester(bring),
@@ -776,13 +777,13 @@ private fun AerialThumb(v: dev.glasslauncher.dream.AerialVideo, hidden: Boolean,
             label = if (hidden) "${v.label}, Hidden" else v.label,
             onClick = onClick,
             focusedScale = 1.1f,
-            onFocusChange = { if (it) scope.launch { bring.bringIntoView(androidx.compose.ui.geometry.Rect(0f, -above, size.width.toFloat(), size.height + below)) } },
+            onFocusChange = { thumbFocused = it; if (it) scope.launch { bring.bringIntoView(androidx.compose.ui.geometry.Rect(0f, -above, size.width.toFloat(), size.height + below)) } },
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("aerial:${v.id}"),
         ) {
             // Retried with backoff; the clip's name on a tint while the still isn't there (it is ~400 KB over the network).
             dev.glasslauncher.ui.ReliableImage(
                 v.thumbnail, Modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) 0.35f else 1f },
-                title = v.label.ifEmpty { "Aerial" }, width = 384, height = 216,
+                title = v.label.ifEmpty { "Aerial" }, width = 384, height = 216, focused = thumbFocused,
             )
             if (hidden) Image(
                 androidx.compose.ui.res.painterResource(dev.glasslauncher.R.drawable.ic_visibility_off), null,

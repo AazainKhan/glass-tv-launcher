@@ -61,4 +61,24 @@ class ReliableImageTest {
         assertEquals("each request is a new one", requests.toList().distinct(), requests.toList())
         compose.onNodeWithTag("art-fallback").assertExists()
     }
+
+    @Test fun whenTheNetworkReturnsAFailedImageAsksAgainWithoutRefocus() {
+        val requests = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        compose.setContent {
+            Box(Modifier.size(150.dp, 84.dp)) {
+                ReliableImage("file:///definitely/not/there.jpg", Modifier.size(150.dp, 84.dp), title = "Missing", retryDelay = { 5L }, onRequest = { requests += it })
+            }
+        }
+        val end = System.currentTimeMillis() + 20_000
+        while (requests.size < ArtRetry.MAX_ATTEMPTS + 1 && System.currentTimeMillis() < end) { compose.mainClock.advanceTimeBy(50); Thread.sleep(20) }
+        Thread.sleep(300)
+        compose.waitForIdle()
+        val before = requests.size
+        assertEquals(ArtRetry.MAX_ATTEMPTS + 1, before)
+        NetworkEpoch.bump() // connectivity came back
+        compose.waitForIdle()
+        val end2 = System.currentTimeMillis() + 20_000
+        while (requests.size <= before && System.currentTimeMillis() < end2) { compose.mainClock.advanceTimeBy(50); Thread.sleep(20) }
+        assertTrue("asked again after the network returned: $requests", requests.size > before)
+    }
 }

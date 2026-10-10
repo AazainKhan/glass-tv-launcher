@@ -75,7 +75,7 @@ fun CoverFlow(
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
     /** The cover picture, with its reflection, for an item's image; the default loads it (previews and tests give their own). */
-    coverArt: @Composable (String?) -> ImageBitmap? = { rememberCoverArt(it) },
+    coverArt: @Composable (String?, Boolean) -> ImageBitmap? = { url, centre -> rememberCoverArt(url, centre) },
 ) {
     if (items.isEmpty()) return
     val reduceMotion = LocalUiPrefs.current.reduceMotion
@@ -126,7 +126,8 @@ fun CoverFlow(
                     position = { position.value },
                     stackOrder = -kotlin.math.abs(i - current).toFloat(),
                     coverPx = coverPx,
-                    art = coverArt(items[i].image),
+                    art = coverArt(items[i].image, i == current),
+                    item = items[i],
                     tag = "cover:$i",
                     modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp),
                 )
@@ -143,7 +144,7 @@ fun CoverFlow(
 }
 
 @Composable
-private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx: Float, art: ImageBitmap?, tag: String, modifier: Modifier) {
+private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx: Float, art: ImageBitmap?, item: FeaturedItem, tag: String, modifier: Modifier) {
     val density = LocalDensity.current
     Box(
         modifier
@@ -168,8 +169,8 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
         if (bitmap != null) {
             Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
         } else {
-            // Until the art is there: a plain tile of the cover's size (the designed fallback is P53's).
-            Box(Modifier.size(COVER_DP.dp).background(Color(0xFF2A2C33)))
+            // Until the art is there (and if it never comes): the title on a tint, never a plain dark square (P63).
+            dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
         }
     }
 }
@@ -187,14 +188,23 @@ private fun Text(text: String, modifier: Modifier = Modifier, heading: Boolean =
 
 /** The cover with its reflection baked in, loaded and baked once per image and kept for a few at a time. */
 @Composable
-private fun rememberCoverArt(url: String?): ImageBitmap? {
+private fun rememberCoverArt(url: String?, centre: Boolean): ImageBitmap? {
     val context = LocalContext.current
-    val art by produceState(url?.let { CoverArtCache.get(it) }, url) {
+    // Asked again when the cover becomes the centre one, and when the network returns: a failed load is not final.
+    val network = dev.glasslauncher.ui.NetworkEpoch.value
+    val art by produceState(url?.let { CoverArtCache.get(it) }, url, centre, network) {
         if (url == null) return@produceState
-        value = CoverArtCache.get(url) ?: withContext(Dispatchers.Default) {
+        CoverArtCache.get(url)?.let { value = it; return@produceState }
+        value = withContext(Dispatchers.Default) {
             val request = ImageRequest.Builder(context).data(url).size(CoverArtCache.SIZE).allowHardware(false).build()
-            val result = SingletonImageLoader.get(context).execute(request) as? SuccessResult ?: return@withContext null
-            val source = result.image.toBitmap()
+            // A failed fetch is asked again with a growing wait (a few times in this run).
+            var result: SuccessResult? = null
+            for (attempt in 0..dev.glasslauncher.ui.ArtRetry.MAX_ATTEMPTS) {
+                result = SingletonImageLoader.get(context).execute(request) as? SuccessResult
+                if (result != null) break
+                if (attempt < dev.glasslauncher.ui.ArtRetry.MAX_ATTEMPTS) kotlinx.coroutines.delay(dev.glasslauncher.ui.ArtRetry.delayMs(attempt))
+            }
+            val source = result?.image?.toBitmap() ?: return@withContext null
             // Not recycled: Coil may hold this very bitmap for other users of the URL.
             CoverReflection.bake(CoverReflection.squared(source)).asImageBitmap().also { CoverArtCache.put(url, it) }
         }

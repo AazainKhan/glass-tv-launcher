@@ -115,4 +115,16 @@ class CoverFlowTest {
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         assertEquals(root.center.x, centreX(5), 3f)
     }
+
+    @Test fun aCoverThatCannotLoadShowsItsTitleOnATintNotADarkSquare() {
+        val failing = (0 until 5).map { FeaturedItem(id = "f$it", title = "Missing $it", subtitle = "Artist $it", image = "file:///no/such/$it.jpg", aspect = 1f) }
+        val requester = FocusRequester()
+        compose.setContent {
+            CoverFlow(items = failing, index = 2, onIndex = {}, onOpen = {}, onExit = {}, label = "Spotify", focusRequester = requester)
+        }
+        compose.mainClock.advanceTimeBy(800)
+        compose.waitForIdle()
+        val fallbacks = compose.onAllNodes(androidx.compose.ui.test.hasTestTag("art-fallback"), useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("every visible cover has the designed fallback: ${fallbacks.size}", fallbacks.size >= 5)
+    }
 }

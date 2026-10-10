@@ -39,6 +39,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        dev.glasslauncher.ui.NetworkEpoch.register(this)
         // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
         // not on the first bake's critical path.
         scope.launch(Dispatchers.Default) { runCatching { wallpapers.prewarm() } }

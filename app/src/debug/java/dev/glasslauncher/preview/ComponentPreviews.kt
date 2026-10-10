@@ -172,7 +172,7 @@ fun CoverFlowPreview() {
         dev.glasslauncher.featured.CoverFlow(
             items = items, index = 4, onIndex = {}, onOpen = {}, onExit = {}, label = "Spotify",
             focusRequester = remember { FocusRequester() },
-            coverArt = { url -> art[url] },
+            coverArt = { url, _ -> art[url] },
         )
     }
 }

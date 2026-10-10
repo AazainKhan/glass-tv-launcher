@@ -86,6 +86,11 @@ fun ReliableImage(
     LaunchedEffect(focused) {
         if (focused && !loaded && gaveUp) { gaveUp = false; run++ }
     }
+    // The network came back while this was still on its fallback: ask again, without waiting for a refocus.
+    val networkEpoch = NetworkEpoch.value
+    LaunchedEffect(networkEpoch) {
+        if (!loaded && gaveUp) { gaveUp = false; run++ }
+    }
     LaunchedEffect(url, run) {
         if (url == null) return@LaunchedEffect
         if (run > 0) attempt++ // the first request of this run
