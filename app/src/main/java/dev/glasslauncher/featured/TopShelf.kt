@@ -220,9 +220,6 @@ fun ExpandedShelf(
                     .testTag("featured-row"),
             ) {
                 itemsIndexed(feed.items, key = { _, it -> it.id }) { i, card ->
-                    val request = remember(card.image, square) {
-                        ImageRequest.Builder(context).data(card.image).size(if (square) 200 else 300, if (square) 200 else 170).crossfade(false).build()
-                    }
                     // Every card carries its title underneath, whatever the app (user, 2026-10-09).
                     var cardFocused by remember(card.id) { androidx.compose.runtime.mutableStateOf(false) }
                     Column(Modifier.width(cardWidth)) {
@@ -239,7 +236,11 @@ fun ExpandedShelf(
                                 .then(if (i == index) Modifier.focusRequester(firstCard) else Modifier)
                                 .testTag("featured:${card.id}"),
                         ) {
-                            AsyncImage(request, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            // Retried with backoff and again on focus; the title on a tint while it isn't there (never empty).
+                            dev.glasslauncher.ui.ReliableImage(
+                                card.image, Modifier.fillMaxSize(), title = card.title, subtitle = card.subtitle,
+                                width = if (square) 200 else 300, height = if (square) 200 else 170, focused = cardFocused,
+                            )
                         }
                         CardTitle(
                             card.title, focused = cardFocused,

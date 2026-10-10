@@ -59,6 +59,9 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
             .build()
     }
 
+    private val imageHttp: OkHttpClient by lazy {
+        http.newBuilder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS).build()
+    }
     val config by lazy { ConfigStore(this, scope) }
     val apps by lazy { AppRepository(this) }
     val iconPacks by lazy { IconPacks(this) }
@@ -70,7 +73,9 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { http })) }
+            // Images get tighter timeouts than the API calls: a stalled fetch must fail (and be retried) in seconds,
+            // not hold a card empty for the 30 s a feed or tarball may need.
+            .components { add(OkHttpNetworkFetcherFactory(callFactory = { imageHttp })) }
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.06).build() }
             .crossfade(true)
             .build()

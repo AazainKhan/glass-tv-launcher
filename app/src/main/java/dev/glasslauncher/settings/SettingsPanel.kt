@@ -632,6 +632,23 @@ private fun ChooseAerialsPage(model: HomeModel, cfg: LauncherConfig, active: Boo
     val first = remember { FocusRequester() }
     LaunchedEffect(active) { if (active) { delay(16); runCatching { first.requestFocus() } } }
     val clips = videos.orEmpty().filter { category.id in it.categories }
+    // The stills of the category being looked at are fetched ahead (two at a time, after the visible ones) into the disk cache, so scrolling
+    // finds them there instead of waiting on 400 KB each.
+    val prefetchContext = LocalContext.current
+    LaunchedEffect(clips.map { it.id }) {
+        // After the visible ones had their go (they ask first, and the prefetch never crowds them out), two at a time.
+        kotlinx.coroutines.delay(1_500)
+        val loader = coil3.SingletonImageLoader.get(prefetchContext)
+        val gate = kotlinx.coroutines.sync.Semaphore(2)
+        kotlinx.coroutines.coroutineScope {
+            clips.mapNotNull { it.thumbnail }.forEach { url ->
+                launch {
+                    gate.acquire()
+                    try { loader.execute(coil3.request.ImageRequest.Builder(prefetchContext).data(url).size(384, 216).build()) } finally { gate.release() }
+                }
+            }
+        }
+    }
 
     Row(Modifier.fillMaxSize()) {
         Column(Modifier.width(220.dp).padding(top = 44.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -708,11 +725,10 @@ private fun AerialThumb(v: dev.glasslauncher.dream.AerialVideo, hidden: Boolean,
             onFocusChange = { if (it) scope.launch { bring.bringIntoView(androidx.compose.ui.geometry.Rect(0f, -above, size.width.toFloat(), size.height + below)) } },
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("aerial:${v.id}"),
         ) {
-            coil3.compose.AsyncImage(
-                model = coil3.request.ImageRequest.Builder(context).data(v.thumbnail).size(384, 216).build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) 0.35f else 1f },
+            // Retried with backoff; the clip's name on a tint while the still isn't there (it is ~400 KB over the network).
+            dev.glasslauncher.ui.ReliableImage(
+                v.thumbnail, Modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) 0.35f else 1f },
+                title = v.label.ifEmpty { "Aerial" }, width = 384, height = 216,
             )
             if (hidden) Image(
                 androidx.compose.ui.res.painterResource(dev.glasslauncher.R.drawable.ic_visibility_off), null,
