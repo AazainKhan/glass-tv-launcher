@@ -288,7 +288,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // An expanded shelf of square covers (Spotify's albums and playlists) is a Cover Flow (P33): its background is
     // the focused cover, softly blurred and glossy, not the art drawn sharp.
     val coverShelf = expanded && feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)
-    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg, coverShelf) {
+    // A Cover Flow whose cover couldn't be fetched shows the wallpaper; it bakes again when the network returns (P65).
+    val coverNetwork = if (coverShelf) dev.glasslauncher.ui.NetworkEpoch.value else 0
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg, coverShelf, coverNetwork) {
         if (takeoverArt != null) {
             backdrop.glassFades = true
             backdrop.swap(graph.wallpapers.fromImage(dev.glasslauncher.widgets.backdropArt(takeoverArt), light = !dark), animate = backdrop.backdrop != null)
@@ -329,8 +331,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 else graph.wallpapers.fromUrl(url, light = !dark)
             }.getOrNull()
         } ?: graph.wallpapers.load(wallpaper, light = !dark)
-        // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement.
-        backdrop.swap(next, animate = backdrop.backdrop != null)
+        // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement. (The same scene again, as
+        // when the network returns with the cover already showing, is left as it is.)
+        if (next !== backdrop.backdrop) backdrop.swap(next, animate = backdrop.backdrop != null)
         // Cover Flow: bake the covers either side while this one rests, so the next step needn't wait.
         if (coverShelf && feed != null) {
             for (i in listOf(heroIndex + 1, heroIndex - 1)) {
