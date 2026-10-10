@@ -85,6 +85,9 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
     val thrown = remember { mutableStateListOf<AppEntry>() }
     val positions = remember { HashMap<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
     val closeScope = androidx.compose.runtime.rememberCoroutineScope()
+    // The title of the app just thrown away fades out while the next one fades in, over the card's own exit.
+    var titleLeaving by remember { mutableStateOf<AppEntry?>(null) }
+    val titleFade = remember { androidx.compose.animation.core.Animatable(1f) }
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(id: String) = requesters.getOrPut(id) { FocusRequester() }
     fun idAt(i: Int) = if (i == apps.size) HOME_ID else apps[i].packageName
@@ -153,6 +156,12 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                                     )
                                 }
                                 thrown += app
+                                titleLeaving = app
+                                closeScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                    titleFade.snapTo(if (reduceMotion) 1f else 0f)
+                                    titleFade.animateTo(1f, androidx.compose.animation.core.tween(if (reduceMotion) 0 else LEAVE_MS))
+                                    titleLeaving = null
+                                }
                                 apps.removeAt(selected)
                                 selected = selected.coerceAtMost(apps.size)
                             }
@@ -162,28 +171,10 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                     }
                 },
         ) {
-            // The focused app's icon and name, above the centre card's left edge.
-            val title = apps.getOrNull(selected)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                // The card's width, fixed: the name changes with the card, and the row's box must not change size with it.
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (CENTRE_X - CARD_W / 2).dp, y = (CARD_TOP - 52).dp).width(CARD_W.dp),
-            ) {
-                // The icon's slot is always there (empty for Home): the name must not slide sideways as it changes.
-                Box(Modifier.size(56.dp, 34.dp)) {
-                    if (title != null) rememberArt(model, title)?.let {
-                        Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(7.dp)))
-                    }
-                }
-                Text(
-                    title?.label ?: "Home",
-                    style = Type.heading,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 14.dp).testTag("switcher-title"),
-                )
-            }
+            // The focused app's icon and name, above the centre card's left edge. After Up the closed app's title
+            // is still there, fading out as its card leaves, and the next one fades in with the gap closing.
+            SwitcherTitle(model, apps.getOrNull(selected), "switcher-title") { titleFade.value }
+            titleLeaving?.let { gone -> SwitcherTitle(model, gone, "switcher-title-leaving") { 1f - titleFade.value } }
             for (i in 0..apps.size) {
                 val d = i - selected
                 if (d < -STACKED - 1 || d > 2) continue
@@ -257,6 +248,34 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 44.dp),
             )
         }
+    }
+}
+
+/** The focused app's icon and name above the centre card (Home when [app] is null), drawn at [alpha]. */
+@Composable
+private fun SwitcherTitle(model: HomeModel, app: AppEntry?, tag: String, alpha: () -> Float) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        // The card's width, fixed: the name changes with the card, and the row's box must not change size with it.
+        modifier = Modifier
+            .offset(x = (CENTRE_X - CARD_W / 2).dp, y = (CARD_TOP - 52).dp)
+            .width(CARD_W.dp)
+            .graphicsLayer { this.alpha = alpha() },
+    ) {
+        // The icon's slot is always there (empty for Home): the name must not slide sideways as it changes.
+        Box(Modifier.size(56.dp, 34.dp)) {
+            if (app != null) rememberArt(model, app)?.let {
+                Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(7.dp)))
+            }
+        }
+        Text(
+            app?.label ?: "Home",
+            style = Type.heading,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 14.dp).testTag(tag),
+        )
     }
 }
 
