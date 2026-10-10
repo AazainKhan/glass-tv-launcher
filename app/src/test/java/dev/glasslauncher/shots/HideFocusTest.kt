@@ -60,6 +60,25 @@ class HideFocusTest {
             it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag] to it.boundsInRoot.left
         }
 
+    /**
+     * Presses Select with the clock stopped, then waits in real time (the clock barely moving) until the hide's
+     * config write has landed in Home's layout: it is on another thread, and fake time must not run out the
+     * glide's tail before it arrives.
+     */
+    private fun selectAndWaitForLayout() {
+        val seen = dev.glasslauncher.home.GlideTracker.layoutsSeen
+        compose.mainClock.autoAdvance = false
+        compose.onRoot().performKeyInput { pressKey(Button.Select.key) }
+        repeat(2000) {
+            Thread.sleep(10)
+            // Reading the tree lets the main looper deliver what the background thread posted.
+            appBoxes()
+            compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+            if (dev.glasslauncher.home.GlideTracker.layoutsSeen > seen) return
+        }
+        error("the hide never landed")
+    }
+
     /** After Hide the tiles that followed it close the gap by gliding, not in one frame (the continuity rule). */
     @Test fun theTilesAfterAHiddenOneGlideIntoTheGap() {
         TvHarness.setUp()
@@ -100,6 +119,75 @@ class HideFocusTest {
                 val step = biggest.getValue(tag)
                 check(step < kotlin.math.abs(travel) / 3f) { "$tag moved $step of its $travel px in one frame: it jumped instead of gliding" }
             }
+        }
+    }
+
+    /**
+     * P62: the hidden tile fades out where it stands (about 200 ms) before the others glide into the gap; it
+     * doesn't vanish in one frame with the others already on the move.
+     */
+    @Test fun theHiddenTileFadesBeforeTheOthersGlide() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.settle()
+            compose.press(Button.Down, Button.Right) // first grid row, second tile
+            compose.settle()
+            val victim = compose.focused()!!
+            val before = appBoxes()
+            check(victim in before) { "$victim isn't on screen" }
+            compose.press(Button.Menu)
+            compose.settle()
+            compose.press(Button.Down, Button.Down, Button.Down)
+            compose.settle()
+            selectAndWaitForLayout()
+            var landed = true           // the layout change is in
+            var presentAfterLanding = 0 // frames the victim stayed on screen after that
+            var movedWhilePresent = 0f  // how far any other tile moved while it was there
+            var gone = false
+            repeat(150) {
+                Thread.sleep(8)
+                compose.mainClock.advanceTimeBy(16)
+                val now = appBoxes()
+                if (landed && !gone) {
+                    if (victim in now) {
+                        presentAfterLanding++
+                        for ((tag, x) in now) if (tag != victim) movedWhilePresent = maxOf(movedWhilePresent, kotlin.math.abs(x - (before[tag] ?: x)))
+                    } else gone = true
+                }
+            }
+            compose.mainClock.autoAdvance = true
+            check(gone) { "$victim never left the screen" }
+            check(presentAfterLanding >= 8) { "$victim vanished after $presentAfterLanding frames: it should fade for ~200 ms" }
+            check(movedWhilePresent < 20f) { "other tiles moved $movedWhilePresent px while $victim was still fading" }
+        }
+    }
+
+    /** P62: a tile wrapping to the previous row glides beneath its row's other tiles, not across their faces. */
+    @Test fun aTileWrappingToThePreviousRowGlidesBeneathTheOthers() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.settle()
+            compose.press(Button.Down) // first grid row, first tile: the second row's first tile wraps up into the gap
+            compose.settle()
+            val victim = compose.focused()!!
+            val wraps = dev.glasslauncher.home.GlideTracker.wrapGlides
+            fun pos() = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("an app tile") { n ->
+                n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)?.startsWith("app:") == true
+            }, useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag].removePrefix("app:")}@${it.boundsInRoot.left.toInt()},${it.boundsInRoot.top.toInt()}" }
+            val p0 = pos()
+            compose.press(Button.Menu)
+            compose.settle()
+            compose.press(Button.Down, Button.Down, Button.Down)
+            compose.settle()
+            selectAndWaitForLayout()
+            repeat(150) {
+                Thread.sleep(8)
+                compose.mainClock.advanceTimeBy(16)
+            }
+            compose.mainClock.autoAdvance = true
+            check(dev.glasslauncher.home.GlideTracker.wrapGlides > wraps) { "no tile changed rows (wraps ${dev.glasslauncher.home.GlideTracker.wrapGlides} was $wraps); focus was ${compose.focused()}\nbefore $p0\nafter ${pos()}" }
         }
     }
 }

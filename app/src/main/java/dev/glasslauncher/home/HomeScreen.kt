@@ -758,7 +758,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
                 CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
                     HomeList(
-                        layout = layout,
+                        target = layout,
                         model = model,
                         listState = listState,
                         moving = moving,
@@ -994,6 +994,16 @@ private sealed interface Cell {
     data object Settings : Cell
 }
 
+/** The keys of every tile on Home in [layout]: tray, grid and the Settings tile. */
+private fun tileKeys(layout: HomeLayout): Set<String> =
+    HashSet<String>(layout.dock.size + layout.grid.size + 1).apply {
+        layout.dock.forEach { add(appKey(it.packageName)) }
+        layout.grid.forEach { add(it.key) }
+    }
+
+/** How long a tile taken off Home takes to fade out before the others close the gap. */
+private const val LEAVE_MS = 200
+
 private fun cellKey(cell: Cell): String = when (cell) {
     is Cell.Item -> cell.item.key
     Cell.Settings -> SETTINGS_TILE_KEY
@@ -1001,7 +1011,7 @@ private fun cellKey(cell: Cell): String = when (cell) {
 
 @Composable
 private fun HomeList(
-    layout: HomeLayout,
+    target: HomeLayout,
     model: HomeModel,
     listState: LazyListState,
     moving: String?,
@@ -1022,13 +1032,6 @@ private fun HomeList(
     val m = LocalMetrics.current
     val screen = androidx.compose.ui.platform.LocalConfiguration.current
     val trayTop = m.trayTop(screen.screenWidthDp.dp, screen.screenHeightDp.dp)
-    // With larger text the tray holds fewer columns: its other apps lead the grid instead of vanishing.
-    val dockShown = layout.dock.take(m.columns)
-    val dockExtra = layout.dock.drop(m.columns)
-    val cells = remember(layout.grid, dockExtra) {
-        dockExtra.map<dev.glasslauncher.apps.AppEntry, Cell> { Cell.Item(GridItem.App(it)) } + layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings
-    }
-    val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
     // A changed layout makes the cells that moved glide to their new spots: in move mode, and after an app menu
     // action takes a tile off Home (Hide, Uninstall, Move to Folder): the tiles after it glide into the gap.
     val glide = remember { GlideTracker() }
@@ -1037,11 +1040,37 @@ private fun HomeList(
     // write landing after the menu closes): the rest of the time no cell tracks its placement, so scrolling the
     // grid costs nothing for it.
     var gliding by remember { mutableStateOf(false) }
+    // A tile taken off Home fades out where it stands first (LEAVE_MS), and only then do the others glide into
+    // the gap: the list is held at the layout it had until the fade is over.
+    var shown by remember { mutableStateOf(target) }
+    val leavers = remember(target, shown, moving) {
+        if (moving != null || shown === target) emptySet() else tileKeys(shown) - tileKeys(target)
+    }
+    val holding = leavers.isNotEmpty() && (tracking || gliding)
+    val layout = if (holding) shown else target
+    LaunchedEffect(target, holding) {
+        GlideTracker.layoutsSeen++
+        if (holding) {
+            glide.leaving = leavers
+            try {
+                glide.leaveAlpha.snapTo(1f)
+                glide.leaveAlpha.animateTo(0f, tween(LEAVE_MS, easing = androidx.compose.animation.core.FastOutLinearInEasing))
+            } finally { glide.leaving = emptySet() }
+        }
+        shown = target
+    }
     // A layout change while tracking (or in the tail after a menu closed) is a new generation: its cells glide.
     remember(layout) { if (tracking || gliding) glide.generation++; glide.generation }
     LaunchedEffect(tracking) {
         if (tracking) gliding = true else { delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
     }
+    // With larger text the tray holds fewer columns: its other apps lead the grid instead of vanishing.
+    val dockShown = layout.dock.take(m.columns)
+    val dockExtra = layout.dock.drop(m.columns)
+    val cells = remember(layout.grid, dockExtra) {
+        dockExtra.map<dev.glasslauncher.apps.AppEntry, Cell> { Cell.Item(GridItem.App(it)) } + layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings
+    }
+    val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
     CompositionLocalProvider(LocalGlide provides glide.takeIf { gliding || tracking }) {
     LazyColumn(
         state = listState,
