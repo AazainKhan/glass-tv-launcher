@@ -57,6 +57,8 @@ class GlideTracker {
         /** Tests only: glides started from a predicted position (in the composing frame) and from a measured one (a frame late). */
         @androidx.annotation.VisibleForTesting @Volatile var predictedGlides = 0
         @androidx.annotation.VisibleForTesting @Volatile var measuredGlides = 0
+        /** Tests only: the opacity a wrapping tile was last drawn at (1 when none is wrapping). */
+        @androidx.annotation.VisibleForTesting @Volatile var wrapAlpha = 1f
     }
 
     /** Forgets where cells were: positions kept from before a scroll would make the next move glide from the wrong place. */
@@ -68,8 +70,13 @@ const val GLIDE_TAIL_MS = 600L
 
 val LocalGlide = compositionLocalOf<GlideTracker?> { null }
 
-/** How long a wrapping tile takes to slide out past the end of its old row. */
-private const val WRAP_OUT_MS = 200
+/** How long a wrapping tile takes to slide out past the end of its old row, and to come in at its new one. */
+private const val WRAP_OUT_MS = 60
+private const val WRAP_IN_MS = 200
+/** How far past the row's edge (in tile widths) the exit goes, fading as it does, and the entry starts from. */
+private const val WRAP_EDGE = 0.45f
+/** The exit goes this fraction of that distance, fading out completely by half of it. */
+private const val WRAP_OUT_FRACTION = 0.4f
 
 private val GlideSpec = spring<Offset>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = Offset(0.5f, 0.5f))
 
@@ -100,14 +107,16 @@ fun Modifier.glide(key: String): Modifier {
                 // Old place is to the right of the new one: it was at the end of its row and goes on to the start of
                 // the next (out to the right, in from the left); and the other way round.
                 val sign = if (from.x > 0f) 1f else -1f
-                val gap = tile * 1.15f
+                // Only part of a tile past the edge: the grid reaches nearly to the screen's sides, so a whole tile's
+                // travel is off screen and the slide reads as a disappearance (seen on the stick).
+                val gap = tile * WRAP_EDGE
                 wrap[0] = from.x; wrap[1] = gap; wrap[2] = 0f
-                slide.animateTo(Offset(from.x + sign * gap, from.y), tween(WRAP_OUT_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                slide.animateTo(Offset(from.x + sign * gap * WRAP_OUT_FRACTION, from.y), tween(WRAP_OUT_MS, easing = androidx.compose.animation.core.LinearEasing))
                 wrap[2] = 1f
                 slide.snapTo(Offset(-sign * gap, 0f))
-                slide.animateTo(Offset.Zero, GlideSpec)
+                slide.animateTo(Offset.Zero, tween(WRAP_IN_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
             } else slide.animateTo(Offset.Zero, GlideSpec)
-        } finally { if (slide.value == Offset.Zero) wrapping = false }
+        } finally { if (slide.value == Offset.Zero) { wrapping = false; GlideTracker.wrapAlpha = 1f } }
     }
     // The offset goes on in the frame the cell first composes in its new place, before it is laid out there.
     val predicted = tracker.predicted[key]
@@ -147,8 +156,11 @@ fun Modifier.glide(key: String): Modifier {
         // Only as it passes the row's edge does a wrapping tile fade; inside the grid it is solid.
         .then(
             if (wrapping) Modifier.graphicsLayer {
-                val out = if (wrap[2] == 0f) kotlin.math.abs(slide.value.x - wrap[0]) else kotlin.math.abs(slide.value.x)
-                alpha = (1f - out / wrap[1]).coerceIn(0f, 1f)
+                // Leaving: gone by half of its (short) travel (the neighbour arriving at the slot must not meet a still-solid tile);
+                // arriving: solid as it reaches its slot.
+                alpha = if (wrap[2] == 0f) (1f - kotlin.math.abs(slide.value.x - wrap[0]) / (wrap[1] * WRAP_OUT_FRACTION * 0.5f)).coerceIn(0f, 1f)
+                    else (1f - kotlin.math.abs(slide.value.x) / wrap[1]).coerceIn(0f, 1f)
+                GlideTracker.wrapAlpha = alpha
             } else Modifier,
         )
         // A layout offset, not a graphicsLayer: a layer would clip the tiles' shadows at rest.

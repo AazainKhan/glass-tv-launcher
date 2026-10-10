@@ -75,6 +75,8 @@ class WrapBehindTest {
             var slidOut = false
             var solidInGrid = 0
             var faintInGrid = 0
+            var goneRun = 0
+            var longestGone = 0
             val worst = StringBuilder()
             repeat(120) { f ->
                 Thread.sleep(8)
@@ -87,8 +89,14 @@ class WrapBehindTest {
                 for ((tag, r) in now) {
                     if (tag == glider) continue
                     val o = r.intersect(g)
-                    if (o.width > 4f && o.height > 4f) { overlapFrames++; if (worst.length < 300) worst.append("frame $f: over $tag ($o); ") }
+                    // (A tile all but faded away at the row's edge may be passed by the neighbour arriving there.)
+                    if (o.width > 4f && o.height > 4f && GlideTracker.wrapAlpha > 0.25f) { overlapFrames++; if (worst.length < 300) worst.append("frame $f: over $tag ($o); ") }
                 }
+                // Out of sight: faded away, or off the screen (the grid reaches nearly to its sides, so a whole tile's
+                // travel is off screen: the stick showed that as a disappearance and a pop).
+                val vl = g.left.coerceAtLeast(0f); val vr = g.right.coerceAtMost(rootW)
+                val visible = ((vr - vl) / g.width).coerceIn(0f, 1f) * GlideTracker.wrapAlpha
+                if (visible >= 0.15f) goneRun = 0 else { goneRun++; longestGone = maxOf(longestGone, goneRun) }
                 if (inGrid) {
                     val shot = compose.onRoot().captureToImage().asAndroidBitmap()
                     val px = (g.left + g.width * 0.12f).toInt().coerceIn(0, shot.width - 1)
@@ -102,6 +110,7 @@ class WrapBehindTest {
             check(slidOut) { "the wrapping tile never slid out past its row's edge" }
             check(solidInGrid > 0) { "the wrapping tile was never seen solid inside the grid" }
             check(faintInGrid == 0) { "the wrapping tile was faint inside the grid in $faintInGrid frames (it fades only past the row's edge)" }
+            check(longestGone <= 6) { "the wrapping tile was out of sight for $longestGone frames in a row (a disappear and pop); it should be mostly in view throughout, fading only briefly at the switch" }
             check(overlapFrames == 0) { "the wrapping tile's path crossed another tile in $overlapFrames frames: $worst" }
         }
     }
