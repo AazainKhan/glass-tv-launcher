@@ -35,7 +35,15 @@ object GlassMatch {
      * Control Center's material, baked with the backdrop: [bitmap] covers the screen rectangle [left]..[right] ×
      * [top]..[bottom] (fractions of the root). [pixels] is kept only for tests ([keepPixels]).
      */
-    class PanelSheet(val bitmap: Bitmap, val left: Float, val top: Float, val right: Float, val bottom: Float, val pixels: Sheet?)
+    class PanelSheet(val bitmap: Bitmap, val left: Float, val top: Float, val right: Float, val bottom: Float, val pixels: Sheet?, val luma: Float = 0f)
+
+    /** Mean luminance (0..1) of ARGB [px]: read at bake time, since a HARDWARE bitmap cannot be read back. */
+    internal fun meanLuma(px: IntArray): Float {
+        if (px.isEmpty()) return 0f
+        var sum = 0.0
+        for (c in px) sum += 0.2126 * ((c shr 16) and 0xFF) + 0.7152 * ((c shr 8) and 0xFF) + 0.0722 * (c and 0xFF)
+        return (sum / (px.size * 255.0)).toFloat()
+    }
 
     /** Tests only: how many sheets have been baked (Control Center's open must not add one). */
     @androidx.annotation.VisibleForTesting @Volatile var sheetBakes = 0
@@ -70,7 +78,7 @@ object GlassMatch {
         val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft
         // Fire OS drops Log.d from apps, so debug builds log at info level.
         if (dev.glasslauncher.BuildConfig.DEBUG) android.util.Log.i("CcMaterial", "sheet bake ${android.os.SystemClock.elapsedRealtime() - t0}ms (${sheet.width}x${sheet.height}, ${sheet.pixels.size * 4} bytes) on ${Thread.currentThread().name}")
-        return PanelSheet(bitmap, CC_LEFT, 0f, 1f, 1f, sheet.takeIf { keepPixels })
+        return PanelSheet(bitmap, CC_LEFT, 0f, 1f, 1f, sheet.takeIf { keepPixels }, meanLuma(sheet.pixels))
     }
 
     /**

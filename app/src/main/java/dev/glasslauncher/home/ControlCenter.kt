@@ -279,6 +279,11 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
             setLocalMatrix(android.graphics.Matrix().apply { setScale(panel.width / it.width, panel.height / it.height); postTranslate(panel.left + tx, panel.top + ty); then?.invoke(this) })
         }
     }
+    /**
+     * How light the sheet is (0..1, mean luminance of its small bitmap): over a light scene (a white app) a black
+     * bevel reads as grey halos around the tiles (P38), so the shade follows it.
+     */
+    private val sheetLuma: Float get() = baked?.luma ?: 0f
     /** The sheet in window coordinates, for the bubble. */
     /** The sheet's one flat colour, for a software canvas, which can't draw the (hardware) sheet bitmap. */
     val flatBrush: androidx.compose.ui.graphics.Brush get() = androidx.compose.ui.graphics.SolidColor(flat)
@@ -296,7 +301,7 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
         // the bottom; the middle is the sheet untouched, so labels and the one-material colour are not lit up.
         val bevel = android.graphics.LinearGradient(
             0f, 0f, 0f, height,
-            intArrayOf(Color.White.copy(alpha = 0.10f).toArgb(), 0, 0, Color.Black.copy(alpha = 0.12f).toArgb()),
+            intArrayOf(Color.White.copy(alpha = 0.10f).toArgb(), 0, 0, bevelShade(sheetLuma).toArgb()),
             floatArrayOf(0f, 0.12f, 0.85f, 1f), android.graphics.Shader.TileMode.CLAMP,
         )
         return androidx.compose.ui.graphics.ShaderBrush(android.graphics.ComposeShader(sheet, bevel, android.graphics.PorterDuff.Mode.SRC_OVER))
@@ -309,6 +314,17 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
  */
 internal fun androidx.compose.ui.graphics.drawscope.DrawScope.hardwareCanvas(): Boolean =
     drawContext.canvas.nativeCanvas.isHardwareAccelerated
+
+/**
+ * The colour of the tiles' bottom bevel over a sheet of mean luminance [luma]: a faint black shade over a dark or
+ * mid scene, and over a light one (above [LIGHT_SHEET]) a cool, lighter shade at a third of the strength, so it
+ * never reads as a grey halo under the tile (P38).
+ */
+internal fun bevelShade(luma: Float): Color =
+    if (luma > LIGHT_SHEET) Color(0xFF6B7391).copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.12f)
+
+/** A sheet lighter than this (mean luminance) is a light scene for the bevel. */
+internal const val LIGHT_SHEET = 0.62f
 
 /**
  * Holds the open's [CcSheet]. Provided once (it never changes identity), and read only while drawing, so taking or
