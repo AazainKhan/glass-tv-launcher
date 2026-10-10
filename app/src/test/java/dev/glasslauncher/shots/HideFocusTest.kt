@@ -145,12 +145,16 @@ class HideFocusTest {
             var presentAfterLanding = 0 // frames the victim stayed on screen after that
             var movedWhilePresent = 0f  // how far any other tile moved while it was there
             var gone = false
+            var reappeared = false
+            var focusWhilePresent: String? = null
             repeat(150) {
                 Thread.sleep(8)
                 compose.mainClock.advanceTimeBy(16)
                 val now = appBoxes()
+                if (gone && victim in now) reappeared = true
                 if (landed && !gone) {
                     if (victim in now) {
+                        compose.focused()?.let { f -> if (f != victim) focusWhilePresent = f }
                         presentAfterLanding++
                         for ((tag, x) in now) if (tag != victim) movedWhilePresent = maxOf(movedWhilePresent, kotlin.math.abs(x - (before[tag] ?: x)))
                     } else gone = true
@@ -158,6 +162,8 @@ class HideFocusTest {
             }
             compose.mainClock.autoAdvance = true
             check(gone) { "$victim never left the screen" }
+            check(!reappeared) { "$victim came back on screen after it had left (a flash at full opacity)" }
+            assertEquals("focus stays on the neighbour when the layout swaps", focusWhilePresent, compose.focused())
             check(presentAfterLanding >= 8) { "$victim vanished after $presentAfterLanding frames: it should fade for ~200 ms" }
             check(movedWhilePresent < 20f) { "other tiles moved $movedWhilePresent px while $victim was still fading" }
         }

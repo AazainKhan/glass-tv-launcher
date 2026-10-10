@@ -228,6 +228,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { model.endMove() } }
     LaunchedEffect(overlays.none { it is Overlay.FolderOpen }) { if (overlays.none { it is Overlay.FolderOpen }) folderMoving = null }
     var lastFocused by remember { mutableStateOf<String?>(null) }
+    // The list swaps layouts a tile's fade after the change landed (P62): positions shift under the focused tile,
+    // so focus is put back on what it was on when that happens.
+    var heldFocus by remember { mutableStateOf<String?>(null) }
+    var swaps by remember { mutableIntStateOf(0) }
     var focusedRow by remember { mutableIntStateOf(1) }
     val expand = remember { Animatable(0f) }
     var expanded by remember { mutableStateOf(false) }
@@ -573,6 +577,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
     }
     LaunchedEffect(layout, moving) { moving?.let { focusKey(it) } }
+    LaunchedEffect(swaps) {
+        val held = heldFocus
+        if (swaps > 0 && held != null && overlays.isEmpty() && !expanded && moving == null) {
+            withFrameNanos { }
+            focusKey(held)
+        }
+    }
     // An app menu action can take the focused tile off Home (into a folder, hidden); config writes land
     // after the menu closes, so re-home focus whenever the layout changes under it.
     LaunchedEffect(layout) {
@@ -759,6 +770,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
                     HomeList(
                         target = layout,
+                        onSwap = { heldFocus = lastFocused; swaps++ },
                         model = model,
                         listState = listState,
                         moving = moving,
@@ -1012,6 +1024,8 @@ private fun cellKey(cell: Cell): String = when (cell) {
 @Composable
 private fun HomeList(
     target: HomeLayout,
+    /** The list is about to swap to a new layout after a tile's fade: focus will be re-resolved by position. */
+    onSwap: () -> Unit,
     model: HomeModel,
     listState: LazyListState,
     moving: String?,
@@ -1052,13 +1066,20 @@ private fun HomeList(
         GlideTracker.layoutsSeen++
         if (holding) {
             glide.leaving = leavers
-            try {
-                glide.leaveAlpha.snapTo(1f)
-                glide.leaveAlpha.animateTo(0f, tween(LEAVE_MS, easing = androidx.compose.animation.core.FastOutLinearInEasing))
-            } finally { glide.leaving = emptySet() }
+            glide.leaveAlpha.snapTo(1f)
+            glide.leaveAlpha.animateTo(0f, tween(LEAVE_MS, easing = androidx.compose.animation.core.FastOutLinearInEasing))
+            // The tiles shift places under the focused one when the layout swaps: let Home put focus back.
+            onSwap()
+            // The tile stays at alpha 0 (leaving) until the swap has taken it out of the list: clearing it first
+            // drew it again at full opacity for a frame.
+            shown = target
+        } else {
+            shown = target
+            glide.leaving = emptySet()
         }
-        shown = target
     }
+    // Cleared once the list no longer holds the leaving tile (the recomposition after the swap).
+    LaunchedEffect(shown) { if (shown === target) glide.leaving = emptySet() }
     // A layout change while tracking (or in the tail after a menu closed) is a new generation: its cells glide.
     remember(layout) { if (tracking || gliding) glide.generation++; glide.generation }
     LaunchedEffect(tracking) {
