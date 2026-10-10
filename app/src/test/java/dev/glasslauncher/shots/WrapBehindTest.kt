@@ -20,9 +20,9 @@ import org.robolectric.annotation.Config
 import kotlin.math.abs
 
 /**
- * P73: after Hide, the tile that wraps up a row (the second grid row's first tile, Twitch) glides across the
- * others behind them, never in front of their faces. Judged by pixels: where it overlaps another tile, the
- * picture there must be that tile's, not the wrapping one's.
+ * P73: after Hide, the tile that wraps up a row (the second grid row's first tile, Twitch) slides out past the
+ * end of its old row and in from beyond the end of its new row (tvOS), never crossing another tile, and it fades
+ * only past the row's edge, never inside the grid.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = TV)
@@ -69,48 +69,40 @@ class WrapBehindTest {
                     if (GlideTracker.layoutsSeen > seen) return@landing
                 }
             }
-            var overlaps = 0
-            var inFront = 0
+            val rootW = shot0.width.toFloat()
+            val inset = before.values.minOf { it.left }
+            var overlapFrames = 0
+            var slidOut = false
+            var solidInGrid = 0
+            var faintInGrid = 0
             val worst = StringBuilder()
-            val path = ArrayList<androidx.compose.ui.geometry.Rect>()
-            val ghostSamples = ArrayList<Pair<Float, Int>>() // (how far along the path, distance of the pixel from the tile's colour)
-            repeat(100) { f ->
+            repeat(120) { f ->
                 Thread.sleep(8)
                 compose.mainClock.advanceTimeBy(16)
                 val now = tiles()
                 val g = now[glider] ?: return@repeat
-                val shot = compose.onRoot().captureToImage().asAndroidBitmap()
-                path += g
-                // Clear of every other tile: the pixel at the tile's own top-left corner is the tile or what is behind it.
-                val px = (g.left + g.width * 0.12f).toInt(); val py = (g.top + g.height * 0.12f).toInt()
-                val clear = now.none { (t, r) -> t != glider && r.contains(androidx.compose.ui.geometry.Offset(px.toFloat(), py.toFloat())) }
-                if (clear) colour[glider]?.let { c -> ghostSamples += (g.center.x to dist(shot.getPixel(px.coerceIn(0, shot.width - 1), py.coerceIn(0, shot.height - 1)), c)) }
+                // Past the grid's side margins (a row's own edge): it is leaving or arriving.
+                val inGrid = g.left >= inset - 2f && g.right <= rootW - inset + 2f
+                if (!inGrid) slidOut = true
                 for ((tag, r) in now) {
                     if (tag == glider) continue
                     val o = r.intersect(g)
-                    if (o.width < 8f || o.height < 8f) continue
-                    val mine = colour[glider] ?: continue
-                    val theirs = colour[tag] ?: continue
-                    if (dist(mine, theirs) < 90) continue // too alike to tell apart
-                    // Nine points over the overlap: which tile's colour is drawn there?
-                    var gl = 0; var other = 0
-                    for (i in 1..3) for (j in 1..3) {
-                        val px = shot.getPixel((o.left + o.width * i / 4f).toInt().coerceIn(0, shot.width - 1), (o.top + o.height * j / 4f).toInt().coerceIn(0, shot.height - 1))
-                        if (dist(px, mine) + 20 < dist(px, theirs)) gl++ else if (dist(px, theirs) + 20 < dist(px, mine)) other++
-                    }
-                    if (gl + other == 0) continue
-                    overlaps++
-                    if (gl > other) { inFront++; if (worst.length < 400) worst.append("frame $f: $glider over $tag ($gl vs $other points); ") }
+                    if (o.width > 4f && o.height > 4f) { overlapFrames++; if (worst.length < 300) worst.append("frame $f: over $tag ($o); ") }
+                }
+                if (inGrid) {
+                    val shot = compose.onRoot().captureToImage().asAndroidBitmap()
+                    val px = (g.left + g.width * 0.12f).toInt().coerceIn(0, shot.width - 1)
+                    val py = (g.top + g.height * 0.12f).toInt().coerceIn(0, shot.height - 1)
+                    val covered = now.any { (t, r) -> t != glider && r.contains(androidx.compose.ui.geometry.Offset(px.toFloat(), py.toFloat())) }
+                    val mine = colour[glider]
+                    if (!covered && mine != null) { if (dist(shot.getPixel(px, py), mine) < 90) solidInGrid++ else faintInGrid++ }
                 }
             }
             compose.mainClock.autoAdvance = true
-            // Mid-flight over clear space the tile is a ghost: its corner isn't its colour (at the ends it is).
-            val x0 = path.first().center.x; val x1 = path.last().center.x
-            val mid = ghostSamples.filter { (x, _) -> abs((x - x0) / (x1 - x0).let { if (it == 0f) 1f else it } - 0.5f) < 0.2f }
-            check(mid.isNotEmpty()) { "no frame of the flight was over clear space (path ${path.size} frames, $x0 -> $x1)" }
-            check(mid.any { it.second > 60 }) { "the wrapping tile stays solid mid-flight (distances ${mid.map { it.second }})" }
-            check(overlaps > 0) { "the wrapping tile never overlapped another tile, so this proves nothing" }
-            check(inFront == 0) { "the wrapping tile was drawn in front of others in $inFront of $overlaps overlaps: $worst" }
+            check(slidOut) { "the wrapping tile never slid out past its row's edge" }
+            check(solidInGrid > 0) { "the wrapping tile was never seen solid inside the grid" }
+            check(faintInGrid == 0) { "the wrapping tile was faint inside the grid in $faintInGrid frames (it fades only past the row's edge)" }
+            check(overlapFrames == 0) { "the wrapping tile's path crossed another tile in $overlapFrames frames: $worst" }
         }
     }
 }

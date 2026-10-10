@@ -116,6 +116,9 @@ class HideFocusTest {
             // travel (a jump carries all of it, in one frame).
             for ((tag, travel) in total) {
                 if (kotlin.math.abs(travel) < 100f) continue
+                // The tile that wraps to the other end of the row slides out past its row's edge and in from the
+                // other side (P73, WrapBehindTest): its jump happens off the grid, fully faded.
+                if (tag == "app:tv.twitch.android.viewer") continue
                 val step = biggest.getValue(tag)
                 check(step < kotlin.math.abs(travel) / 3f) { "$tag moved $step of its $travel px in one frame: it jumped instead of gliding" }
             }
