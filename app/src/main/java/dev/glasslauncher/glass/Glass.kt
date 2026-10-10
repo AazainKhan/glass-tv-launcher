@@ -212,7 +212,13 @@ private class GlassNode(
         // Flat while the backdrop is blurred or blurring; the texture fades back in after the scroll lands.
         // Glass that carries text (overlays, Control Center) always keeps its texture: a flat tint fails
         // contrast, and a tile drawn mid-scroll could stay see-through until something redrew it.
-        val texture = if (style.useOverlay || style.legible) 1f else if (blur > 0f) 0f else state.textureIn.value
+        // Clear glass (the tray, the status pill) follows the blur (P57): textured over the sharp backdrop, flat over the
+        // blurred grid, and cross-fading between on the blur's own clock. Drawn flat for the whole scroll, it looked
+        // different moving than at rest and snapped when its texture faded back after landing. Only these two small
+        // surfaces draw both while the blur moves, so the scroll stays on budget.
+        val texture = if (style.useOverlay || style.legible) 1f
+            else if (style.clear && !state.reduceTransparency) 1f - blur
+            else if (blur > 0f) 0f else state.textureIn.value
         val overBlur = texture < 1f
         // Clear glass follows the blur behind it: light over the sharp hero, frosted once the grid is up.
         val clear = style.clear && !state.reduceTransparency
