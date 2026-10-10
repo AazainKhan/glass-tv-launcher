@@ -57,6 +57,14 @@ def two_recent_apps(tv, home):
     home.reset()
     yield
     tv.sh(f"am force-stop {OLDER}; am force-stop {NEWER}")
+    # A card closed from the switcher is remembered in closedRecents until the app next comes to the front (P54):
+    # bring each to the front once so the test leaves the config as it found it.
+    for pkg in (OLDER, NEWER):
+        tv.launch(pkg)
+        tv.wait_until(lambda: tv.resumed_package() == pkg, 10, f"{pkg} to the front")
+        tv.sh(f"am force-stop {pkg}")
+    tv.home_intent()
+    tv.wait_until(lambda: tv.resumed_package() == "dev.glasslauncher", 8, "Glass in front")
 
 
 def _switcher(tv):

@@ -861,8 +861,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     val top = !leaving && overlay === overlays.lastOrNull()
                     // A confirm card sits over the page it came from (Settings), under its scrim: that page stays drawn
                     // instead of vanishing behind it (P64).
-                    val underCard = !top && !leaving && overlays.lastOrNull() is Overlay.Confirm &&
-                        overlay === overlays.getOrNull(overlays.lastIndex - 1)
+                    val underCard = !top && !leaving && keptUnderCard(overlays, overlays.indexOf(overlay))
                     // Tagged for the device tests (e2e/): which overlays are up, and which one is on top.
                     val tag = (if (leaving) "overlay-leaving:" else if (top) "overlay-top:" else "overlay:") + (overlay::class.simpleName ?: "Overlay")
                     Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f }) {
@@ -1491,3 +1490,10 @@ private suspend fun appHeroBackdrop(
     runCatching { graph.wallpapers.fromHeroArt(art, light = !dark) }.getOrNull().also { art.recycle() }
 }
 
+
+/**
+ * Whether the overlay at [index] of [stack] stays drawn under the card on top: a confirm card sits over the page it
+ * came from, and a confirm over a confirm over that page too, so everything beneath a top confirm stays visible (P64).
+ */
+internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
+    index >= 0 && stack.lastOrNull() is Overlay.Confirm && index < stack.lastIndex
