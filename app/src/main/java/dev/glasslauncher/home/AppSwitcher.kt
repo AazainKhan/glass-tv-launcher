@@ -86,7 +86,7 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
     val positions = remember { HashMap<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
     val closeScope = androidx.compose.runtime.rememberCoroutineScope()
     // The title of the app just thrown away fades out while the next one fades in, over the card's own exit.
-    var titleLeaving by remember { mutableStateOf<AppEntry?>(null) }
+    val leavingTitles = remember { mutableStateListOf<LeavingTitle>() }
     val titleFade = remember { androidx.compose.animation.core.Animatable(1f) }
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(id: String) = requesters.getOrPut(id) { FocusRequester() }
@@ -156,11 +156,17 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                                     )
                                 }
                                 thrown += app
-                                titleLeaving = app
+                                // Each closed app's title fades out on its own clock, from the opacity it had, so a second
+                                // Up in quick succession doesn't make the first one jump.
+                                val lt = LeavingTitle(app, androidx.compose.animation.core.Animatable(if (reduceMotion) 0f else titleFade.value))
+                                leavingTitles += lt
                                 closeScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                                     titleFade.snapTo(if (reduceMotion) 1f else 0f)
                                     titleFade.animateTo(1f, androidx.compose.animation.core.tween(if (reduceMotion) 0 else LEAVE_MS))
-                                    titleLeaving = null
+                                }
+                                closeScope.launch {
+                                    lt.alpha.animateTo(0f, androidx.compose.animation.core.tween(if (reduceMotion) 0 else LEAVE_MS))
+                                    leavingTitles.remove(lt)
                                 }
                                 apps.removeAt(selected)
                                 selected = selected.coerceAtMost(apps.size)
@@ -174,7 +180,7 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
             // The focused app's icon and name, above the centre card's left edge. After Up the closed app's title
             // is still there, fading out as its card leaves, and the next one fades in with the gap closing.
             SwitcherTitle(model, apps.getOrNull(selected), "switcher-title") { titleFade.value }
-            titleLeaving?.let { gone -> SwitcherTitle(model, gone, "switcher-title-leaving") { 1f - titleFade.value } }
+            leavingTitles.forEach { lt -> androidx.compose.runtime.key(lt) { SwitcherTitle(model, lt.app, "switcher-title-leaving") { lt.alpha.value } } }
             for (i in 0..apps.size) {
                 val d = i - selected
                 if (d < -STACKED - 1 || d > 2) continue
@@ -250,6 +256,9 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
         }
     }
 }
+
+/** A closed app's title on its way out: [alpha] runs from the opacity it had to 0. */
+private class LeavingTitle(val app: AppEntry, val alpha: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>)
 
 /** The focused app's icon and name above the centre card (Home when [app] is null), drawn at [alpha]. */
 @Composable
