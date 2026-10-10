@@ -65,6 +65,9 @@ const val GLIDE_TAIL_MS = 600L
 
 val LocalGlide = compositionLocalOf<GlideTracker?> { null }
 
+/** The faintest a row-changing tile gets mid-flight (see the ghost in [glide]). */
+private const val GHOST_MIN = 0.12f
+
 private val GlideSpec = spring<Offset>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = Offset(0.5f, 0.5f))
 
 /** Place the cell [key] with a glide from where it was last drawn (see [GlideTracker]). */
@@ -75,6 +78,8 @@ fun Modifier.glide(key: String): Modifier {
     val scope = rememberCoroutineScope()
     // A cell that changes row (a wrap) glides beneath its row's other tiles, not across their faces.
     var lifted by remember(key) { mutableStateOf(false) }
+    // How far the wrap started from (px): the ghost's fade is measured against it.
+    val travel = remember(key) { floatArrayOf(1f) }
     // The offset goes on in the frame the cell first composes in its new place, before it is laid out there.
     val predicted = tracker.predicted[key]
     if (predicted != null) SideEffect {
@@ -84,6 +89,7 @@ fun Modifier.glide(key: String): Modifier {
             val from = before.first - predicted + slide.value
             if (from != Offset.Zero) scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 lifted = from.y != 0f
+                travel[0] = maxOf(1f, from.getDistance())
                 slide.snapTo(from)
                 GlideTracker.predictedGlides++
                 if (lifted) GlideTracker.wrapGlides++
@@ -103,6 +109,15 @@ fun Modifier.glide(key: String): Modifier {
                 scaleX = sc; scaleY = sc
             } else Modifier,
         )
+        // A tile that changes row crosses the others on its way: it flies as a ghost, solid at both ends and faint
+        // in the middle, so it never reads as being in front of the tiles it passes (P73; zIndex alone wasn't enough
+        // on the stick).
+        .then(
+            if (lifted) Modifier.graphicsLayer {
+                val left = (slide.value.getDistance() / travel[0]).coerceIn(0f, 1f)
+                alpha = GHOST_MIN + (1f - GHOST_MIN) * kotlin.math.abs(2f * left - 1f)
+            } else Modifier,
+        )
         .onGloballyPositioned { c ->
             val now = c.positionInRoot()
             val before = tracker.last[key]
@@ -112,6 +127,7 @@ fun Modifier.glide(key: String): Modifier {
                 val from = before.first - now + slide.value
                 if (from != Offset.Zero) scope.launch {
                     lifted = from.y != 0f
+                    travel[0] = maxOf(1f, from.getDistance())
                     slide.snapTo(from)
                     GlideTracker.measuredGlides++
                     if (lifted) GlideTracker.wrapGlides++
