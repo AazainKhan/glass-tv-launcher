@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Keeps the evidence of a red JVM test run, so a flaky failure is diagnosable after the next run overwrites it.
+#   scripts/flake-capture run [gradle args]   full :app:testDebugUnitTest (all tests, --continue); on failures
+#                                             copies the failing suites' XML (they carry stdout/stderr) and a
+#                                             summary to build/flakes/<timestamp>/
+#   scripts/flake-capture collect             the same capture from the results already on disk (scripts/shots
+#                                             calls this when a run fails)
+# The summary lists each failing test with its message, the commit, the load average and the free memory:
+# a failure that only shows in full runs is usually a race with the machine, and those numbers say how busy it was.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+res=app/build/test-results/testDebugUnitTest
+
+collect() {
+  local failing=()
+  for f in "$res"/*.xml; do
+    [ -e "$f" ] || continue
+    grep -q -E '<(failure|error) ' "$f" && failing+=("$f")
+  done
+  [ ${#failing[@]} -eq 0 ] && return 0
+  local out="build/flakes/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$out"
+  cp "${failing[@]}" "$out"/
+  {
+    echo "commit: $(git rev-parse --short HEAD 2>/dev/null) $(git status --short | wc -l | tr -d ' ') changed files"
+    echo "when:   $(date)"
+    echo "load:   $(uptime | sed 's/.*load averages*: //')"
+    echo "memory: $(vm_stat 2>/dev/null | awk '/Pages free/ {f=$3} /Pages inactive/ {i=$3} END {printf "%.1f GB free+inactive", (f+i)*16384/1073741824}')"
+    echo "suites in this run: $(ls "$res"/*.xml 2>/dev/null | wc -l | tr -d ' ') (failing: ${#failing[@]})"
+    echo
+    python3 - "${failing[@]}" <<'PY'
+import sys, xml.etree.ElementTree as ET
+for path in sys.argv[1:]:
+    try:
+        root = ET.parse(path).getroot()
+    except Exception as e:
+        print(f"{path}: unreadable ({e})"); continue
+    for case in root.iter("testcase"):
+        for kind in ("failure", "error"):
+            for el in case.findall(kind):
+                msg = (el.get("message") or "").strip().replace("\n", " ")[:600]
+                print(f"{case.get('classname')}.{case.get('name')}  [{kind}]  {case.get('time')}s")
+                print(f"    {msg}")
+PY
+  } > "$out/summary.txt"
+  echo "flake-capture: ${#failing[@]} failing suite(s) kept in $out (summary.txt)" >&2
+  return 1
+}
+
+case "${1:-collect}" in
+  run)
+    shift
+    if [ -z "${JAVA_HOME:-}" ] || ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -qE 'version "(17|21)'; then
+      JAVA_HOME="$(/usr/libexec/java_home -v 21 2>/dev/null || /usr/libexec/java_home -v 17)"; export JAVA_HOME
+    fi
+    ./gradlew --no-build-cache --continue :app:cleanTestDebugUnitTest :app:testDebugUnitTest "$@"
+    status=$?
+    collect || true
+    exit $status ;;
+  collect) collect ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
+esac

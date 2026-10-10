@@ -24,6 +24,7 @@ report() {
   local res=app/build/test-results/testDebugUnitTest
   grep -ho 'testcase name="[^"]*" classname="[^"]*" time="[^"]*"' "$res"/*.xml 2>/dev/null | sed 's/testcase name="\([^"]*\)" classname="[^"]*\.\([^".]*\)" time="\([^"]*\)"/  \2.\1  \3s/'
   if grep -q "<failure" "$res"/*.xml 2>/dev/null; then
+    "$ROOT/scripts/flake-capture" collect || true
     echo "FAILED:"; grep -ho 'failure message="[^"]*' "$res"/*.xml | sed 's/failure message="/  /; s/&#10;/\n    /g; s/&gt;/>/g; s/&lt;/</g' | head -40
     return 1
   fi
