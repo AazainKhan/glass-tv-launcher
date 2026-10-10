@@ -18,5 +18,8 @@ class HeroCache<V>(private val max: Int) {
     companion object {
         /** Home's app heroes. Two: the one showing and the one just left. */
         val app = HeroCache<dev.glasslauncher.glass.Backdrop>(max = 2)
+
+        /** A Cover Flow's backgrounds (P33): the cover showing and its two neighbours, baked ahead of a step. */
+        val cover = HeroCache<dev.glasslauncher.glass.Backdrop>(max = 3)
     }
 }

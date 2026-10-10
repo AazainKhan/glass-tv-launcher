@@ -127,9 +127,11 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
         val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: return null
         val cover = image.toBitmap()
-        val scene = withContext(Dispatchers.Default) { blurReady; coverScene(cover) }
+        val scene = withContext(BakeDispatcher) { blurReady; coverScene(cover) }
         cover.recycle()
-        return fromImage(scene, light = light).also { scene.recycle() }
+        // At the hero size (1280x720), not 1080p: it is soft anyway, and a step in the Cover Flow must not wait on a
+        // full-screen bake (that took ~1.1 s on the stick).
+        return fromHeroArt(scene, light = light).also { scene.recycle() }
     }
 
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */

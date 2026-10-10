@@ -318,14 +318,29 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (sceneUrl == null && cfg.background == BackgroundMode.Featured && featuredCfg != null && backdrop.backdrop == null) delay(1_200)
         val ready = prebaked[0]?.takeIf { it.first == sceneUrl && !coverShelf }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
+        // A Cover Flow step whose cover was baked ahead (the neighbours are, below) shows at once.
+        val coverReady = if (coverShelf) sceneUrl?.let { HeroCache.cover["$it|$dark"] } else null
         // Let quick left/right browsing settle before re-baking the glass (a Cover Flow scrolls in quick steps).
-        if (ready == null && expanded) delay(if (coverShelf) COVER_SETTLE_MS else 220)
+        if (ready == null && coverReady == null && expanded) delay(if (coverShelf) COVER_SETTLE_MS else 220)
         backdrop.glassFades = true
-        val next = ready ?: sceneUrl?.let {
-            runCatching { if (coverShelf) graph.wallpapers.coverFromUrl(it, light = !dark) else graph.wallpapers.fromUrl(it, light = !dark) }.getOrNull()
+        val next = ready ?: coverReady ?: sceneUrl?.let { url ->
+            runCatching {
+                if (coverShelf) graph.wallpapers.coverFromUrl(url, light = !dark)?.also { HeroCache.cover["$url|$dark"] = it }
+                else graph.wallpapers.fromUrl(url, light = !dark)
+            }.getOrNull()
         } ?: graph.wallpapers.load(wallpaper, light = !dark)
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement.
         backdrop.swap(next, animate = backdrop.backdrop != null)
+        // Cover Flow: bake the covers either side while this one rests, so the next step needn't wait.
+        if (coverShelf && feed != null) {
+            for (i in listOf(heroIndex + 1, heroIndex - 1)) {
+                val url = feed.items.getOrNull(i)?.image ?: continue
+                if (HeroCache.cover["$url|$dark"] != null) continue
+                runCatching { graph.wallpapers.coverFromUrl(url, light = !dark) }.getOrNull()?.let { HeroCache.cover["$url|$dark"] = it }
+            }
+            // Keep the one showing: the neighbours just baked mustn't push it out of the three.
+            sceneUrl?.let { url -> HeroCache.cover["$url|$dark"]?.let { HeroCache.cover["$url|$dark"] = it } }
+        }
     }
 
     // Once Home has settled on a scene, the renderer's copies of the scenes it has left are released

@@ -31,6 +31,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
             dev.glasslauncher.system.AppPreviews.trim()
             dev.glasslauncher.home.HeroCache.app.trim()
+            dev.glasslauncher.home.HeroCache.cover.trim()
             tileArt.trim()
             SingletonImageLoader.get(this).memoryCache?.clear()
         }
