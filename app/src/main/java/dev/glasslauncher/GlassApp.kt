@@ -61,7 +61,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
      */
     private fun chore(dispatcher: kotlin.coroutines.CoroutineContext, block: suspend () -> Unit) {
         scope.launch(dispatcher) {
-            try { block() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { /* best effort */ }
+            try { block() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { android.util.Log.w("GlassApp", "start-up task failed", e) }
         }
     }
 
