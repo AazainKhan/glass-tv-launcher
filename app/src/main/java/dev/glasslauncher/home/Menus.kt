@@ -666,8 +666,9 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
                 Text(c.title, style = Type.heading, color = palette.primary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Text(c.message, style = Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Spacer(Modifier.height(6.dp))
-                MenuRow(c.confirm, { close(); c.onConfirm() }, Modifier.focusRequester(first), destructive = c.destructive)
-                MenuRow("Cancel", close)
+                // A destructive card opens on Cancel: a stray Select must not replace or remove anything.
+                MenuRow(c.confirm, { close(); c.onConfirm() }, if (c.destructive) Modifier else Modifier.focusRequester(first), destructive = c.destructive)
+                MenuRow("Cancel", close, if (c.destructive) Modifier.focusRequester(first) else Modifier)
             }
         }
     }

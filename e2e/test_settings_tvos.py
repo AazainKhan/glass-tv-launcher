@@ -46,8 +46,9 @@ def _confirm_then_cancel(tv, settings, row, button):
     settings.focus_text(row)
     settings.select()
     tree = tv.wait_for(lambda t: t.top_overlay() == "Confirm" and t, 4, f"a confirmation for {row}")
-    assert tree.focused() and tree.focused().label.startswith(button), f"the confirm button ({button}) should be first and focused"
-    settings.focus_text("Cancel")
+    # Destructive confirms open on Cancel (P72): a stray Select must not replace or restart anything.
+    assert tree.focused() and tree.focused().label.startswith("Cancel"), f"a destructive confirm ({button}) should open on Cancel"
+    assert tree.has_text(button), f"the confirm button ({button}) should be there"
     settings.select()
     tv.wait_for(lambda t: t.top_overlay() == "Settings", 4, "Cancel to close it")
 

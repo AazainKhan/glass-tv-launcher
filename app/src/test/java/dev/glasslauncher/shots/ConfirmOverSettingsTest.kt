@@ -63,6 +63,9 @@ class ConfirmOverSettingsTest {
             compose.press(Button.Select)
             compose.settle()
             check(compose.onAllNodes(hasText("Restore from Downloads?"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()) { "the confirm card didn't open" }
+            // Restore replaces the layout: the card opens on Cancel (P72).
+            compose.settle()
+            check(compose.focused()?.contains("Cancel") == true) { "a destructive confirm should open on Cancel, focus is ${compose.focused()}" }
             // "Save Backup" is a row of the page behind the card, clear of the card itself. Drawn (under the scrim),
             // its text still stands out of the panel (about 130 levels); with the page gone it's the smooth blurred
             // Home snapshot (about 65).
