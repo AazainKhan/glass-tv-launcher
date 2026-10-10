@@ -847,9 +847,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 androidx.compose.runtime.key(System.identityHashCode(overlay)) {
                     val leaving = overlay in exiting && overlay !in overlays
                     val top = !leaving && overlay === overlays.lastOrNull()
+                    // A confirm card sits over the page it came from (Settings), under its scrim: that page stays drawn
+                    // instead of vanishing behind it (P64).
+                    val underCard = !top && !leaving && overlays.lastOrNull() is Overlay.Confirm &&
+                        overlay === overlays.getOrNull(overlays.lastIndex - 1)
                     // Tagged for the device tests (e2e/): which overlays are up, and which one is on top.
                     val tag = (if (leaving) "overlay-leaving:" else if (top) "overlay-top:" else "overlay:") + (overlay::class.simpleName ?: "Overlay")
-                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (top || leaving || overlay is Overlay.FolderOpen) 1f else 0f }) {
+                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f }) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
                             OverlayContent(
                                 overlay = overlay,
