@@ -759,6 +759,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         model = model,
                         listState = listState,
                         moving = moving,
+                        // Only the menus whose actions take a tile off Home: not Settings, Control Center, the switcher.
+                        overlayOpen = overlays.any { it is Overlay.AppMenu || it is Overlay.MoveTo || it is Overlay.FolderPicker || it is Overlay.FolderMenu },
                         // Only when there are titles to open (Up); an app with nothing shows no chevron.
                         showHint = feed != null && cfg.topShelfTitles && takeover == null,
                         hintAlpha = { (1f - backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f) * (1f - expand.value) * idle.chromeAlpha },
@@ -994,6 +996,8 @@ private fun HomeList(
     model: HomeModel,
     listState: LazyListState,
     moving: String?,
+    /** An overlay (an app menu) is up over Home: its action may take a tile away, so placement is tracked meanwhile. */
+    overlayOpen: Boolean,
     showHint: Boolean,
     hintAlpha: () -> Float,
     requester: (String) -> FocusRequester,
@@ -1016,16 +1020,20 @@ private fun HomeList(
         dockExtra.map<dev.glasslauncher.apps.AppEntry, Cell> { Cell.Item(GridItem.App(it)) } + layout.grid.map<GridItem, Cell> { Cell.Item(it) } + Cell.Settings
     }
     val rows = remember(cells, m.columns) { cells.chunked(m.columns) }
-    // Move mode: a changed layout makes the cells that moved glide to their new spots.
+    // A changed layout makes the cells that moved glide to their new spots: in move mode, and after an app menu
+    // action takes a tile off Home (Hide, Uninstall, Move to Folder): the tiles after it glide into the gap.
     val glide = remember { GlideTracker() }
-    remember(layout) { if (moving != null) glide.generation++; glide.generation }
-    // Provided only while moving (and for the tail of the last glide): the rest of the time no cell tracks its
-    // placement, so scrolling the grid costs nothing for it.
+    val tracking = moving != null || overlayOpen
+    // Provided only while moving or a menu is up (and for the tail of the last glide, which covers the config
+    // write landing after the menu closes): the rest of the time no cell tracks its placement, so scrolling the
+    // grid costs nothing for it.
     var gliding by remember { mutableStateOf(false) }
-    LaunchedEffect(moving != null) {
-        if (moving != null) gliding = true else { delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
+    // A layout change while tracking (or in the tail after a menu closed) is a new generation: its cells glide.
+    remember(layout) { if (tracking || gliding) glide.generation++; glide.generation }
+    LaunchedEffect(tracking) {
+        if (tracking) gliding = true else { delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
     }
-    CompositionLocalProvider(LocalGlide provides glide.takeIf { gliding || moving != null }) {
+    CompositionLocalProvider(LocalGlide provides glide.takeIf { gliding || tracking }) {
     LazyColumn(
         state = listState,
         userScrollEnabled = false,
