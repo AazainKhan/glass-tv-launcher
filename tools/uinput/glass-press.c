@@ -1,5 +1,7 @@
-// Presses keys through a temporary virtual input device that identifies as the Fire TV remote
-// (vendor 0x0171, product 0x0427), so the remote's key layout applies and Glass sees real key events.
+// Presses keys through a temporary virtual USB keypad (pid.codes test IDs 0x1209:0x0002), NOT the Fire
+// TV remote's IDs: a fake device with the remote's vendor/product made Fire's remote manager react
+// ("Add new remote") and is the prime suspect for dropping the real remote's bond (P69, 2026-10-10).
+// scripts/key installs a copy of the remote's key layout for these IDs, so keys map the same way.
 // Used by scripts/key while the Bluetooth remote sleeps (its input node disappears, and an injected
 // `input keyevent` Select doesn't click Glass's tiles on Fire OS).
 //   glass-press <gap_ms> <code>[:hold_ms] | w<ms> | g ...  (w<ms> waits; g runs $GLASS_PRESS_GUARD with sh and,
@@ -32,8 +34,8 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < sizeof extra / sizeof *extra; i++) ioctl(fd, UI_SET_KEYBIT, extra[i]);
   struct uinput_user_dev dev;
   memset(&dev, 0, sizeof dev);
-  snprintf(dev.name, UINPUT_MAX_NAME_SIZE, "Glass Virtual Remote");
-  dev.id.bustype = BUS_BLUETOOTH; dev.id.vendor = 0x0171; dev.id.product = 0x0427; dev.id.version = 1;
+  snprintf(dev.name, UINPUT_MAX_NAME_SIZE, "Glass Test Keypad");
+  dev.id.bustype = BUS_USB; dev.id.vendor = 0x1209; dev.id.product = 0x0002; dev.id.version = 1;
   write(fd, &dev, sizeof dev);
   if (ioctl(fd, UI_DEV_CREATE) < 0) { perror("create"); return 1; }
   usleep(350 * 1000);  // InputReader has to open the new device before events count

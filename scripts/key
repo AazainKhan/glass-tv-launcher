@@ -83,7 +83,8 @@ for arg in "$@"; do
 done
 find_dev="D=${KEY_DEVICE:-\$(getevent -pl 2>/dev/null | awk '/add device/{d=\$4} /name:.*Fire TV Remote/{print d; exit}')};"
 # The Bluetooth remote's node disappears while it sleeps. Then a temporary virtual remote
-# (tools/uinput/glass-press, same vendor/product, so the remote's key layout applies) sends real key
+# (tools/uinput/glass-press: a USB test keypad 0x1209:0x0002, never the remote's own IDs, which made Fire's
+# remote manager react and is the prime suspect for dropping the remote's bond, P69) sends real key
 # events: an injected `input keyevent` Select doesn't click Glass's tiles on Fire OS. Emulators without
 # either fall back to `input keyevent` (~0.9 s a press).
 VR=/data/local/tmp/glass-press
@@ -93,4 +94,6 @@ for f in glass-press glass-guard.sh; do
   [ "$(adb shell "md5sum /data/local/tmp/$f 2>/dev/null" | cut -d' ' -f1)" = "$local_sum" ] && continue
   adb push "$(dirname "$0")/../tools/uinput/$f" "/data/local/tmp/$f" >/dev/null 2>&1 && adb shell chmod 755 "/data/local/tmp/$f" || true
 done
+# The keypad uses a copy of the remote's key layout (including glass-remote-keys' remaps).
+adb shell su -c "'KL=/data/system/devices/keylayout/Vendor_1209_Product_0002.kl; SRC=/system/usr/keylayout/Vendor_0171_Product_0427.kl; cmp -s \$SRC \$KL 2>/dev/null || { mkdir -p /data/system/devices/keylayout && cp \$SRC \$KL && chmod 644 \$KL && chown system:system /data/system/devices/keylayout \$KL; }'" >/dev/null 2>&1 || true
 adb shell "${find_dev}if [ -n \"\$D\" ]; then $cmds elif [ -x $VR ] && [ \"\$(getprop ro.kernel.qemu)\" != 1 ]; then GLASS_PRESS_GUARD='sh $GUARD' $VR $GAP$vr; else $alt fi"
