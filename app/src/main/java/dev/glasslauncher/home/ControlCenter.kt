@@ -63,6 +63,7 @@ import dev.glasslauncher.glass.LocalBackdrop
 import dev.glasslauncher.glass.GlassMatch
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.currentValueOf
 import dev.glasslauncher.ui.FocusTile
@@ -279,6 +280,8 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
         }
     }
     /** The sheet in window coordinates, for the bubble. */
+    /** The sheet's one flat colour, for a software canvas, which can't draw the (hardware) sheet bitmap. */
+    val flatBrush: androidx.compose.ui.graphics.Brush get() = androidx.compose.ui.graphics.SolidColor(flat)
     val brush: androidx.compose.ui.graphics.Brush by lazy { shader(0f, 0f)?.let { androidx.compose.ui.graphics.ShaderBrush(it) } ?: androidx.compose.ui.graphics.SolidColor(flat) }
     /** The sheet for a surface whose top-left is at [origin] in the window (its own coordinates start there). */
     fun brushAt(origin: androidx.compose.ui.geometry.Offset, height: Float, moved: CcEmergeFrame? = null, slotCentre: androidx.compose.ui.geometry.Offset? = null): androidx.compose.ui.graphics.Brush {
@@ -299,6 +302,13 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
         return androidx.compose.ui.graphics.ShaderBrush(android.graphics.ComposeShader(sheet, bevel, android.graphics.PorterDuff.Mode.SRC_OVER))
     }
 }
+
+/**
+ * Whether this draw goes to the GPU. Control Center's glass is a hardware bitmap, which a software canvas (a picture
+ * of the screen taken by drawing it in software) refuses with an exception; Glass crashed that way (P66).
+ */
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.hardwareCanvas(): Boolean =
+    drawContext.canvas.nativeCanvas.isHardwareAccelerated
 
 /**
  * Holds the open's [CcSheet]. Provided once (it never changes identity), and read only while drawing, so taking or
@@ -351,7 +361,8 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         val o = if (moved != null && moved.round < 1f) ccRounding(rest, size, moved.round) else rest
         val b = if (moved != null && sheet != null) sheet.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height, moved, emerge.slot?.center)
             else brush ?: (sheet?.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
-        drawOutline(o, b)
+        // A software canvas (a snapshot of the screen) can't draw the sheet, a hardware bitmap: the flat colour then.
+        drawOutline(o, if (hardwareCanvas()) b else sheet?.flatBrush ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
         // Liquid Glass's edge, one stroke: bright at the top-left, faint at the bottom-right, almost nothing between.
         val r = rim ?: CcMaterial.rimBrush(size).also { rim = it }
         drawOutline(o, r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
@@ -517,7 +528,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             motion.pill = pill?.takeIf { ControlCenterWindow.homeStarted }
             if (reduceMotion) return@Canvas
             val material = sheetRef.sheet ?: return@Canvas
-            drawCcDrops(motion, material.brush, alexaPage)
+            drawCcDrops(motion, if (hardwareCanvas()) material.brush else material.flatBrush, alexaPage)
         }
         Column(
             horizontalAlignment = Alignment.End,
