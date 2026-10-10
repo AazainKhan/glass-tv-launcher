@@ -49,9 +49,22 @@ int main(int argc, char **argv) {
     int code = atoi(argv[i]);
     char *c = strchr(argv[i], ':');
     int hold = c ? atoi(c + 1) : 0;
-    emit(fd, EV_KEY, code, 1); emit(fd, EV_SYN, SYN_REPORT, 0);
-    if (hold) usleep(hold * 1000); else usleep(30 * 1000);
-    emit(fd, EV_KEY, code, 0); emit(fd, EV_SYN, SYN_REPORT, 0);
+    if (hold) {
+      emit(fd, EV_KEY, code, 1); emit(fd, EV_SYN, SYN_REPORT, 0);
+      usleep(hold * 1000);
+      emit(fd, EV_KEY, code, 0); emit(fd, EV_SYN, SYN_REPORT, 0);
+    } else {
+      // A tap writes down and up in ONE write(), so a busy device (e.g. dexopt right after an install)
+      // can't deschedule us between them and turn a tap into a long-press (a ~1 s "held" Home opened
+      // Fire's quick settings, 2026-10-10).
+      struct input_event ev[4];
+      memset(ev, 0, sizeof ev);
+      ev[0].type = EV_KEY; ev[0].code = code; ev[0].value = 1;
+      ev[1].type = EV_SYN; ev[1].code = SYN_REPORT;
+      ev[2].type = EV_KEY; ev[2].code = code; ev[2].value = 0;
+      ev[3].type = EV_SYN; ev[3].code = SYN_REPORT;
+      write(fd, ev, sizeof ev);
+    }
     usleep(gap * 1000);
   }
   usleep(150 * 1000);
