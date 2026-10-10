@@ -823,6 +823,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         onExitDown = { setExpanded(false) },
                         modifier = Modifier.fillMaxSize(),
                         onSheet = { shelfSheet = it },
+                        // Up from the Cover Flow reaches the pill (Control Center), as the card row's Play button did.
+                        upTo = pillRequester,
                     )
                 }
             }

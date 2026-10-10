@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -74,6 +75,8 @@ fun CoverFlow(
     label: String,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
+    /** Where Up goes (Home's status pill, for Control Center): the flow fills the screen, so nothing is above it to find. */
+    upTo: FocusRequester? = null,
     /** The cover picture, with its reflection, for an item's image; the default loads it (previews and tests give their own). */
     coverArt: @Composable (String?, Boolean) -> ImageBitmap? = { url, centre -> rememberCoverArt(url, centre) },
 ) {
@@ -97,6 +100,7 @@ fun CoverFlow(
         modifier
             .fillMaxSize()
             .focusRequester(focusRequester)
+            .focusProperties { if (upTo != null) up = upTo }
             .focusable()
             .semantics { contentDescription = listOfNotNull(shown.title, shown.subtitle).joinToString(", ") }
             .onPreviewKeyEvent { e ->

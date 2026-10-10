@@ -1,5 +1,11 @@
 package dev.glasslauncher.featured
 
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +76,31 @@ class CoverFlowTest {
         assertEquals("c3", opened)
         press(Key.DirectionDown)
         assertEquals(1, exited)
+    }
+
+    // P67: the flow fills the screen, so Up found nothing above it and focus stayed on the covers (no way to the
+    // status pill, so none to Control Center). Up goes to the target Home gives it.
+    @Test fun upGoesToTheTargetAbove() {
+        val requester = FocusRequester(); val pill = FocusRequester()
+        var pillFocused = false
+        compose.setContent {
+            androidx.compose.foundation.layout.Column {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.size(20.dp).focusRequester(pill).onFocusChanged { pillFocused = it.isFocused }.focusable(),
+                )
+                CoverFlow(
+                    items = items, index = index, onIndex = { index = it },
+                    onOpen = { opened = it.id }, onExit = { exited++ },
+                    label = "Spotify", focusRequester = requester, upTo = pill,
+                )
+            }
+            androidx.compose.runtime.LaunchedEffect(Unit) { requester.requestFocus() }
+        }
+        compose.waitForIdle()
+        press(Key.DirectionUp)
+        compose.waitForIdle()
+        assertTrue("Up should reach the pill", pillFocused)
+        assertEquals("Up is not Down: the flow stays open", 0, exited)
     }
 
     @Test fun twoQuickPressesAreTwoSteps() {

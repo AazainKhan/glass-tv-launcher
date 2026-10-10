@@ -138,6 +138,8 @@ fun ExpandedShelf(
     modifier: Modifier = Modifier,
     /** More Info is open: Home leaves Back to the sheet. */
     onSheet: (Boolean) -> Unit = {},
+    /** Where Up goes from a Cover Flow (Home's status pill, P67). */
+    upTo: FocusRequester? = null,
 ) {
     val m = LocalMetrics.current
     val context = LocalContext.current
@@ -161,7 +163,7 @@ fun ExpandedShelf(
             CoverFlow(
                 items = feed.items, index = index, onIndex = onIndex,
                 onOpen = { it.open(context) }, onExit = onExitDown,
-                label = feed.heading, focusRequester = firstCard,
+                label = feed.heading, focusRequester = firstCard, upTo = upTo,
             )
             return@Box
         }
