@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -153,3 +154,27 @@ fun MenuDarkPreview() = PreviewStage { MenuPanel() }
 @Preview(name = "menu-light", widthDp = 420, heightDp = 300)
 @Composable
 fun MenuLightPreview() = PreviewStage(light = true) { MenuPanel() }
+
+/** The Cover Flow (Spotify's Top Shelf) with synthetic square covers: centre flat, neighbours turned and stacked, reflections baked. */
+@Preview(widthDp = 960, heightDp = 540, name = "cover-flow")
+@Composable
+fun CoverFlowPreview() {
+    val items = remember { (0 until 9).map { dev.glasslauncher.featured.FeaturedItem(id = "c$it", title = "Album ${it + 1}", subtitle = "Artist ${it + 1}", image = "cover$it", aspect = 1f) } }
+    val art = remember {
+        items.mapIndexed { i, item ->
+            val hue = i * 40f
+            val bmp = android.graphics.Bitmap.createBitmap(280, 280, android.graphics.Bitmap.Config.ARGB_8888)
+            val c = android.graphics.Canvas(bmp)
+            c.drawColor(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.55f, 0.55f)))
+            c.drawCircle(140f, 140f, 80f, android.graphics.Paint().apply { color = android.graphics.Color.HSVToColor(floatArrayOf((hue + 30f) % 360f, 0.7f, 0.9f)) })
+            item.image to dev.glasslauncher.featured.CoverReflection.bake(bmp).asImageBitmap()
+        }.toMap()
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF16181F))) {
+        dev.glasslauncher.featured.CoverFlow(
+            items = items, index = 4, onIndex = {}, onOpen = {}, onExit = {}, label = "Spotify",
+            focusRequester = remember { FocusRequester() },
+            coverArt = { url -> art[url] },
+        )
+    }
+}

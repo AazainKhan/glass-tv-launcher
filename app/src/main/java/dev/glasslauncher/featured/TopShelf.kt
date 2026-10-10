@@ -148,6 +148,8 @@ fun ExpandedShelf(
     val playRequester = remember { FocusRequester() }
     androidx.compose.runtime.LaunchedEffect(info != null) { onSheet(info != null) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onSheet(false) } }
+    // A shelf of square covers (Spotify's albums and playlists) is a Cover Flow, not the wordmark, buttons and card row.
+    val coverFlow = remember(feed) { CardShape.square(feed.items) }
     Box(
         modifier.graphicsLayer {
             // Starts after the small title has faded, so the title never shows twice.
@@ -155,6 +157,14 @@ fun ExpandedShelf(
             translationY = (1f - progress()) * 40.dp.toPx()
         },
     ) {
+        if (coverFlow) {
+            CoverFlow(
+                items = feed.items, index = index, onIndex = onIndex,
+                onOpen = { it.open(context) }, onExit = onExitDown,
+                label = feed.heading, focusRequester = firstCard,
+            )
+            return@Box
+        }
         Column(
             Modifier
                 .align(Alignment.BottomStart)
