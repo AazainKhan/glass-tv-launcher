@@ -9,8 +9,7 @@ import java.security.MessageDigest
  * Rendered tiles kept on disk, so a cold start decodes a small lossless image per tile instead of re-running
  * the render (a banner decode and crop, an icon wash and blur) for every app. A tile's file name is a hash of
  * everything that went into it (see [TileArt.diskKey]), so a changed app, icon, or pack is simply a different
- * file; old ones are trimmed oldest-first. Only the tile's own pixels are stored; the glow colour is read back
- * from them.
+ * file; old ones are trimmed oldest-first. Only the tile's own pixels are stored.
  */
 class TileDiskCache(private val dir: File, private val maxFiles: Int = MAX_FILES) {
 

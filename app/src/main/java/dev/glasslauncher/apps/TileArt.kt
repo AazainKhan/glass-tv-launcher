@@ -29,8 +29,8 @@ import kotlin.math.min
 /** What a tile should be drawn from; part of the cache key so changes re-render. */
 data class TileSpec(val app: AppEntry, val customIcon: String?, val iconPack: String?)
 
-/** A rendered tile and the colour it glows in ([TileArt.glowColor]); cached, and trimmed, as one. */
-class LoadedTile(val image: ImageBitmap, val glow: Int)
+/** A rendered tile; cached, and trimmed, as one. */
+class LoadedTile(val image: ImageBitmap)
 
 /**
  * Produces a full-bleed 16:9 tile for every app: a custom image, the TV banner, or a generated
@@ -58,9 +58,6 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
     }
 
     fun peek(spec: TileSpec): ImageBitmap? = cache.get(spec)?.image
-
-    /** The tile's glow colour (opaque ARGB), or null until [load] has rendered it. */
-    fun peekGlow(spec: TileSpec): Int? = cache.get(spec)?.glow
 
     fun peekTile(spec: TileSpec): LoadedTile? = cache.get(spec)
 
@@ -111,9 +108,8 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
             renderCount.incrementAndGet()
             render(spec).also { bitmap -> key?.let { disk?.put(it, bitmap) } }
         }
-        val glow = glowColor(soft)
         // GPU-only copy: a software tile would be held twice (native heap plus its texture).
-        return LoadedTile((soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap(), glow)
+        return LoadedTile((soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap())
     }
 
     /**
@@ -440,25 +436,5 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
         const val PRELOAD_LIMIT = 48
         private const val PROBE = 96
 
-        /**
-         * The colour a tile glows in: the mean of its bottom fifth (full width, fully transparent pixels skipped),
-         * as opaque ARGB; transparent when there is nothing to average. Read from the bitmap as rendered, once,
-         * so a tile costs one pass over about 14k pixels.
-         */
-        internal fun glowColor(bitmap: Bitmap): Int {
-            val w = bitmap.width
-            val top = (bitmap.height * 0.8f).toInt()
-            val row = IntArray(w)
-            var r = 0L; var g = 0L; var b = 0L; var n = 0L
-            for (y in top until bitmap.height) {
-                bitmap.getPixels(row, 0, w, 0, y, w, 1)
-                for (c in row) {
-                    if (Color.alpha(c) == 0) continue
-                    r += Color.red(c); g += Color.green(c); b += Color.blue(c); n++
-                }
-            }
-            if (n == 0L) return Color.TRANSPARENT
-            return Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
-        }
     }
 }

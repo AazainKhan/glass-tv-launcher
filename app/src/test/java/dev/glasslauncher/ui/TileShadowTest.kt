@@ -61,7 +61,6 @@ class TileShadowTest {
     private fun image(kind: Kind) = when (kind) {
         Kind.Focus -> TileShadow.focus
         Kind.Contact -> TileShadow.contact
-        Kind.Glow -> TileShadow.glow
     }
 
     /** Bitmap pixels per u. The bitmap spans the core plus a margin on every side, so this follows from its size. */
@@ -94,32 +93,9 @@ class TileShadowTest {
     @Test fun contactShadowFollowsAGaussianOfSigma2_5() =
         assertProfile(Kind.Contact, listOf(-2.5f, 0f, 2.5f, 5f, 10f), 0.05f)
 
-    @Test fun glowFollowsAGaussianOfSigma5() =
-        assertProfile(Kind.Glow, listOf(-5f, 0f, 5f, 10f, 15f), 0.05f)
-
-    @Test fun theGlowIsBakedWhiteSoItTakesTheTilesColourWhenTinted() {
-        val a = image(Kind.Glow).asAndroidBitmap()
-        val centre = a.getPixel(a.width / 2, a.height / 2)
-        assertEquals("centre pixel ${Integer.toHexString(centre)}", 0xFFFFFFFF.toInt(), centre)
-        assertEquals("250 x 150 u core with a 20 u margin", (250f + 40f) * (150f + 40f), a.width * a.height * Kind.Glow.unitsPerPx * Kind.Glow.unitsPerPx, 1f)
-    }
-
-    @Test fun theGlowsFalloffIsDitheredAndNothingElseIs() {
-        // A plain Gaussian is constant along a row below the tile's middle; the glow carries a few levels of noise
-        // there, so a saturated tint's 8-bit steps don't line up as bands. The shadows stay smooth.
-        fun noisyShare(kind: Kind): Float {
-            val a = image(kind).asAndroidBitmap()
-            val belowCore = ((a.height * kind.unitsPerPx / 2 + kind.coreH / 2) / kind.unitsPerPx).toInt()
-            var noisy = 0; var n = 0
-            for (y in belowCore + 2 until belowCore + (kind.margin / kind.unitsPerPx).toInt() - 4) for (x in (a.width * 0.4f).toInt() until (a.width * 0.6f).toInt()) {
-                if (Color.alpha(a.getPixel(x, y)) != Color.alpha(a.getPixel(x + 1, y))) noisy++
-                n++
-            }
-            return noisy.toFloat() / n
-        }
-        assertTrue("glow ${noisyShare(Kind.Glow)}", noisyShare(Kind.Glow) > 0.3f)
-        assertTrue("contact ${noisyShare(Kind.Contact)}", noisyShare(Kind.Contact) < 0.05f)
-        assertTrue("focus ${noisyShare(Kind.Focus)}", noisyShare(Kind.Focus) < 0.05f)
+    @Test fun thereIsNoColourGlowUnderTiles() {
+        // Like tvOS: no glow at rest (P60). Only the two black shadows remain.
+        assertEquals(listOf("Focus", "Contact"), Kind.entries.map { it.name })
     }
 
     @Test fun theCoreIsBakedAtFullStrength() {
@@ -214,30 +190,6 @@ class TileShadowTest {
         assertEquals("core height", 300f * 1.1f, core.height, 1f)
         // Half the 40 u drop, in px.
         assertEquals("drop", 40f * 0.5f * 2f, core.center.y - 150f, 1f)
-    }
-
-    @Test fun theGlowsCoreIsTheScaledTileAndSitsTenUnitsLowerWhateverTheFocus() {
-        for (lift in listOf(0f, 0.5f, 1f)) {
-            val r = TileShadow.destRect(Kind.Glow, 500f, 300f, 1.1f, lift, k = 2f)
-            val core = r.deflate(Kind.Glow.margin * r.pxPerU(Kind.Glow))
-            assertEquals("core width", 500f * 1.1f, core.width, 1f)
-            assertEquals("core height", 300f * 1.1f, core.height, 1f)
-            assertEquals("drop at lift $lift", 10f * 2f, core.center.y - 150f, 1f)
-        }
-    }
-
-    private fun glowAlpha(argb: Long) = TileShadow.glowAlpha(androidx.compose.ui.graphics.Color(argb))
-
-    @Test fun glowStrengthFollowsTheTilesSaturationAndBrightness() {
-        assertEquals("white", 0f, glowAlpha(0xFFFFFFFF), 1e-4f)
-        assertEquals("black", 0f, glowAlpha(0xFF000000), 1e-4f)
-        assertTrue("mid grey ${glowAlpha(0xFF808080)}", glowAlpha(0xFF808080) < 0.02f)
-        assertTrue("saturated cyan ${glowAlpha(0xFF00C8C8)}", glowAlpha(0xFF00C8C8) in 0.19f..0.22f)
-        // 0.22 * s 0.844 * (v 0.251 / 0.4): dark but coloured tiles still glow, less.
-        assertTrue("dark navy ${glowAlpha(0xFF0A1A40)}", glowAlpha(0xFF0A1A40) > 0.10f && glowAlpha(0xFF0A1A40) < 0.22f)
-        // Never above the peak, whatever the colour.
-        for (c in listOf(0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFA000, 0xFF123456))
-            assertTrue("$c ${glowAlpha(c)}", glowAlpha(c) in 0f..Kind.Glow.peak)
     }
 
     @Test fun aTileOfAnotherAspectGetsAShadowCoreEqualToItself() {
