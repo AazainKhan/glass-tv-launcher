@@ -42,15 +42,27 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         dev.glasslauncher.ui.NetworkEpoch.register(this)
         // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
         // not on the first bake's critical path.
-        scope.launch(Dispatchers.Default) { runCatching { wallpapers.prewarm() } }
+        chore(Dispatchers.Default) { wallpapers.prewarm() }
         // The tile shadows bake once (a few ms to tens of ms on the stick): off the UI thread, before the first tile draws.
-        scope.launch(Dispatchers.Default) { dev.glasslauncher.ui.TileShadow.focus; dev.glasslauncher.ui.TileShadow.contact }
+        chore(Dispatchers.Default) { dev.glasslauncher.ui.TileShadow.focus; dev.glasslauncher.ui.TileShadow.contact }
         // Old tiles on disk (changed apps, removed packs) are cleared away once per start, off the main thread.
-        scope.launch(Dispatchers.IO) { runCatching { tileArt.trimDisk() } }
-        scope.launch(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
-        scope.launch(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
+        chore(Dispatchers.IO) { tileArt.trimDisk() }
+        chore(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
+        chore(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
         // A store visit cut short (Glass restarted): put Glass back as Home.
-        scope.launch(Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(this@GlassApp, bringHome = false) }
+        chore(Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(this@GlassApp, bringHome = false) }
+    }
+
+    /**
+     * A best-effort start-up task, fire and forget. It must not take the process down if it fails, and in tests the
+     * app is torn down while these may still be running (SharedPreferences gone): the exception went uncaught on
+     * a pool thread and kotlinx-coroutines-test blamed whichever test ran next ("uncaught exceptions before the
+     * test started": the flaky CoverFlowTest, FeaturedRowShadowTest, MoveHintsTest, CardTitleTest, P70).
+     */
+    private fun chore(dispatcher: kotlin.coroutines.CoroutineContext, block: suspend () -> Unit) {
+        scope.launch(dispatcher) {
+            try { block() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { /* best effort */ }
+        }
     }
 
     val http: OkHttpClient by lazy {
