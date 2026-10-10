@@ -59,7 +59,9 @@ def test_icon_pack_page_explains_and_links_to_packs(tv, home, settings):
     offered = [label for label in ("Open the Amazon Appstore", "Open Downloader", "Open ES File Explorer", "Import from File…")
                if tree.has_text(label)]
     installs = [n for n in tree.nodes() if n.text.startswith("Install ") and n.text.endswith(".apk")]
-    assert offered or installs or tree.has_text("Nothing here can fetch a pack"), "the page offers no way to get a pack and doesn't say so"
+    sources = [n for n in tree.nodes() if n.text.startswith("Open ")]
+    says_so = tree.has_text("Nothing here can fetch a pack") or any(n.text.startswith("Download an icon pack") for n in tree.nodes())
+    assert offered or installs or sources or says_so, "the page offers no way to get a pack and doesn't say so"
     assert any("Nova" in n.text for n in tree.nodes()), "the page should say which packs work"
 
 

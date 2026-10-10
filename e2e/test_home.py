@@ -52,9 +52,21 @@ def test_back_from_the_grid_returns_to_the_top(tv, home):
     tv.wait_for(lambda t: home.in_dock(t, t.focused()), 6, "Back to return to the top row")
 
 
+def _netflix_with_titles(tv, home) -> bool:
+    """Focus Netflix (its shelf is the usual card row; the tray may start with Spotify's Cover Flow) and wait for
+    its titles: False when none arrive."""
+    home.focus_app("com.netflix.ninja")
+    try:
+        tv.wait_for(lambda t: t.find(rid="shelf-chevron"), 8, "Netflix's titles")
+        return True
+    except AssertionError:
+        return False
+
+
 @pytest.mark.emulator_gap  # flaky on the emulator only, passes on the stick (P22)
 def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
-    if not tv.tree().find(rid="shelf-chevron"):
+    # The tray may start with Spotify (a Cover Flow, not a card row): use an app with the usual card row.
+    if not _netflix_with_titles(tv, home):
         import pytest
         pytest.skip("no Top Shelf titles (Top Shelf Content off, Show Titles Never, or offline)")
     tv.press("up")
@@ -67,7 +79,7 @@ def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home):
 @pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_full_screen_shelf_has_no_dots_and_ends_at_the_last_card(tv, home):
     """The page dots stopped at 12 while cards kept going; the dots are gone, and Right stops at the last card."""
-    if not tv.tree().find(rid="shelf-chevron"):
+    if not _netflix_with_titles(tv, home):
         import pytest
         pytest.skip("no Top Shelf titles")
     tv.press("up")

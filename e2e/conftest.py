@@ -118,7 +118,7 @@ def home(tv: TV) -> Home:
 
 
 # Settings that change on their own (recent apps, seen apps, timestamps).
-VOLATILE = {"recentApps", "seenApps", "tipsSeen", "lastUpdateCheck", "seededDefaults"}
+VOLATILE = {"recentApps", "closedRecents", "seenApps", "tipsSeen", "lastUpdateCheck", "seededDefaults"}
 
 
 def _config(tv: TV) -> dict:

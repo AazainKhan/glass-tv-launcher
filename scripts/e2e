@@ -27,6 +27,11 @@ for a in "$@"; do
   esac
 done
 export TV_OWNER="${TV_OWNER:-glass-e2e}"
+# After a reboot /usr/bin (Xcode's python3, no pytest) can come first: pick a python3 that has pytest.
+PY=python3
+for cand in python3 /Library/Frameworks/Python.framework/Versions/Current/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import pytest' >/dev/null 2>&1; then PY="$cand"; break; fi
+done
 if [ "$target" = emulator ]; then
   export GLASS_TARGET=emulator
   "$ROOT/scripts/emulator" start >/dev/null
@@ -45,7 +50,7 @@ fi
 case " ${args[*]:-} " in *" -m "*) ;; *) args+=(-m "not perf") ;; esac
 cd "$ROOT/e2e"
 if [ "$target" = stick ]; then
-  exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- python3 -m pytest "${args[@]}"
+  exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- "$PY" -m pytest "${args[@]}"
 fi
 # The emulator is shared too: one suite at a time, under the same self-renewing lock (keyed by its serial).
-exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- python3 -m pytest "${args[@]}"
+exec "$ROOT/scripts/stick-lock" hold "$TV_OWNER" -- "$PY" -m pytest "${args[@]}"

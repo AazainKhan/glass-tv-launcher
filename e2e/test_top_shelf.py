@@ -297,7 +297,7 @@ def _cards(tree):
     return [(c, labels.get(c.rid.split(":", 1)[1])) for c in cards]
 
 
-@pytest.mark.parametrize("pkg", [NETFLIX, SPOTIFY])
+@pytest.mark.parametrize("pkg", [NETFLIX])  # Spotify is a Cover Flow (test_spotify_shows_a_cover_flow)
 def test_every_card_in_full_screen_has_its_title_under_it(tv, home, focused_app, pkg):
     """Whatever the app, each card in the full-screen row shows its title below it (user, 2026-10-09)."""
     if pkg not in tv.sh(f"pm list packages {pkg}"):
@@ -312,16 +312,16 @@ def test_every_card_in_full_screen_has_its_title_under_it(tv, home, focused_app,
     home.back()
 
 
-def test_spotify_shows_square_covers(tv, home, focused_app):
-    """Spotify's row is playlists and albums: square cover cards, not 16:9 crops (and no promo banner)."""
+def test_spotify_shows_a_cover_flow(tv, home, focused_app):
+    """Spotify's row is playlists and albums: a Cover Flow of square covers (P33), not a row of 16:9 cards."""
     if SPOTIFY not in tv.sh(f"pm list packages {SPOTIFY}"):
         pytest.skip("Spotify isn't installed")
-    _expand(tv, home, SPOTIFY)
-    tree = tv.wait_for(lambda t: len(_cards(t)) >= 3 and t, 8, "Spotify's cards")
-    for card, _ in _cards(tree):
-        w, h = card.bounds[2] - card.bounds[0], card.bounds[3] - card.bounds[1]
-        assert abs(w - h) <= 0.06 * h, f"{card.rid} is {w}x{h}, not a square cover"
+    home.focus_app(SPOTIFY)
+    tv.wait_for(lambda t: t.find(rid="shelf-title"), 10, "Spotify's titles")
+    tv.press("up")
+    tree = tv.wait_for(lambda t: t.find(rid="cover-flow") and t, 4, "the Cover Flow")
+    covers = [n for n in tree.nodes() if n.rid.startswith("cover:")]
+    assert len(covers) >= 3, f"the Cover Flow shows {len(covers)} covers"
+    assert not tree.find(rid="featured-row"), "Spotify should be a Cover Flow, not the card row"
     assert not tree.has_text("Listen to music and podcasts for free"), "Spotify's free-tier promo isn't a cover"
-    title = tree.find(rid="featured-title:" + tree.focused().rid.split(":", 1)[1]).text
-    assert sum(1 for n in tree.nodes() if n.text == title and n.center[1] < 900) <= 1, f"the details repeat the title {title!r}"
     home.back()
