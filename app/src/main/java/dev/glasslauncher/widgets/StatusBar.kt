@@ -104,7 +104,7 @@ fun PillFace(cfg: LauncherConfig, focused: Boolean, onLight: Boolean, modifier: 
             // Glass stays put under the focus fill.
             // No drawn border: the old 22% black one read as a hard grey outline on white (P52). Over light art the
             // edge is the soft halo around the capsule (drawHalo) with the glass's own bright rim inside it.
-            .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f)) else GlassStyle.shelf(palette.light))
+            .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f), edgeBand = false) else GlassStyle.shelf(palette.light).copy(edgeBand = false))
             .then(
                 if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
             )

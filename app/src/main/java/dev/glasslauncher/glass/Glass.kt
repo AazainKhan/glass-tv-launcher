@@ -127,13 +127,19 @@ data class GlassStyle(
     val clear: Boolean = false,
     /** Clear glass that carries text: samples the text-safe copy of the clear texture. */
     val legible: Boolean = false,
+    /**
+     * Light glass over a light page has no dark side to define its edge: a faint cool band just inside it (P18).
+     * Two extra strokes, so only the few large surfaces that need it set it (the tray, menus and panels), never
+     * the many small ones (Control Center tiles, the status pill).
+     */
+    val edgeBand: Boolean = false,
 ) {
     companion object {
         // tvOS 27: milky glass in light appearance, smoky in dark; tint comes from the blurred content.
-        fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.30f), 0.22f, 0.45f)
+        fun panel(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.30f), 0.22f, 0.45f, edgeBand = true)
         else GlassStyle(Color(0xFF1A1D24).copy(alpha = 0.14f), 0.10f, 0.30f)
 
-        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.12f), 0.16f, 0.5f, clear = true)
+        fun shelf(light: Boolean) = if (light) GlassStyle(Color.White.copy(alpha = 0.12f), 0.16f, 0.5f, clear = true, edgeBand = true)
         else GlassStyle(Color.White.copy(alpha = 0.03f), 0.08f, 0.32f, clear = true)
 
         fun overlay(light: Boolean) = panel(light).copy(useOverlay = true)
@@ -331,6 +337,15 @@ private class GlassNode(
             0.8f to Color.White.copy(alpha = a * 0.05f),
             1f to Color.White.copy(alpha = a * 0.3f),
         )
+        // Light glass over a light page: a faint cool band just inside the edge (two overlapping strokes, so it
+        // fades inward and is never a line), then the bright rim on top (P18). Only on styles that ask for it.
+        if (style.edgeBand) {
+            drawOutline(outline, EDGE_BAND_WIDE, style = Stroke(width = 4.dp.toPx()))
+            drawOutline(outline, EDGE_BAND_NARROW, style = Stroke(width = 2.dp.toPx()))
+        }
         drawOutline(outline, brush(rim), style = Stroke(width = 1.dp.toPx()))
     }
 }
+
+private val EDGE_BAND_WIDE = Color(0xFF5C6688).copy(alpha = 0.022f)
+private val EDGE_BAND_NARROW = Color(0xFF5C6688).copy(alpha = 0.035f)
