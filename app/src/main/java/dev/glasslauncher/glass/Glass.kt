@@ -247,12 +247,13 @@ private class GlassNode(
             val gloss = Color.White.copy(alpha = style.highlight).toArgb()
             val clearColor = Color.Transparent.toArgb()
             val highlight = if (lightGlass) {
-                val shade = Color(0xFF7A84A6)
-                val ease = floatArrayOf(0f, 0.16f, 0.5f, 0.84f, 1f)
+                // Four stops, like the dark glass: gloss at the top, a clear middle, then a faint cool shade ramping in
+                // over the lower 40% (no start line, never darker than the page). An eased 7-stop version looked the
+                // same but made light mode ~4-5% janky on the stick: across the tray, the stop count is per pixel (P71).
                 LinearGradient(
                     0f, 0f, 0f, size.height,
-                    intArrayOf(gloss, clearColor, clearColor) + IntArray(ease.size - 1) { shade.copy(alpha = LIGHT_EDGE_SHADE * ease[it + 1]).toArgb() },
-                    floatArrayOf(0f, 0.35f, 0.6f) + FloatArray(ease.size - 1) { 0.6f + 0.4f * (it + 1) / (ease.size - 1) },
+                    intArrayOf(gloss, clearColor, clearColor, Color(0xFF7A84A6).copy(alpha = LIGHT_EDGE_SHADE).toArgb()),
+                    floatArrayOf(0f, 0.35f, 0.6f, 1f),
                     Shader.TileMode.CLAMP,
                 )
             } else LinearGradient(
