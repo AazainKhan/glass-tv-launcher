@@ -1013,6 +1013,12 @@ private fun tileKeys(layout: HomeLayout): Set<String> =
         layout.grid.forEach { add(it.key) }
     }
 
+/** Every tile's key in slot order: the tray's apps, then the grid (the tray's extra apps lead it) and the Settings tile. */
+private fun slotKeys(layout: HomeLayout, columns: Int): List<String> {
+    val dock = layout.dock.map { appKey(it.packageName) }
+    return dock.take(columns) + dock.drop(columns) + layout.grid.map { it.key } + SETTINGS_TILE_KEY
+}
+
 /** How long a tile taken off Home takes to fade out before the others close the gap. */
 private const val LEAVE_MS = 200
 
@@ -1081,7 +1087,23 @@ private fun HomeList(
     // Cleared once the list no longer holds the leaving tile (the recomposition after the swap).
     LaunchedEffect(shown) { if (shown === target) glide.leaving = emptySet() }
     // A layout change while tracking (or in the tail after a menu closed) is a new generation: its cells glide.
-    remember(layout) { if (tracking || gliding) glide.generation++; glide.generation }
+    // The slot order (tray, then the grid and the Settings tile) as it was drawn, to say where each cell will be placed.
+    val slotOrder = remember { arrayOf<List<String>>(emptyList()) }
+    remember(layout) {
+        val slots = slotKeys(layout, m.columns)
+        if (tracking || gliding) {
+            glide.generation++
+            val old = slotOrder[0]
+            glide.predicted = buildMap {
+                slots.forEachIndexed { i, key ->
+                    val was = old.getOrNull(i)?.let { glide.last[it] }?.first
+                    if (was != null && old.getOrNull(i) != key) put(key, was)
+                }
+            }
+        }
+        slotOrder[0] = slots
+        glide.generation
+    }
     LaunchedEffect(tracking) {
         if (tracking) gliding = true else { delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
     }
@@ -1126,6 +1148,8 @@ private fun HomeList(
                     .stopAtRowEnds(),
             ) {
                 row.forEach { cell ->
+                    // Keyed: a cell's composition (its focus, its glide) moves with it when its row shifts.
+                    androidx.compose.runtime.key(cellKey(cell)) {
                     Box(Modifier.weight(1f).glide(cellKey(cell))) {
                         when (cell) {
                             is Cell.Settings -> SettingsCell(requester(SETTINGS_TILE_KEY), { onFocused(SETTINGS_TILE_KEY, i + 2) }, onSettings)
@@ -1150,6 +1174,7 @@ private fun HomeList(
                                 )
                             }
                         }
+                    }
                     }
                 }
                 repeat(m.columns - row.size) { Spacer(Modifier.weight(1f)) }
@@ -1206,6 +1231,7 @@ private fun DockTray(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().stopAtRowEnds().testTag("dock")) {
             apps.take(m.columns).forEach { app ->
+              androidx.compose.runtime.key(appKey(app.packageName)) {
                 Box(Modifier.weight(1f).glide(appKey(app.packageName))) {
                     val key = appKey(app.packageName)
                     AppCell(
@@ -1221,6 +1247,7 @@ private fun DockTray(
                         floatingLabel = false,
                     )
                 }
+              }
             }
             repeat(m.columns - apps.take(m.columns).size) { Spacer(Modifier.weight(1f)) }
         }

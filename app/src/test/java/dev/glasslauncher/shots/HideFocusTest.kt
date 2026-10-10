@@ -196,4 +196,37 @@ class HideFocusTest {
             check(dev.glasslauncher.home.GlideTracker.wrapGlides > wraps) { "no tile changed rows (wraps ${dev.glasslauncher.home.GlideTracker.wrapGlides} was $wraps); focus was ${compose.focused()}\nbefore $p0\nafter ${pos()}" }
         }
     }
+
+    /**
+     * P62 on the stick: the tiles after a hidden one popped into their final places for one frame (their glide
+     * offset came a frame after their layout) before gliding from where they were. On the JVM every step of a
+     * frame runs before the next is sampled, so this checks the cause: every glide starts from the position
+     * predicted in the composing frame, none waits for the measured one.
+     */
+    @Test fun theGlideOffsetIsInTheSameFrameAsTheNewPlace() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.settle()
+            compose.press(Button.Down, Button.Right) // first grid row, second tile
+            compose.settle()
+            val predicted = dev.glasslauncher.home.GlideTracker.predictedGlides
+            val measured = dev.glasslauncher.home.GlideTracker.measuredGlides
+            compose.press(Button.Menu)
+            compose.settle()
+            compose.press(Button.Down, Button.Down, Button.Down)
+            compose.settle()
+            selectAndWaitForLayout()
+            repeat(120) {
+                Thread.sleep(8)
+                compose.mainClock.advanceTimeBy(16)
+                appBoxes()
+            }
+            compose.mainClock.autoAdvance = true
+            val p = dev.glasslauncher.home.GlideTracker.predictedGlides - predicted
+            val m = dev.glasslauncher.home.GlideTracker.measuredGlides - measured
+            check(p > 0) { "no glide started from a predicted position ($p predicted, $m measured)" }
+            assertEquals("glides that waited for the measured position (a frame late)", 0, m)
+        }
+    }
 }
