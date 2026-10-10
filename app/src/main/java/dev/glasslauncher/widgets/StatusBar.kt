@@ -102,8 +102,9 @@ fun PillFace(cfg: LauncherConfig, focused: Boolean, onLight: Boolean, modifier: 
             // hero) clear glass vanishes, so it is milky white there (light glass: no dark bevel, a faint
             // eased shade at the bottom), and the edge does the separating (see shadow above, rim below).
             // Glass stays put under the focus fill.
+            // No drawn border: the old 22% black one read as a hard grey outline on white (P52). Over light art the
+            // edge is the soft halo around the capsule (drawHalo) with the glass's own bright rim inside it.
             .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f)) else GlassStyle.shelf(palette.light))
-            .then(if (onLight) Modifier.border(1.dp, Color.Black.copy(alpha = 0.22f), Shapes.pill) else Modifier)
             .then(
                 if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
             )
@@ -122,8 +123,8 @@ fun PillFace(cfg: LauncherConfig, focused: Boolean, onLight: Boolean, modifier: 
     }
 }
 
-private const val HALO_ALPHA = 0.08f
-private const val HALO_STEPS = 6
+private const val HALO_ALPHA = 0.045f
+private const val HALO_STEPS = 7
 
 /**
  * A faint halo round the capsule: [HALO_STEPS] abutting capsule-shaped bands of 1.5 dp, black, strongest at the

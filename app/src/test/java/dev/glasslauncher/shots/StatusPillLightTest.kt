@@ -63,7 +63,11 @@ class StatusPillLightTest {
         return sum / n
     }
 
-    private class Measure(val body: Float, val bottom: Float, val middle: Float, val gearDisc: Float, val edge: Float, val artBeside: Float, val contrast: Float)
+    private class Measure(
+        val body: Float, val bottom: Float, val middle: Float, val gearDisc: Float, val edge: Float, val artBeside: Float, val contrast: Float,
+        /** The largest grey change between neighbouring pixels going down through the bottom edge: a drawn line is a big step. */
+        val hardestStep: Float,
+    )
 
     private fun measure(s: Scene): Measure {
         val d = s.density
@@ -94,7 +98,12 @@ class StatusPillLightTest {
         val bodyLum = lum(android.graphics.Color.rgb(body.toInt(), body.toInt(), body.toInt()))
         val textLum = lum(0xFF0E1015.toInt())
         val contrast = (bodyLum + 0.05f) / (textLum + 0.05f)
-        return Measure(body, bottomBand, middleBand, disc, edge, art, contrast)
+        var step = 0f
+        val sx = (l + r) / 2
+        var sy = (p.bottom - 3 * d).toInt()
+        val syEnd = (p.bottom + 8 * d).toInt()
+        while (sy < syEnd) { step = maxOf(step, kotlin.math.abs(grey(s.full.getPixel(sx, sy + 1)) - grey(s.full.getPixel(sx, sy)))); sy++ }
+        return Measure(body, bottomBand, middleBand, disc, edge, art, contrast, step)
     }
 
     private fun solid(name: String, argb: Int): Wallpaper {
@@ -118,7 +127,11 @@ class StatusPillLightTest {
             if (m.body < 225f) problems += "$name: body mean ${m.body} < 225"
             if (m.middle - m.bottom > 6f) problems += "$name: bottom band ${m.bottom} is ${m.middle - m.bottom} darker than the middle ${m.middle} (max 6)"
             if (m.body - m.gearDisc > 10f) problems += "$name: gear disc ${m.gearDisc} is ${m.body - m.gearDisc} darker than the body ${m.body} (max 10)"
-            if (m.artBeside - m.edge < 12f) problems += "$name: edge ${m.edge} differs from the art ${m.artBeside} by only ${m.artBeside - m.edge} (min 12)"
+            // The edge is a soft shadow and the glass's rim, not a drawn line (P52: the old 22% black border read as a
+            // hard grey outline on white): no step of more than 20 levels between neighbouring pixels (that border
+            // stepped by ~50; PillEdgeTest holds the stricter 12 over pure white, where the edge is judged).
+            if (m.artBeside - m.edge < 1f) problems += "$name: edge ${m.edge} is not below the art ${m.artBeside}"
+            if (m.hardestStep > 20f) problems += "$name: a ${m.hardestStep} level step at the bottom edge reads as a drawn line (max 20)"
             if (m.contrast < 4.5f) problems += "$name: text contrast ${m.contrast} < 4.5"
         }
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
