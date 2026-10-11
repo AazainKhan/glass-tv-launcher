@@ -44,4 +44,16 @@ class PrivappAllowlistTest {
         val out = listed(RootFeatures.privappXml("dev.glasslauncher", emptyList()))
         assertTrue("ACCESS_ALL_EPG_DATA comes from the extras: $out", "com.android.providers.tv.permission.ACCESS_ALL_EPG_DATA" in out)
     }
+
+    /** P75 B stick finding: a new privileged permission is only granted once the /data update is dropped after a refresh. */
+    @Test fun theModuleServiceDropsTheDataUpdateOnceAfterARefresh() {
+        val svc = File("src/main/assets/glass-system-service.sh").readText()
+        assertTrue("guarded by the flag", "uninstall-updates" in svc && "[ -f \"\$FLAG\" ] || exit 0" in svc)
+        assertTrue("waits for boot", "sys.boot_completed" in svc)
+        assertTrue("clears the flag before acting (no loop)", svc.indexOf("rm -f \"\$FLAG\"") < svc.indexOf("uninstall-system-updates"))
+        assertTrue("brings Home back", "android.intent.category.HOME" in svc)
+        val check = File("../scripts/privapp-check").readText()
+        assertTrue("privapp-check installs the same script and sets the flag", "glass-system-service.sh" in check && "touch \$MOD/uninstall-updates" in check)
+        assertTrue("privapp-check uses the SDK's tools, not PATH", "cmdline-tools" in check && "sdk.dir" in check)
+    }
 }

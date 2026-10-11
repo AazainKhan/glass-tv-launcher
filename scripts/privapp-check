@@ -20,9 +20,25 @@ BAK="$MOD/privapp.xml.bak"
 [ -f "$APK" ] || { echo "privapp-check: no such APK: $APK" >&2; exit 2; }
 adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'" >/dev/null 2>&1 || { echo "privapp-check: glass-system isn't installed: Glass is a normal app here, nothing to check"; exit 0; }
 
-command -v apkanalyzer >/dev/null || { echo "privapp-check: apkanalyzer not found (brew install android-commandlinetools / SDK cmdline-tools)" >&2; exit 2; }
+# apkanalyzer from the project's SDK (local.properties sdk.dir), not PATH: Homebrew's one ignores ANDROID_HOME and dies
+# with "Cannot locate latest build tools".
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+[ -f "$ROOT/local.properties" ] && SDK="$(sed -n 's/^sdk.dir=//p' "$ROOT/local.properties" | head -1)"
+APKANALYZER=""
+for c in "$SDK/cmdline-tools/latest/bin/apkanalyzer" "$SDK"/cmdline-tools/*/bin/apkanalyzer; do
+  [ -x "$c" ] && { APKANALYZER="$c"; break; }
+done
+if [ -z "$APKANALYZER" ]; then
+  # Fall back to aapt2 from the newest build-tools.
+  AAPT2="$(ls -d "$SDK"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)"
+  [ -n "$AAPT2" ] || { echo "privapp-check: no apkanalyzer or aapt2 under sdk.dir ($SDK)" >&2; exit 2; }
+fi
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-apkanalyzer manifest permissions "$APK" | sort -u > "$tmp/requested"
+if [ -n "$APKANALYZER" ]; then
+  ANDROID_HOME="$SDK" "$APKANALYZER" manifest permissions "$APK" | sort -u > "$tmp/requested"
+else
+  "$AAPT2" dump permissions "$APK" | sed -n "s/^uses-permission: name='\([^']*\)'.*/\1/p" | sort -u > "$tmp/requested"
+fi
 # The extras RootFeatures adds on top of the manifest's (single source: its EXTRA_PRIVILEGED list).
 python3 - "$ROOT/app/src/main/java/dev/glasslauncher/system/RootFeatures.kt" > "$tmp/extra" <<'PY'
 import re, sys
@@ -61,5 +77,12 @@ if [ -n "$(comm -23 "$tmp/union" "$tmp/after")" ]; then
   comm -23 "$tmp/union" "$tmp/after" | sed 's/^/  not on device: /' >&2
   exit 1
 fi
+# A new privileged permission is granted only from the system copy, and Android won't re-parse that while a
+# same-versionCode /data update shadows it. So refresh the module's APK now and flag the module's service.sh to drop the
+# /data update at the next boot (app data is kept).
+adb push "$APK" /data/local/tmp/glass-system.apk >/dev/null
+adb push "$ROOT/app/src/main/assets/glass-system-service.sh" /data/local/tmp/glass-system-service.sh >/dev/null
+adb shell "su -c 'mkdir -p $MOD/system/priv-app/GlassLauncher && cp /data/local/tmp/glass-system.apk $MOD/system/priv-app/GlassLauncher/GlassLauncher.apk && chmod 644 $MOD/system/priv-app/GlassLauncher/GlassLauncher.apk && cp /data/local/tmp/glass-system-service.sh $MOD/service.sh && chmod 755 $MOD/service.sh && touch $MOD/uninstall-updates && rm -f /data/local/tmp/glass-system.apk /data/local/tmp/glass-system-service.sh'"
+echo "privapp-check: module APK refreshed; the next reboot drops the /data update so the new privileged permission is granted"
 echo "privapp-check: allowlist updated in $XML ($(wc -l < "$tmp/union" | tr -d ' ') entries, none removed; previous copy: $BAK; effective at the next boot)"
 exit 0

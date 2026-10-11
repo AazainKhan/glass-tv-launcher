@@ -69,6 +69,8 @@ object RootFeatures {
         // the allowlist stays honest.
         val xml = privappXml(context.packageName, requested) { name -> runCatching { pm.getPermissionInfo(name, 0) }.isSuccess }
         val apk = context.applicationInfo.sourceDir
+        // Boot-time half of a refresh: see assets/glass-system-service.sh.
+        val service = context.assets.open("glass-system-service.sh").bufferedReader().use { it.readText() }.trimEnd()
         val script = """
             set -e
             M=$SYSTEM_MODULE
@@ -77,6 +79,11 @@ object RootFeatures {
             cat > ${'$'}M/system/etc/permissions/privapp-permissions-${context.packageName}.xml <<'GLASSXML'
             ${xml.trimEnd()}
             GLASSXML
+            cat > ${'$'}M/service.sh <<'GLASSSVC'
+            $service
+            GLASSSVC
+            chmod 755 ${'$'}M/service.sh
+            touch ${'$'}M/uninstall-updates
             printf 'id=glass-system\nname=Glass TV Launcher as a system app\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=Installs Glass TV Launcher as a privileged system app (Continue Watching from other apps, secure settings). Remove to revert.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/system/priv-app/GlassLauncher
             chmod 644 ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk ${'$'}M/system/etc/permissions/*.xml
