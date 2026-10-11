@@ -180,8 +180,13 @@ def shelf_app(tv, home) -> str:
     for node in home.card_row_apps():
         pkg = node.rid.removeprefix("app:")
         home.focus_app(pkg)
+        # Titles already on screen may be the previous app's (they stay until the hero swaps): let focus and
+        # the hero settle on this app first, so the test starts with focus where the fixture says.
+        time.sleep(1)
         try:
+            tv.wait_for(lambda t: t.focused() and t.focused().rid == f"app:{pkg}", 3, f"focus held on {pkg}")
             tv.wait_for(lambda t: t.find(rid="shelf-title"), 8, f"{pkg}'s titles")
+            tv.wait_for(lambda t: t.focused() and t.focused().rid == f"app:{pkg}", 3, f"focus still on {pkg} with its titles")
         except AssertionError:
             continue
         return pkg

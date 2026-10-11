@@ -55,6 +55,7 @@ def test_back_from_the_grid_returns_to_the_top(tv, home):
 @pytest.mark.emulator_gap  # flaky on the emulator only, passes on the stick (P22)
 def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home, shelf_app):
     # shelf_app: a tray app with the usual card row and titles (the tray may start with Spotify's Cover Flow).
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == f"app:{shelf_app}", 4, f"focus on {shelf_app} before Up")
     tv.press("up")
     shelf = tv.wait_for(lambda t: t.find(rid="featured-row"), 6, "the full-screen shelf's row")
     assert shelf
@@ -65,6 +66,7 @@ def test_up_opens_the_top_shelf_full_screen_and_down_closes_it(tv, home, shelf_a
 @pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_full_screen_shelf_has_no_dots_and_ends_at_the_last_card(tv, home, shelf_app):
     """The page dots stopped at 12 while cards kept going; the dots are gone, and Right stops at the last card."""
+    tv.wait_for(lambda t: t.focused() and t.focused().rid == f"app:{shelf_app}", 4, f"focus on {shelf_app} before Up")
     tv.press("up")
     tv.wait_for(lambda t: t.find(rid="featured-row"), 6, "the full-screen shelf")
     assert not tv.tree().find(rid="shelf-dots"), "the page dots are still shown"
@@ -103,13 +105,21 @@ def test_tray_icons_are_vertically_centred(tv, home):
 @pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_down_from_the_pill_returns_to_the_tray_app(tv, home):
     """Up from a tray app reaches the status pill; Down goes back to that same app (it used to need Home)."""
-    # Start from the tray app under the pill (Up goes straight up), whichever apps the device has.
+    import time
+    # Up from an app with titles opens its full-screen shelf and from a Cover Flow app (Spotify) its Cover Flow:
+    # only an app with neither goes straight to the pill. Find one among the tray's apps, nearest the pill first.
     pill = tv.tree().find(rid="status-pill")
     mid = lambda n: (n.bounds[0] + n.bounds[2]) / 2
-    # A Cover Flow app (Spotify) would be entered by Up before the pill: use the nearest card-row app.
-    candidates = home.card_row_apps() or home.dock_apps()
-    nearest = min(candidates, key=lambda n: abs(mid(n) - mid(pill)))
-    node = home.focus_app(nearest.rid.removeprefix("app:"))
+    node = None
+    for cand in sorted(home.card_row_apps(), key=lambda n: abs(mid(n) - mid(pill))):
+        home.focus_app(cand.rid.removeprefix("app:"))
+        time.sleep(7.5)  # titles arrive after a dwell (6 s); the chevron is there only when there are some
+        tree = tv.tree()
+        if tree.focused() and tree.focused().rid == cand.rid and not tree.find(rid="shelf-chevron"):
+            node = tree.focused()
+            break
+    if node is None:
+        pytest.skip("every card-row tray app has titles: Up opens its shelf, not the pill")
     tv.press("up")
     tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 3, "the status pill")
     tv.press("down")
