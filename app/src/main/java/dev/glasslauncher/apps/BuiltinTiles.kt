@@ -18,26 +18,21 @@ object BuiltinTiles {
     /** Alexa's Smart Home app (the CC Alexa page's Smart Home tile is the same app). */
     private val SMART_HOME = setOf("com.amazon.smarthomemapviewapp", "com.amazon.alexa.smarthome", "com.amazon.smarthomedashboard")
 
-    /** 0 = Alexa cyan, 1 = warm home. Tests render both; the chosen one is the default. */
-    var smartHomeVariant = 0
-
     fun has(pkg: String) = pkg in SMART_HOME
 
     /** Draws [pkg]'s tile into [canvas] ([w] x [h]); false when there is none for it. */
-    fun draw(canvas: Canvas, w: Int, h: Int, pkg: String, variant: Int = smartHomeVariant): Boolean {
+    fun draw(canvas: Canvas, w: Int, h: Int, pkg: String): Boolean {
         if (pkg !in SMART_HOME) return false
-        drawSmartHome(canvas, w.toFloat(), h.toFloat(), variant)
+        drawSmartHome(canvas, w.toFloat(), h.toFloat())
         return true
     }
 
-    fun smartHome(w: Int, h: Int, variant: Int): Bitmap =
-        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { drawSmartHome(Canvas(it), w.toFloat(), h.toFloat(), variant) }
+    fun smartHome(w: Int, h: Int): Bitmap =
+        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { drawSmartHome(Canvas(it), w.toFloat(), h.toFloat()) }
 
-    private fun drawSmartHome(c: Canvas, w: Float, h: Float, variant: Int) {
-        val (top, bottom, glow) = when (variant) {
-            1 -> Triple(0xFFFFC371.toInt(), 0xFFFF4F5E.toInt(), 0xFFFFE2A8.toInt())   // warm home
-            else -> Triple(0xFF2EE6FF.toInt(), 0xFF1C3FD8.toInt(), 0xFF9BF4FF.toInt()) // Alexa cyan to deep blue
-        }
+    private fun drawSmartHome(c: Canvas, w: Float, h: Float) {
+        // Alexa blue: cyan at the top left to a deep blue (the user's pick, option A).
+        val top = 0xFF2EE6FF.toInt(); val bottom = 0xFF1C3FD8.toInt(); val glow = 0xFF9BF4FF.toInt()
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         // Diagonal gradient with a soft light near the top left: depth without a flat plate.
         paint.shader = LinearGradient(0f, 0f, w * 0.55f, h, top, bottom, Shader.TileMode.CLAMP)
