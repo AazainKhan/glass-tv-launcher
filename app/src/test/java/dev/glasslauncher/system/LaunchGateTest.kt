@@ -9,42 +9,30 @@ import org.junit.Test
 class LaunchGateTest {
     @After fun reset() = LaunchGate.clear()
 
-    @Test fun backCancelsOnlyUntilTheFirstWindowAppears() {
-        LaunchGate.begin("com.example.tv", now = 1_000)
-        assertTrue(LaunchGate.interruptible(now = 1_500))
+    @Test fun backCancelsUntilTheAppHasTheForeground() {
+        LaunchGate.begin("com.example.tv", now = 1_000, wallClock = 50_000)
+        assertTrue(LaunchGate.shouldInterrupt(now = 1_500, appInForeground = false))
         assertEquals("com.example.tv", LaunchGate.launching(now = 1_500))
-        LaunchGate.windowShown("com.example.tv", now = 2_000)
-        assertFalse("its window is up: Back belongs to the app", LaunchGate.interruptible(now = 2_100))
+        // A starting window means nothing: only the foreground check closes it (the stick's trace: window event at
+        // +324 ms, Back still held by the system until the activity resumed).
+        assertFalse("its activity resumed: Back belongs to the app", LaunchGate.shouldInterrupt(now = 2_000, appInForeground = true))
     }
 
-    @Test fun aTrampolineWindowClosesTheGateToo() {
-        LaunchGate.begin("com.amazon.firebat", now = 0)
-        LaunchGate.windowShown("com.amazon.avod.thirdpartyclient", now = 900)
-        assertFalse(LaunchGate.interruptible(now = 1_000))
-    }
-
-    @Test fun neverAfterTheWindowOfSixSeconds() {
+    @Test fun neverAfterTheCap() {
         LaunchGate.begin("a.b", now = 0)
-        assertTrue(LaunchGate.interruptible(now = LaunchGate.WINDOW_MS))
-        assertFalse(LaunchGate.interruptible(now = LaunchGate.WINDOW_MS + 1))
+        assertTrue(LaunchGate.shouldInterrupt(now = LaunchGate.WINDOW_MS, appInForeground = false))
+        assertFalse(LaunchGate.shouldInterrupt(now = LaunchGate.WINDOW_MS + 1, appInForeground = false))
     }
 
     @Test fun noLaunchNoInterrupt() {
-        assertFalse(LaunchGate.interruptible(now = 0))
+        assertFalse(LaunchGate.shouldInterrupt(now = 0, appInForeground = false))
         LaunchGate.begin("a.b", now = 100)
         LaunchGate.clear()
-        assertFalse(LaunchGate.interruptible(now = 200))
+        assertFalse(LaunchGate.shouldInterrupt(now = 200, appInForeground = false))
     }
 
-    @Test fun aLateWindowAfterTheGateExpiredDoesNotReopenIt() {
-        LaunchGate.begin("a.b", now = 0)
-        LaunchGate.windowShown("a.b", now = 7_000)   // too late to matter
-        assertFalse(LaunchGate.interruptible(now = 7_100))
-    }
-
-    @Test fun homeBeingCoveredClosesTheGateEvenWithoutAWindowEvent() {
-        LaunchGate.begin("com.trampoline.app", now = 0)
-        LaunchGate.homeStopped(now = 800)
-        assertFalse(LaunchGate.interruptible(now = 900))
+    @Test fun theLaunchTimeIsKeptOnTheWallClockForUsageEvents() {
+        LaunchGate.begin("a.b", now = 10, wallClock = 1_700_000_000_000L)
+        assertEquals(1_700_000_000_000L, LaunchGate.launchedAtWall())
     }
 }

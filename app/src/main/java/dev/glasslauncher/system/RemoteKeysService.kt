@@ -75,8 +75,11 @@ class RemoteKeysService : AccessibilityService() {
         // never taken. Both halves of the press are swallowed.
         if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_HOME) && app.config.config.value.instantBack) {
             val now = android.os.SystemClock.uptimeMillis()
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && LaunchGate.interruptible(now)) {
-                Log.i(TAG, "instant back: ${LaunchGate.launching(now)} hadn't drawn yet")
+            // The launched app has no focus until an activity of it has resumed: a starting window is not that (the
+            // system holds Back until then). The usage events say when it has (RecentApps.foregroundSince).
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && LaunchGate.interruptible(now) &&
+                LaunchGate.shouldInterrupt(now, RecentApps.foregroundSince(this, LaunchGate.launchedAtWall(), packageName))) {
+                Log.i(TAG, "instant back: ${LaunchGate.launching(now)} had not taken the foreground")
                 LaunchGate.clear()
                 interrupted = true
                 performGlobalAction(GLOBAL_ACTION_HOME)
@@ -183,8 +186,7 @@ class RemoteKeysService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
-        // Any window of another app (the target's, or a trampoline's) means the launch is on screen: Back is the app's.
-        if (pkg != packageName && pkg != "com.android.systemui") LaunchGate.windowShown(pkg, android.os.SystemClock.uptimeMillis())
+        if (dev.glasslauncher.BuildConfig.DEBUG && pkg != packageName) Log.i(TAG, "window state: $pkg (gate launching=${LaunchGate.launching(android.os.SystemClock.uptimeMillis())})")
         // Glass's own windows other than Home (the Control Center overlay itself) aren't an app change.
         val glassHome = pkg == packageName && event.className?.toString() == MainActivity::class.java.name
         if (pkg == packageName && !glassHome) return
