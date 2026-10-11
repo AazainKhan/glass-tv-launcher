@@ -5,7 +5,7 @@
 # system_server from booting. Missing entries are ADDED to the module's XML (harmless; it applies at the next boot),
 # the same list RootFeatures.installSystemApp writes (requested + EXTRA_PRIVILEGED, minus permissions this Android
 # doesn't define). It only ever adds: what is listed already stays (the union is written), the old XML is saved as
-# <xml>.bak first, and the new one is read back from the device and checked. Exit 0 when the allowlist covers the
+# $MOD/privapp.xml.bak first, and the new one is read back from the device and checked. Exit 0 when the allowlist covers the
 # APK (or Glass isn't a system app here); non-zero refuses (and so stops scripts/build before it installs).
 #   scripts/privapp-check <apk> [--dry-run]
 set -euo pipefail
@@ -15,6 +15,8 @@ source "$ROOT/scripts/lib/device.sh"; require_device_access
 PKG=dev.glasslauncher
 MOD=/data/adb/modules/glass-system
 XML="$MOD/system/etc/permissions/privapp-permissions-$PKG.xml"
+# The backup sits outside system/ so Magisk never overlays it into /system.
+BAK="$MOD/privapp.xml.bak"
 [ -f "$APK" ] || { echo "privapp-check: no such APK: $APK" >&2; exit 2; }
 adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'" >/dev/null 2>&1 || { echo "privapp-check: glass-system isn't installed: Glass is a normal app here, nothing to check"; exit 0; }
 
@@ -51,13 +53,13 @@ cat "$tmp/listed" "$tmp/want" | grep -v '^$' | sort -u > "$tmp/union"
   echo '</permissions>'
 } > "$tmp/new.xml"
 adb push "$tmp/new.xml" /data/local/tmp/privapp.xml >/dev/null
-adb shell "su -c 'cp $XML $XML.bak 2>/dev/null; cp /data/local/tmp/privapp.xml $XML && chmod 644 $XML && rm -f /data/local/tmp/privapp.xml'"
+adb shell "su -c 'cp $XML $BAK 2>/dev/null; cp /data/local/tmp/privapp.xml $XML && chmod 644 $XML && rm -f /data/local/tmp/privapp.xml'"
 # Read it back: every wanted entry must be on the device now, or nothing may be installed.
 adb shell "su -c 'cat $XML'" | tr -d '\r' | grep -o 'permission name="[^"]*"' | sed 's/permission name="//; s/"$//' | sort -u > "$tmp/after"
 if [ -n "$(comm -23 "$tmp/union" "$tmp/after")" ]; then
-  echo "privapp-check: read-back is missing entries; restore with: adb shell su -c 'cp $XML.bak $XML'" >&2
+  echo "privapp-check: read-back is missing entries; restore with: adb shell su -c 'cp $BAK $XML'" >&2
   comm -23 "$tmp/union" "$tmp/after" | sed 's/^/  not on device: /' >&2
   exit 1
 fi
-echo "privapp-check: allowlist updated in $XML ($(wc -l < "$tmp/union" | tr -d ' ') entries, none removed; previous copy: $XML.bak; effective at the next boot)"
+echo "privapp-check: allowlist updated in $XML ($(wc -l < "$tmp/union" | tr -d ' ') entries, none removed; previous copy: $BAK; effective at the next boot)"
 exit 0
