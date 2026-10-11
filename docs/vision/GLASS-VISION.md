@@ -115,3 +115,9 @@ Risks:
 3. Website copy direction, including whether to swap the Nuvio hero and the Kodi, Stremio and Jellyfin logos.
 4. The P75(B) hold-Home pairing test.
 5. Small ones: "p.m." vs "PM", a footer email, and 7 vs 9 Spotify preview covers.
+
+## 11. Queued polish (user requests, 2026-10-11)
+
+- P85: the Spotify Cover Flow preview starts centred and auto-advances while focused.
+- P86: Spotify backdrop crossfades smoothly (no instant green or pop), the logo sits by the full-screen title, a "Listen Now" label appears in the preview, and Up/Down morph between the preview and the full Cover Flow.
+- P87: interruptible app launch. Back or Home always works, even while an app is loading (Apple's "never wait" rule). Spike per install way.
