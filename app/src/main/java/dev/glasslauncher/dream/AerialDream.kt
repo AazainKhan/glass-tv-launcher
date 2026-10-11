@@ -93,9 +93,10 @@ class AerialActivity : Activity() {
     override fun onStart() {
         super.onStart()
         view?.start()
-        // Keep the screen on only until the TV's own sleep timeout, so Aerials never stop it sleeping.
-        val sleepMs = runCatching { android.provider.Settings.Secure.getLong(contentResolver, "sleep_timeout") }.getOrDefault(20 * 60_000L)
-        window.decorView.postDelayed(sleepAfter, sleepMs.coerceIn(5 * 60_000L, 4 * 3600_000L))
+        // Keep the screen on only until the TV's own sleep timeout, so Aerials never stop it sleeping; with no
+        // timeout ("never": sleep_timeout <= 0) they run until a key is pressed.
+        val timeout = runCatching { android.provider.Settings.Secure.getLong(contentResolver, "sleep_timeout") }.getOrNull()
+        Screensaver.keepAwakeMs(timeout)?.let { window.decorView.postDelayed(sleepAfter, it) }
     }
 
     override fun onStop() {
@@ -112,6 +113,17 @@ class AerialActivity : Activity() {
 }
 
 object Screensaver {
+    /**
+     * How long Aerials may keep the screen on, from the TV's sleep timeout in ms ([timeout], null when unreadable):
+     * null means no limit (the timeout is <= 0, AOSP's "never"); a positive timeout is honoured as it is, with a
+     * 5 minute floor (Fire's UI tops out at 8 h and that is the user's choice); unreadable falls back to 20 minutes.
+     */
+    fun keepAwakeMs(timeout: Long?): Long? = when {
+        timeout == null -> 20 * 60_000L
+        timeout <= 0L -> null
+        else -> maxOf(timeout, 5 * 60_000L)
+    }
+
     fun component(context: Context) = ComponentName(context, AerialDreamService::class.java)
 
     fun canWriteSecureSettings(context: Context) =
