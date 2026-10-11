@@ -41,7 +41,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val surface = SurfaceView(context)
     private val fade = View(context).apply { setBackgroundColor(Color.BLACK) }
-    // tvOS-style: a light clock without am/pm and a small caption, each with only a soft contact shadow.
+    // tvOS-style: a light clock (AM/PM small beside it in 12-hour mode) and a small caption, each with only a soft contact shadow.
     private val location = label(13f, alpha = 0.85f).apply { gravity = Gravity.START; letterSpacing = 0.01f }
     private val clock = label(26f, alpha = 0.95f).apply { letterSpacing = -0.01f }
     private var player: ExoPlayer? = null
@@ -73,7 +73,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
         scope.launch {
             launch {
                 while (true) {
-                    clock.text = java.text.SimpleDateFormat(if (DateFormat.is24HourFormat(context)) "H:mm" else "h:mm", java.util.Locale.getDefault()).format(Date())
+                    clock.text = AerialClock.text(Date(), DateFormat.is24HourFormat(context))
                     delay(60_000L - System.currentTimeMillis() % 60_000L + 50)
                 }
             }
@@ -176,5 +176,27 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
                 .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true))
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         }
+    }
+}
+
+/**
+ * The Aerial clock's text: "9:41" in 24-hour mode as "9:41", in 12-hour mode "9:41" with a smaller "AM"/"PM" after it
+ * (tvOS), following the system's 12/24-hour setting ([DateFormat.is24HourFormat]).
+ */
+object AerialClock {
+    /** The time part and, in 12-hour mode, the AM/PM marker (locale's own text). */
+    fun parts(at: Date, is24: Boolean, locale: java.util.Locale = java.util.Locale.getDefault()): Pair<String, String?> =
+        if (is24) java.text.SimpleDateFormat("H:mm", locale).format(at) to null
+        else java.text.SimpleDateFormat("h:mm", locale).format(at) to java.text.SimpleDateFormat("a", locale).format(at)
+
+    /** The marker is drawn at this fraction of the time's size, beside it. */
+    const val AMPM_SCALE = 0.55f
+
+    fun text(at: Date, is24: Boolean, locale: java.util.Locale = java.util.Locale.getDefault()): CharSequence {
+        val (time, ampm) = parts(at, is24, locale)
+        if (ampm == null) return time
+        val s = android.text.SpannableString("$time $ampm")
+        s.setSpan(android.text.style.RelativeSizeSpan(AMPM_SCALE), time.length + 1, s.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return s
     }
 }
