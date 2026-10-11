@@ -57,12 +57,16 @@ object Blur {
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
     }
 
+    /** Tests only: skip RenderScript (Robolectric's copy blurs nothing), so the CPU path's result can be measured. */
+    @Volatile var forceCpu = false
+
     /**
      * Three box passes of [boxRadius] approximate a gaussian with sigma = sqrt(((2r+1)^2 - 1) / 4);
      * RenderScript's radius maps to sigma = 0.4 r + 0.6, so this keeps the look identical.
      */
     @Synchronized
     private fun gpuBlur(bitmap: Bitmap, boxRadius: Int): Boolean {
+        if (forceCpu) return false
         val r = rs ?: return false
         val blur = intrinsic ?: return false
         if (bitmap.config != Bitmap.Config.ARGB_8888 || !bitmap.isMutable) return false

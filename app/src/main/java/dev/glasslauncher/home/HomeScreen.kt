@@ -292,9 +292,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // An expanded shelf of square covers (Spotify's albums and playlists) is a Cover Flow (P33): its background is
     // the focused cover, softly blurred and glossy, not the art drawn sharp.
     val coverShelf = expanded && feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)
+    // Square covers are too small to fill the screen sharp (a 640 px cover is 3x at 1080p: pixelated, P79), at rest
+    // as much as in the Cover Flow: they get the soft cover backdrop under the same cache key, so opening or closing
+    // the Cover Flow re-bakes and dissolves nothing.
+    val softFeed = feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)
+    val coverBackdrop = coverShelf || softFeed
     // A Cover Flow whose cover couldn't be fetched shows the wallpaper; it bakes again when the network returns (P65).
-    val coverNetwork = if (coverShelf) dev.glasslauncher.ui.NetworkEpoch.value else 0
-    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg, coverShelf, coverNetwork) {
+    val coverNetwork = if (coverBackdrop) dev.glasslauncher.ui.NetworkEpoch.value else 0
+    LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg, coverBackdrop, coverNetwork) {
         if (takeoverArt != null) {
             backdrop.glassFades = true
             backdrop.swap(graph.wallpapers.fromImage(dev.glasslauncher.widgets.backdropArt(takeoverArt), light = !dark), animate = backdrop.backdrop != null)
@@ -322,16 +327,20 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
         // baking the wallpaper only to throw it away (the two bakes used to run in parallel at startup).
         if (sceneUrl == null && cfg.background == BackgroundMode.Featured && featuredCfg != null && backdrop.backdrop == null) delay(1_200)
-        val ready = prebaked[0]?.takeIf { it.first == sceneUrl && !coverShelf }?.second?.takeIf { it.isLight == !dark }
+        val ready = prebaked[0]?.takeIf { it.first == sceneUrl && !coverBackdrop }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
         // A Cover Flow step whose cover was baked ahead (the neighbours are, below) shows at once.
-        val coverReady = if (coverShelf) sceneUrl?.let { HeroCache.cover["$it|$dark"] } else null
+        // Expanded (the Cover Flow): the soft cover scene; at rest: the 2000 px album art sharp when Spotify has it,
+        // else the same soft scene (P79). Different looks, so different keys.
+        fun coverKey(u: String) = if (coverShelf) "$u|$dark" else "$u|$dark|rest"
+        val coverReady = if (coverBackdrop) sceneUrl?.let { HeroCache.cover[coverKey(it)] } else null
         // Let quick left/right browsing settle before re-baking the glass (a Cover Flow scrolls in quick steps).
-        if (ready == null && coverReady == null && expanded) delay(if (coverShelf) COVER_SETTLE_MS else 220)
+        if (ready == null && coverReady == null && expanded) delay(if (coverBackdrop) COVER_SETTLE_MS else 220)
         backdrop.glassFades = true
         val next = ready ?: coverReady ?: sceneUrl?.let { url ->
             runCatching {
-                if (coverShelf) graph.wallpapers.coverFromUrl(url, light = !dark)?.also { HeroCache.cover["$url|$dark"] = it }
+                if (coverBackdrop) (if (coverShelf) graph.wallpapers.coverFromUrl(url, light = !dark) else graph.wallpapers.squareRestFromUrl(url, light = !dark))
+                    ?.also { HeroCache.cover[coverKey(url)] = it }
                 else graph.wallpapers.fromUrl(url, light = !dark)
             }.getOrNull()
         } ?: graph.wallpapers.load(wallpaper, light = !dark)
@@ -520,7 +529,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         val next = (heroIndex + 1) % feed.items.size
         val url = feed.items[next].image
         // Pre-baked at background priority, so a slide never competes with a scroll or focus move.
-        if (url != null) runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
+        if (url != null) {
+            // Square covers: the soft cover scene, cached under the key the resting backdrop looks up (P79).
+            if (dev.glasslauncher.featured.CardShape.square(feed.items)) {
+                if (HeroCache.cover["$url|$dark|rest"] == null) runCatching { graph.wallpapers.squareRestFromUrl(url, light = !dark) }.getOrNull()?.let { HeroCache.cover["$url|$dark|rest"] = it }
+            } else runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
+        }
         feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }
         heroIndex = next
     }

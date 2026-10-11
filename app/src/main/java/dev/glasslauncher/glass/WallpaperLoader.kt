@@ -134,6 +134,19 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         return fromHeroArt(scene, light = light).also { scene.recycle() }
     }
 
+    /**
+     * The backdrop for a square cover shown at rest (P79): Spotify publishes albums at 640 px but serves the same
+     * art at 2000 px under another size code ([SpotifyArt.large]); baked sharp from that, the full-screen crop is
+     * under 1x. Anything without a larger variant (artists: 640 is their largest), or when it can't be fetched,
+     * gets the soft cover backdrop ([coverFromUrl]): never a 640 px picture stretched to 1080p.
+     */
+    suspend fun squareRestFromUrl(url: String, light: Boolean = false): Backdrop? {
+        SpotifyArt.large(url)?.let { big ->
+            runCatching { fromUrl(big, light = light) }.getOrNull()?.let { return it }
+        }
+        return coverFromUrl(url, light)
+    }
+
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
     fun prewarm() {
         blurReady

@@ -12,8 +12,14 @@ internal object CoverLook {
     /** The scene is composed at half screen size: it is blurred and then scaled up anyway. */
     const val W = 960
     const val H = 540
-    /** Very mild: blurred at a quarter of the screen, so details soften but the cover still reads. */
-    const val BLUR_RADIUS = 3
+    /**
+     * Heavy (P79): a 640 px cover is 3x the size it was made for at full screen, so it is blurred hard (at a quarter
+     * of the screen: about 40 px at 1080p) into a smooth, colour-rich field; the art itself is shown sharp, at its
+     * own size, in the Cover Flow. Was 3 (P33: "the cover still reads"), which looked pixelated stretched to 1080p.
+     */
+    const val BLUR_RADIUS = 10
+    /** Colour boost of the backdrop (Apple TV Music's colour-rich glow). */
+    const val SATURATION = 1.3f
     /** The sheen: white at the top fading to nothing a third of the way down. */
     const val GLOSS = 0.12f
     const val GLOSS_TO = 0.35f
@@ -26,14 +32,14 @@ internal object CoverLook {
  * [cover] (square art) filling a 16:9 scene: centre-cropped to the screen's shape, softened, then a glossy sheen
  * over the top and a shade over the bottom half. The result is [CoverLook.W] x [CoverLook.H]; [cover] is untouched.
  */
-internal fun coverScene(cover: Bitmap): Bitmap {
+internal fun coverScene(cover: Bitmap, blurRadius: Int = CoverLook.BLUR_RADIUS, saturation: Float = CoverLook.SATURATION): Bitmap {
     val w = CoverLook.W; val h = CoverLook.H
     // Centre crop to 16:9: the cover's full width, its middle rows.
     val srcH = (cover.width * h / w).coerceAtMost(cover.height)
     val top = (cover.height - srcH) / 2
     val filled = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     Canvas(filled).drawBitmap(cover, Rect(0, top, cover.width, top + srcH), Rect(0, 0, w, h), Paint(Paint.FILTER_BITMAP_FLAG))
-    val soft = Blur.backdrop(filled, w / 2, h / 2, radius = CoverLook.BLUR_RADIUS, saturation = 1f)
+    val soft = Blur.backdrop(filled, w / 2, h / 2, radius = blurRadius, saturation = saturation)
     filled.recycle()
     val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(out)
@@ -49,3 +55,15 @@ internal fun coverScene(cover: Bitmap): Bitmap {
 }
 
 private fun argb(alpha: Float, grey: Int) = ((alpha * 255).toInt() shl 24) or (grey shl 16) or (grey shl 8) or grey
+
+/**
+ * Whether art [srcW]x[srcH] is too small to fill a [targetW]x[targetH] screen without being stretched more than
+ * [limit] times (P79): the scale needed after cropping the art to the screen's shape. A square 640 cover on 1080p
+ * is 3x: it gets the soft backdrop ([coverScene]); a 1920 px wide picture does not.
+ */
+internal fun needsSoftBackdrop(srcW: Int, srcH: Int, targetW: Int = 1920, targetH: Int = 1080, limit: Float = 1.25f): Boolean {
+    if (srcW <= 0 || srcH <= 0) return false
+    // The part of the art that shows: the full width if the art is at least as tall as the screen's shape, else the full height.
+    val cropW = if (srcH * targetW >= srcW * targetH) srcW.toFloat() else srcH * targetW / targetH.toFloat()
+    return targetW / cropW > limit
+}

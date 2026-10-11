@@ -55,4 +55,52 @@ class CoverSceneTest {
         assertTrue(!c.isRecycled)
         assertEquals(Color.rgb(200, 30, 30), c.getPixel(10, 10))
     }
+
+    // P79: a cover is too small to fill the screen sharp; the pure rule that says so.
+    @Test fun smallArtNeedsTheSoftBackdrop() {
+        assertTrue("a 640 cover on 1080p is 3x", needsSoftBackdrop(640, 640))
+        assertTrue("a 1280x720 picture is 1.5x", needsSoftBackdrop(1280, 720))
+        assertTrue("a 1500 px wide picture is 1.28x", needsSoftBackdrop(1500, 844))
+        assertTrue("a 1920 px wide picture is 1.0x", !needsSoftBackdrop(1920, 1080))
+        assertTrue("a 1600 px wide picture is 1.2x", !needsSoftBackdrop(1600, 900))
+        // Only the part that shows counts: a tall portrait is cropped to its width.
+        assertTrue("a 1920x2880 poster crops to 1920 wide: sharp", !needsSoftBackdrop(1920, 2880))
+        assertTrue("nothing known: leave it", !needsSoftBackdrop(0, 0))
+    }
+
+    /** A busy, colourful 640 px "playlist cover": a grid of saturated tiles with a bright diagonal. */
+    private fun busyCover(): Bitmap = Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888).apply {
+        val palette = intArrayOf(Color.rgb(220, 60, 60), Color.rgb(240, 180, 40), Color.rgb(50, 160, 90), Color.rgb(60, 90, 210), Color.rgb(170, 70, 190))
+        for (y in 0 until 640) for (x in 0 until 640) {
+            val c = palette[((x / 64) + (y / 64) * 2) % palette.size]
+            setPixel(x, y, if (kotlin.math.abs(x - y) < 18) Color.WHITE else c)
+        }
+    }
+
+    /** How sharp a scene's edges are: the largest step between neighbouring pixels along its middle row. */
+    private fun sharpest(b: Bitmap): Int {
+        val y = b.height / 2
+        return (1 until b.width).maxOf { x ->
+            val a = b.getPixel(x - 1, y); val c = b.getPixel(x, y)
+            maxOf(kotlin.math.abs(Color.red(a) - Color.red(c)), kotlin.math.abs(Color.green(a) - Color.green(c)), kotlin.math.abs(Color.blue(a) - Color.blue(c)))
+        }
+    }
+
+    @Test fun theBackdropIsASoftColourFieldAndKeepsItsColour() {
+        // Robolectric's RenderScript blurs nothing: measure the CPU path (the same sigma on the stick).
+        Blur.forceCpu = true
+        val before: Bitmap; val after: Bitmap
+        try {
+            before = coverScene(busyCover(), blurRadius = 3, saturation = 1f)
+            after = coverScene(busyCover())
+        } finally { Blur.forceCpu = false }
+        java.io.File("build/p79").mkdirs()
+        listOf("before" to before, "after" to after).forEach { (n, b) -> java.io.File("build/p79/cover-backdrop-$n.png").outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        println("P79 sharpest step before=${sharpest(before)} after=${sharpest(after)}")
+        assertTrue("edges are far softer: ${sharpest(before)} -> ${sharpest(after)}", sharpest(after) < sharpest(before) / 2)
+        // Still colour-rich: not averaged to grey (the channel spread of the centre pixel).
+        val px = after.getPixel(after.width / 2, after.height / 2)
+        val spread = maxOf(Color.red(px), Color.green(px), Color.blue(px)) - minOf(Color.red(px), Color.green(px), Color.blue(px))
+        assertTrue("colour survives the blur (spread $spread)", spread > 25)
+    }
 }
