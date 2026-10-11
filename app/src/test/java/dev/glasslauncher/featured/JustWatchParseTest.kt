@@ -30,4 +30,12 @@ class JustWatchParseTest {
         assertEquals("jw:tm1", items.first().id)
         assertTrue("links target Fire TV's Prime app", items.first().link!!.contains("package=com.amazon.firebat"))
     }
+
+    @Test fun primeIsPrvInCanadaAndAmpInTheUs() {
+        val ca = mapOf("amazon prime video" to "prv", "amazon video" to "amz", "netflix" to "nfx")
+        assertEquals("prv", JustWatch.resolveCode(ca, amp))
+        // No match (a failed lookup, or a service JustWatch doesn't list there): the US code.
+        assertEquals("amp", JustWatch.resolveCode(emptyMap(), amp))
+        assertEquals("nfx", JustWatch.resolveCode(ca, JustWatch.services.first { it.code == "nfx" }))
+    }
 }

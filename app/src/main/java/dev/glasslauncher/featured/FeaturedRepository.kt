@@ -16,7 +16,8 @@ import okhttp3.OkHttpClient
 import java.io.File
 
 /** Bump when FeaturedItem gains data a cached feed wouldn't have. */
-private const val FEED_VERSION = 3
+// 4: JustWatch rows resolve the service's per-country package code (P89); the 4-title Prime feed cached under 3 is dropped.
+private const val FEED_VERSION = 4
 
 /** The cache key for [cfg]'s feed, versioned so a feed cached before items gained a field (logos) is fetched again. */
 fun cacheKey(cfg: FeaturedConfig) = "$FEED_VERSION:$cfg"

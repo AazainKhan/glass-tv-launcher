@@ -333,15 +333,16 @@ fun FeaturedItem.open(context: Context): Boolean {
  * JustWatch's public GraphQL API is unofficial, so failures fall back to the default source.
  */
 object JustWatch : FeaturedSource {
-    class Service(val code: String, val name: String, val packages: List<String>)
+    /** [code] is JustWatch's package short name in the US; [names] are the service's names as JustWatch lists it per country (it differs: Prime Video is "amp" in the US and "prv" in Canada). */
+    class Service(val code: String, val name: String, val packages: List<String>, val names: List<String> = emptyList())
 
     val services = listOf(
-        Service("nfx", "Netflix", listOf("com.netflix.ninja", "com.netflix.mediaclient")),
-        Service("amp", "Prime Video", listOf("com.amazon.firebat", "com.amazon.avod", "com.amazon.amazonvideo.livingroom")),
-        Service("dnp", "Disney+", listOf("com.disney.disneyplus")),
-        Service("atp", "Apple TV+", listOf("com.apple.atve.amazon.appletv", "com.apple.atve.androidtv.appletv")),
-        Service("mxx", "Max", listOf("com.wbd.stream", "com.hbo.hbonow", "com.hbo.max.android.tv")),
-        Service("hlu", "Hulu", listOf("com.hulu.livingroomplus", "com.hulu.plus")),
+        Service("nfx", "Netflix", listOf("com.netflix.ninja", "com.netflix.mediaclient"), listOf("Netflix")),
+        Service("amp", "Prime Video", listOf("com.amazon.firebat", "com.amazon.avod", "com.amazon.amazonvideo.livingroom"), listOf("Amazon Prime Video")),
+        Service("dnp", "Disney+", listOf("com.disney.disneyplus"), listOf("Disney Plus", "Disney+")),
+        Service("atp", "Apple TV+", listOf("com.apple.atve.amazon.appletv", "com.apple.atve.androidtv.appletv"), listOf("Apple TV Plus", "Apple TV+")),
+        Service("mxx", "Max", listOf("com.wbd.stream", "com.hbo.hbonow", "com.hbo.max.android.tv"), listOf("Max", "HBO Max")),
+        Service("hlu", "Hulu", listOf("com.hulu.livingroomplus", "com.hulu.plus"), listOf("Hulu")),
     )
 
     private const val IMAGES = "https://images.justwatch.com"
@@ -368,9 +369,35 @@ object JustWatch : FeaturedSource {
   } } }
 }"""
 
+    /** The package short names per country, by name (lower case): fetched once per country and kept. */
+    private val packageNames = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+
+    /** The service's code in this country's catalogue (pure, tested); the US code when JustWatch lists no match. */
+    fun resolveCode(listed: Map<String, String>, service: Service): String =
+        service.names.firstNotNullOfOrNull { listed[it.lowercase()] } ?: service.code
+
+    private fun packagesFor(http: OkHttpClient, country: String): Map<String, String> = packageNames[country] ?: run {
+        runCatching {
+            val body = kotlinx.serialization.json.buildJsonObject {
+                put("query", kotlinx.serialization.json.JsonPrimitive("query(${'$'}c: Country!){ packages(country: ${'$'}c, platform: WEB){ shortName clearName } }"))
+                put("variables", kotlinx.serialization.json.buildJsonObject { put("c", kotlinx.serialization.json.JsonPrimitive(country)) })
+            }.toString()
+            val request = Request.Builder().url("https://apis.justwatch.com/graphql").post(body.toRequestBody("application/json".toMediaType())).build()
+            val root = http.newCall(request).execute().use { r -> check(r.isSuccessful) { "HTTP ${r.code}" }; json.parseToJsonElement(r.body.string()) }
+            root.jsonObject["data"]?.jsonObject?.get("packages")?.jsonArray.orEmpty().mapNotNull { p ->
+                val o = p.jsonObject
+                val clear = o["clearName"].str()?.trim()?.lowercase(); val short = o["shortName"].str()
+                if (clear != null && short != null) clear to short else null
+            }.toMap()
+        }.getOrDefault(emptyMap()).also { if (it.isNotEmpty()) packageNames[country] = it }   // a failed lookup is retried next time
+    }
+
     override suspend fun load(http: OkHttpClient, cfg: FeaturedConfig) = withContext(Dispatchers.IO) {
         val service = services.firstOrNull { it.code == cfg.justWatchPackage } ?: error("No JustWatch service")
         val country = java.util.Locale.getDefault().country.takeIf { it.length == 2 } ?: "US"
+        // The service's code differs per country (Prime Video is "amp" in the US but "prv" in Canada, where "amp" has
+        // only four titles): ask JustWatch for this country's package list and match by name (P89).
+        val code = resolveCode(packagesFor(http, country), service)
         val body = kotlinx.serialization.json.buildJsonObject {
             put("query", kotlinx.serialization.json.JsonPrimitive(QUERY))
             put("variables", kotlinx.serialization.json.buildJsonObject {
@@ -378,9 +405,9 @@ object JustWatch : FeaturedSource {
                 // Many titles have no backdrop at this size and are dropped (Prime showed ~4 of 15): ask for more, keep 20.
                 put("first", kotlinx.serialization.json.JsonPrimitive(FETCH))
                 put("filter", kotlinx.serialization.json.buildJsonObject {
-                    put("packages", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(service.code))))
+                    put("packages", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(code))))
                 })
-                put("pkgs", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(service.code))))
+                put("pkgs", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(code))))
             })
         }.toString()
         val request = Request.Builder().url("https://apis.justwatch.com/graphql")
