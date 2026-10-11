@@ -29,4 +29,20 @@ class AerialClockTest {
         assertEquals("12:00" to "PM", parts(12, 0, false))
         assertEquals("12:30" to "AM", parts(0, 30, false))
     }
+
+    @Test fun theMarkerIsCapitalAmPmWhateverTheLocaleWrites() {
+        val old = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+        try {
+            // en-CA (the stick's locale) writes "a.m."/"p.m."; Glass shows "AM"/"PM", no periods.
+            val ca = Locale.Builder().setLanguage("en").setRegion("CA").build()
+            assertEquals("9:41" to "PM", AerialClock.parts(at(21, 41), false, ca))
+            assertEquals("9:05" to "AM", AerialClock.parts(at(9, 5), false, ca))
+            assertEquals("12:00" to "PM", AerialClock.parts(at(12, 0), false, ca))
+            assertEquals("12:30" to "AM", AerialClock.parts(at(0, 30), false, ca))
+            // Other locales too, and 24-hour mode is untouched.
+            assertEquals("9:41" to "PM", AerialClock.parts(at(21, 41), false, Locale.GERMANY))
+            assertEquals("21:41" to null, AerialClock.parts(at(21, 41), true, ca))
+        } finally { TimeZone.setDefault(old) }
+    }
 }

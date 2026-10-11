@@ -181,13 +181,19 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
 
 /**
  * The Aerial clock's text: "9:41" in 24-hour mode as "9:41", in 12-hour mode "9:41" with a smaller "AM"/"PM" after it
- * (tvOS), following the system's 12/24-hour setting ([DateFormat.is24HourFormat]).
+ * (tvOS, capitals, no periods), following the system's 12/24-hour setting ([DateFormat.is24HourFormat]).
  */
 object AerialClock {
-    /** The time part and, in 12-hour mode, the AM/PM marker (locale's own text). */
+    /**
+     * The time part and, in 12-hour mode, the marker: always capital "AM" or "PM" with no periods (P84), whatever the
+     * locale writes (en-CA says "a.m."/"p.m."). The 12/24-hour choice stays the system's.
+     */
     fun parts(at: Date, is24: Boolean, locale: java.util.Locale = java.util.Locale.getDefault()): Pair<String, String?> =
         if (is24) java.text.SimpleDateFormat("H:mm", locale).format(at) to null
-        else java.text.SimpleDateFormat("h:mm", locale).format(at) to java.text.SimpleDateFormat("a", locale).format(at)
+        else {
+            val cal = java.util.Calendar.getInstance().apply { time = at }
+            java.text.SimpleDateFormat("h:mm", locale).format(at) to (if (cal.get(java.util.Calendar.AM_PM) == java.util.Calendar.AM) "AM" else "PM")
+        }
 
     /** The marker is drawn at this fraction of the time's size, beside it. */
     const val AMPM_SCALE = 0.55f
