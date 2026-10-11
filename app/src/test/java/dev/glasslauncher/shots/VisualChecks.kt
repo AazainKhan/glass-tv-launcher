@@ -208,8 +208,12 @@ class VisualChecks {
 
     // ── Control Center material (P10) ───────────────────────────────────────────────────────────
 
-    @Test fun controlCenterIsOneMaterial() = controlCenter { frames, tiles, _, _ ->
+    @Test fun controlCenterIsOneMaterial() = controlCenter { frames, allTiles, _, _ ->
         val landed = frames.takeLast(LANDED_FRAMES)
+        // Control Center ends where the dock begins (P83): tiles past that scroll inside the panel and aren't on screen.
+        // A scrolled-out tile's bounds are clipped to the viewport (empty or a sliver at its edge).
+        val h = landed.last().bitmap.height
+        val tiles = allTiles.filter { it.b - it.t > h * 0.05f && it.b <= h * 0.74f }
         val problems = mutableListOf<String>()
         // (a) No tile changes colour once Control Center has landed.
         for (t in tiles) {

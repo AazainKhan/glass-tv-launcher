@@ -1,5 +1,6 @@
 package dev.glasslauncher.home
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.onFocusChanged
@@ -478,6 +479,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var hoverPage by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // The Add a Control gallery (null = closed, "" = the groups, else a group key): the + page icon opens it too.
     var gallery by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // The tile lifted in edit mode (the hint bar, outside the scrolling tiles, reads it).
+    var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Showcase add-on tiles (debug flag): the Agents card, in place of the grid like the gallery.
     CcShowcase.enabled = remember(active) { CcShowcase.flag(context) }
     val agents = remember { CcAgentState() }
@@ -604,6 +607,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     if (reduceMotion) { alpha = enter.value.coerceIn(0f, 1f); compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; return@graphicsLayer }
                     alpha = if (sheetRef.sheet == null) 0f else 1f
                 }
+                // Never over the dock: the panel ends where the tray begins, and its tiles scroll inside that.
+                .heightIn(max = m.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp))
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
                 .testTag("control-center"),
@@ -654,11 +659,21 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 }
             }
             val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
+            if (editing && gallery == null && !agentCard) Box(
+                Modifier.padding(bottom = 4.dp).width(sz.column).ccSurface(RoundedCornerShape(22.dp), LocalCcSheet.current)
+                    .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-edit-hints"),
+            ) {
+                Text(
+                    if (lifted != null) "Move · Select Drop\nBack Cancel" else "Select Move · ≡ Size · ⏯ Remove\nBack Done",
+                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
+                )
+            }
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
             Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
+                    .weight(1f, fill = false)
                     .verticalScroll(androidx.compose.foundation.rememberScrollState())
                     .padding(CC_BLEED)
                     .padding(bottom = m.chromeInset)
@@ -677,7 +692,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) }
             val placed = remember(tilesNow) { CcPacking.pack(tilesNow) }
             val rows = placed.maxOfOrNull { it.row + it.tile.size.h } ?: 0
-            var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
             var liftBase by remember(active) { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
             var focusedId by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
             fun commitDraft() { saveDraft(); lifted = null; liftBase = null }
@@ -756,15 +770,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             )
             val wobbling = editing && !reduceMotion
             LaunchedEffect(agents.result) { if (agents.result != null) { kotlinx.coroutines.delay(2_000); agents.result = null } }
-            if (editing && gallery == null && !agentCard) Box(
-                Modifier.padding(bottom = sz.gap).width(sz.column).ccSurface(RoundedCornerShape(22.dp), LocalCcSheet.current)
-                    .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-edit-hints"),
-            ) {
-                Text(
-                    if (lifted != null) "Move · Select Drop\nBack Cancel" else "Select Move · ≡ Size · ⏯ Remove\nBack Done",
-                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
-                )
-            }
             if (agentCard) CcAgentCard(sz) { allowed ->
                 agents.waiting = 0; agents.result = if (allowed) "Allowed" else "Denied"; agentCard = false
                 pendingFocus = "addon:claude/agents"
