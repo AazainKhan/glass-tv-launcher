@@ -51,6 +51,7 @@ class PrivappAllowlistTest {
         assertTrue("guarded by the flag", "uninstall-updates" in svc && "[ -f \"\$FLAG\" ] || exit 0" in svc)
         assertTrue("waits for boot", "sys.boot_completed" in svc)
         assertTrue("clears the flag before acting (no loop)", svc.indexOf("rm -f \"\$FLAG\"") < svc.indexOf("uninstall-system-updates"))
+        assertTrue("never rolls back a newer build", "cmp -s" in svc && "DATA_VC" in svc && svc.indexOf("cmp -s") < svc.indexOf("uninstall-system-updates"))
         assertTrue("brings Home back", "android.intent.category.HOME" in svc)
         val check = File("../scripts/privapp-check").readText()
         assertTrue("privapp-check installs the same script and sets the flag", "glass-system-service.sh" in check && "touch \$MOD/uninstall-updates" in check)
