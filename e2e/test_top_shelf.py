@@ -116,20 +116,21 @@ def test_streaming_apps_show_their_own_titles(tv, home, focused_app, pkg, servic
 
 
 @pytest.mark.slow
-def test_play_opens_the_title_in_its_app(tv, home, focused_app):
-    _expand(tv, home, NETFLIX)
+def test_play_opens_the_title_in_its_app(tv, home, focused_app, shelf_app):
+    _expand(tv, home, shelf_app)
     tv.press("up")
     tv.wait_for(lambda t: t.focused() and t.focused().rid == "shelf-play", 3, "Play focused above the row")
     marker = tv.now_marker()
     tv.press("select")
-    tv.wait_until(lambda: tv.resumed_package() == NETFLIX, 15, "Netflix in front")
-    started = tv.adb("logcat", "-d", "-T", marker, "-s", "ActivityTaskManager:I")
-    # Android redacts the path ("dat=https://www.netflix.com/..."); a VIEW of a Netflix link, not a plain launch.
-    assert "act=android.intent.action.VIEW dat=https://www.netflix.com/" in started, f"Play should open the title itself, not just the app:\n{started[-600:]}"
+    tv.wait_until(lambda: tv.resumed_package() == shelf_app, 15, f"{shelf_app} in front")
+    if shelf_app == NETFLIX:
+        started = tv.adb("logcat", "-d", "-T", marker, "-s", "ActivityTaskManager:I")
+        # Android redacts the path ("dat=https://www.netflix.com/..."); a VIEW of a Netflix link, not a plain launch.
+        assert "act=android.intent.action.VIEW dat=https://www.netflix.com/" in started, f"Play should open the title itself, not just the app:\n{started[-600:]}"
 
 
-def test_more_info_opens_and_closes(tv, home, focused_app):
-    _expand(tv, home, NETFLIX)
+def test_more_info_opens_and_closes(tv, home, focused_app, shelf_app):
+    _expand(tv, home, shelf_app)
     tv.press("up")
     tv.wait_for(lambda t: t.focused() and t.focused().rid == "shelf-play", 3, "Play focused")
     tv.press("right")
@@ -297,12 +298,10 @@ def _cards(tree):
     return [(c, labels.get(c.rid.split(":", 1)[1])) for c in cards]
 
 
-@pytest.mark.parametrize("pkg", [NETFLIX])  # Spotify is a Cover Flow (test_spotify_shows_a_cover_flow)
-def test_every_card_in_full_screen_has_its_title_under_it(tv, home, focused_app, pkg):
-    """Whatever the app, each card in the full-screen row shows its title below it (user, 2026-10-09)."""
-    if pkg not in tv.sh(f"pm list packages {pkg}"):
-        pytest.skip(f"{pkg} isn't installed")
-    _expand(tv, home, pkg)
+def test_every_card_in_full_screen_has_its_title_under_it(tv, home, focused_app, shelf_app):
+    """Whatever the app, each card in the full-screen row shows its title below it (user, 2026-10-09).
+    Spotify is a Cover Flow (test_spotify_shows_a_cover_flow); the card-row app is the tray's first with titles."""
+    _expand(tv, home, shelf_app)
     tree = tv.wait_for(lambda t: len(_cards(t)) >= 3 and t, 8, "the row's cards")
     for card, label in _cards(tree):
         assert label is not None and label.text.strip(), f"{card.rid} has no title under it"

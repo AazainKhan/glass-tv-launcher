@@ -62,7 +62,9 @@ def test_icon_pack_page_explains_and_links_to_packs(tv, home, settings):
     sources = [n for n in tree.nodes() if n.text.startswith("Open ")]
     says_so = tree.has_text("Nothing here can fetch a pack") or any(n.text.startswith("Download an icon pack") for n in tree.nodes())
     assert offered or installs or sources or says_so, "the page offers no way to get a pack and doesn't say so"
-    assert any("Nova" in n.text for n in tree.nodes()), "the page should say which packs work"
+    # The "Any ADW- or Nova-compatible pack works" hint shows once a pack is installed; with none there is no such line.
+    if not tree.has_text("No icon packs installed yet."):
+        assert any("Nova" in n.text for n in tree.nodes()), "the page should say which packs work"
 
 
 def test_24_hour_time_changes_the_clock(tv, home, settings):

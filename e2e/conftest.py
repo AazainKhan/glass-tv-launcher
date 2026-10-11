@@ -104,7 +104,9 @@ def home(tv: TV) -> Home:
         time.sleep(1.5)  # it may still be playing its close
         assert not stale_cc(), "a closed Control Center left its window attached (it swallows Select)"
     after = _config(tv)
-    changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k) and k not in VOLATILE)
+    # Flattened keys are "closedRecents.<pkg>": volatile by their top-level name.
+    changed = sorted(k for k in set(before) | set(after)
+                     if before.get(k) != after.get(k) and k not in VOLATILE and k.split(".", 1)[0] not in VOLATILE)
     assert not changed, f"the test left launcher settings changed: {changed}"
     crashes = tv.crashes_since(marker)
     assert not crashes, "Glass crashed or stopped responding:\n" + "\n".join(crashes)
@@ -169,3 +171,18 @@ def pytest_runtest_makereport(item, call):
             (ARTIFACTS / f"{name}.tree.txt").write_text("\n".join(repr(n) for n in t.tree().nodes() if n.rid or n.desc or n.text))
         except Exception:
             pass
+
+
+@pytest.fixture
+def shelf_app(tv, home) -> str:
+    """The package of a tray app whose shelf is the usual card row and that has titles to show, whatever apps the
+    device's tray holds (no app is assumed): the first such app from the left, or the test is skipped."""
+    for node in home.card_row_apps():
+        pkg = node.rid.removeprefix("app:")
+        home.focus_app(pkg)
+        try:
+            tv.wait_for(lambda t: t.find(rid="shelf-title"), 8, f"{pkg}'s titles")
+        except AssertionError:
+            continue
+        return pkg
+    pytest.skip("no tray app shows Top Shelf titles (Top Shelf Content off, Show Titles Never, or offline)")

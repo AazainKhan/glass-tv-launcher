@@ -13,6 +13,9 @@ CONTROL_CENTER = f"{PKG}.action.CONTROL_CENTER"
 APP_SWITCHER = f"{PKG}.action.APP_SWITCHER"
 TV_SETTINGS = f"{PKG}.action.TV_SETTINGS"
 
+# Apps whose Top Shelf is a Cover Flow of square covers, not the usual card row (P33): Up from them enters it.
+COVER_FLOW_APPS = {"com.spotify.tv.android"}
+
 
 class Screen:
     def __init__(self, tv: TV):
@@ -119,6 +122,10 @@ class Home(Screen):
     def dock_apps(self) -> list[Node]:
         tree = self.tv.tree()
         return [n for n in tree.all("app:") if self.in_dock(tree, n)]
+
+    def card_row_apps(self) -> list[Node]:
+        """The tray's apps (left to right) whose full-screen shelf is the card row: whatever the device's tray holds."""
+        return [n for n in self.dock_apps() if n.rid.removeprefix("app:") not in COVER_FLOW_APPS]
 
     def grid_items(self) -> list[Node]:
         tree = self.tv.tree()
