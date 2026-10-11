@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Keeps the Fire TV remote paired across reboots (P37/P75): a Magisk module whose service.sh watches logcat for
+# AmazonAutoPairService's re-pair delay and cancels it with a key event (tools/magisk/glass-remote-keepalive).
+#   scripts/remote-keepalive install [--reboot]    scripts/remote-keepalive uninstall [--reboot]
+#   scripts/remote-keepalive status                (module state, and what the last boot's run logged)
+# Needs Magisk. It replaces the old /data/adb/service.d/glass-remote-keepalive.sh (fixed 15 s timer), which is
+# removed on install. Both logs of a boot are kept on the stick: /data/local/tmp/glass-keepalive.log.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+MOD=/data/adb/modules/glass-remote-keepalive
+SRC="$ROOT/tools/magisk/glass-remote-keepalive"
+OLD=/data/adb/service.d/glass-remote-keepalive.sh
+
+case "${1:-status}" in
+  install)
+    adb push "$SRC/module.prop" /data/local/tmp/grka.prop >/dev/null
+    adb push "$SRC/service.sh" /data/local/tmp/grka.sh >/dev/null
+    adb shell "su -c 'mkdir -p $MOD && cp /data/local/tmp/grka.prop $MOD/module.prop && cp /data/local/tmp/grka.sh $MOD/service.sh && chmod 755 $MOD/service.sh && rm -f $MOD/remove $MOD/disable /data/local/tmp/grka.* $OLD'"
+    echo "Installed (the old service.d script is removed). Active from the next boot${2:+ (restarting)}."
+    [ "${2:-}" = --reboot ] && adb reboot || true ;;
+  uninstall)
+    adb shell "su -c 'touch $MOD/remove'" && echo "Removed on next restart${2:+ (restarting)}. (Fire then shows its auto-pair dialog after reboots with no key press.)"
+    [ "${2:-}" = --reboot ] && adb reboot || true ;;
+  status)
+    if adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'"; then echo "module: installed"; else echo "module: not installed"; fi
+    adb shell "su -c 'test -e $OLD'" && echo "old service.d script: still present (it can race the module; remove it)" || true
+    echo "--- last run:"
+    adb shell "cat /data/local/tmp/glass-keepalive.started 2>/dev/null; tail -n 15 /data/local/tmp/glass-keepalive.log 2>/dev/null" || true ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
+esac
