@@ -1,0 +1,220 @@
+package dev.glasslauncher.system
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Handler
+import android.os.Looper
+import android.os.ParcelUuid
+import android.os.PowerManager
+import android.util.Log
+import android.widget.Toast
+import dev.glasslauncher.system.RemotePairPolicy.Action
+
+/**
+ * Glass's own remote pairing (P75 B), for when Fire's AutoPairService is off (`persist.sys.auto_pair_sys_service`
+ * false: it never starts, so nothing of Fire's can unpair the remote). Glass is a privileged system app (module
+ * glass-system), so it may bond and connect on its own.
+ *
+ * It scans only while the screen is on and no Amazon remote is connected (hardware filter: company id 0x0171 +
+ * the HID service 0x1812, low-power mode) and acts through [RemotePairPolicy]: an unbonded remote in pairing mode
+ * (LE General Discoverable) is bonded; a bonded one that isn't connected is only connected, never unbonded on
+ * sight. Every step is logged under [TAG].
+ *
+ * Some calls are hidden API (createBond(transport), the HID host proxy, setConnectionPolicy): reflection inside
+ * runCatching, logged on failure. Needs BLUETOOTH_PRIVILEGED, which only a system app is granted.
+ */
+class RemotePairer(private val context: Context) {
+    private val app = context.applicationContext
+    private val handler = Handler(Looper.getMainLooper())
+    private val adapter: BluetoothAdapter? = app.getSystemService(BluetoothManager::class.java)?.adapter
+    private val power = app.getSystemService(PowerManager::class.java)
+    private var scanning = false
+    private var started = false
+    private var lastRebond = 0L
+    private val failures = HashMap<String, Int>()
+    private val lastAction = HashMap<String, Long>()
+    private val pendingConnect = HashSet<String>()
+    private var hidHost: BluetoothProfile? = null
+
+    private val screen = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            when (i.action) {
+                Intent.ACTION_SCREEN_ON -> { Log.i(TAG, "screen on"); evaluate() }
+                Intent.ACTION_SCREEN_OFF -> { Log.i(TAG, "screen off: scan stops"); stopScan() }
+                BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> evaluate()
+                BluetoothDevice.ACTION_BOND_STATE_CHANGED -> onBond(i)
+            }
+        }
+    }
+
+    fun start() {
+        if (started) return
+        if (adapter == null) { Log.i(TAG, "no bluetooth adapter"); return }
+        started = true
+        val f = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        }
+        app.registerReceiver(screen, f)
+        runCatching { adapter!!.getProfileProxy(app, object : BluetoothProfile.ServiceListener {
+            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) { hidHost = proxy; Log.i(TAG, "HID host proxy ready") }
+            override fun onServiceDisconnected(profile: Int) { hidHost = null }
+        }, HID_HOST) }.onFailure { Log.w(TAG, "no HID host proxy", it) }
+        Log.i(TAG, "started (screen ${if (power?.isInteractive == true) "on" else "off"})")
+        evaluate()
+    }
+
+    fun stop() {
+        if (!started) return
+        started = false
+        stopScan()
+        runCatching { app.unregisterReceiver(screen) }
+        Log.i(TAG, "stopped")
+    }
+
+    /** Scan while the screen is on and no Amazon remote is connected; stop otherwise. */
+    @SuppressLint("MissingPermission")
+    private fun evaluate() {
+        val remoteConnected = anyRemoteConnected()
+        val on = power?.isInteractive == true
+        if (RemotePairPolicy.shouldScan(on, remoteConnected)) startScan() else {
+            if (scanning) Log.i(TAG, "scan stops (screen ${if (on) "on" else "off"}, remote connected=$remoteConnected)")
+            stopScan()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun anyRemoteConnected(): Boolean = runCatching {
+        adapter?.bondedDevices.orEmpty().any { isAmazonRemote(it) && isConnected(it) }
+    }.getOrDefault(false)
+
+    /** An input peripheral (class 0x0500) or one named like Fire's remote: only these matter to the policy. */
+    @SuppressLint("MissingPermission")
+    private fun isAmazonRemote(d: BluetoothDevice): Boolean {
+        val major = runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull()
+        val name = runCatching { d.name }.getOrNull().orEmpty()
+        return major == 0x0500 || name.contains("Remote", ignoreCase = true) || name == "AR"
+    }
+
+    private fun isConnected(d: BluetoothDevice): Boolean =
+        runCatching { BluetoothDevice::class.java.getMethod("isConnected").invoke(d) as Boolean }.getOrDefault(false)
+
+    @SuppressLint("MissingPermission")
+    private fun startScan() {
+        if (scanning) return
+        val scanner = adapter?.bluetoothLeScanner ?: run { Log.i(TAG, "no LE scanner (Bluetooth off?)"); return }
+        val filter = ScanFilter.Builder()
+            .setManufacturerData(AMAZON_COMPANY_ID, ByteArray(0))
+            .setServiceUuid(ParcelUuid.fromString(HID_SERVICE_UUID))
+            .build()
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build()
+        runCatching { scanner.startScan(listOf(filter), settings, callback); scanning = true; Log.i(TAG, "scan started") }
+            .onFailure { Log.w(TAG, "scan failed to start", it) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopScan() {
+        if (!scanning) return
+        scanning = false
+        runCatching { adapter?.bluetoothLeScanner?.stopScan(callback) }
+    }
+
+    private val callback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) { handler.post { onAdvert(result) } }
+        override fun onScanFailed(errorCode: Int) { Log.w(TAG, "scan failed: $errorCode"); scanning = false }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun onAdvert(r: ScanResult) {
+        val rec = r.scanRecord ?: return
+        val ad = RemotePairPolicy.Advert(
+            address = r.device.address,
+            amazon = rec.manufacturerSpecificData?.get(AMAZON_COMPANY_ID) != null,
+            hid = rec.serviceUuids?.any { it.uuid == ParcelUuid.fromString(HID_SERVICE_UUID).uuid } == true,
+            discoverable = (rec.advertiseFlags and FLAG_LE_GENERAL_DISCOVERABLE) != 0,
+        )
+        val now = System.currentTimeMillis()
+        val bonded = runCatching { adapter?.bondedDevices.orEmpty().map { it.address }.toSet() }.getOrDefault(emptySet())
+        val state = RemotePairPolicy.State(
+            bonded = bonded, remoteConnected = anyRemoteConnected(), screenOn = power?.isInteractive == true,
+            nowMs = now, lastRebondMs = lastRebond, connectFailures = failures[ad.address] ?: 0,
+        )
+        val action = RemotePairPolicy.decide(ad, state)
+        if (action == Action.Ignore) return
+        // One act per address per 8 s (a remote advertises many times a second).
+        if (now - (lastAction[ad.address] ?: 0L) < 8_000L) return
+        lastAction[ad.address] = now
+        Log.i(TAG, "advert ${ad.address} (rssi ${r.rssi}, discoverable=${ad.discoverable}): $action")
+        when (action) {
+            Action.Bond -> bond(r.device)
+            Action.Connect -> connect(r.device)
+            Action.Rebond -> {
+                lastRebond = now; failures[ad.address] = 0
+                Log.i(TAG, "re-bonding ${ad.address}: ${RemotePairPolicy.REBOND_AFTER_FAILURES} connects failed")
+                runCatching { BluetoothDevice::class.java.getMethod("removeBond").invoke(r.device) }.onFailure { Log.w(TAG, "removeBond failed", it) }
+                handler.postDelayed({ bond(r.device) }, 1_500)
+            }
+            Action.Ignore -> Unit
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun bond(d: BluetoothDevice) {
+        pendingConnect += d.address
+        val ok = runCatching { BluetoothDevice::class.java.getMethod("createBond", Int::class.javaPrimitiveType).invoke(d, TRANSPORT_LE) as Boolean }
+            .recoverCatching { d.createBond() }.getOrDefault(false)
+        Log.i(TAG, "createBond(${d.address}) -> $ok")
+    }
+
+    private fun onBond(i: Intent) {
+        val d = i.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+        val state = i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+        Log.i(TAG, "bond state ${d.address}: $state")
+        if (state == BluetoothDevice.BOND_BONDED && d.address in pendingConnect) {
+            pendingConnect -= d.address
+            hidPolicyAllowed(d)
+            connect(d)
+            Toast.makeText(app, "Remote paired", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun hidPolicyAllowed(d: BluetoothDevice) {
+        val proxy = hidHost ?: return Unit.also { Log.w(TAG, "no HID host proxy: connection policy not set") }
+        val ok = runCatching { proxy.javaClass.getMethod("setConnectionPolicy", BluetoothDevice::class.java, Int::class.javaPrimitiveType).invoke(proxy, d, CONNECTION_POLICY_ALLOWED) }
+        Log.i(TAG, "setConnectionPolicy(${d.address}, ALLOWED) -> ${ok.getOrNull() ?: ok.exceptionOrNull()}")
+    }
+
+    private fun connect(d: BluetoothDevice) {
+        val proxy = hidHost
+        val ok = if (proxy != null) runCatching { proxy.javaClass.getMethod("connect", BluetoothDevice::class.java).invoke(proxy, d) }.getOrNull() else null
+        Log.i(TAG, "connect(${d.address}) -> $ok")
+        // Did it come up? Not within 12 s counts as one failure (see RemotePairPolicy.REBOND_AFTER_FAILURES).
+        handler.postDelayed({
+            if (isConnected(d)) failures[d.address] = 0 else failures[d.address] = (failures[d.address] ?: 0) + 1
+            Log.i(TAG, "after connect: ${d.address} connected=${isConnected(d)}, failures=${failures[d.address]}")
+        }, 12_000)
+    }
+
+    companion object {
+        const val TAG = "GlassRemotePair"
+        const val AMAZON_COMPANY_ID = 0x0171
+        const val HID_SERVICE_UUID = "00001812-0000-1000-8000-00805f9b34fb"
+        private const val FLAG_LE_GENERAL_DISCOVERABLE = 0x02
+        /** BluetoothProfile.HID_HOST (hidden constant) and BluetoothDevice.TRANSPORT_LE, CONNECTION_POLICY_ALLOWED. */
+        private const val HID_HOST = 4
+        private const val TRANSPORT_LE = 2
+        private const val CONNECTION_POLICY_ALLOWED = 100
+    }
+}

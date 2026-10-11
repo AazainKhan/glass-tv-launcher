@@ -24,6 +24,12 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Scanning for the remote on API 28-30 (P75 B). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
+    <!-- Own remote pairing (Settings > Root): bonding without a user prompt. Only granted to a privileged system
+         app (module glass-system, whose privapp allowlist is generated from this list); otherwise just not granted. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" tools:ignore="ProtectedPermissions" />
     <!-- App switcher: recent apps from usage history (granted over adb), and closing them. -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"

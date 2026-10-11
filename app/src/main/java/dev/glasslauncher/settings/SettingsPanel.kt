@@ -1141,6 +1141,9 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     }, help = "Runs Glass as a privileged system app: it can read other apps' TV rows and is harder for the system to stop.")
     ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on,
         help = "Turns off Fire TV's own launcher and makes Glass the Home screen. Off brings Fire TV's back.")
+    var ownPairing by remember { mutableStateOf(rf.ownRemotePairing(context)) }
+    ToggleRow("Own Remote Pairing", ownPairing, { v -> ownPairing = v; act("pairing") { rf.setOwnRemotePairing(context, v) } }, enabled = on,
+        help = "Turns off Fire's auto-pair, which drops a sleeping remote's pairing, and lets Glass pair the remote itself. Needs System App on, and a restart.")
     SectionLabel("Performance")
     MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null, enabled = on)
     MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on,

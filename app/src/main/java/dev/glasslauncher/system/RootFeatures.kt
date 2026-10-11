@@ -80,6 +80,24 @@ object RootFeatures {
         return Root.action(context, "Remove system app (module glass-system, on restart)", "touch $SYSTEM_MODULE/remove 2>/dev/null; true")
     }
 
+    // ── Own remote pairing (P75 B) ───────────────────────────────────────────────────────────────
+
+    /**
+     * Fire's AutoPairService unpairs a sleeping remote when its 60 s timer fires. With
+     * `persist.sys.auto_pair_sys_service=false` it never starts; Glass pairs the remote itself ([RemotePairer]).
+     * Both halves move together (the property, and Glass's own pairing), after a restart for the property.
+     */
+    fun ownRemotePairing(context: Context): Boolean = context.getSharedPreferences(PREFS, 0).getBoolean("ownRemotePairing", false)
+
+    suspend fun setOwnRemotePairing(context: Context, on: Boolean): Root.Result {
+        val r = Root.action(
+            context, "Own remote pairing ${if (on) "on" else "off"} (Fire's auto-pair ${if (on) "off" else "back"} after a restart)",
+            "setprop persist.sys.auto_pair_sys_service ${if (on) "false" else "true"} || resetprop -p persist.sys.auto_pair_sys_service ${if (on) "false" else "true"}",
+        )
+        if (r.ok) context.getSharedPreferences(PREFS, 0).edit().putBoolean("ownRemotePairing", on).apply()
+        return r
+    }
+
     // ── Home takeover ─────────────────────────────────────────────────────────────────────────────
 
     private val STOCK_HOME = listOf("com.amazon.tv.launcher", "com.amazon.firehomestarter")

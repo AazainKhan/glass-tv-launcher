@@ -49,6 +49,13 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         chore(Dispatchers.IO) { tileArt.trimDisk() }
         chore(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
         chore(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
+        // Own remote pairing (Settings > Root, P75 B): only when it was turned on.
+        if (dev.glasslauncher.system.RootFeatures.ownRemotePairing(this)) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                runCatching { dev.glasslauncher.system.RemotePairer(this).start() }
+                    .onFailure { android.util.Log.w("GlassApp", "remote pairing didn't start", it) }
+            }
+        }
         // A store visit cut short (Glass restarted): put Glass back as Home.
         chore(Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(this@GlassApp, bringHome = false) }
     }
