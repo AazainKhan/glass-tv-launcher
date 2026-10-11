@@ -211,9 +211,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
     val feed = featuredState.feed?.takeIf { featuredCfg != null && it.items.isNotEmpty() }
-    var heroIndex by remember { mutableIntStateOf(0) }
-    // A different shelf starts from its first item.
-    LaunchedEffect(feed?.items?.firstOrNull()?.id) { heroIndex = 0 }
+    // A different shelf starts from its first item; a shelf of square covers (Spotify's Cover Flow preview) from the
+    // middle one, so there are covers on both sides (P85). Keyed, so the first frame already has it (no jump).
+    var heroIndex by remember(feed?.items?.firstOrNull()?.id) {
+        mutableIntStateOf(if (feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)) dev.glasslauncher.featured.CoverAutoplay.startIndex(feed.items.size) else 0)
+    }
+    // The preview's stepping direction (back and forth, never a sweep from the last cover to the first).
+    var coverDir by remember { mutableIntStateOf(1) }
     val hero = feed?.items?.getOrNull(heroIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
     val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
 
@@ -515,7 +519,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         homeLifecycle.addObserver(observer)
         onDispose { homeLifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown) {
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown, prefs.reduceMotion) {
         // Only while titles show: an app's own hero never advances or bakes slides.
         if (!homeVisible || takeover != null || appHeroShown) return@LaunchedEffect
         // Paused under Control Center too: its translucent tiles would change colour with every slide.
@@ -523,9 +527,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // Full screen is browsed by hand: the row, details and backdrop follow focus, not a timer (advancing
         // moved the backdrop and details off the focused card).
         if (expanded) return@LaunchedEffect
-        delay(SLIDE_MS)
-        while (idle.millisSinceInput() < SLIDE_QUIET_MS) delay(SLIDE_QUIET_MS - idle.millisSinceInput() + 50)
-        val next = (heroIndex + 1) % feed.items.size
+        // The Cover Flow preview (P85): steps sooner (4 s after the last key, then every 3.5 s), one cover at a time,
+        // back and forth; not at all with Reduce Motion (it would only jump).
+        val covers = dev.glasslauncher.featured.CardShape.square(feed.items)
+        if (covers && prefs.reduceMotion) return@LaunchedEffect
+        delay(if (covers) dev.glasslauncher.featured.CoverAutoplay.STEP_MS else SLIDE_MS)
+        val quiet = if (covers) dev.glasslauncher.featured.CoverAutoplay.QUIET_MS else SLIDE_QUIET_MS
+        while (idle.millisSinceInput() < quiet) delay(quiet - idle.millisSinceInput() + 50)
+        val (stepTo, stepDir) = if (covers) dev.glasslauncher.featured.CoverAutoplay.next(heroIndex, coverDir, feed.items.size)
+            else ((heroIndex + 1) % feed.items.size) to 1
+        val next = stepTo
         val url = feed.items[next].image
         // Pre-baked at background priority, so a slide never competes with a scroll or focus move.
         if (url != null) {
@@ -536,6 +547,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             } else runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
         }
         feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }
+        coverDir = stepDir
         heroIndex = next
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
