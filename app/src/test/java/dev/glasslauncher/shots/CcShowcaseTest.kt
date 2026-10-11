@@ -57,7 +57,9 @@ class CcShowcaseTest {
                 val card = compose.onNodeWithTag("cc-agent-card").fetchSemanticsNode().boundsInRoot
                 val clock = compose.onNodeWithTag("cc-clock").fetchSemanticsNode().boundsInRoot
                 assertTrue("card top ${card.top} is below the header (${clock.bottom})", card.top >= clock.bottom)
-                assertTrue("card bottom ${card.bottom} is inside the screen", card.bottom <= compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom)
+                // ... and ends above the tray clamp (the dock starts at ~71% of the screen's height).
+                val screen = compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom
+                assertTrue("card bottom ${card.bottom} is above the dock (${screen * 0.71f})", card.bottom <= screen * 0.71f)
                 compose.onRoot().captureRoboImage(shot("cc-agent-card"))
                 // Back is Deny: the card closes and the tile reads Denied.
                 scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
