@@ -30,8 +30,8 @@ internal class CcMotion(private val progress: () -> Float, private val on: () ->
     /** Home's pill, when Control Center opens over Home (the drops start as its two ends); null over an app. */
     var pill: Rect? = null
 
-    /** The page icons' slots: 0 = Controls, 1 = Alexa (none when the Alexa page is off). */
-    val icons = arrayOfNulls<Rect>(2)
+    /** The page icons' slots, in page order (the first two are the drops the pill splits into; more follow the second). */
+    val icons = arrayOfNulls<Rect>(8)
 
     /** The panel (its column of controls), for a lone drop's spot and the stagger's reach. */
     var panel: Rect? = null

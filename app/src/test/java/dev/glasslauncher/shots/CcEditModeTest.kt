@@ -40,7 +40,8 @@ class CcEditModeTest {
             // Golden: every removable tile wears its legend, the hints sit under the grid (wobble is a transform only).
             compose.onRoot().captureRoboImage(shot("cc-edit-mode"))
             // Focus is on Settings; Right goes to Wi-Fi. Select lifts it; Down moves it into the row below; Select drops.
-            compose.press(Button.Right, Button.Select, Button.Down, Button.Select)
+            focusWifi()
+            compose.press(Button.Select, Button.Down, Button.Select)
             compose.settle()
             // Back leaves edit mode (and saves): Control Center is still open, hints gone.
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
@@ -48,6 +49,13 @@ class CcEditModeTest {
             assertTrue("edit mode is over", hints() == 0)
             assertTrue("Wi-Fi now sits below Bluetooth (top ${top("wifi")} vs ${top("bluetooth")})", top("wifi") > top("bluetooth"))
         }
+    }
+
+    /** From Settings, Right lands on Wi-Fi or Bluetooth (the big tile sits level with both): Up gets from Bluetooth to Wi-Fi. */
+    private fun focusWifi() {
+        compose.press(Button.Right)
+        if (compose.focused()?.startsWith("cc-tile:wifi") != true) compose.press(Button.Up)
+        assertTrue("on Wi-Fi: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:wifi") == true)
     }
 
     private fun exists(tag: String) = compose.onAllNodes(androidx.compose.ui.test.hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
@@ -63,7 +71,8 @@ class CcEditModeTest {
             compose.press(Button.Select)
             compose.settle()
             // Right to Wi-Fi, Play/Pause removes it (no confirm: the gallery brings it back).
-            compose.press(Button.Right, Button.PlayPause)
+            focusWifi()
+            compose.press(Button.PlayPause)
             compose.settle()
             assertTrue("Wi-Fi is gone", !exists("cc-tile:wifi"))
             // Down to the Add a Control slot, Select: the groups; Select Glass: the list, with Wi-Fi first and not added.
@@ -86,6 +95,31 @@ class CcEditModeTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
             assertTrue("saved and left edit mode", !exists("cc-edit-hints") && exists("cc-tile:wifi"))
+        }
+    }
+
+    @Test fun aNewPageStartsEmptyWithItsAddSlotAndResizeKeepsFocus() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            repeat(12) { if (compose.focused()?.startsWith("cc-edit") != true) compose.press(Button.Down) }
+            compose.press(Button.Select)
+            compose.settle()
+            // Menu resizes the focused tile (Settings has one size: nothing); move to Wi-Fi and resize: focus stays on it.
+            focusWifi()
+            compose.press(Button.Menu)
+            compose.settle()
+            assertTrue("focus stays on the resized tile: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:wifi") == true)
+            // Up to the page icons, Right twice to the + icon, Select: a new empty page with its Add slot.
+            compose.press(Button.Up)
+            compose.press(Button.Right, Button.Right)
+            compose.press(Button.Select)
+            compose.settle()
+            assertTrue("the new page is empty", !exists("cc-tile:wifi") && !exists("cc-tile:bluetooth"))
+            assertTrue("with its Add a Control slot", exists("cc-add"))
         }
     }
 }

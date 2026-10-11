@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.zIndex
+import androidx.compose.animation.core.animateFloat
 import android.content.Intent
 import android.provider.Settings
 import androidx.annotation.DrawableRes
@@ -106,6 +107,8 @@ private class CcSizes(k: Float) {
     val roundGlyph = u * 0.44f
     val bigGlyph = u * 0.8f
 }
+
+private val LocalCcPageIconSize = androidx.compose.runtime.staticCompositionLocalOf { 40.dp }
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
 
@@ -469,8 +472,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val editing = draft != null
     fun shown(id: String) = layout.shown(id)
     // Pages (tvOS 27's icons along the top): 0 = Controls, 1 = Alexa. Opening always shows Controls.
-    var page by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
-    val alexaPage = shown("alexa")
+    var pageId by remember(active) { androidx.compose.runtime.mutableStateOf("controls") }
+    // While a lifted tile is held over the menu bar (Up from the top row): the page it will drop onto.
+    var hoverPage by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // Page icons show with more than one page, or while editing (the + icon makes a page).
+    val alexaPage = layout.pages.size > 1 || editing
     // The focused round button's name, shown under the round buttons (they're icons only).
     var roundLabel by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val dark = cfg.theme != ThemeMode.Light
@@ -490,6 +496,14 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { ControlCenterWindow.pillCovered = false } }
     val exiting = LocalOverlayExiting.current
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    // Edit mode saves its draft when Control Center closes, and if the window goes away some other way. (Here, not
+    // in a page: a page switch disposes the page's content.)
+    fun saveDraft() {
+        draft?.let { d -> val l = d.withoutEmptyPages(); edit { c -> c.copy(ccLayout = l.toJson(), ccHidden = emptySet()) } }
+        draft = null
+    }
+    LaunchedEffect(exiting) { if (exiting && draft != null) saveDraft() }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { saveDraft() } }
     val exitingNowEarly = androidx.compose.runtime.rememberUpdatedState(exiting)
     val exitingNow = exitingNowEarly
     // Where the close began (read once, here, so it isn't a per-frame dependency): the bubble turns from there.
@@ -596,13 +610,32 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     cfg.weather?.let { Box(Modifier.padding(top = 11.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = HEADER_ALPHA), Type.secondary) } }
                 }
                 // The page icons are the two drops the pill splits into; their glyphs come in as they land.
-                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp)) {
-                    PageIcon(R.drawable.ic_tune, "Controls", selected = page == 0, index = 0) { page = 0 }
+                // Three or more icons (a page of your own, or the + while editing) are a little smaller so the time keeps its room.
+                val iconCount = layout.pages.size + if (editing) 1 else 0
+                val iconSize = if (iconCount > 2) 34.dp else 40.dp
+                androidx.compose.runtime.CompositionLocalProvider(LocalCcPageIconSize provides iconSize) {
+                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(if (iconCount > 2) 6.dp else 10.dp), modifier = Modifier.padding(start = 16.dp)) {
                     // The Alexa app's own icon (loaded once per open); the mic if it isn't installed.
                     val alexaIcon = remember(active) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }
-                    if (alexaIcon != null) PageIcon("Alexa", selected = page == 1, index = 1, onShow = { page = 1 }) {
-                        Image(alexaIcon, null, modifier = Modifier.size(26.dp).clip(CircleShape))
-                    } else PageIcon(R.drawable.ic_mic, "Alexa", selected = page == 1, index = 1) { page = 1 }
+                    layout.pages.forEachIndexed { i, pg ->
+                        val lit = pg.id == (hoverPage ?: pageId)
+                        val show = { if (hoverPage == null) pageId = pg.id }
+                        // Play/Pause on a page icon in edit mode deletes the page; its tiles go to Controls (nothing is lost).
+                        val delete: (() -> Unit)? = if (editing && i > 0 && pg.id != "alexa") ({
+                            draft = draft?.let { d -> d.page(pg.id)?.tiles.orEmpty().fold(d) { acc, t -> acc.moveToPage(pg.id, t.id, "controls") }.copy(pages = d.pages.filter { it.id != pg.id }) }
+                            if (pageId == pg.id) pageId = "controls"
+                        }) else null
+                        if (pg.id == "alexa" && alexaIcon != null) PageIcon(ccPageLabel(pg), lit, i, onShow = show, onPlay = delete) {
+                            Image(alexaIcon, null, modifier = Modifier.size(26.dp).clip(CircleShape))
+                        } else PageIcon(ccPageIcon(pg), ccPageLabel(pg), selected = lit, index = i, onShow = show, onPlay = delete)
+                    }
+                    if (editing) PageIcon(R.drawable.ic_add, "New page", selected = false, index = minOf(layout.pages.size, 7), onShow = {}, onPlay = null, onSelect = {
+                        draft?.let { d ->
+                            val id = "page${d.pages.size}-${System.currentTimeMillis() % 100000}"
+                            draft = d.copy(pages = d.pages + CcPage(id, "auto", emptyList())); pageId = id
+                        }
+                    })
+                }
                 }
             }
             val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
@@ -616,43 +649,50 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     .padding(bottom = m.chromeInset)
                     .width(sz.column),
             ) {
-            androidx.compose.animation.Crossfade(page, animationSpec = androidx.compose.animation.core.tween(140), label = "cc-page") { shownPage ->
+            androidx.compose.animation.Crossfade(pageId, animationSpec = androidx.compose.animation.core.tween(140), label = "cc-page") { shownPage ->
             Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
-            if (shownPage == 1) {
+            if (shownPage == "alexa") {
                 Box(Modifier) { AlexaPage(sz, closeAll) }
             } else {
             // The Controls page (P83): the layout's ordered {id, size} list, packed into the 4-column grid by
             // CcPacking (next-fit, so it reproduces the fixed layout this was). Edit mode changes a draft of it.
             val u = sz.round
+            val pid = layout.page(shownPage)?.id ?: layout.pages.first().id
             val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance", "memory" -> rooted; else -> true } }
-            val tilesNow = layout.page("controls")?.tiles.orEmpty().filter { avail(it.id) }
+            val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) }
             val placed = remember(tilesNow) { CcPacking.pack(tilesNow) }
             val rows = placed.maxOfOrNull { it.row + it.tile.size.h } ?: 0
             var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
             var liftBase by remember(active) { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
             var focusedId by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
-            fun commitDraft() { draft?.let { d -> val l = d.withoutEmptyPages(); edit { c -> c.copy(ccLayout = l.toJson(), ccHidden = emptySet()) } }; draft = null; lifted = null; liftBase = null }
+            fun commitDraft() { saveDraft(); lifted = null; liftBase = null }
             fun enterEdit(refocus: Boolean = false) {
                 if (draft == null) draft = storedLayout
                 // From the Edit pill (which goes away): focus lands on the first tile.
                 if (refocus) scope.launch { withFrameNanos { }; runCatching { first.requestFocus() } }
             }
-            fun liftToggle(id: String) { if (lifted == null) { lifted = id; liftBase = draft } else { lifted = null; liftBase = null } }
+            fun liftToggle(id: String) {
+                if (lifted == null) { lifted = id; liftBase = draft; return }
+                // Dropped over a page icon: the tile goes to the end of that page (and that page shows).
+                val target = hoverPage
+                if (target != null && target != pid) { draft = draft?.moveToPage(pid, id, target); pageId = target }
+                hoverPage = null; lifted = null; liftBase = null
+            }
             fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
             fun moveLifted(dx: Int, dy: Int) {
                 val d = draft ?: return; val id = lifted ?: return
-                val all = d.page("controls")?.tiles ?: return
+                val all = d.page(pid)?.tiles ?: return
                 val from = all.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: return
-                val to = if (dy != 0) d.neighbour("controls", from, dy, avail) else {
+                val to = if (dy != 0) d.neighbour(pid, from, dy, avail) else {
                     val vis = all.filter { avail(it.id) }
                     vis.getOrNull(vis.indexOfFirst { it.id == id } + dx)?.let { n -> all.indexOfFirst { it.id == n.id } }
                 } ?: return
-                draft = d.move("controls", from, to)
+                draft = d.move(pid, from, to)
             }
             fun removeTile(id: String) {
                 val d = draft ?: return
                 if (!CcControls.removable(id)) return
-                draft = d.remove("controls", id); if (lifted == id) { lifted = null; liftBase = null }
+                draft = d.remove(pid, id); if (lifted == id) { lifted = null; liftBase = null }
                 scope.launch { withFrameNanos { }; runCatching { first.requestFocus() } }
             }
             // The Add a Control gallery, in place of the grid (it's a window of its own, so the draft stays here):
@@ -669,7 +709,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             fun addControl(id: String) {
                 val d = draft ?: return
-                draft = d.add("controls", id)
+                draft = d.add(pid, id)
                 gallery = null
                 pendingFocus = id
             }
@@ -687,8 +727,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 }) else null
                 onDispose { ControlCenterWindow.editBack = null }
             }
-            LaunchedEffect(exiting) { if (exiting && draft != null) commitDraft() }
-            val wobbleOn = editing && !reduceMotion
+
+            // Edit mode's wobble: ONE infinite transition for the whole grid, rotationZ only (+/-0.8 degrees, 190 ms half
+            // period, each tile out of phase), read in the layer phase: nothing recomposes or re-layouts per frame.
+            val wobbleOn = false
+            val wobbleClock = androidx.compose.animation.core.rememberInfiniteTransition(label = "cc-wobble").animateFloat(
+                initialValue = 0f, targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.LinearEasing)),
+                label = "cc-wobble-t",
+            )
+            val wobbling = editing && !reduceMotion
             if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
             Box(
                 Modifier
@@ -699,14 +747,33 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         if (!editing) return@onPreviewKeyEvent false
                         val down = k.action == android.view.KeyEvent.ACTION_DOWN
                         if (lifted != null) when (k.keyCode) {
-                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { if (down) moveLifted(-1, 0); true }
-                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { if (down) moveLifted(1, 0); true }
-                            android.view.KeyEvent.KEYCODE_DPAD_UP -> { if (down) moveLifted(0, -1); true }
-                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { if (down) moveLifted(0, 1); true }
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                val dx = if (k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1
+                                if (down) {
+                                    val h = hoverPage
+                                    if (h != null) {
+                                        val ids = layout.pages.map { it.id }.filter { it != "alexa" }
+                                        hoverPage = ids.getOrNull((ids.indexOf(h) + dx).coerceIn(0, ids.lastIndex)) ?: h
+                                    } else moveLifted(dx, 0)
+                                }
+                                true
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                                if (down) {
+                                    if (hoverPage == null) {
+                                        // From the top row, Up goes to the menu bar: the page icons to drop onto.
+                                        val before = draft
+                                        moveLifted(0, -1)
+                                        if (draft === before && layout.pages.size > 1) hoverPage = pid
+                                    }
+                                }
+                                true
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { if (down) { if (hoverPage != null) hoverPage = null else moveLifted(0, 1) }; true }
                             else -> false
                         } else if (k.keyCode == android.view.KeyEvent.KEYCODE_MENU) {
                             // Menu: the next size the focused control allows; neighbours repack.
-                            if (down) focusedId?.let { id -> draft = draft?.resize("controls", id) }
+                            if (down) focusedId?.let { id -> draft = draft?.resize(pid, id); pendingFocus = id }
                             true
                         } else false
                     },
@@ -731,14 +798,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     fun tap(go: () -> Unit): () -> Unit = { if (editing) liftToggle(id) else go() }
                     val hold: (() -> Unit)? = if (editing) null else ({ enterEdit(); focusedId = id })
                     fun playOr(go: () -> Unit): () -> Unit = { if (editing) removeTile(id) else go() }
-                    val requester = if (id == "fire_settings") first else requesters.getOrPut(id) { FocusRequester() }
+                    val requester = if (id == "fire_settings") first else remember(id) { requesters.getOrPut(id) { FocusRequester() } }
                     val focusMod = Modifier.focusRequester(requester).onFocusChanged { if (it.isFocused) focusedId = id }
                     Box(
                         Modifier
                             .offset { off }
                             .size(w, h)
                             .zIndex(if (isLifted) 2f else 0f)
-                            .graphicsLayer { scaleX = liftScale; scaleY = liftScale }
+                            .graphicsLayer {
+                                scaleX = liftScale; scaleY = liftScale
+                                if (wobbling) rotationZ = 0.8f * kotlin.math.sin(((wobbleClock.value + pl.row * 0.13f + pl.col * 0.29f) * 2f * Math.PI).toFloat())
+                            }
                             .testTag("cc-tile:$id"),
                     ) {
                         val one = tile.size == CcSize.S1x1
@@ -801,11 +871,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             if (editing && lifted == null) CcTile("Add a Control", null, Shapes.pill, sz.column, sz.pill, onClick = { gallery = "" }, modifier = Modifier.padding(top = sz.gap).testTag("cc-add")) { fg ->
                 PillContent(R.drawable.ic_add, "Add a Control", null, fg, on = false, accent = fg)
             }
-            if (editing) Text(
-                if (lifted != null) "Arrows Move · Select Drop\nBack Cancel" else "Select Move · Menu Size · Play Remove\nBack Done",
-                style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = headerColor, maxLines = 2,
-                modifier = Modifier.width(sz.column).padding(start = 4.dp, top = 6.dp).testTag("cc-edit-hints"),
-            ) else {
+            if (editing) Box(
+                Modifier.padding(top = sz.gap).width(sz.column).ccSurface(RoundedCornerShape(22.dp), LocalCcSheet.current)
+                    .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-edit-hints"),
+            ) {
+                Text(
+                    if (lifted != null) "Move · Select Drop\nBack Cancel" else "Select Move · ≡ Size · ⏯ Remove\nBack Done",
+                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
+                )
+            } else {
                 // The Edit pill: discoverability for hold-Select.
                 CcTile("Edit", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { enterEdit(refocus = true) }, modifier = Modifier.testTag("cc-edit")) { fg ->
                     PillContent(R.drawable.ic_edit_square, "Edit", null, fg, on = false, accent = fg)
@@ -869,24 +943,32 @@ private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color) {
 
 /** One of the page icons along the top: a small glass disc, white while its page shows or it's focused. */
 @Composable
-private fun PageIcon(@DrawableRes icon: Int, label: String, selected: Boolean, index: Int, onShow: () -> Unit) {
+private fun PageIcon(
+    @DrawableRes icon: Int, label: String, selected: Boolean, index: Int, onShow: () -> Unit,
+    onPlay: (() -> Unit)? = null, onSelect: (() -> Unit)? = null,
+) {
     val palette = LocalPalette.current
-    PageIcon(label, selected, index, onShow) { lit ->
+    PageIcon(label, selected, index, onShow, onPlay, onSelect) { lit ->
         Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (lit) palette.onFocusFill else palette.primary), modifier = Modifier.size(20.dp))
     }
 }
 
 /** The same disc around any [content] (given whether the disc is lit), for art that keeps its own colours. */
 @Composable
-private fun PageIcon(label: String, selected: Boolean, index: Int, onShow: () -> Unit, content: @Composable (lit: Boolean) -> Unit) {
+private fun PageIcon(
+    label: String, selected: Boolean, index: Int, onShow: () -> Unit, onPlay: (() -> Unit)? = null, onSelect: (() -> Unit)? = null,
+    content: @Composable (lit: Boolean) -> Unit,
+) {
     val palette = LocalPalette.current
     val motion = LocalCcMotion.current
     val emerge = remember(motion, index) { motion?.let { CcEmerge(it, CcRole.Icon(index)) } }
     androidx.compose.runtime.CompositionLocalProvider(LocalCcEmerge provides emerge) {
         FocusTile(
-            label = label, onClick = onShow, shape = CircleShape, focusedScale = 1.08f, shadow = false,
-            onFocusChange = { if (it) onShow() },
-            modifier = Modifier.size(40.dp).ccEmerge(emerge),
+            label = label, onClick = onSelect ?: onShow, shape = CircleShape, focusedScale = 1.08f, shadow = false,
+            onPlay = onPlay,
+            // Focusing an icon shows its page (the + icon makes one on Select instead).
+            onFocusChange = { if (it && onSelect == null) onShow() },
+            modifier = Modifier.size(LocalCcPageIconSize.current).ccEmerge(emerge),
         ) { focused ->
             val lit = focused || selected
             Box(
@@ -1096,4 +1178,21 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
             }
         }
     }
+}
+
+/** A page's menu-bar icon: Alexa and the named ones, else the glyph of its first control (spec 4), else the tune glyph. */
+@DrawableRes
+private fun ccPageIcon(page: CcPage): Int = when (page.icon) {
+    "music" -> R.drawable.ic_music_note
+    "home" -> R.drawable.ic_home
+    "alexa" -> R.drawable.ic_mic
+    "grid" -> R.drawable.ic_tune
+    else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.icon } ?: R.drawable.ic_tune
+}
+
+/** The page's name for the icon's description: Controls and Alexa as before, the rest by their first control or "Page". */
+private fun ccPageLabel(page: CcPage): String = when (page.id) {
+    "controls" -> "Controls"
+    "alexa" -> "Alexa"
+    else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.name }?.let { "$it page" } ?: "New page"
 }
