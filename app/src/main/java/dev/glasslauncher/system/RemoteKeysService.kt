@@ -122,8 +122,9 @@ class RemoteKeysService : AccessibilityService() {
     /** Whether a focused application window of another package exists (the launched app can take Back). */
     private fun appHasFocus(): Boolean {
         val own = packageName
-        val windows = runCatching { windows }.getOrNull()
-            ?: return true   // can't see windows (capability off): assume the app has it, so Back is never taken
+        // Can't see windows (capability off: the system then answers an empty list, not an error): assume the app has
+        // focus, so Back is never taken.
+        val windows = runCatching { windows }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return true
         val focused = FocusPick.focusedAppPackage(windows.map { w ->
             FocusPick.Win(w.isFocused, w.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION, runCatching { w.root?.packageName?.toString() }.getOrNull())
         })
