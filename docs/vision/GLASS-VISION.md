@@ -73,9 +73,23 @@ Top 8 overall, scored as appeal × feasibility:
 - Claude Code on your TV: http hooks post to a small bridge on the Mac. PermissionRequest hooks wait up to 600 s for the TV's Approve or Deny, and fall back to the terminal prompt. Remote Control has no third-party API.
 - Not promised: Google Cast receiver, private listening.
 
-## 7. Gaming (in progress)
+## 7. Gaming
 
-Research: firestick-unlocked/tvos27-inspo/GAMING-RESEARCH.md covers cloud and streaming, a library row, controllers, friends and presence, game mode, retro, Control Center tiles and limits.
+Research: docs/research/gaming.md. Top 5 features:
+1. A Games row with Continue Playing, across installed games, the Xbox, GeForce NOW, Luna and Boosteroid apps, Steam Link and Moonlight. Art from the Steam CDN and SteamGridDB.
+2. One tile, "Wake PC and launch Moonlight": Wake-on-LAN, wait for Sunshine, then launch.
+3. Controller toast, battery tile, low-battery warning, and "Resume game" when a pad connects.
+4. The Guide button opens Control Center, and the pad navigates Glass.
+5. A gamepad keepalive across reboots (a hypothesis, still to test).
+
+Risks:
+- Unverified: Guide-button routing, the Moonlight intent, battery reads, ALLM.
+- Haptics are not promised.
+- No Xbox or Discord presence API, so Steam-only for v1.
+- No PlayStation Remote Play client was found.
+- Check the SteamGridDB and IGDB terms before shipping art.
+- The model may be AFTKRT = 4K Max (2nd gen); verify.
+
 
 ## 8. Website
 
