@@ -1262,9 +1262,13 @@ internal fun CcTile(
         val phase = LocalCcPhase.current
         val focusA by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, if (phase.landed) fade else androidx.compose.animation.core.snap(), label = "focus")
         val onA by androidx.compose.animation.core.animateFloatAsState(if (on && !focused) 1f else 0f, fade, label = "on")
-        // The text and glyph colour switches outright (animating it recomposed every tile's content each
-        // frame); under the fading fill the switch isn't visible.
-        val fg = if (focused) palette.onFocusFill else if (on) Blue else palette.primary
+        // The text and glyph colour follows the FILL, not the focus: it used to flip the moment focus moved while the
+        // white fill took 120 ms to fade, so a tile showed white content on a half-white fill (a washed-out cream,
+        // P88). It switches where the content has the same contrast on either side (CcFocusPhase), read through
+        // derived state so it recomposes once per flip, not per frame.
+        val litByFocus by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { focusA >= CcFocusPhase.FLIP } }
+        val litByOn by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { onA >= CcFocusPhase.FLIP } }
+        val fg = if (litByFocus) palette.onFocusFill else if (litByOn) Blue else palette.primary
         Box(
             Modifier
                 .fillMaxSize()
@@ -1354,4 +1358,24 @@ private fun ccPageLabel(page: CcPage): String = when (page.id) {
     "more" -> "More"
     "alexa" -> "Alexa"
     else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.name }?.let { "$it page" } ?: "New page"
+}
+
+/**
+ * Where a tile's content flips between its resting colour (light) and the focus colour (dark) while the white fill
+ * fades in or out (P88). The fill is white at alpha a over dark glass of luminance Lg: content has equal contrast on
+ * both sides where the blended fill's luminance is ~0.22, which for tvOS-dark glass (Lg 0.05-0.2) is a ~ 0.13-0.2.
+ */
+internal object CcFocusPhase {
+    const val FLIP = 0.15f
+
+    /** WCAG contrast of [dark] (true) or light content on the white fill at [alpha] over glass of luminance [glass]. */
+    fun contrast(alpha: Float, glass: Float, dark: Boolean): Float {
+        val fill = glass + alpha * (1f - glass)
+        val ink = if (dark) 0.02f else 1f
+        val hi = maxOf(fill, ink) + 0.05f; val lo = minOf(fill, ink) + 0.05f
+        return hi / lo
+    }
+
+    /** The contrast the content actually has at [alpha] with the flip at [FLIP]. */
+    fun chosen(alpha: Float, glass: Float): Float = contrast(alpha, glass, dark = alpha >= FLIP)
 }

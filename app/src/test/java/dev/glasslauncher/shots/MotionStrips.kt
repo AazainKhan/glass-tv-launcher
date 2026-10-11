@@ -87,6 +87,19 @@ class MotionStrips {
     @Test fun moveModeDown() = strip("move-mode-down", Button.Menu, Button.Down, Button.Select, button = Button.Down, frames = 12, stepMs = 28, columns = 6)
     @Test fun controlCenterOpen() = strip("control-center-open", Button.Up, Button.Up, Button.Up, button = Button.Select, frames = 28, stepMs = 28, columns = 7)
     // Exits: Back goes to the activity's dispatcher directly (the harness's Back key doesn't reach it).
+    // P88: focus leaving the big Settings tile for Wi-Fi in Control Center: the content must be readable on every frame.
+    @Test fun controlCenterFocusMove() {
+        assumeTrue(only == "all" || only == "cc-focus")
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.settle()
+            val shots = compose.frames(Button.Right, 12, 16, scale = 0.5f)
+            println("strip: " + sheet("cc-focus", shots, 16, 6).absolutePath)
+        }
+    }
+
     @Test fun controlCenterClose() {
         assumeTrue(only == "all" || only == "control-center-close")
         TvHarness.setUp()
