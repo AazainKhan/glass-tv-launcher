@@ -140,9 +140,11 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         /** Today's Control Center (the ids of CONTROL_CENTER_TILES), minus what the user had turned off ([hidden], the old ccHidden). */
         fun default(hidden: Set<String> = emptySet()): CcLayout {
             val off = hidden.map { CcControls.canonical(it) }.toSet()
-            val controls = CcControls.DEFAULT_ORDER.filter { it !in off }.map { CcTile(it, CcControls.sizes(it).first()) }
+            fun tiles(list: List<CcTile>) = list.filter { it.id !in off }
             val pages = buildList {
-                add(CcPage("controls", "grid", controls))
+                add(CcPage("controls", "grid", tiles(CcControls.DEFAULT_CONTROLS)))
+                // More: what doesn't fit the 4x4 first page (VPN shows only when a VPN app is installed).
+                add(CcPage("more", "more", tiles(CcControls.DEFAULT_MORE)))
                 // Alexa is a page of its own today (a menu-bar icon); the spec's page model keeps it that way until the pages work lands.
                 if ("alexa" !in hidden) add(CcPage("alexa", "alexa", emptyList()))
             }
@@ -161,7 +163,7 @@ object CcControls {
         "fire_settings" to listOf(CcSize.S2x2),
         "wifi" to listOf(CcSize.S2x1, CcSize.S1x1),
         "bluetooth" to listOf(CcSize.S2x1, CcSize.S1x1),
-        "launcher" to listOf(CcSize.S4x1, CcSize.S2x1),
+        "launcher" to listOf(CcSize.S4x1, CcSize.S2x1, CcSize.S1x1),
         "sleep_timer" to listOf(CcSize.S2x1, CcSize.S1x1),
         "vpn" to listOf(CcSize.S2x1, CcSize.S1x1),
         "restart" to ONE,
@@ -173,9 +175,22 @@ object CcControls {
 
     /** Today's packed order of the Controls page (the spec's default grid, before the new built-ins arrive). */
     val DEFAULT_ORDER = listOf(
-        "fire_settings", "wifi", "bluetooth", "sleep_timer", "vpn", "launcher",
-        "controllers", "appearance", "screensaver", "switcher", "airplay", "performance", "cleanup", "restart",
+        "fire_settings", "wifi", "bluetooth", "sleep_timer", "cleanup", "restart", "airplay",
+        "appearance", "screensaver", "switcher", "launcher", "controllers", "performance", "vpn",
     )
+
+    /**
+     * The default first page, exactly 4 columns x 4 rows (130 px pitch, the panel's viewport ends after four rows), so
+     * it fits with no scroll at rest: Settings 2x2 beside Wi-Fi and Bluetooth, then two rows of eight 1x1 controls.
+     */
+    val DEFAULT_CONTROLS = listOf(
+        CcTile("fire_settings", CcSize.S2x2), CcTile("wifi", CcSize.S2x1), CcTile("bluetooth", CcSize.S2x1),
+        CcTile("sleep_timer", CcSize.S1x1), CcTile("cleanup", CcSize.S1x1), CcTile("restart", CcSize.S1x1), CcTile("airplay", CcSize.S1x1),
+        CcTile("appearance", CcSize.S1x1), CcTile("screensaver", CcSize.S1x1), CcTile("switcher", CcSize.S1x1), CcTile("launcher", CcSize.S1x1),
+    )
+
+    /** The default second page. */
+    val DEFAULT_MORE = listOf(CcTile("controllers", CcSize.S1x1), CcTile("performance", CcSize.S1x1), CcTile("vpn", CcSize.S2x1))
 
     /** Ids that were renamed: Free Memory became Clean Up (it does both jobs, one tap). */
     fun canonical(id: String): String = if (id == "memory") "cleanup" else id

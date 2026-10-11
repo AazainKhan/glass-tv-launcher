@@ -14,44 +14,37 @@ class CcLayoutTest {
     private fun t(id: String, s: CcSize = S1x1) = CcTile(id, s)
     private fun at(p: List<CcPlaced>, id: String) = p.first { it.tile.id == id }.let { it.row to it.col }
 
-    @Test fun theDefaultPacksToTheSpecsGrid() {
+    @Test fun theDefaultFirstPageIsExactlyFourByFour() {
         val p = CcPacking.pack(CcLayout.default().page("controls")!!.tiles)
         assertEquals(0 to 0, at(p, "fire_settings"))
         assertEquals(0 to 2, at(p, "wifi"))
         assertEquals("beside the big tile, below Wi-Fi", 1 to 2, at(p, "bluetooth"))
-        // The new pill row (M5): Sleep Timer and VPN, then Launcher Settings full width.
-        assertEquals(2 to 0, at(p, "sleep_timer")); assertEquals(2 to 2, at(p, "vpn"))
-        assertEquals(3 to 0, at(p, "launcher"))
-        // The eight round buttons: four to a row.
-        assertEquals(listOf(4 to 0, 4 to 1, 4 to 2, 4 to 3, 5 to 0, 5 to 1, 5 to 2, 5 to 3),
-            listOf("controllers", "appearance", "screensaver", "switcher", "airplay", "performance", "cleanup", "restart").map { at(p, it) })
+        assertEquals(listOf(2 to 0, 2 to 1, 2 to 2, 2 to 3), listOf("sleep_timer", "cleanup", "restart", "airplay").map { at(p, it) })
+        assertEquals(listOf(3 to 0, 3 to 1, 3 to 2, 3 to 3), listOf("appearance", "screensaver", "switcher", "launcher").map { at(p, it) })
+        assertEquals("four rows, no scroll at rest", 4, p.maxOf { it.row + it.tile.size.h })
     }
 
-    @Test fun todaysLayoutIsTheSameWithoutTheNewTiles() {
-        // The layout this was before the quick wins: Settings 2x2 with the two pills, Launcher full width, rounds.
-        val old = CcLayout.default().page("controls")!!.tiles.filter { it.id !in setOf("sleep_timer", "vpn", "cleanup", "restart") }
-        val p = CcPacking.pack(old)
-        assertEquals(2 to 0, at(p, "launcher"))
-        assertEquals(listOf(3 to 0, 3 to 1, 3 to 2, 3 to 3, 4 to 0, 4 to 1),
-            listOf("controllers", "appearance", "screensaver", "switcher", "airplay", "performance").map { at(p, it) })
+    @Test fun theSecondDefaultPageIsMore() {
+        val more = CcLayout.default().page("more")!!
+        assertEquals(listOf("controllers", "performance", "vpn"), more.tiles.map { it.id })
+        assertEquals(CcSize.S2x1, more.tiles.last().size)
+        assertEquals(listOf("controls", "more", "alexa"), CcLayout.default().pages.map { it.id })
     }
 
     @Test fun freeMemoryIsNowCleanUp() {
-        assertTrue("memory" !in CcLayout.default().page("controls")!!.tiles.map { it.id })
+        assertTrue("memory" !in CcLayout.default().pages.flatMap { it.tiles }.map { it.id })
         val stored = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("memory", S1x1))))).toJson()
         assertEquals(listOf("cleanup"), CcLayout.fromJson(stored)!!.page("controls")!!.tiles.map { it.id })
-        val hidden = CcLayout.default(hidden = setOf("memory")).page("controls")!!.tiles.map { it.id }
+        val hidden = CcLayout.default(hidden = setOf("memory")).pages.flatMap { it.tiles }.map { it.id }
         assertTrue("cleanup" !in hidden)
     }
 
-    @Test fun anAbsentControlLeavesNoHole() {
-        // No AirPlay installed, not rooted (no Performance), no VPN app: the rest close up.
-        val shown = CcLayout.default().page("controls")!!.tiles.filter { it.id !in setOf("airplay", "performance", "vpn") }
+    @Test fun anAbsentControlPacksTheRestLeftByOne() {
+        // No AirPlay (PhairPlay not installed): Theme etc. close up one place; four rows still hold.
+        val shown = CcLayout.default().page("controls")!!.tiles.filter { it.id != "airplay" }
         val p = CcPacking.pack(shown)
-        assertEquals("Sleep Timer sits alone, left-aligned", 2 to 0, at(p, "sleep_timer"))
-        assertEquals(3 to 0, at(p, "launcher"))
-        assertEquals(4 to 3, at(p, "switcher"))
-        assertEquals(5 to 1, at(p, "restart"))
+        assertEquals(2 to 3, at(p, "appearance"))
+        assertEquals(3 to 2, at(p, "launcher"))
     }
 
     @Test fun aTwoWideTileThatDoesNotFitStartsTheNextRowAndNothingBackfills() {
@@ -86,7 +79,7 @@ class CcLayoutTest {
         l = l.resize("controls", "wifi"); assertEquals(S1x1, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
         l = l.resize("controls", "wifi"); assertEquals(S2x1, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
         assertEquals(l, l.resize("controls", "fire_settings"))
-        assertEquals(S2x1, CcLayout.default().resize("controls", "launcher").page("controls")!!.tiles.first { it.id == "launcher" }.size)
+        assertEquals("1x1 -> 4x1 (wraps)", S4x1, CcLayout.default().resize("controls", "launcher").page("controls")!!.tiles.first { it.id == "launcher" }.size)
     }
 
     @Test fun fireSettingsCannotBeRemovedOthersCan() {
@@ -132,7 +125,7 @@ class CcLayoutTest {
 
     @Test fun theOldHiddenSwitchesMigrateOutOfTheDefault() {
         val l = CcLayout.resolve(null, setOf("wifi", "memory", "alexa"))
-        val ids = l.page("controls")!!.tiles.map { it.id }
+        val ids = l.pages.flatMap { it.tiles }.map { it.id }
         assertTrue("wifi" !in ids && "cleanup" !in ids && "bluetooth" in ids)
         assertNull("alexa page off", l.page("alexa"))
         assertTrue(CcLayout.default().page("alexa") != null)

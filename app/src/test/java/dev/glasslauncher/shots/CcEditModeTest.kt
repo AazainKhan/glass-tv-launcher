@@ -139,7 +139,8 @@ class CcEditModeTest {
             compose.waitForTag("control-center")
             compose.settle()
             // Down to the round rows, then Right along them to Restart.
-            repeat(8) { if (compose.focused()?.startsWith("cc-tile:restart") != true) compose.press(Button.Down) }
+            // The default's third row is Sleep, Clean Up, Restart (AirPlay hides without PhairPlay): one Down, then Right.
+            compose.press(Button.Down)
             repeat(4) { if (compose.focused()?.startsWith("cc-tile:restart") != true) compose.press(Button.Right) }
             assertTrue("on Restart: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:restart") == true)
             compose.press(Button.Select)

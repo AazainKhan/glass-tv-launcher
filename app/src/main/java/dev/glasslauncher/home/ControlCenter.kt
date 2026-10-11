@@ -942,7 +942,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             }
                             "launcher" -> {
                                 val go = tap { closeAll(); open(Overlay.Settings) }
-                                CcTile("Launcher Settings", null, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
+                                // 1x1 (the default): the sliders glyph.
+                                if (one) Round(R.drawable.ic_tune, "Launcher Settings", onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
+                                else CcTile("Launcher Settings", null, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
                                     PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
                                 }
                             }
@@ -970,7 +972,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     sleepLeft = dev.glasslauncher.system.SleepTimer.remainingMs(context)
                                 }
                                 val on = sleepLeft > 0
-                                if (one) Round(R.drawable.ic_do_not_disturb_on, "Sleep Timer, $value", on = on, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
+                                // 1x1: while it runs, the minutes left ("28") replace the glyph (spec: a short value may).
+                                if (one && on) CcTile("Sleep Timer, $value", null, androidx.compose.foundation.shape.CircleShape, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, on = true) { fg ->
+                                    androidx.compose.foundation.text.BasicText("${(sleepLeft + 59_999) / 60_000}", style = Type.heading.copy(color = fg))
+                                }
+                                else if (one) Round(R.drawable.ic_do_not_disturb_on, "Sleep Timer, $value", on = on, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
                                 else CcTile("Sleep Timer", value, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, on = on) { fg ->
                                     // "Sleep Timer" doesn't fit a 2x1 pill at the 13 sp floor: the pill says "Sleep", the tile's description keeps the full name.
                                     PillContent(R.drawable.ic_do_not_disturb_on, "Sleep", value, fg, on = on, accent = Blue)
@@ -1328,6 +1334,7 @@ private fun ccPageIcon(page: CcPage): Int = when (page.icon) {
     "music" -> R.drawable.ic_music_note
     "home" -> R.drawable.ic_home
     "alexa" -> R.drawable.ic_mic
+    "more" -> R.drawable.ic_apps
     "grid" -> R.drawable.ic_tune
     // A page of your own: its first control's glyph; a neutral one while it is empty (so it isn't mistaken for Controls).
     else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.icon } ?: R.drawable.ic_widgets
@@ -1336,6 +1343,7 @@ private fun ccPageIcon(page: CcPage): Int = when (page.icon) {
 /** The page's name for the icon's description: Controls and Alexa as before, the rest by their first control or "Page". */
 private fun ccPageLabel(page: CcPage): String = when (page.id) {
     "controls" -> "Controls"
+    "more" -> "More"
     "alexa" -> "Alexa"
     else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.name }?.let { "$it page" } ?: "New page"
 }
