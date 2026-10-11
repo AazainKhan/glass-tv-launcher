@@ -10,7 +10,7 @@ source "$ROOT/scripts/lib/device.sh"
 SERVICE=dev.glasslauncher/dev.glasslauncher.system.RemoteKeysService
 setting() { adb shell "su -c \"settings put secure $1 '$2'\"" >/dev/null 2>&1 || adb shell settings put secure "$1" "$2"; }
 cur() { adb shell settings get secure enabled_accessibility_services | tr -d '\r'; }
-without() { echo "$1" | tr ':' '\n' | grep -v -x -F "$SERVICE" | paste -sd: - ; }
+without() { echo "$1" | tr ':' '\n' | { grep -v -x -F "$SERVICE" || true; } | paste -sd: - ; }
 
 now="$(cur)"
 if [ "${1:-}" = --toggle ]; then
