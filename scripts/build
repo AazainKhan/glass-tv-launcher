@@ -24,3 +24,5 @@ scripts/privapp-check "$APK"
 # Through the HOME intent, so it lands in the home task the Home button returns to (a plain start
 # makes a second Glass in an ordinary task, and the first Home press then creates another).
 adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity >/dev/null
+# The accessibility service's capabilities can change with an update (P87): make sure it is back on, hands-free.
+scripts/ensure-keys-service --toggle || echo "scripts/build: RemoteKeysService is not enabled; run scripts/ensure-keys-service" >&2

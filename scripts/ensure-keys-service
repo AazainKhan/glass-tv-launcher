@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# After an install that changes the accessibility service's capabilities (P87: window retrieval), Android can leave
+# it disabled. With nobody at the TV: put Glass's RemoteKeysService back into the enabled list (su, else the shell's
+# own settings write), toggling it so the new capabilities are read, then verify it is enabled and bound.
+#   scripts/ensure-keys-service [--toggle]
+# Exit 0 only when the service is enabled and listed by the accessibility manager.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"
+SERVICE=dev.glasslauncher/dev.glasslauncher.system.RemoteKeysService
+setting() { adb shell "su -c \"settings put secure $1 '$2'\"" >/dev/null 2>&1 || adb shell settings put secure "$1" "$2"; }
+cur() { adb shell settings get secure enabled_accessibility_services | tr -d '\r'; }
+without() { echo "$1" | tr ':' '\n' | grep -v -x -F "$SERVICE" | paste -sd: - ; }
+
+now="$(cur)"
+if [ "${1:-}" = --toggle ]; then
+  # Off and on again: the system re-reads the service's declared capabilities when it binds.
+  off="$(without "$now")"; [ -n "$off" ] || off=null
+  [ "$off" = null ] && adb shell settings delete secure enabled_accessibility_services >/dev/null || setting enabled_accessibility_services "$off"
+  sleep 1
+  now="$(cur)"
+fi
+case "$now" in
+  *"$SERVICE"*) want="$now" ;;
+  null|"") want="$SERVICE" ;;
+  *) want="$now:$SERVICE" ;;
+esac
+setting enabled_accessibility_services "$want"
+setting accessibility_enabled 1
+# Verify: in the setting, and bound by the accessibility manager (it can take a few seconds after an install).
+for i in $(seq 1 15); do
+  if cur | grep -q -F "$SERVICE" && adb shell dumpsys accessibility | tr -d '\r' | grep -q "RemoteKeysService"; then
+    echo "ensure-keys-service: RemoteKeysService is enabled and bound"
+    # The remote's button mapping (Magisk module) is independent of the service, but say if it is there.
+    adb shell cat /system/usr/keylayout/Vendor_0171_Product_0427.kl 2>/dev/null | grep -q BUTTON_9 && echo "ensure-keys-service: remote keymap active" || echo "ensure-keys-service: remote keymap not active (scripts/remote-keys status)"
+    exit 0
+  fi
+  sleep 1
+done
+echo "ensure-keys-service: RemoteKeysService is NOT enabled/bound after 15 s" >&2
+exit 1

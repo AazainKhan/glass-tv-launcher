@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
         app.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             dev.glasslauncher.system.AmazonStore.close(app, bringHome = false)
             dev.glasslauncher.system.RootFeatures.keepHome(app)
+            // The remote's buttons, Recent Apps and instant back run on this service: never left off after an update.
+            dev.glasslauncher.system.RootFeatures.keepKeysService(app)
         }
     }
 
