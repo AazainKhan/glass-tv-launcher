@@ -1,122 +1,121 @@
 #!/system/bin/sh
-# Keeps the Fire TV remote paired across reboots (P37, redone as P75).
+# Keeps the Fire TV remote paired across reboots and sleeps (P37, redone as P75 after reading
+# com.amazon.service.AmazonAutoPairService in fosservices.jar).
 #
-# After a boot Fire OS's AmazonAutoPairService starts a ~60 s "auto pair delay" and, if no key event arrives
-# from the (sleeping) remote before it ends, drops the remote's bond and shows its pairing dialog. One key
-# event while the delay runs cancels it ("received key event, stopping auto pair delay"). The first version
-# injected a key at a fixed boot+15 s; the service starts its delay later than that on some boots (22:04:18 vs
-# a key at 22:04:03), so the key landed before the delay and did nothing, and the script itself died silently.
+# How Fire unpairs the remote: AmazonAutoPairService (in system_server) arms a 60 s timer plus a next-key listener
+#  - once after boot ("Registering connectivity callback..", reason "host device reboot"), and
+#  - on every remote disconnect ("onConnectStateChanged received..state:0", reason "remote disconnect").
+# Any key event while it is armed logs "received key event, stopping auto pair delay" and cancels the timer. If it
+# fires, with the screen on, nothing playing and no remote connected, Fire re-pairs the advertising remote: an
+# unpair then a pair, and the pair fails (reason_smp_fail): the bond is gone. The old script sent one key at a
+# fixed boot + 15 s, before the listener existed (22:04:03 against 22:04:18), so it did nothing.
 #
-# This one is event-driven: it watches logcat for the delay's start, injects a key, and keeps retrying until
-# the "stopping auto pair delay" line shows (or ~3 min pass). Every step goes to logcat (tag glass-keepalive)
-# AND to /data/local/tmp/glass-keepalive.log (logcat's ring buffer forgets a boot quickly; the file keeps the
-# last two boots), and a marker file is written as the very first act so "did it even run" has an answer.
+# This watcher is persistent and event-driven: it follows AmazonAutoPairService's own log lines and sends ONE
+# KEYCODE_WAKEUP right after each arming, checks that "stopping auto pair delay" followed, retries once, and
+# logs FAILED otherwise. A disconnect while the screen is off is left alone (the timer bails by itself when the
+# screen is off, and a WAKEUP would turn the TV on). It never exits. Plain /system/bin/sh, absolute paths.
 #
-# Plain /system/bin/sh (toybox or Magisk's busybox ash): absolute paths, no `set -u`-unsafe expansions,
-# no bashisms. Every external is looked up once and the script says so when one is missing.
+# Evidence: /data/adb/glass-keepalive/started (first act of every run) and /data/adb/glass-keepalive/keepalive.log,
+# plus logcat tag glass-keepalive.
 #
-# Test hooks (never set on a device): KA_LOGCAT, KA_INPUT, KA_LOG_FILE, KA_POLL, KA_MAX_SECS, KA_NO_BOOT_WAIT.
+# Test hooks (never set on a device): KA_LOGCAT, KA_INPUT, KA_DUMPSYS, KA_DIR, KA_ONCE (exit when the stream ends).
 
-MARK=/data/local/tmp/glass-keepalive.started
-LOGFILE=${KA_LOG_FILE:-/data/local/tmp/glass-keepalive.log}
+DIR=${KA_DIR:-/data/adb/glass-keepalive}
 TAG=glass-keepalive
-POLL=${KA_POLL:-1}
-MAX_SECS=${KA_MAX_SECS:-210}
-RETRY_EVERY=3
-
 PATH=/system/bin:/system/xbin:/vendor/bin:/data/adb/magisk:$PATH
 export PATH
 
-# The very first thing: proof of life, before anything that could fail.
-{ date > "$MARK"; } 2>/dev/null
-
-[ -f "$LOGFILE" ] && [ "$(wc -c < "$LOGFILE" 2>/dev/null || echo 0)" -gt 65536 ] && mv -f "$LOGFILE" "$LOGFILE.old" 2>/dev/null
+mkdir -p "$DIR" 2>/dev/null
+{ date > "$DIR/started"; } 2>/dev/null
+LOGFILE=$DIR/keepalive.log
+if [ -f "$LOGFILE" ] && [ "$(wc -c < "$LOGFILE" 2>/dev/null || echo 0)" -gt 65536 ]; then mv -f "$LOGFILE" "$LOGFILE.old" 2>/dev/null; fi
 
 say() {
   /system/bin/log -t "$TAG" "$*" 2>/dev/null || log -t "$TAG" "$*" 2>/dev/null
   echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOGFILE" 2>/dev/null
 }
 
-find_bin() { # find_bin <override> <name>...: the first executable that exists, else nothing
+find_bin() { # find_bin <override> <name>: the override, else the first executable of that name
   if [ -n "$1" ]; then echo "$1"; return; fi
-  shift
-  for n in "$@"; do
-    for d in /system/bin /system/xbin /vendor/bin /data/adb/magisk; do
-      [ -x "$d/$n" ] && { echo "$d/$n"; return; }
-    done
+  for d in /system/bin /system/xbin /vendor/bin /data/adb/magisk; do
+    [ -x "$d/$2" ] && { echo "$d/$2"; return; }
   done
 }
 
 LOGCAT=$(find_bin "$KA_LOGCAT" logcat)
 INPUT=$(find_bin "$KA_INPUT" input)
 CMD=$(find_bin "" cmd)
+DUMPSYS=$(find_bin "$KA_DUMPSYS" dumpsys)
 
-say "start pid=$$ sh=$0 logcat=${LOGCAT:-MISSING} input=${INPUT:-MISSING} cmd=${CMD:-none}"
-[ -n "$LOGCAT" ] || say "no logcat binary: will send keys on a timer only"
+say "start pid=$$ logcat=${LOGCAT:-MISSING} input=${INPUT:-MISSING} cmd=${CMD:-none} dumpsys=${DUMPSYS:-MISSING}"
+if [ -z "$LOGCAT" ]; then say "no logcat binary: cannot watch, exiting"; exit 1; fi
 
-# Boot finished? (The delay can start before sys.boot_completed; this only keeps a very early run honest, and
-# gives up waiting after 90 s so it never blocks the rest.)
-if [ -z "$KA_NO_BOOT_WAIT" ]; then
-  i=0
-  while [ "$(/system/bin/getprop sys.boot_completed 2>/dev/null)" != 1 ] && [ $i -lt 90 ]; do
-    sleep 1; i=$((i + 1))
-  done
-  say "boot_completed after ${i}s"
-fi
+awake() { [ -n "$DUMPSYS" ] && "$DUMPSYS" power 2>/dev/null | grep -q 'mWakefulness=Awake'; }
 
 send_key() { # one KEYCODE_WAKEUP (224); the first way that works wins
   if [ -n "$INPUT" ] && "$INPUT" keyevent 224 >/dev/null 2>&1; then say "key sent (input keyevent 224)"; return 0; fi
   if [ -n "$CMD" ] && "$CMD" input keyevent 224 >/dev/null 2>&1; then say "key sent (cmd input keyevent 224)"; return 0; fi
-  say "key FAILED (input=${INPUT:-MISSING} cmd=${CMD:-none})"
+  say "key FAILED to send (input=${INPUT:-MISSING} cmd=${CMD:-none})"
   return 1
 }
 
-# The state of the auto-pair delay from what logcat still holds: "started", "stopped" or "unknown".
-# Lines look like "... auto pair delay ..." when it begins and "... stopping auto pair delay" when it ends
-# (key received or its own timeout). The last such line decides.
-pair_state() {
-  [ -n "$LOGCAT" ] || { echo unknown; return; }
-  last=$("$LOGCAT" -d -v brief 2>/dev/null | grep -i 'auto pair delay' | tail -n 1)
-  case "$last" in
-    "") echo unknown ;;
-    *[Ss]topping*) echo stopped ;;
-    *) echo started ;;
+stops() { # how many "stopping auto pair delay" lines logcat holds
+  "$LOGCAT" -d -s AmazonAutoPairService:I 2>/dev/null | grep -c 'stopping auto pair delay'
+}
+
+# Sends a key for [$1] and confirms the timer stopped within 5 s; one retry; says FAILED otherwise.
+cancel_delay() {
+  before=$(stops)
+  attempt=1
+  while [ $attempt -le 2 ]; do
+    send_key || { attempt=$((attempt + 1)); sleep 1; continue; }
+    i=0
+    while [ $i -lt 5 ]; do
+      sleep 1
+      i=$((i + 1))
+      if [ "$(stops)" -gt "$before" ]; then say "$1: auto pair delay stopped ${i}s after key (attempt $attempt): remote stays bonded"; return 0; fi
+    done
+    say "$1: no 'stopping auto pair delay' within 5 s of key (attempt $attempt)"
+    attempt=$((attempt + 1))
+  done
+  say "$1: FAILED to stop the auto pair delay"
+  return 1
+}
+
+last_at=0
+handle() { # handle <reason>: debounce, then act
+  now=$(date +%s)
+  if [ $((now - last_at)) -lt 3 ]; then return; fi
+  last_at=$now
+  case "$1" in
+    boot)
+      sleep 1
+      cancel_delay "boot arming" ;;
+    disconnect)
+      if awake; then cancel_delay "remote disconnect"; else say "remote disconnect with the screen off: left alone"; fi ;;
   esac
 }
 
-start=$(date +%s)
-sent=0
-last_sent=0
-seen_start=0
-say "watching for the auto pair delay (up to ${MAX_SECS}s)"
-while :; do
-  now=$(date +%s)
-  elapsed=$((now - start))
-  [ $elapsed -ge $MAX_SECS ] && { say "gave up after ${elapsed}s (keys sent: $sent, delay seen: $seen_start)"; break; }
-  state=$(pair_state)
-  case "$state" in
-    stopped)
-      say "auto pair delay stopped after ${elapsed}s (keys sent: $sent): remote stays bonded"
-      # A fresh stop line can be an old boot's: only a stop after our own key (or a start) counts.
-      if [ $sent -gt 0 ] || [ $seen_start -gt 0 ]; then exit 0; fi
-      ;;
-    started)
-      if [ $seen_start -eq 0 ]; then seen_start=1; say "auto pair delay running at ${elapsed}s"; fi
-      if [ $((now - last_sent)) -ge $RETRY_EVERY ]; then
-        send_key && sent=$((sent + 1))
-        last_sent=$now
-      fi
-      ;;
-    *)
-      # No sign of the delay yet (service not up, or logcat has no such line): one key at 60 s, in case the
-      # line text differs on this build, then every 20 s to the end, so a remote never goes unkeyed.
-      if [ $elapsed -ge 60 ] && [ $((now - last_sent)) -ge 20 ]; then
-        say "no auto pair delay line at ${elapsed}s: sending a blind key"
-        send_key && sent=$((sent + 1))
-        last_sent=$now
-      fi
-      ;;
+# What was logged before this watcher started: an arming after the last stop is still live.
+scan_existing() {
+  last=$("$LOGCAT" -d -s AmazonAutoPairService:I 2>/dev/null | grep -E 'Registering connectivity callback|stopping auto pair delay' | tail -n 1)
+  case "$last" in
+    *Registering\ connectivity\ callback*) say "arming found in the buffer at start"; handle boot ;;
+    "") say "no AmazonAutoPairService lines yet" ;;
+    *) say "buffer's last event: delay already stopped" ;;
   esac
-  sleep "$POLL"
+}
+
+scan_existing
+while :; do
+  say "following AmazonAutoPairService"
+  "$LOGCAT" -T 1 -s AmazonAutoPairService:I 2>/dev/null | while IFS= read -r line; do
+    case "$line" in
+      *Registering\ connectivity\ callback*) say "armed: $line"; handle boot ;;
+      *onConnectStateChanged\ received*state:0*) say "armed: $line"; handle disconnect ;;
+    esac
+  done
+  [ -n "$KA_ONCE" ] && exit 0
+  say "logcat stream ended; restarting in 2 s"
+  sleep 2
 done
-exit 0

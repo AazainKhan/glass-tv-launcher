@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Keeps the Fire TV remote paired across reboots (P37/P75): a Magisk module whose service.sh watches logcat for
-# AmazonAutoPairService's re-pair delay and cancels it with a key event (tools/magisk/glass-remote-keepalive).
+# Keeps the Fire TV remote paired across reboots and sleeps (P37/P75): a Magisk module whose service.sh runs for
+# good, follows AmazonAutoPairService's log, and sends one key whenever it arms its 60 s re-pair timer
+# (tools/magisk/glass-remote-keepalive).
 #   scripts/remote-keepalive install [--reboot]    scripts/remote-keepalive uninstall [--reboot]
 #   scripts/remote-keepalive status                (module state, and what the last boot's run logged)
 # Needs Magisk. It replaces the old /data/adb/service.d/glass-remote-keepalive.sh (fixed 15 s timer), which is
-# removed on install. Both logs of a boot are kept on the stick: /data/local/tmp/glass-keepalive.log.
+# removed on install. Evidence on the stick: /data/adb/glass-keepalive/{started,keepalive.log} (+ .old).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"; require_device_access
@@ -26,6 +27,6 @@ case "${1:-status}" in
     if adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'"; then echo "module: installed"; else echo "module: not installed"; fi
     adb shell "su -c 'test -e $OLD'" && echo "old service.d script: still present (it can race the module; remove it)" || true
     echo "--- last run:"
-    adb shell "cat /data/local/tmp/glass-keepalive.started 2>/dev/null; tail -n 15 /data/local/tmp/glass-keepalive.log 2>/dev/null" || true ;;
+    adb shell "su -c 'cat /data/adb/glass-keepalive/started 2>/dev/null; tail -n 20 /data/adb/glass-keepalive/keepalive.log 2>/dev/null'" || true ;;
   *) sed -n '2,8p' "$0"; exit 2 ;;
 esac
