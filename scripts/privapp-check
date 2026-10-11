@@ -4,7 +4,9 @@
 # (ro.control_privapp_permissions=enforce): a privileged permission that is requested and not listed stops
 # system_server from booting. Missing entries are ADDED to the module's XML (harmless; it applies at the next boot),
 # the same list RootFeatures.installSystemApp writes (requested + EXTRA_PRIVILEGED, minus permissions this Android
-# doesn't define). Exit 0 when the allowlist covers the APK (or Glass isn't a system app here); non-zero refuses.
+# doesn't define). It only ever adds: what is listed already stays (the union is written), the old XML is saved as
+# <xml>.bak first, and the new one is read back from the device and checked. Exit 0 when the allowlist covers the
+# APK (or Glass isn't a system app here); non-zero refuses (and so stops scripts/build before it installs).
 #   scripts/privapp-check <apk> [--dry-run]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +28,9 @@ src = open(sys.argv[1]).read()
 m = re.search(r'EXTRA_PRIVILEGED\s*=\s*listOf\((.*?)\n\s*\)', src, re.S)
 print("\n".join(re.findall(r'"([A-Za-z0-9_.]+)"', m.group(1))) if m else "")
 PY
+# Fail closed: an unreadable EXTRA_PRIVILEGED list (the source was reformatted) must not shrink the allowlist.
+[ -s "$tmp/extra" ] || { echo "privapp-check: couldn't read EXTRA_PRIVILEGED from RootFeatures.kt: refusing" >&2; exit 2; }
+[ -s "$tmp/requested" ] || { echo "privapp-check: no permissions read from the APK: refusing" >&2; exit 2; }
 adb shell "pm list permissions" | tr -d '\r' | sed -n 's/^ *permission://p' | sort -u > "$tmp/known"
 adb shell "su -c 'cat $XML'" | tr -d '\r' > "$tmp/device.xml" || true
 grep -o 'permission name="[^"]*"' "$tmp/device.xml" | sed 's/permission name="//; s/"$//' | sort -u > "$tmp/listed"
@@ -35,16 +40,24 @@ echo "privapp-check: APK requests $(wc -l < "$tmp/requested" | tr -d ' ') permis
 if [ ! -s "$tmp/missing" ]; then echo "privapp-check: allowlist covers the APK"; exit 0; fi
 sed 's/^/  missing: /' "$tmp/missing"
 [ "$DRY" = --dry-run ] && { echo "privapp-check: dry run, nothing written"; exit 1; }
+# The union: everything already listed stays; only new, known entries are added.
+cat "$tmp/listed" "$tmp/want" | grep -v '^$' | sort -u > "$tmp/union"
 {
   echo '<?xml version="1.0" encoding="utf-8"?>'
   echo '<permissions>'
   echo "    <privapp-permissions package=\"$PKG\">"
-  sed 's#.*#        <permission name="&"/>#' "$tmp/want"
+  sed 's#.*#        <permission name="&"/>#' "$tmp/union"
   echo '    </privapp-permissions>'
   echo '</permissions>'
 } > "$tmp/new.xml"
-grep -c 'permission name=' "$tmp/new.xml" >/dev/null
 adb push "$tmp/new.xml" /data/local/tmp/privapp.xml >/dev/null
-adb shell "su -c 'cp /data/local/tmp/privapp.xml $XML && chmod 644 $XML && rm -f /data/local/tmp/privapp.xml'"
-echo "privapp-check: allowlist updated in $XML (entries only added; effective at the next boot)"
+adb shell "su -c 'cp $XML $XML.bak 2>/dev/null; cp /data/local/tmp/privapp.xml $XML && chmod 644 $XML && rm -f /data/local/tmp/privapp.xml'"
+# Read it back: every wanted entry must be on the device now, or nothing may be installed.
+adb shell "su -c 'cat $XML'" | tr -d '\r' | grep -o 'permission name="[^"]*"' | sed 's/permission name="//; s/"$//' | sort -u > "$tmp/after"
+if [ -n "$(comm -23 "$tmp/union" "$tmp/after")" ]; then
+  echo "privapp-check: read-back is missing entries; restore with: adb shell su -c 'cp $XML.bak $XML'" >&2
+  comm -23 "$tmp/union" "$tmp/after" | sed 's/^/  not on device: /' >&2
+  exit 1
+fi
+echo "privapp-check: allowlist updated in $XML ($(wc -l < "$tmp/union" | tr -d ' ') entries, none removed; previous copy: $XML.bak; effective at the next boot)"
 exit 0
