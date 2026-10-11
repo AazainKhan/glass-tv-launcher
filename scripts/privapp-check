@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Before any install of Glass on a stick where it runs as a privileged system app (module glass-system): the APK's
+# requested permissions must all be in the module's privapp-permissions allowlist. The stick enforces it
+# (ro.control_privapp_permissions=enforce): a privileged permission that is requested and not listed stops
+# system_server from booting. Missing entries are ADDED to the module's XML (harmless; it applies at the next boot),
+# the same list RootFeatures.installSystemApp writes (requested + EXTRA_PRIVILEGED, minus permissions this Android
+# doesn't define). Exit 0 when the allowlist covers the APK (or Glass isn't a system app here); non-zero refuses.
+#   scripts/privapp-check <apk> [--dry-run]
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APK="${1:?usage: scripts/privapp-check <apk> [--dry-run]}"; DRY="${2:-}"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+PKG=dev.glasslauncher
+MOD=/data/adb/modules/glass-system
+XML="$MOD/system/etc/permissions/privapp-permissions-$PKG.xml"
+[ -f "$APK" ] || { echo "privapp-check: no such APK: $APK" >&2; exit 2; }
+adb shell "su -c 'test -d $MOD && ! test -e $MOD/remove'" >/dev/null 2>&1 || { echo "privapp-check: glass-system isn't installed: Glass is a normal app here, nothing to check"; exit 0; }
+
+command -v apkanalyzer >/dev/null || { echo "privapp-check: apkanalyzer not found (brew install android-commandlinetools / SDK cmdline-tools)" >&2; exit 2; }
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+apkanalyzer manifest permissions "$APK" | sort -u > "$tmp/requested"
+# The extras RootFeatures adds on top of the manifest's (single source: its EXTRA_PRIVILEGED list).
+python3 - "$ROOT/app/src/main/java/dev/glasslauncher/system/RootFeatures.kt" > "$tmp/extra" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+m = re.search(r'EXTRA_PRIVILEGED\s*=\s*listOf\((.*?)\n\s*\)', src, re.S)
+print("\n".join(re.findall(r'"([A-Za-z0-9_.]+)"', m.group(1))) if m else "")
+PY
+adb shell "pm list permissions" | tr -d '\r' | sed -n 's/^ *permission://p' | sort -u > "$tmp/known"
+adb shell "su -c 'cat $XML'" | tr -d '\r' > "$tmp/device.xml" || true
+grep -o 'permission name="[^"]*"' "$tmp/device.xml" | sed 's/permission name="//; s/"$//' | sort -u > "$tmp/listed"
+cat "$tmp/requested" "$tmp/extra" | grep -v '^$' | sort -u | comm -12 - "$tmp/known" > "$tmp/want"
+comm -23 "$tmp/want" "$tmp/listed" > "$tmp/missing"
+echo "privapp-check: APK requests $(wc -l < "$tmp/requested" | tr -d ' ') permissions; allowlist has $(wc -l < "$tmp/listed" | tr -d ' '); missing $(wc -l < "$tmp/missing" | tr -d ' ')"
+if [ ! -s "$tmp/missing" ]; then echo "privapp-check: allowlist covers the APK"; exit 0; fi
+sed 's/^/  missing: /' "$tmp/missing"
+[ "$DRY" = --dry-run ] && { echo "privapp-check: dry run, nothing written"; exit 1; }
+{
+  echo '<?xml version="1.0" encoding="utf-8"?>'
+  echo '<permissions>'
+  echo "    <privapp-permissions package=\"$PKG\">"
+  sed 's#.*#        <permission name="&"/>#' "$tmp/want"
+  echo '    </privapp-permissions>'
+  echo '</permissions>'
+} > "$tmp/new.xml"
+grep -c 'permission name=' "$tmp/new.xml" >/dev/null
+adb push "$tmp/new.xml" /data/local/tmp/privapp.xml >/dev/null
+adb shell "su -c 'cp /data/local/tmp/privapp.xml $XML && chmod 644 $XML && rm -f /data/local/tmp/privapp.xml'"
+echo "privapp-check: allowlist updated in $XML (entries only added; effective at the next boot)"
+exit 0

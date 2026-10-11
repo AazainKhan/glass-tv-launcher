@@ -9,10 +9,17 @@ if [ -z "${JAVA_HOME:-}" ] || ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -qE '
 fi
 cd "$ROOT"
 case "$VARIANT" in
-  debug) TASK=installDebug ;;
-  release) TASK=installRelease ;;
+  debug) TASK=installDebug; ASSEMBLE=assembleDebug ;;
+  release) TASK=installRelease; ASSEMBLE=assembleRelease ;;
   *) echo "usage: scripts/build [debug|release]" >&2; exit 2 ;;
 esac
+# Glass is a privileged system app on the stick (module glass-system), whose privapp allowlist is enforced at boot:
+# an APK that requests a permission the module doesn't list bootloops Fire OS. Check (and extend) the allowlist
+# before anything is installed.
+./gradlew ":app:$ASSEMBLE" --console=plain -q
+APK="$(ls -t app/build/outputs/apk/$VARIANT/*.apk 2>/dev/null | head -1)"
+[ -n "$APK" ] || { echo "scripts/build: no $VARIANT APK found" >&2; exit 1; }
+scripts/privapp-check "$APK"
 ./gradlew ":app:$TASK" --console=plain -q
 # Through the HOME intent, so it lands in the home task the Home button returns to (a plain start
 # makes a second Glass in an ordinary task, and the first Home press then creates another).

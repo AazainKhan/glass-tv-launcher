@@ -23,6 +23,24 @@ object RootFeatures {
         "com.android.providers.tv.permission.ACCESS_WATCHED_PROGRAMS",
     )
 
+    /**
+     * The privapp-permissions allowlist for [pkg]: everything it requests plus [EXTRA_PRIVILEGED], that this device
+     * [known]s. Fire OS enforces the allowlist (ro.control_privapp_permissions=enforce): a privileged permission
+     * that is requested and missing from it stops system_server from booting, so this is the one generator, used
+     * by the in-app install; scripts/privapp-check builds the same list from the APK before any `scripts/build`.
+     */
+    internal fun privappXml(pkg: String, requested: List<String>, known: (String) -> Boolean = { true }): String {
+        val perms = (requested + EXTRA_PRIVILEGED).distinct().filter(known).sorted()
+        return buildString {
+            appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+            appendLine("<permissions>")
+            appendLine("    <privapp-permissions package=\"$pkg\">")
+            perms.forEach { appendLine("        <permission name=\"$it\"/>") }
+            appendLine("    </privapp-permissions>")
+            appendLine("</permissions>")
+        }
+    }
+
     enum class SystemApp { Off, Pending, On, Removing }
 
     fun systemAppState(context: Context): SystemApp {
@@ -47,15 +65,9 @@ object RootFeatures {
         val requested = runCatching {
             pm.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions?.toList()
         }.getOrNull().orEmpty()
-        val perms = (requested + EXTRA_PRIVILEGED).distinct().sorted()
-        val xml = buildString {
-            appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
-            appendLine("<permissions>")
-            appendLine("    <privapp-permissions package=\"${context.packageName}\">")
-            perms.forEach { appendLine("        <permission name=\"$it\"/>") }
-            appendLine("    </privapp-permissions>")
-            appendLine("</permissions>")
-        }
+        // A permission this Android doesn't define (BLUETOOTH_SCAN on API 30) is left out: it would be ignored, but
+        // the allowlist stays honest.
+        val xml = privappXml(context.packageName, requested) { name -> runCatching { pm.getPermissionInfo(name, 0) }.isSuccess }
         val apk = context.applicationInfo.sourceDir
         val script = """
             set -e
