@@ -61,10 +61,17 @@ class LogoHeroGateTest {
         assertTrue("ink spans ${inkCols.size} px", inkCols.isNotEmpty() && inkCols.last() - inkCols.first() < 1280 * 0.40)
     }
 
-    @Test fun plainLevelIsOnlyTheAppsColour() {
+    @Test fun plainLevelKeepsTheLogoAtMost1p25xItsNativePixelsOnAGradient() {
+        // 64 px art with 1:1 pixels: the logo's ink is ~26 px, icon-sized.
+        val plan = LogoHero.plan(inkW = 30, inkH = 30, w = 1280, h = 720, nativeFactor = 1f)
+        assertEquals(Level.Plain, plan.level)
+        assertEquals("never enlarged past the limit", 1.25f, plan.scale, 0.001f)
         val out = composeCpu(logoArt(64, 64), 1f)
         out.captureRoboImage(shot("gate-hero-plain"))
-        // No white ink anywhere: a clean gradient.
-        assertTrue("no logo", (0 until out.width step 8).none { x -> (0 until out.height step 8).any { y -> Color.red(out.getPixel(x, y)) > 200 } })
+        // The mark is there (the app keeps its identity), small, and centred on the gradient.
+        val cols = (0 until out.width).filter { x -> (0 until out.height).any { y -> Color.red(out.getPixel(x, y)) > 200 && Color.green(out.getPixel(x, y)) > 200 } }
+        assertTrue("logo drawn", cols.isNotEmpty())
+        assertTrue("small: ${cols.size} px of ink columns", cols.last() - cols.first() < 64)
+        assertEquals("centred", 640f, (cols.first() + cols.last()) / 2f, 4f)
     }
 }

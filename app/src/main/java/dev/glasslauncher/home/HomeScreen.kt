@@ -768,7 +768,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 if (feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured) {
                     CoverPreview(
                         feed = feed, index = heroIndex.coerceIn(0, feed.items.lastIndex), expand = { expand.value },
-                        restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) / 2,
+                        restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) * 0.55f,
                         modifier = Modifier.testTag("cover-preview-host").graphicsLayer {
                             alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
                             translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)

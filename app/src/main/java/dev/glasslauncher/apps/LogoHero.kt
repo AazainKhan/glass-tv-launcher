@@ -30,14 +30,15 @@ object LogoHero {
      * 1/[nativeFactor] native pixels (null: vector or unknown, which scales cleanly). Sharp when it can be drawn at
      * the size tvOS wants without enlarging the native pixels more than [ImageGate.LIMIT]; Soft when it has to be
      * drawn smaller than that (still sharp, on a colour field made from the art); Plain when the native art is
-     * icon-sized: no logo at all, just the app's colour.
+     * icon-sized: the logo is still drawn, at no more than [ImageGate.LIMIT] times its native pixels and centred, on a
+     * plain gradient from the app's colour (the app keeps its identity; P81 stick finding, Stremio).
      */
     fun plan(inkW: Int, inkH: Int, w: Int, h: Int, nativeFactor: Float?): Plan {
         val wanted = minOf(w * INK_WIDTH / inkW.coerceAtLeast(1), h * INK_HEIGHT / inkH.coerceAtLeast(1))
         if (nativeFactor == null) return Plan(wanted, ImageGate.Level.Sharp)
         val nativeW = inkW / nativeFactor; val nativeH = inkH / nativeFactor
-        if (maxOf(nativeW, nativeH) < ICON_INK) return Plan(wanted, ImageGate.Level.Plain)
         val most = ImageGate.LIMIT / nativeFactor
+        if (maxOf(nativeW, nativeH) < ICON_INK) return Plan(minOf(wanted, most), ImageGate.Level.Plain)
         return if (wanted <= most) Plan(wanted, ImageGate.Level.Sharp) else Plan(most, ImageGate.Level.Soft)
     }
 
@@ -54,7 +55,6 @@ object LogoHero {
         val bg = edgeColour(art)
         val ink = inkBounds(art, bg) ?: Rect(0, 0, art.width, art.height)
         val plan = plan(ink.width(), ink.height(), w, h, nativeFactor)
-        if (plan.level == ImageGate.Level.Plain) return plainField(art, bg, w, h)
         val scale = plan.scale
         val dw = ink.width() * scale; val dh = ink.height() * scale
         val left = (w - dw) / 2f; val top = h * CENTRE_Y - dh / 2f
@@ -63,13 +63,19 @@ object LogoHero {
         val logo = Bitmap.createBitmap(art, ink.left, ink.top, ink.width(), ink.height()).copy(Bitmap.Config.ARGB_8888, true)
         keyOut(logo, bg)
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        var plain: Bitmap? = null
         Canvas(out).apply {
             // Sharp: the art's own colour. Soft: a colour-rich field made from the art itself, so a small logo sits
             // on something with depth rather than on a flat plate.
-            if (plan.level == ImageGate.Level.Soft) drawBitmap(softField(art, bg, w, h), 0f, 0f, null) else drawColor(bg)
+            when (plan.level) {
+                ImageGate.Level.Soft -> drawBitmap(softField(art, bg, w, h), 0f, 0f, null)
+                ImageGate.Level.Plain -> drawBitmap(plainField(art, bg, w, h).also { plain = it }, 0f, 0f, null)
+                else -> drawColor(bg)
+            }
             drawBitmap(logo, null, RectF(left, top, left + dw, top + dh), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
         }
         logo.recycle()
+        plain?.recycle()
         return out
     }
 

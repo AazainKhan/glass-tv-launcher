@@ -1,6 +1,8 @@
 package dev.glasslauncher.featured
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.util.LruCache
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.Crossfade
@@ -32,6 +34,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -78,7 +81,7 @@ fun CoverFlow(
     /** Where Up goes (Home's status pill, for Control Center): the flow fills the screen, so nothing is above it to find. */
     upTo: FocusRequester? = null,
     /** The cover picture, with its reflection, for an item's image; the default loads it (previews and tests give their own). */
-    coverArt: @Composable (String?, Boolean) -> ImageBitmap? = { url, centre -> rememberCoverArt(url, centre) },
+    coverArt: (@Composable (String?, Boolean) -> ImageBitmap?)? = null,
     /** At rest on Home (P79b): the same carousel as a picture: not focusable, no keys, no label or title. */
     preview: Boolean = false,
 ) {
@@ -98,6 +101,12 @@ fun CoverFlow(
     val density = LocalDensity.current
     val coverPx = with(density) { COVER_DP.dp.toPx() }
     val shown = items[current]
+    // Decoded at the size they are shown (P79b memory): the resting preview's covers are REST_SCALE of the flow's, and
+    // each of the two keeps its own pool, dropped when that carousel leaves (the flow closed, Spotify unfocused).
+    val pool = if (preview) CoverArtCache.Rest else CoverArtCache.Flow
+    val artPx = if (preview) (coverPx * REST_SCALE).roundToInt() else coverPx.roundToInt()
+    if (coverArt == null) androidx.compose.runtime.DisposableEffect(pool) { onDispose { pool.release() } }
+    val art: @Composable (String?, Boolean) -> ImageBitmap? = coverArt ?: { url, _ -> rememberCoverArt(url, pool, artPx) }
     Box(
         modifier
             .fillMaxSize()
@@ -123,7 +132,8 @@ fun CoverFlow(
         // The covers: nearest the centre last, so each is drawn over the one outside it.
         // The window follows the target index (so it changes only when a key is pressed); each cover's own
         // pose is read from the animated position in the layer phase, so a glide never recomposes the row.
-        val reach = CoverFlowGeometry.VISIBLE_SIDE + 2
+        // (The preview doesn't glide, so it needs only the covers that show.)
+        val reach = CoverFlowGeometry.VISIBLE_SIDE + if (preview) 0 else 2
         val from = (current - reach).coerceAtLeast(0)
         val to = (current + reach).coerceAtMost(last)
         for (i in from..to) {
@@ -133,7 +143,7 @@ fun CoverFlow(
                     position = { position.value },
                     stackOrder = -kotlin.math.abs(i - current).toFloat(),
                     coverPx = coverPx,
-                    art = coverArt(items[i].image, i == current),
+                    art = art(items[i].image, i == current),
                     item = items[i],
                     tag = if (preview) "preview-cover:$i" else "cover:$i",
                     modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp),
@@ -193,17 +203,19 @@ private fun Text(text: String, modifier: Modifier = Modifier, heading: Boolean =
     )
 }
 
-/** The cover with its reflection baked in, loaded and baked once per image and kept for a few at a time. */
+/** The cover with its reflection baked in, loaded and baked once per image and size, and kept in [pool]. */
 @Composable
-private fun rememberCoverArt(url: String?, centre: Boolean): ImageBitmap? {
+private fun rememberCoverArt(url: String?, pool: CoverArtCache.Pool, sizePx: Int): ImageBitmap? {
     val context = LocalContext.current
-    // Asked again when the cover becomes the centre one, and when the network returns: a failed load is not final.
+    // Asked again when the network returns: a failed load is not final.
     val network = dev.glasslauncher.ui.NetworkEpoch.value
-    val art by produceState(url?.let { CoverArtCache.get(it) }, url, centre, network) {
+    val art by produceState(url?.let { pool.get(it) }, url, network) {
         if (url == null) return@produceState
-        CoverArtCache.get(url)?.let { value = it; return@produceState }
+        pool.get(url)?.let { value = it; return@produceState }
         value = withContext(Dispatchers.Default) {
-            val request = ImageRequest.Builder(context).data(url).size(CoverArtCache.SIZE).allowHardware(false).build()
+            // Not kept in Coil's memory cache either: the baked cover is the only copy (the disk cache has the file).
+            val request = ImageRequest.Builder(context).data(url).size(sizePx).allowHardware(false)
+                .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
             // A failed fetch is asked again with a growing wait (a few times in this run).
             var result: SuccessResult? = null
             for (attempt in 0..dev.glasslauncher.ui.ArtRetry.MAX_ATTEMPTS) {
@@ -212,20 +224,44 @@ private fun rememberCoverArt(url: String?, centre: Boolean): ImageBitmap? {
                 if (attempt < dev.glasslauncher.ui.ArtRetry.MAX_ATTEMPTS) kotlinx.coroutines.delay(dev.glasslauncher.ui.ArtRetry.delayMs(attempt))
             }
             val source = result?.image?.toBitmap() ?: return@withContext null
-            // Not recycled: Coil may hold this very bitmap for other users of the URL.
-            CoverReflection.bake(CoverReflection.squared(source)).asImageBitmap().also { CoverArtCache.put(url, it) }
+            val squared = CoverReflection.squared(source)
+            CoverReflection.bake(squared).asImageBitmap().also {
+                pool.put(url, it)
+                // The source (and a cropped copy of it) is only the baking input now.
+                if (squared !== source) squared.recycle()
+            }
         }
     }
     return art
 }
 
-private object CoverArtCache {
-    const val SIZE = 560
-    private val cache = object : LruCache<String, ImageBitmap>(24 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
+internal object CoverArtCache {
+    /** Baked covers (with their reflection) of one carousel, within [maxBytes]; [release] drops them all. */
+    class Pool(private val maxBytes: Int) {
+        private val cache = object : LruCache<String, ImageBitmap>(maxBytes) {
+            override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
+        }
+        fun get(url: String): ImageBitmap? = cache.get(url)
+        fun put(url: String, art: ImageBitmap) { cache.put(url, art) }
+        val bytes: Int get() = cache.size()
+
+        /**
+         * The carousel is gone: drop every cover now, and free their pixels a moment later (not straight away: a
+         * frame already handed to the render thread may still draw one).
+         */
+        fun release() {
+            val gone = cache.snapshot().values.toList()
+            cache.evictAll()
+            if (gone.isEmpty()) return
+            Handler(Looper.getMainLooper()).postDelayed({
+                gone.forEach { runCatching { val b = it.asAndroidBitmap(); if (!b.isRecycled) b.recycle() } }
+            }, 1500)
+        }
     }
-    fun get(url: String): ImageBitmap? = cache.get(url)
-    fun put(url: String, art: ImageBitmap) { cache.put(url, art) }
+
+    /** The resting preview's covers (~0.6 MB each at 1080p) and the full-screen flow's (~1.6 MB each). */
+    val Rest = Pool(10 * 1024 * 1024)
+    val Flow = Pool(20 * 1024 * 1024)
 }
 
 /**

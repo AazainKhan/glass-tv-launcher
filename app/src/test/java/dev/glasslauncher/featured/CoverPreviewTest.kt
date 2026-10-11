@@ -53,4 +53,13 @@ class CoverPreviewTest {
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTagCount(tag: String) =
         onAllNodes(androidx.compose.ui.test.hasTestTag(tag)).fetchSemanticsNodes().size
+
+    @Test fun aCarouselThatLeavesDropsItsCoversAndTheCapHolds() {
+        val pool = CoverArtCache.Pool(maxBytes = 3 * 100 * 100 * 4)
+        repeat(5) { pool.put("u$it", androidx.compose.ui.graphics.ImageBitmap(100, 100)) }
+        assertTrue("within the cap: ${pool.bytes}", pool.bytes <= 3 * 100 * 100 * 4)
+        pool.release()
+        assertEquals(0, pool.bytes)
+        assertEquals(null, pool.get("u4"))
+    }
 }
