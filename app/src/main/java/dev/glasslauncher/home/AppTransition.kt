@@ -99,7 +99,8 @@ class AppTransition(
      * there is nothing to cancel (no open zoom, or the app is already starting: Glass can't undo a start).
      */
     fun cancelBeforeHandoff(): Boolean {
-        if (window == null || closing || startRequested || job?.isActive != true) return false
+        // (Also in the first frames, before the window is shown: the launch job is already running then.)
+        if (closing || startRequested || job?.isActive != true) return false
         job?.cancel()
         job = scope.launch {
             launch { fill.animateTo(0f, tween(CLOSE_FADE_MS)) }
@@ -113,6 +114,8 @@ class AppTransition(
 
     fun open(app: AppEntry, from: Rect?, art: ImageBitmap?, view: android.view.View) {
         if (from == null || backdrop.rootSize == IntSize.Zero) { model.launch(app, view, from); return }
+        // A new launch: nothing has been started yet, so Back can still cancel it from its very first frame.
+        startRequested = false
         job?.cancel()
         job = scope.launch {
             // Glyph and colour come from the tile art in parallel with the Home capture (both ~10–30 ms).
