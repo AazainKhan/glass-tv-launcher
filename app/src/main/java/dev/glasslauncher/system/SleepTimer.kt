@@ -20,6 +20,9 @@ object SleepTimer {
     private const val PREFS = "sleepTimer"
     private const val KEY_END = "endAt"
     private const val ACTION = "dev.glasslauncher.action.SLEEP_TIMER"
+    private const val ACTION_WARN = "dev.glasslauncher.action.SLEEP_TIMER_WARN"
+    /** The banner comes this long before sleep. */
+    const val WARN_MS = 60_000L
 
     /** Off, then the choices the tile steps through on Select. */
     val CHOICES = listOf(0, 15, 30, 60, 90)
@@ -42,22 +45,36 @@ object SleepTimer {
         context, 0, Intent(context, Receiver::class.java).setAction(ACTION), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    private fun pendingWarn(context: Context): PendingIntent = PendingIntent.getBroadcast(
+        context, 1, Intent(context, Receiver::class.java).setAction(ACTION_WARN), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    /** True from the one-minute banner until sleep: any key then cancels the timer. */
+    fun warning(context: Context, now: Long = System.currentTimeMillis()): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, 0)
+        return prefs.getBoolean("warned", false) && prefs.getLong(KEY_END, 0L) > now
+    }
+
     /** Starts (or, with 0, cancels) the timer. */
     fun set(context: Context, minutes: Int, now: Long = System.currentTimeMillis()) {
         val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val prefs = context.getSharedPreferences(PREFS, 0)
         if (minutes <= 0) {
-            alarms.cancel(pending(context)); prefs.edit().putLong(KEY_END, 0L).apply(); return
+            alarms.cancel(pending(context)); alarms.cancel(pendingWarn(context))
+            prefs.edit().putLong(KEY_END, 0L).putBoolean("warned", false).apply(); return
         }
         val at = now + minutes * 60_000L
-        prefs.edit().putLong(KEY_END, at).putInt("choice", minutes).apply()
+        prefs.edit().putLong(KEY_END, at).putInt("choice", minutes).putBoolean("warned", false).apply()
         // Exact and allowed while idle: it fires with Glass in the background or the screensaver up.
         alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending(context))
+        // A minute before: the banner "Going to sleep in 1 minute" (any key cancels). Not for a timer of a minute or less.
+        if (minutes * 60_000L > WARN_MS) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at - WARN_MS, pendingWarn(context))
+        else alarms.cancel(pendingWarn(context))
     }
 
     /** Pause what plays, then sleep. */
     fun fire(context: Context, scope: CoroutineScope = CoroutineScope(Dispatchers.Default)) {
-        context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_END, 0L).apply()
+        context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_END, 0L).putBoolean("warned", false).apply()
         runCatching { context.app.nowPlaying.state.value?.takeIf { it.playing }?.playPause() }
         scope.launch {
             delay(1_000)
@@ -68,6 +85,11 @@ object SleepTimer {
 
     class Receiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == ACTION_WARN) {
+                context.getSharedPreferences(PREFS, 0).edit().putBoolean("warned", true).apply()
+                RemoteKeysService.instance?.showBanner("Going to sleep in 1 minute", WARN_MS)
+                return
+            }
             if (intent.action != ACTION) return
             val pending = goAsync()
             val scope = CoroutineScope(Dispatchers.Default)

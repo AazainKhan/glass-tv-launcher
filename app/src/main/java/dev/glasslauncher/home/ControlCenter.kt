@@ -1,5 +1,7 @@
 package dev.glasslauncher.home
 
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -437,14 +439,33 @@ val CONTROL_CENTER_TILES = listOf(
  * the screen saver, the app switcher and AirPlay (when PhairPlay is installed). Glass tiles
  * take their tint from the content behind them; a pill's icon sits in a white disc while it's on.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
     // One look in either theme, like the pill and tray: white text and glyphs on clear glass over the
     // dimmed screen (tvOS 27 Control Center isn't themed light or dark).
     val outer = LocalPalette.current
     val palette = remember(outer.highContrast) { dev.glasslauncher.ui.Palette(light = false, highContrast = outer.highContrast) }
-    androidx.compose.runtime.CompositionLocalProvider(LocalPalette provides palette) {
+    // Scrolling moves by whole rows (a row is a cell plus a gap), so a half-cut row never sits at the panel's edge.
+    val rowPx = with(androidx.compose.ui.platform.LocalDensity.current) { val k = CcSizes(cfg.textScale); (k.round + k.gap).toPx() }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalPalette provides palette,
+        androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides remember(rowPx) { CcRowSnap(rowPx) },
+    ) {
         ControlCenterBody(edit, cfg, active, open, closeAll)
+    }
+}
+
+/** Brings a focused tile into view by a whole number of rows, so the tiles always sit on the grid's rows. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private class CcRowSnap(private val row: Float) : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val end = offset + size
+        return when {
+            offset < 0f -> -kotlin.math.ceil(-offset / row) * row
+            end > containerSize -> kotlin.math.ceil((end - containerSize) / row) * row
+            else -> 0f
+        }
     }
 }
 
@@ -677,8 +698,20 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
                     .weight(1f, fill = false)
+                    // The viewport starts 14 dp below the header's bottom while the tiles keep their place (content
+                    // starts 2 dp inside it), so a scrolled row is cut under the header, not over its text.
+                    .padding(top = CC_BLEED - 2.dp)
+                    // Whole rows: the viewport ends at the last row that fits, never through one.
+                    .layout { measurable, c ->
+                        val pitch = (sz.round + sz.gap).roundToPx(); val gapPx = sz.gap.roundToPx()
+                        val top = 2.dp.roundToPx(); val tail = 0
+                        val rowsFit = ((c.maxHeight - top + gapPx - tail) / pitch).coerceAtLeast(1)
+                        val h = (top + rowsFit * pitch - gapPx + tail).coerceAtMost(c.maxHeight)
+                        val p = measurable.measure(c.copy(minHeight = 0, maxHeight = h))
+                        layout(p.width, p.height) { p.placeRelative(0, 0) }
+                    }
                     .verticalScroll(androidx.compose.foundation.rememberScrollState())
-                    .padding(CC_BLEED)
+                    .padding(start = CC_BLEED, end = CC_BLEED, top = 2.dp, bottom = CC_BLEED)
                     .padding(bottom = m.chromeInset)
                     .width(sz.column),
             ) {

@@ -27,7 +27,49 @@ class RemoteKeysService : AccessibilityService() {
         Log.i(TAG, "connected, flags=${serviceInfo.flags} caps=${serviceInfo.capabilities}")
     }
 
+    // ── Banner (Sleep Timer's one-minute warning) ─────────────────────────────────────────────────
+
+    private var banner: android.view.View? = null
+    private val dropBanner = Runnable { hideBanner() }
+
+    /** A small glass pill at the top centre, over any app (an accessibility overlay: never takes focus or touches). */
+    fun showBanner(text: String, forMs: Long) {
+        handler.post {
+            hideBanner()
+            val dp = resources.displayMetrics.density
+            val view = android.widget.TextView(this).apply {
+                this.text = text
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 16f
+                setPadding((22 * dp).toInt(), (12 * dp).toInt(), (22 * dp).toInt(), (12 * dp).toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xE6202024.toInt()); cornerRadius = 40 * dp
+                    setStroke((1 * dp).toInt(), 0x33FFFFFF)
+                }
+            }
+            val params = android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.WRAP_CONTENT, android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+                android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                android.graphics.PixelFormat.TRANSLUCENT,
+            ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL; y = (36 * dp).toInt() }
+            runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params); banner = view }
+            handler.postDelayed(dropBanner, forMs)
+        }
+    }
+
+    private fun hideBanner() {
+        handler.removeCallbacks(dropBanner)
+        banner?.let { v -> runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).removeView(v) } }
+        banner = null
+    }
+
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        // The Sleep Timer's one-minute banner is up: any key cancels the timer (the key still reaches the app).
+        if (event.action == KeyEvent.ACTION_DOWN && SleepTimer.warning(this)) {
+            SleepTimer.set(this, 0)
+            showBanner("Sleep timer cancelled", 2_000)
+        }
         // Escape hatch: holding Back for 1.5 s goes Home from any app, even one that swallows Back, Home
         // and Recents (Fire TV Early Access did). The press itself still reaches the app. Timed from the
         // first down, not from key repeats: the system makes those after accessibility services have seen

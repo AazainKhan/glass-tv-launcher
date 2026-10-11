@@ -165,13 +165,15 @@ class ControlCenterMotionTest {
     }
     /** Where each Control Center tile is, in the captured image's pixels (by its accessibility label). */
     private fun tileBounds(): Map<String, android.graphics.RectF> {
-        val labels = listOf("Settings, Fire TV", "Wi-Fi", "Bluetooth", "Launcher Settings", "Game Controllers", "Theme", "Screen Saver", "App Switcher", "Free Memory")
+        val labels = listOf("Settings, Fire TV", "Wi-Fi", "Bluetooth", "Sleep Timer", "Launcher Settings", "Game Controllers", "Theme", "Screen Saver", "App Switcher", "Clean Up")
         val out = LinkedHashMap<String, android.graphics.RectF>()
         for (label in labels) {
             val node = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("label $label") { n ->
                 n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription)?.any { it == label || (label != "Settings, Fire TV" && it.startsWith(label)) } == true
             }, useUnmergedTree = true).fetchSemanticsNodes().firstOrNull() ?: continue
             val b = node.boundsInRoot
+            // Rows past the panel's last whole row scroll (P83): their bounds are clipped away, so they aren't on screen.
+            if (b.height < 40f) continue
             out[label] = android.graphics.RectF(b.left, b.top, b.right, b.bottom)
         }
         return out
@@ -234,7 +236,7 @@ class ControlCenterMotionTest {
                 val rootW = compose.onRoot().fetchSemanticsNode().size.width
                 val text = lum(dev.glasslauncher.ui.Palette(light = false).primary.let { floatArrayOf(it.red * 255f, it.green * 255f, it.blue * 255f) })
                 val tiles = tileBounds().filterKeys { it != "Settings, Fire TV" }.values.map { lum(material(frame, rootW, it)) }
-                assertTrue("found no tiles", tiles.size >= 5)
+                assertTrue("found no tiles", tiles.size >= 4)
                 return tiles.average().toFloat() to tiles.minOf { ratio(text, it) }
             }
         }
