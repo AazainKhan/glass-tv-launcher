@@ -51,7 +51,7 @@ The user's ranked report on 17 Fire TV demands (ads, launchers, storage, bloat, 
   - Back exits.
 - Tile sizes are 1x1, 2x1 and 2x2. Packing is deterministic first-fit, so tiles never jump around. Pages work like Apple TV's menu-bar icons.
 - Built-in quick wins, from Yin's spec docs/superpowers/specs/2026-10-11-cc-quickwins-and-addons-ux.md: Sleep Timer, VPN, Restart, and Clean Up (frees memory and clears caches).
-- Design spec in progress (Yin): docs/superpowers/specs/2026-10-11-customizable-cc-design.md.
+- Design spec (Yin, done): docs/superpowers/specs/2026-10-11-customizable-cc-design.md. Next-fit packing (positions derived from order + size), hold Select 600 ms to edit, Menu resizes, Play/Pause removes, gallery Glass / Add-ons / By App, pages as menu-bar icons (Controls, Media, Home, Agents), Claude Code approve card (Deny-first proposed), +≤8 MB budget.
 
 ## 6. Integrations
 
