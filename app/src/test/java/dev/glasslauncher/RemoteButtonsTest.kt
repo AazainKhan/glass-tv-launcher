@@ -10,6 +10,9 @@ class RemoteButtonsTest {
     @Test fun remappedCodesKeepFireDefaults() {
         assertEquals(RemoteAction.OpenApp("com.netflix.ninja"), RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap()))
         assertEquals(RemoteAction.OpenApp("com.amazon.firebat"), RemoteButtons.actionFor("KEYCODE_BUTTON_10", emptyMap()))
+        // Bottom row, as printed on the remote (verified with getevent on the stick): key 746 = Amazon Music, 747 = Disney+.
+        assertEquals(RemoteAction.OpenApp("com.amazon.bueller.music"), RemoteButtons.actionFor("KEYCODE_BUTTON_11", emptyMap()))
+        assertEquals(RemoteAction.OpenApp("com.disney.disneyplus"), RemoteButtons.actionFor("KEYCODE_BUTTON_12", emptyMap()))
         assertEquals(RemoteAction.AppSwitcher, RemoteButtons.actionFor("KEYCODE_BUTTON_13", emptyMap()))
         assertEquals(RemoteAction.ControlCenter, RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 185))
         assertNull(RemoteButtons.actionFor("KEYCODE_UNKNOWN", emptyMap(), scanCode = 999))
