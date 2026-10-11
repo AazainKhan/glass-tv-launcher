@@ -837,13 +837,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 // Spotify at rest (P79b): the carousel itself, covers at their own size, in the Top Shelf area.
                 // On arrival the covers wait for their soft scene to be on the backdrop (else they sit over the previous
                 // app's picture for the second it takes to bake), at most SCENE_WAIT_MS.
-                val previewOn = feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured &&
-                    (coverSceneFor == shelfKey || shelfKey == null || expanded)
+                val previewOn = feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured
+                // Composed exactly as before (no retained state, nothing re-created); only its ALPHA waits for the cover
+                // shelf's soft scene to be on the backdrop (at most SCENE_WAIT_MS), so the covers never sit over the
+                // previous app's picture (P92).
+                val sceneUp = coverSceneFor == shelfKey || shelfKey == null || expanded
                 // Fades in with the backdrop's dissolve and out when focus leaves (the feed is kept just for that).
                 val lastCovers = remember { arrayOfNulls<dev.glasslauncher.featured.FeaturedFeed>(1) }
                 if (previewOn) lastCovers[0] = feed
                 val previewAlpha by androidx.compose.animation.core.animateFloatAsState(
-                    if (previewOn) 1f else 0f, androidx.compose.animation.core.tween(if (prefs.reduceMotion) 120 else PREVIEW_FADE_MS), label = "preview-fade",
+                    if (previewOn && sceneUp) 1f else 0f, androidx.compose.animation.core.tween(if (prefs.reduceMotion) 120 else PREVIEW_FADE_MS), label = "preview-fade",
                 )
                 val previewFeed = if (previewOn) feed else lastCovers[0]
                 if (previewFeed != null && (previewOn || previewAlpha > 0.01f)) {
