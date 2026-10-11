@@ -72,6 +72,17 @@ object SleepTimer {
         else alarms.cancel(pendingWarn(context))
     }
 
+    /**
+     * Any user interaction Glass sees while the one-minute banner is up cancels the timer (a key the accessibility
+     * filter never saw, the screensaver's own dismissal, Home taking input, Control Center opening). True when it did.
+     */
+    fun cancelOnInteraction(context: Context, now: Long = System.currentTimeMillis()): Boolean {
+        if (!warning(context, now)) return false
+        set(context, 0)
+        runCatching { RemoteKeysService.instance?.showBanner("Sleep timer cancelled", 2_000) }
+        return true
+    }
+
     /** Pause what plays, then sleep. */
     fun fire(context: Context, scope: CoroutineScope = CoroutineScope(Dispatchers.Default)) {
         context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_END, 0L).putBoolean("warned", false).apply()

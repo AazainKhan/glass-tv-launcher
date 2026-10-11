@@ -39,9 +39,17 @@ class MainActivity : ComponentActivity() {
         stoppedSinceResume = true
     }
 
+    /** Any key or touch Home receives cancels a Sleep Timer that is showing its one-minute banner. */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
+    }
+
     override fun onResume() {
         super.onResume()
         stoppedSinceResume = false
+        // Coming back to Home while the banner is up (the screensaver was dismissed) is the user returning.
+        dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
         // However Glass came back (Home, Back out of the store), Amazon's launcher goes off again; and if it
         // came back on some other way, Glass takes Home back (keepHome).
         val app = application as GlassApp

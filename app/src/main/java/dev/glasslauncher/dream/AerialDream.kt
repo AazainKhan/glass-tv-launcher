@@ -107,8 +107,16 @@ class AerialActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // A key that wakes the screensaver also cancels a Sleep Timer that has shown its one-minute banner, even if
+        // the accessibility key filter never saw it (injected keys, P83).
+        dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
         if (event.action == KeyEvent.ACTION_UP) finish()
         return true
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
     }
 }
 

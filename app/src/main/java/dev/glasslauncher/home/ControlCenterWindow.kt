@@ -133,6 +133,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     fun toggle() = if (showing) hide() else show()
 
     fun show() {
+        // Opening Control Center is an interaction: it cancels a Sleep Timer that is showing its banner.
+        dev.glasslauncher.system.SleepTimer.cancelOnInteraction(service)
         if (view != null) {
             if (exiting) { exiting = false; open = true; removal?.let(handler::removeCallbacks); takesInput(true) }
             android.util.Log.i("ControlCenterWindow", "show: already attached (exiting=$exiting)")
