@@ -716,6 +716,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
                 )
             }
+            if (gallery != null && !restartAsk && !agentCard) Text(
+                when (gallery) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
+                style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White,
+                modifier = Modifier.offset(x = -CC_BLEED).width(sz.column).padding(start = 4.dp, bottom = 6.dp),
+            )
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
             if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 12.dp, bottom = 4.dp)) {
@@ -1294,10 +1299,6 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
     val first = remember(group) { FocusRequester() }
     LaunchedEffect(group) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column).testTag("cc-gallery")) {
-        Text(
-            when (group) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
-            style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-        )
         if (group == "") {
             val groups = listOf(
                 Triple("glass", "Glass", R.drawable.ic_tune),
@@ -1316,13 +1317,14 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
                 else -> CcCatalog.byApp().flatMap { (app, list) -> list.map { app to it } }
             }
             if (entries.isEmpty()) Text("No add-ons installed", style = Type.caption, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp))
-            var lastApp: String? = null
             entries.forEachIndexed { i, (app, e) ->
-                if (app != null && app != lastApp) { lastApp = app; Text(app, style = Type.caption, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp, top = 4.dp)) }
                 val added = layout.shown(e.id) && '#' !in e.id
+                // Rows are only pills (no label rows between them), so they stay on the grid's row pitch and the
+                // whole-row scrolling holds; By App names the app in the line instead.
                 val line = when {
                     added -> "Added"
                     e.tier.tag != null -> "${e.tier.tag} · ${e.description}"
+                    app != null -> "$app · ${e.description}"
                     else -> e.description
                 }
                 CcTile(e.name, line, Shapes.pill, sz.column, sz.pill, onClick = { if (added) setGroup(null) else add(e.id) },
