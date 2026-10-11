@@ -96,7 +96,7 @@ Research: firestick-unlocked/tvos27-inspo/GAMING-RESEARCH.md covers cloud and st
 
 ## 10. Open decisions for the user
 
-1. Approve the customizable Control Center design (when Yin delivers it).
+1. DONE 2026-10-11: customizable CC approved; approve card is Deny-first.
 2. Approve the add-ons model and answer the spec's 7 open questions.
 3. Website copy direction, including whether to swap the Nuvio hero and the Kodi, Stremio and Jellyfin logos.
 4. The P75(B) hold-Home pairing test.
