@@ -46,8 +46,29 @@ object TvRows {
         val channels = query(context, CHANNELS, arrayOf("_id", "display_name"), "package_name=? AND type=?", arrayOf(pkg, "TYPE_PREVIEW")) { c ->
             c.long("_id") to (c.str("display_name") ?: "")
         }.sortedByDescending { CONTINUE.containsMatchIn(it.second) }
-        val items = CardShape.uniform(channels.flatMap { (id, _) -> previewItems(context, id) }.filterNotNull().distinctBy { it.title }).take(12)
-        FeaturedFeed(channels.firstOrNull()?.second?.ifBlank { null } ?: label, items)
+        // Every preview channel the app publishes, then its Watch Next entries: a row of 4 came from reading one
+        // channel and de-duplicating by title alone (P89).
+        val previews = channels.flatMap { (id, _) -> previewItems(context, id) }.filterNotNull()
+        val watchNext = query(context, WATCH_NEXT, null, "package_name=?", arrayOf(pkg), "last_engagement_time_utc_millis DESC") { it.item() }.filterNotNull()
+        FeaturedFeed(channels.firstOrNull()?.second?.ifBlank { null } ?: label, assemble(previews + watchNext))
+    }
+
+    /** How many titles a shelf row holds. */
+    const val ROW_CAP = 20
+    /** A shape filter that would leave fewer than this many keeps the whole row instead: a full row beats a uniform one. */
+    private const val MIN_UNIFORM = 8
+
+    /**
+     * An app's raw programs into its row (pure, tested): the same title with a different link or episode is a
+     * different program (de-duplicated by link, else by title and subtitle); items with art come before the few
+     * without (which draw a tinted title card); a shape filter ([CardShape.uniform]) only applies when it leaves a
+     * real row; up to [ROW_CAP].
+     */
+    fun assemble(items: List<FeaturedItem>, cap: Int = ROW_CAP): List<FeaturedItem> {
+        val distinct = items.distinctBy { it.link ?: (it.title + "|" + (it.subtitle ?: "")) }
+        val ordered = distinct.sortedBy { if (it.image.isNullOrBlank()) 1 else 0 }   // stable: art first, own order kept
+        val uniform = CardShape.uniform(ordered)
+        return (if (uniform.size >= MIN_UNIFORM || uniform.size == ordered.size) uniform else ordered).take(cap)
     }
 
     private fun previewItems(context: Context, channelId: Long) =
