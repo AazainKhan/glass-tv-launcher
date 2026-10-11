@@ -102,6 +102,7 @@ import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.ThemeMode
 import dev.glasslauncher.data.appKey
 import dev.glasslauncher.dream.AerialActivity
+import dev.glasslauncher.featured.CoverPreview
 import dev.glasslauncher.featured.ExpandedShelf
 import dev.glasslauncher.featured.ShelfTitle
 import dev.glasslauncher.glass.BackdropState
@@ -330,17 +331,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         val ready = prebaked[0]?.takeIf { it.first == sceneUrl && !coverBackdrop }?.second?.takeIf { it.isLight == !dark }
         prebaked[0] = null
         // A Cover Flow step whose cover was baked ahead (the neighbours are, below) shows at once.
-        // Expanded (the Cover Flow): the soft cover scene; at rest: the 2000 px album art sharp when Spotify has it,
-        // else the same soft scene (P79). Different looks, so different keys.
-        val coverCache = if (coverShelf) HeroCache.cover else HeroCache.rest
-        val coverReady = if (coverBackdrop) sceneUrl?.let { coverCache["$it|$dark"] } else null
+        // Square covers (P79b): never a full-screen picture, at rest or expanded: the cover's own soft colour
+        // scene, under the same key, so opening the Cover Flow re-bakes and dissolves nothing.
+        val coverReady = if (coverBackdrop) sceneUrl?.let { HeroCache.cover["$it|$dark"] } else null
         // Let quick left/right browsing settle before re-baking the glass (a Cover Flow scrolls in quick steps).
         if (ready == null && coverReady == null && expanded) delay(if (coverBackdrop) COVER_SETTLE_MS else 220)
         backdrop.glassFades = true
         val next = ready ?: coverReady ?: sceneUrl?.let { url ->
             runCatching {
-                if (coverBackdrop) (if (coverShelf) graph.wallpapers.coverFromUrl(url, light = !dark) else graph.wallpapers.squareRestFromUrl(url, light = !dark))
-                    ?.also { coverCache["$url|$dark"] = it }
+                if (coverBackdrop) graph.wallpapers.coverFromUrl(url, light = !dark)?.also { HeroCache.cover["$url|$dark"] = it }
                 else graph.wallpapers.fromUrl(url, light = !dark)
             }.getOrNull()
         } ?: graph.wallpapers.load(wallpaper, light = !dark)
@@ -532,8 +531,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (url != null) {
             // Square covers: the soft cover scene, cached under the key the resting backdrop looks up (P79).
             if (dev.glasslauncher.featured.CardShape.square(feed.items)) {
-                // Background priority, like the non-square prebake: a 2000 px decode must not land in a scroll.
-                if (HeroCache.rest["$url|$dark"] == null) runCatching { graph.wallpapers.squareRestFromUrl(url, background = true, light = !dark) }.getOrNull()?.let { HeroCache.rest["$url|$dark"] = it }
+                // The soft scene bakes at background priority (coverFromUrl's own bake), under the key rest looks up.
+                if (HeroCache.cover["$url|$dark"] == null) runCatching { graph.wallpapers.coverFromUrl(url, light = !dark) }.getOrNull()?.let { HeroCache.cover["$url|$dark"] = it }
             } else runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
         }
         feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }
@@ -764,6 +763,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
                 if (appHeroPkg != null && artApps[appHeroPkg] == true) {
                     Box(Modifier.testTag("top-shelf-app-hero:$appHeroPkg")) { Box(Modifier.size(1.dp).testTag("app-art:$appHeroPkg")) }
+                }
+                // Spotify at rest (P79b): the carousel itself, covers at their own size, in the Top Shelf area.
+                if (feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured) {
+                    CoverPreview(
+                        feed = feed, index = heroIndex.coerceIn(0, feed.items.lastIndex), expand = { expand.value },
+                        restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) / 2,
+                        modifier = Modifier.testTag("cover-preview-host").graphicsLayer {
+                            alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
+                            translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
+                        },
+                    )
                 }
                 if (hero != null && takeover == null && !appHeroShown) {
                     ShelfTitle(

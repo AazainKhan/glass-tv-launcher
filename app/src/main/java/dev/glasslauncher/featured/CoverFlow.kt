@@ -79,6 +79,8 @@ fun CoverFlow(
     upTo: FocusRequester? = null,
     /** The cover picture, with its reflection, for an item's image; the default loads it (previews and tests give their own). */
     coverArt: @Composable (String?, Boolean) -> ImageBitmap? = { url, centre -> rememberCoverArt(url, centre) },
+    /** At rest on Home (P79b): the same carousel as a picture: not focusable, no keys, no label or title. */
+    preview: Boolean = false,
 ) {
     if (items.isEmpty()) return
     val reduceMotion = LocalUiPrefs.current.reduceMotion
@@ -99,6 +101,7 @@ fun CoverFlow(
     Box(
         modifier
             .fillMaxSize()
+            .then(if (preview) Modifier else Modifier
             .focusRequester(focusRequester)
             .focusProperties { if (upTo != null) up = upTo }
             .focusable()
@@ -113,10 +116,10 @@ fun CoverFlow(
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> { onOpen(shown); true }
                     else -> false
                 }
-            }
-            .testTag("cover-flow"),
+            })
+            .testTag(if (preview) "cover-preview" else "cover-flow"),
     ) {
-        Text(label, Modifier.align(Alignment.TopCenter).padding(top = 22.dp).testTag("cover-flow-label"))
+        if (!preview) Text(label, Modifier.align(Alignment.TopCenter).padding(top = 22.dp).testTag("cover-flow-label"))
         // The covers: nearest the centre last, so each is drawn over the one outside it.
         // The window follows the target index (so it changes only when a key is pressed); each cover's own
         // pose is read from the animated position in the layer phase, so a glide never recomposes the row.
@@ -132,13 +135,13 @@ fun CoverFlow(
                     coverPx = coverPx,
                     art = coverArt(items[i].image, i == current),
                     item = items[i],
-                    tag = "cover:$i",
+                    tag = if (preview) "preview-cover:$i" else "cover:$i",
                     modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp),
                 )
             }
         }
         // Title and subtitle of the centre cover, under it.
-        Crossfade(shown, animationSpec = tween(220), label = "cover-title", modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { it ->
+        if (!preview) Crossfade(shown, animationSpec = tween(220), label = "cover-title", modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { it ->
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
                 Text(it.title, Modifier.testTag("cover-title"), heading = true)
                 it.subtitle?.let { sub -> Text(sub, Modifier.padding(top = 4.dp).testTag("cover-subtitle")) }
@@ -224,3 +227,32 @@ private object CoverArtCache {
     fun get(url: String): ImageBitmap? = cache.get(url)
     fun put(url: String, art: ImageBitmap) { cache.put(url, art) }
 }
+
+/**
+ * Spotify's resting Top Shelf (P79b): not a stretched backdrop but the Cover Flow itself, covers at their own size,
+ * smaller and lifted clear of the tray. As Up opens the full-screen flow ([expand] 0 -> 1) it scales and settles into
+ * exactly the pose of [ExpandedShelf]'s flow and fades as that one fades in, so it is one carousel gaining focus.
+ * Nothing is baked or drawn per frame beyond the cover layers the flow already has.
+ */
+@Composable
+fun CoverPreview(feed: FeaturedFeed, index: Int, expand: () -> Float, restCentreY: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+    val shiftPx = with(density) { (restCentreY.toPx() - (screenH.dp.toPx() / 2f)) }
+    val focus = remember { FocusRequester() }
+    Box(
+        modifier.fillMaxSize().graphicsLayer {
+            val p = expand().coerceIn(0f, 1f)
+            val s = REST_SCALE + (1f - REST_SCALE) * p
+            scaleX = s; scaleY = s
+            translationY = shiftPx * (1f - p)
+            // The expanded flow's own alpha is (p - 0.4) / 0.6: this one hands over as that one arrives.
+            alpha = (1f - ((p - 0.4f) / 0.6f)).coerceIn(0f, 1f)
+        },
+    ) {
+        CoverFlow(items = feed.items, index = index, onIndex = {}, onOpen = {}, onExit = {}, label = "", focusRequester = focus, preview = true)
+    }
+}
+
+/** How much smaller the resting carousel is than the full-screen one. */
+private const val REST_SCALE = 0.62f

@@ -144,10 +144,6 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         return fromHeroArt(scene, light = light).also { scene.recycle() }
     }
 
-    /** The resting backdrop of a square cover (P79): the same quality ladder as any picture, see [fromUrl]. */
-    suspend fun squareRestFromUrl(url: String, background: Boolean = false, light: Boolean = false): Backdrop? =
-        fromUrl(url, background = background, light = light)
-
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
     fun prewarm() {
         blurReady

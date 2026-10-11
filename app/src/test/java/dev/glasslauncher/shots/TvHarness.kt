@@ -105,7 +105,6 @@ object TvHarness {
         // leaked into the next.
         // Process-wide caches would carry one test's scene into the next.
         dev.glasslauncher.home.HeroCache.app.trim()
-        dev.glasslauncher.home.HeroCache.rest.trim()
         // The dock is seeded here, not by HomeModel.seedDefaults: that runs after the first layout (a real
         // first-run bug, see the report: focus and hero start on the wrong dock app, then jump), so which app
         // got the first focus and hero depended on whether the test was the JVM's first (cold) or not.
