@@ -438,7 +438,7 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
         const val WIDTH = 340
         const val HEIGHT = 204
         /** Bumped whenever the drawing changes, so tiles drawn by an older build are not reused from disk. */
-        const val DISK_VERSION = 1
+        const val DISK_VERSION = 2
         const val PRELOAD_LIMIT = 48
         private const val PROBE = 96
 
