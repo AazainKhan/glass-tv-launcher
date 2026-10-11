@@ -1278,8 +1278,10 @@ private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherCo
     PanelTitle("Control Center")
     Hint("Choose what appears in Control Center. Settings is always there.")
     dev.glasslauncher.home.CONTROL_CENTER_TILES.forEachIndexed { i, (id, label) ->
-        ToggleRow(label, id !in cfg.ccHidden, { on ->
-            model.edit { it.copy(ccHidden = if (on) it.ccHidden - id else it.ccHidden + id) }
+        val layout = dev.glasslauncher.home.CcLayout.resolve(cfg.ccLayout, cfg.ccHidden)
+        ToggleRow(label, layout.shown(id), { on ->
+            // The old per-tile switches fold into the layout (ccHidden is read once, then cleared).
+            model.edit { c -> c.copy(ccLayout = dev.glasslauncher.home.CcLayout.resolve(c.ccLayout, c.ccHidden).withShown(id, on).toJson(), ccHidden = emptySet()) }
         }, if (i == 0) f else Modifier)
     }
 }

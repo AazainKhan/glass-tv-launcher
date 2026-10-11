@@ -85,6 +85,25 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         return page.tiles.indexOfFirst { it.id == best.tile.id }.takeIf { it >= 0 }
     }
 
+    /** Is this control (or, for "alexa", its page) in the layout? Settings › Control Center's switches read this. */
+    fun shown(id: String): Boolean = if (id == "alexa") page("alexa") != null else pages.any { p -> p.tiles.any { it.id == id } }
+
+    /** Settings's switch: off removes every copy; on puts it back where today's order has it (or the end). */
+    fun withShown(id: String, on: Boolean): CcLayout {
+        if (id == "alexa") {
+            return if (!on) copy(pages = pages.filter { it.id != "alexa" })
+            else if (page("alexa") != null) this else copy(pages = pages + CcPage("alexa", "alexa", emptyList()))
+        }
+        if (shown(id) == on) return this
+        if (!on) return copy(pages = pages.map { p -> p.copy(tiles = p.tiles.filter { it.id != id }) })
+        val order = CcControls.DEFAULT_ORDER
+        return withPage(pages.first().id) { p ->
+            val mine = order.indexOf(id)
+            val at = if (mine < 0) p.tiles.size else p.tiles.indexOfFirst { order.indexOf(it.id) > mine }.let { if (it < 0) p.tiles.size else it }
+            p.copy(tiles = p.tiles.toMutableList().also { it.add(at, CcTile(id, CcControls.sizes(id).first())) })
+        }
+    }
+
     fun toJson(): String = JSON.encodeToString(Dto.serializer(), Dto(
         v = VERSION,
         pages = pages.map { p -> PageDto(p.id, p.icon, p.tiles.map { TileDto(it.id, it.size.key) }) },

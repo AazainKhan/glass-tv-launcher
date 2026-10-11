@@ -40,6 +40,8 @@ data class LauncherConfig(
     val increaseContrast: Boolean = false,
     /** Control Center tiles turned off in Settings › Control Center (ids in CONTROL_CENTER_TILES). */
     val ccHidden: Set<String> = emptySet(),
+    /** The customizable Control Center's layout (P83, [dev.glasslauncher.home.CcLayout] JSON); null = the default, minus [ccHidden]. */
+    val ccLayout: String? = null,
     /** Which one-time "hide by default" additions have been applied to this install. */
     val hiddenMigration: Int = 0,
     /** Screensaver: Glass's Aerials or photo slideshow, or Fire TV's own screensaver. */

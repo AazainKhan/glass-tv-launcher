@@ -665,7 +665,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         when {
             moving != null -> moving = null
             folderMoving != null -> folderMoving = null
-            overlays.isNotEmpty() -> closeTop()
+            // Control Center's edit mode takes Back first (cancel a lift, then save and leave edit mode).
+            overlays.isNotEmpty() -> if (overlays.last() != Overlay.ControlCenter || ControlCenterWindow.editBack?.invoke() != true) closeTop()
             else -> homeBack()
         }
     }

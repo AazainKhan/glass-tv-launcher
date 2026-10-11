@@ -86,6 +86,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         /** The latest an over-app open attaches (from show), however long the capture and its bake take. */
         private const val ATTACH_CAP_MS = 280L
 
+        /** Set by Control Center while its edit mode is on: returns true when it used the Back press. */
+        @Volatile var editBack: (() -> Boolean)? = null
         var homeBackdrop by mutableStateOf<dev.glasslauncher.glass.Backdrop?>(null)
 
         /** Whether Glass's activity is started (Home is on screen). Lifecycle-driven, so it is right while an app hides Home and no frame runs. */
@@ -360,7 +362,10 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                     .onPreviewKeyEvent { e ->
                         val k = e.nativeKeyEvent
                         if (k.keyCode == KeyEvent.KEYCODE_BACK || k.keyCode == KeyEvent.KEYCODE_HOME) {
-                            if (k.action == KeyEvent.ACTION_UP) hide()
+                            // Edit mode takes Back itself (cancel a lift, then save and leave edit mode); Home always closes.
+                            if (k.action == KeyEvent.ACTION_UP) {
+                                if (k.keyCode == KeyEvent.KEYCODE_BACK && editBack?.invoke() == true) Unit else hide()
+                            }
                             true
                         } else false
                     },

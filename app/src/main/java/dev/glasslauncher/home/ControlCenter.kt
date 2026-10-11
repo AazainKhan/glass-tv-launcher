@@ -1,5 +1,9 @@
 package dev.glasslauncher.home
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.zIndex
 import android.content.Intent
 import android.provider.Settings
 import androidx.annotation.DrawableRes
@@ -458,7 +462,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium)
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     val density = androidx.compose.ui.platform.LocalDensity.current.density
-    fun shown(id: String) = id !in cfg.ccHidden
+    // The layout (P83): the stored one, or while edit mode is on the draft being changed (saved when it ends).
+    val storedLayout = remember(cfg.ccLayout, cfg.ccHidden) { CcLayout.resolve(cfg.ccLayout, cfg.ccHidden) }
+    var draft by remember { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
+    val layout = draft ?: storedLayout
+    val editing = draft != null
+    fun shown(id: String) = layout.shown(id)
     // Pages (tvOS 27's icons along the top): 0 = Controls, 1 = Alexa. Opening always shows Controls.
     var page by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
     val alexaPage = shown("alexa")
@@ -612,77 +621,173 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             if (shownPage == 1) {
                 Box(Modifier) { AlexaPage(sz, closeAll) }
             } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier) {
-                // The TV's own settings (network, display, accounts…), like the Settings tile on tvOS.
-                CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), sz.bigWidth, sz.big, modifier = Modifier.focusRequester(first), onClick = { closeAll(); open(Overlay.TvSettings) }) { fg ->
-                    BigIcon(R.drawable.ic_settings, "Settings", fg)
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
-                    if (shown("wifi")) CcTile("Wi-Fi", network, Shapes.pill, sz.pillWidth, sz.pill, onClick = { system { SystemControls.open(context, Settings.ACTION_WIFI_SETTINGS) } }) { fg ->
-                        PillContent(if (wifiOn) R.drawable.ic_wifi else R.drawable.ic_wifi_off, "Wi-Fi", network, fg, on = wifiOn, accent = Blue)
-                    }
-                    val btValue = when (bluetooth) { true -> "On"; false -> "Off"; null -> "Devices" }
-                    if (shown("bluetooth")) CcTile("Bluetooth", btValue, Shapes.pill, sz.pillWidth, sz.pill, onClick = { system { SystemControls.openBluetooth(context) } }) { fg ->
-                        PillContent(if (bluetooth == false) R.drawable.ic_bluetooth_disabled else R.drawable.ic_bluetooth, "Bluetooth", btValue, fg, on = bluetooth == true, accent = Blue)
+            // The Controls page (P83): the layout's ordered {id, size} list, packed into the 4-column grid by
+            // CcPacking (next-fit, so it reproduces the fixed layout this was). Edit mode changes a draft of it.
+            val u = sz.round
+            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance", "memory" -> rooted; else -> true } }
+            val tilesNow = layout.page("controls")?.tiles.orEmpty().filter { avail(it.id) }
+            val placed = remember(tilesNow) { CcPacking.pack(tilesNow) }
+            val rows = placed.maxOfOrNull { it.row + it.tile.size.h } ?: 0
+            var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            var liftBase by remember(active) { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
+            var focusedId by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            fun commitDraft() { draft?.let { d -> val l = d.withoutEmptyPages(); edit { c -> c.copy(ccLayout = l.toJson(), ccHidden = emptySet()) } }; draft = null; lifted = null; liftBase = null }
+            fun enterEdit(refocus: Boolean = false) {
+                if (draft == null) draft = storedLayout
+                // From the Edit pill (which goes away): focus lands on the first tile.
+                if (refocus) scope.launch { withFrameNanos { }; runCatching { first.requestFocus() } }
+            }
+            fun liftToggle(id: String) { if (lifted == null) { lifted = id; liftBase = draft } else { lifted = null; liftBase = null } }
+            fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
+            fun moveLifted(dx: Int, dy: Int) {
+                val d = draft ?: return; val id = lifted ?: return
+                val all = d.page("controls")?.tiles ?: return
+                val from = all.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: return
+                val to = if (dy != 0) d.neighbour("controls", from, dy, avail) else {
+                    val vis = all.filter { avail(it.id) }
+                    vis.getOrNull(vis.indexOfFirst { it.id == id } + dx)?.let { n -> all.indexOfFirst { it.id == n.id } }
+                } ?: return
+                draft = d.move("controls", from, to)
+            }
+            fun removeTile(id: String) {
+                val d = draft ?: return
+                if (!CcControls.removable(id)) return
+                draft = d.remove("controls", id); if (lifted == id) { lifted = null; liftBase = null }
+                scope.launch { withFrameNanos { }; runCatching { first.requestFocus() } }
+            }
+            // Back: drops a lift, else saves and leaves edit mode (Home and closing Control Center save too).
+            androidx.compose.runtime.DisposableEffect(editing, lifted) {
+                ControlCenterWindow.editBack = if (editing) ({ if (lifted != null) cancelLift() else commitDraft(); true }) else null
+                onDispose { ControlCenterWindow.editBack = null }
+            }
+            LaunchedEffect(exiting) { if (exiting && draft != null) commitDraft() }
+            val wobbleOn = editing && !reduceMotion
+            Box(
+                Modifier
+                    .width(sz.column)
+                    .height(if (rows == 0) 0.dp else u * rows + sz.gap * (rows - 1))
+                    .onPreviewKeyEvent { e ->
+                        val k = e.nativeKeyEvent
+                        if (!editing) return@onPreviewKeyEvent false
+                        val down = k.action == android.view.KeyEvent.ACTION_DOWN
+                        if (lifted != null) when (k.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { if (down) moveLifted(-1, 0); true }
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { if (down) moveLifted(1, 0); true }
+                            android.view.KeyEvent.KEYCODE_DPAD_UP -> { if (down) moveLifted(0, -1); true }
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { if (down) moveLifted(0, 1); true }
+                            else -> false
+                        } else if (k.keyCode == android.view.KeyEvent.KEYCODE_MENU) {
+                            // Menu: the next size the focused control allows; neighbours repack.
+                            if (down) focusedId?.let { id -> draft = draft?.resize("controls", id) }
+                            true
+                        } else false
+                    },
+            ) {
+                for (pl in placed) androidx.compose.runtime.key(pl.tile.id) {
+                    val tile = pl.tile; val id = tile.id
+                    val w = u * tile.size.w + sz.gap * (tile.size.w - 1)
+                    val h = u * tile.size.h + sz.gap * (tile.size.h - 1)
+                    val pitchPx = with(androidx.compose.ui.platform.LocalDensity.current) { (u + sz.gap).roundToPx() }
+                    val off by androidx.compose.animation.core.animateIntOffsetAsState(
+                        androidx.compose.ui.unit.IntOffset(pitchPx * pl.col, pitchPx * pl.row),
+                        if (reduceMotion) androidx.compose.animation.core.tween(120) else androidx.compose.animation.core.tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
+                        label = "cc-slot",
+                    )
+                    val isLifted = lifted == id
+                    val liftScale by androidx.compose.animation.core.animateFloatAsState(
+                        if (isLifted) 1.28f else 1f,
+                        if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(0.65f, 850f), label = "cc-lift",
+                    )
+                    val label: (String?) -> Unit = { roundLabel = it }
+                    // Select acts, or in edit mode lifts and drops; hold Select enters edit mode; Play/Pause removes there.
+                    fun tap(go: () -> Unit): () -> Unit = { if (editing) liftToggle(id) else go() }
+                    val hold: (() -> Unit)? = if (editing) null else ({ enterEdit(); focusedId = id })
+                    fun playOr(go: () -> Unit): () -> Unit = { if (editing) removeTile(id) else go() }
+                    val focusMod = Modifier.onFocusChanged { if (it.isFocused) focusedId = id }
+                    Box(
+                        Modifier
+                            .offset { off }
+                            .size(w, h)
+                            .zIndex(if (isLifted) 2f else 0f)
+                            .graphicsLayer { scaleX = liftScale; scaleY = liftScale }
+                            .testTag("cc-tile:$id"),
+                    ) {
+                        val one = tile.size == CcSize.S1x1
+                        when (id) {
+                            "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), w, h, modifier = Modifier.focusRequester(first).then(focusMod),
+                                onClick = tap { closeAll(); open(Overlay.TvSettings) }, onLongClick = hold, onPlay = playOr { closeAll(); open(Overlay.TvSettings) }, wiggle = wobbleOn) { fg ->
+                                BigIcon(R.drawable.ic_settings, "Settings", fg)
+                            }
+                            "wifi" -> {
+                                val go = tap { system { SystemControls.open(context, Settings.ACTION_WIFI_SETTINGS) } }
+                                val icon = if (wifiOn) R.drawable.ic_wifi else R.drawable.ic_wifi_off
+                                if (one) Round(icon, "Wi-Fi, $network", on = wifiOn, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
+                                else CcTile("Wi-Fi", network, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
+                                    PillContent(icon, "Wi-Fi", network, fg, on = wifiOn, accent = Blue)
+                                }
+                            }
+                            "bluetooth" -> {
+                                val btValue = when (bluetooth) { true -> "On"; false -> "Off"; null -> "Devices" }
+                                val go = tap { system { SystemControls.openBluetooth(context) } }
+                                val icon = if (bluetooth == false) R.drawable.ic_bluetooth_disabled else R.drawable.ic_bluetooth
+                                if (one) Round(icon, "Bluetooth, $btValue", on = bluetooth == true, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
+                                else CcTile("Bluetooth", btValue, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
+                                    PillContent(icon, "Bluetooth", btValue, fg, on = bluetooth == true, accent = Blue)
+                                }
+                            }
+                            "launcher" -> {
+                                val go = tap { closeAll(); open(Overlay.Settings) }
+                                CcTile("Launcher Settings", null, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
+                                    PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
+                                }
+                            }
+                            "controllers" -> Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
+                            "appearance" -> Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
+                                onPlay = playOr { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }) {
+                                tap { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }()
+                            }
+                            "screensaver" -> Round(R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
+                            "switcher" -> Round(R.drawable.ic_apps, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
+                            "airplay" -> airPlay?.let { (state, set) ->
+                                val value = when { state.sender != null -> "Connected to ${state.sender}"; state.on -> "On"; else -> "Off" }
+                                Round(R.drawable.ic_airplay, "AirPlay, $value", on = state.on, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { set(!state.on) }) { tap { set(!state.on) }() }
+                            }
+                            "performance" -> Round(R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
+                                onPlay = playOr { }) {
+                                tap { val next = !fast; fast = next; scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) } }()
+                            }
+                            "memory" -> Round(R.drawable.ic_cleaning_services, freed?.let { "Free Memory, $it MB freed" } ?: "Free Memory", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) {
+                                tap { scope.launch { freed = dev.glasslauncher.system.RootFeatures.freeMemory(context) } }()
+                            }
+                        }
+                        // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.
+                        if (editing && CcControls.removable(id)) Box(
+                            Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp).size(18.dp)
+                                .background(Color(0xE61C1C1E), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) { Box(Modifier.size(width = 8.dp, height = 2.dp).background(Color.White, CircleShape)) }
                     }
                 }
             }
-            if (shown("launcher")) CcTile("Launcher Settings", null, Shapes.pill, sz.column, sz.pill, modifier = Modifier, onClick = { closeAll(); open(Overlay.Settings) }) { fg ->
-                PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
+            if (editing) Text(
+                if (lifted != null) "Arrows Move · Select Drop\nBack Cancel" else "Select Move · Menu Size · Play Remove\nBack Done",
+                style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = headerColor, maxLines = 2,
+                modifier = Modifier.width(sz.column).padding(start = 4.dp, top = 6.dp).testTag("cc-edit-hints"),
+            ) else {
+                // The Edit pill: discoverability for hold-Select.
+                CcTile("Edit", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { enterEdit(refocus = true) }, modifier = Modifier.testTag("cc-edit")) { fg ->
+                    PillContent(R.drawable.ic_edit_square, "Edit", null, fg, on = false, accent = fg)
+                }
+                // The focused round button's name. It takes its line (so the column doesn't jump as focus moves),
+                // except while music plays: then the music card follows the buttons on the grid's gap instead.
+                if (np == null) Text(
+                    roundLabel?.replace(", ", " · ") ?: freed?.let { "$it MB freed" } ?: "",
+                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
+                    color = headerColor,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
+                )
             }
-            // Round buttons, four to a row (tvOS), with the focused one's name in a caption underneath.
-            val rounds = buildList<@Composable () -> Unit> {
-                val label: (String?) -> Unit = { roundLabel = it }
-                if (shown("controllers")) add { Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label) { system { SystemControls.openGameControllers(context) } } }
-                if (shown("appearance")) add {
-                    Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label) {
-                        screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } }
-                    }
-                }
-                if (shown("screensaver")) add { Round(R.drawable.ic_landscape, "Screen Saver", onLabel = label) { closeAll(); AerialActivity.start(context) } }
-                if (shown("switcher")) add { Round(R.drawable.ic_apps, "App Switcher", onLabel = label) { closeAll(); open(Overlay.AppSwitcher) } }
-                // AirPlay receiving (PhairPlay, scripts/phairplay), once it's installed: a round toggle, white
-                // while on, so Control Center stays short enough for the Now Playing card.
-                if (shown("airplay")) airPlay?.let { (state, set) ->
-                    val value = when {
-                        state.sender != null -> "Connected to ${state.sender}"
-                        state.on -> "On"
-                        else -> "Off"
-                    }
-                    add { Round(R.drawable.ic_airplay, "AirPlay, $value", on = state.on, onLabel = label) { set(!state.on) } }
-                }
-                // Root only (Settings › Root has the details): Performance is a toggle, white while Fast is on;
-                // Free Memory ends background apps and says how much it freed.
-                if (rooted && shown("performance")) add {
-                    Round(R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label) {
-                        val next = !fast
-                        fast = next
-                        scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) }
-                    }
-                }
-                if (rooted && shown("memory")) add {
-                    Round(R.drawable.ic_cleaning_services, freed?.let { "Free Memory, $it MB freed" } ?: "Free Memory", onLabel = label) {
-                        scope.launch { freed = dev.glasslauncher.system.RootFeatures.freeMemory(context) }
-                    }
-                }
-            }
-            // Centred under the tiles as one block, rows sharing a left edge.
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                Column(Modifier.width(sz.round * 4 + sz.gap * 3), verticalArrangement = Arrangement.spacedBy(sz.gap)) {
-                    rounds.chunked(4).forEachIndexed { i, row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier) { row.forEach { it() } }
-                    }
-                }
-            }
-            // The focused round button's name. It takes its line (so the column doesn't jump as focus moves),
-            // except while music plays: then the music card follows the buttons on the grid's gap instead.
-            if (np == null) Text(
-                roundLabel?.replace(", ", " · ") ?: freed?.let { "$it MB freed" } ?: "",
-                style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
-                color = headerColor,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
-            )
             }
             }
             }
@@ -824,12 +929,16 @@ private fun PillContent(
 }
 
 @Composable
-private fun Round(@DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {}, onClick: () -> Unit) {
+private fun Round(
+    @DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {},
+    modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onPlay: (() -> Unit)? = null, wiggle: Boolean = false,
+    onClick: () -> Unit,
+) {
     val sz = LocalCcSizes.current
     var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
     // The caption follows the button while focused, including its state (Theme · Light → Dark).
     LaunchedEffect(focused, label) { if (focused) onLabel(label) }
-    CcTile(label, null, CircleShape, sz.round, sz.round, onClick = onClick, on = on, onFocusChange = { f ->
+    CcTile(label, null, CircleShape, sz.round, sz.round, onClick = onClick, modifier = modifier, onLongClick = onLongClick, onPlay = onPlay ?: onClick, wiggle = wiggle, on = on, onFocusChange = { f ->
         focused = f
         if (!f) onLabel(null)
     }) { fg ->
@@ -848,6 +957,9 @@ private fun CcTile(
     modifier: Modifier = Modifier,
     on: Boolean = false,
     onFocusChange: (Boolean) -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
+    onPlay: (() -> Unit)? = onClick,
+    wiggle: Boolean = false,
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -857,6 +969,9 @@ private fun CcTile(
     FocusTile(
         label = if (value != null) "$title, $value" else title,
         onClick = onClick,
+        onLongClick = onLongClick,
+        onPlay = onPlay,
+        wiggle = wiggle,
         onFocusChange = onFocusChange,
         shape = shape,
         // A touch of lift only: at 1.06 the focused Settings tile spilled past the pills' grid.
