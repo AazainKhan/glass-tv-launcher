@@ -21,5 +21,7 @@ class HeroCache<V>(private val max: Int) {
 
         /** A Cover Flow's backgrounds (P33): the cover showing and its two neighbours, baked ahead of a step. */
         val cover = HeroCache<dev.glasslauncher.glass.Backdrop>(max = 3)
+        /** The resting backdrop of a square-cover shelf (P79): its own small cache, so the Cover Flow's neighbour bakes can't evict it. */
+        val rest = HeroCache<dev.glasslauncher.glass.Backdrop>(max = 2)
     }
 }

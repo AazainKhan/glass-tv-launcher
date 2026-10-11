@@ -32,6 +32,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
             dev.glasslauncher.system.AppPreviews.trim()
             dev.glasslauncher.home.HeroCache.app.trim()
             dev.glasslauncher.home.HeroCache.cover.trim()
+            dev.glasslauncher.home.HeroCache.rest.trim()
             tileArt.trim()
             SingletonImageLoader.get(this).memoryCache?.clear()
         }

@@ -70,17 +70,21 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
         // The logo art at a sharp size and its own aspect (vector banners crisp), then laid out tvOS's way.
         val banner = hiResBanner(app) ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
+        var nativeFactor: Float? = null
         val art = (banner ?: hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull())?.let { d ->
             val iw = d.intrinsicWidth.takeIf { it > 0 } ?: 320
             val ih = d.intrinsicHeight.takeIf { it > 0 } ?: 180
             val scale = 960f / maxOf(iw, ih)
+            // A raster banner or icon (a 320 px PNG) enlarged to 960 is what looked pixelated: the logo is held to
+            // 1.25x its own pixels (P81). Vectors have no native size.
+            if (d is android.graphics.drawable.BitmapDrawable) nativeFactor = scale
             Bitmap.createBitmap((iw * scale).toInt().coerceAtLeast(1), (ih * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { bmp ->
                 d.setBounds(0, 0, bmp.width, bmp.height)
                 (d as? android.graphics.drawable.BitmapDrawable)?.paint?.isFilterBitmap = true
                 d.draw(Canvas(bmp))
             }
         } ?: return null
-        return LogoHero.compose(art, w, h).also { art.recycle() }
+        return LogoHero.compose(art, w, h, nativeFactor).also { art.recycle() }
     }
 
     /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import dev.glasslauncher.glass.ImageGate
 
 /**
  * tvOS's logo-only Top Shelf: the app's logo about half the screen wide, centred in the space above the
@@ -21,10 +22,40 @@ object LogoHero {
     /** How far (summed RGB) from the edge colour a pixel must be to count as logo: gradients stay background. */
     private const val INK_DISTANCE = 110
 
-    fun compose(art: Bitmap, w: Int = 1280, h: Int = 720): Bitmap {
+    /** What the quality gate (P81) makes of a logo: how big it may be drawn, and which level that is. */
+    data class Plan(val scale: Float, val level: ImageGate.Level)
+
+    /**
+     * Pure: a logo whose ink is [inkW]x[inkH] art pixels, on a [w]x[h] hero, where one art pixel is
+     * 1/[nativeFactor] native pixels (null: vector or unknown, which scales cleanly). Sharp when it can be drawn at
+     * the size tvOS wants without enlarging the native pixels more than [ImageGate.LIMIT]; Soft when it has to be
+     * drawn smaller than that (still sharp, on a colour field made from the art); Plain when the native art is
+     * icon-sized: no logo at all, just the app's colour.
+     */
+    fun plan(inkW: Int, inkH: Int, w: Int, h: Int, nativeFactor: Float?): Plan {
+        val wanted = minOf(w * INK_WIDTH / inkW.coerceAtLeast(1), h * INK_HEIGHT / inkH.coerceAtLeast(1))
+        if (nativeFactor == null) return Plan(wanted, ImageGate.Level.Sharp)
+        val nativeW = inkW / nativeFactor; val nativeH = inkH / nativeFactor
+        if (maxOf(nativeW, nativeH) < ICON_INK) return Plan(wanted, ImageGate.Level.Plain)
+        val most = ImageGate.LIMIT / nativeFactor
+        return if (wanted <= most) Plan(wanted, ImageGate.Level.Sharp) else Plan(most, ImageGate.Level.Soft)
+    }
+
+    /** Below this many native pixels the logo's ink is icon-sized: never drawn enlarged. */
+    private const val ICON_INK = 110
+
+    /**
+     * [nativeFactor]: art pixels per native pixel when [art] is a raster picture drawn larger than it was made
+     * (a 320 px banner drawn into a 960 px bitmap is 3); null for vectors and art at its own size. The logo is drawn
+     * at most [ImageGate.LIMIT] times its native size (a colour field made from the art around it when that is
+     * smaller than wanted), or not at all when it is icon-sized (the app's colour alone).
+     */
+    fun compose(art: Bitmap, w: Int = 1280, h: Int = 720, nativeFactor: Float? = null): Bitmap {
         val bg = edgeColour(art)
         val ink = inkBounds(art, bg) ?: Rect(0, 0, art.width, art.height)
-        val scale = minOf(w * INK_WIDTH / ink.width(), h * INK_HEIGHT / ink.height())
+        val plan = plan(ink.width(), ink.height(), w, h, nativeFactor)
+        if (plan.level == ImageGate.Level.Plain) return plainField(art, bg, w, h)
+        val scale = plan.scale
         val dw = ink.width() * scale; val dh = ink.height() * scale
         val left = (w - dw) / 2f; val top = h * CENTRE_Y - dh / 2f
         // The logo's own background (often a gradient, as Stremio's) fades into the fill instead of showing
@@ -33,11 +64,36 @@ object LogoHero {
         keyOut(logo, bg)
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         Canvas(out).apply {
-            drawColor(bg)
+            // Sharp: the art's own colour. Soft: a colour-rich field made from the art itself, so a small logo sits
+            // on something with depth rather than on a flat plate.
+            if (plan.level == ImageGate.Level.Soft) drawBitmap(softField(art, bg, w, h), 0f, 0f, null) else drawColor(bg)
             drawBitmap(logo, null, RectF(left, top, left + dw, top + dh), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
         }
         logo.recycle()
         return out
+    }
+
+    /** The art blurred and boosted into a smooth field the size of the hero, tinted toward its edge colour. */
+    private fun softField(art: Bitmap, bg: Int, w: Int, h: Int): Bitmap {
+        val field = dev.glasslauncher.glass.Blur.backdrop(art, w / 4, h / 4, radius = 8, saturation = 1.3f)
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        Canvas(out).apply {
+            drawBitmap(field, null, Rect(0, 0, w, h), Paint(Paint.FILTER_BITMAP_FLAG))
+            drawColor(Color.argb(110, Color.red(bg), Color.green(bg), Color.blue(bg)))
+        }
+        field.recycle()
+        return out
+    }
+
+    /** No usable art: a quiet vertical gradient from the app's own colour (lighter above, deeper below). */
+    private fun plainField(art: Bitmap, bg: Int, w: Int, h: Int): Bitmap {
+        val top = Color.rgb(minOf(255, Color.red(bg) + 28), minOf(255, Color.green(bg) + 28), minOf(255, Color.blue(bg) + 28))
+        val bottom = Color.rgb((Color.red(bg) * 0.7f).toInt(), (Color.green(bg) * 0.7f).toInt(), (Color.blue(bg) * 0.7f).toInt())
+        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { out ->
+            Canvas(out).drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
+                shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), top, bottom, android.graphics.Shader.TileMode.CLAMP)
+            })
+        }
     }
 
     /** The art's background: the average of its opaque border pixels (rounded transparent corners skipped). */

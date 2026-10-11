@@ -332,15 +332,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // A Cover Flow step whose cover was baked ahead (the neighbours are, below) shows at once.
         // Expanded (the Cover Flow): the soft cover scene; at rest: the 2000 px album art sharp when Spotify has it,
         // else the same soft scene (P79). Different looks, so different keys.
-        fun coverKey(u: String) = if (coverShelf) "$u|$dark" else "$u|$dark|rest"
-        val coverReady = if (coverBackdrop) sceneUrl?.let { HeroCache.cover[coverKey(it)] } else null
+        val coverCache = if (coverShelf) HeroCache.cover else HeroCache.rest
+        val coverReady = if (coverBackdrop) sceneUrl?.let { coverCache["$it|$dark"] } else null
         // Let quick left/right browsing settle before re-baking the glass (a Cover Flow scrolls in quick steps).
         if (ready == null && coverReady == null && expanded) delay(if (coverBackdrop) COVER_SETTLE_MS else 220)
         backdrop.glassFades = true
         val next = ready ?: coverReady ?: sceneUrl?.let { url ->
             runCatching {
                 if (coverBackdrop) (if (coverShelf) graph.wallpapers.coverFromUrl(url, light = !dark) else graph.wallpapers.squareRestFromUrl(url, light = !dark))
-                    ?.also { HeroCache.cover[coverKey(url)] = it }
+                    ?.also { coverCache["$url|$dark"] = it }
                 else graph.wallpapers.fromUrl(url, light = !dark)
             }.getOrNull()
         } ?: graph.wallpapers.load(wallpaper, light = !dark)
@@ -532,7 +532,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (url != null) {
             // Square covers: the soft cover scene, cached under the key the resting backdrop looks up (P79).
             if (dev.glasslauncher.featured.CardShape.square(feed.items)) {
-                if (HeroCache.cover["$url|$dark|rest"] == null) runCatching { graph.wallpapers.squareRestFromUrl(url, light = !dark) }.getOrNull()?.let { HeroCache.cover["$url|$dark|rest"] = it }
+                // Background priority, like the non-square prebake: a 2000 px decode must not land in a scroll.
+                if (HeroCache.rest["$url|$dark"] == null) runCatching { graph.wallpapers.squareRestFromUrl(url, background = true, light = !dark) }.getOrNull()?.let { HeroCache.rest["$url|$dark"] = it }
             } else runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
         }
         feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }

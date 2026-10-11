@@ -56,18 +56,6 @@ class CoverSceneTest {
         assertEquals(Color.rgb(200, 30, 30), c.getPixel(10, 10))
     }
 
-    // P79: a cover is too small to fill the screen sharp; the pure rule that says so.
-    @Test fun smallArtNeedsTheSoftBackdrop() {
-        assertTrue("a 640 cover on 1080p is 3x", needsSoftBackdrop(640, 640))
-        assertTrue("a 1280x720 picture is 1.5x", needsSoftBackdrop(1280, 720))
-        assertTrue("a 1500 px wide picture is 1.28x", needsSoftBackdrop(1500, 844))
-        assertTrue("a 1920 px wide picture is 1.0x", !needsSoftBackdrop(1920, 1080))
-        assertTrue("a 1600 px wide picture is 1.2x", !needsSoftBackdrop(1600, 900))
-        // Only the part that shows counts: a tall portrait is cropped to its width.
-        assertTrue("a 1920x2880 poster crops to 1920 wide: sharp", !needsSoftBackdrop(1920, 2880))
-        assertTrue("nothing known: leave it", !needsSoftBackdrop(0, 0))
-    }
-
     /** A busy, colourful 640 px "playlist cover": a grid of saturated tiles with a bright diagonal. */
     private fun busyCover(): Bitmap = Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888).apply {
         val palette = intArrayOf(Color.rgb(220, 60, 60), Color.rgb(240, 180, 40), Color.rgb(50, 160, 90), Color.rgb(60, 90, 210), Color.rgb(170, 70, 190))

@@ -1,0 +1,70 @@
+package dev.glasslauncher.apps
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.github.takahirom.roborazzi.captureRoboImage
+import dev.glasslauncher.glass.Blur
+import dev.glasslauncher.glass.ImageGate.Level
+import dev.glasslauncher.shots.TV
+import dev.glasslauncher.shots.shot
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
+
+/** P81: a logo hero is never enlarged past 1.25x its own pixels; icon-sized art is no logo at all. A golden per level. */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [35], qualifiers = TV)
+class LogoHeroGateTest {
+    /** A brand on its colour: a bold white "N"-ish block mark with a bar, [w]x[h], so ink and edge colour are clear. */
+    private fun logoArt(w: Int, h: Int): Bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { b ->
+        val c = Canvas(b)
+        c.drawColor(Color.rgb(24, 70, 160))
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        val u = w / 10f
+        c.drawRect(3.0f * u, 0.30f * h, 3.9f * u, 0.70f * h, p)
+        c.drawRect(6.1f * u, 0.30f * h, 7.0f * u, 0.70f * h, p)
+        c.drawRect(3.0f * u, 0.30f * h, 7.0f * u, 0.44f * h, p)
+    }
+
+    @Test fun planIsPure() {
+        // Native 1280 px art, logo ink 400 px, drawn at 1:1 to 666 px: 1.67x wanted from native: soft... unless native is big.
+        assertEquals(Level.Sharp, LogoHero.plan(inkW = 700, inkH = 300, w = 1280, h = 720, nativeFactor = 1f).level)
+        assertEquals(Level.Soft, LogoHero.plan(inkW = 300, inkH = 150, w = 1280, h = 720, nativeFactor = 1f).level)
+        assertEquals(Level.Plain, LogoHero.plan(inkW = 60, inkH = 60, w = 1280, h = 720, nativeFactor = 1f).level)
+        assertEquals("vectors scale cleanly", Level.Sharp, LogoHero.plan(inkW = 100, inkH = 50, w = 1280, h = 720, nativeFactor = null).level)
+        // A 320 px banner enlarged to 960 (factor 3): the logo may be drawn at 1.25/3 of the art pixels.
+        val p = LogoHero.plan(inkW = 480, inkH = 200, w = 1280, h = 720, nativeFactor = 3f)
+        assertEquals(Level.Soft, p.level)
+        assertEquals(1.25f / 3f, p.scale, 0.001f)
+    }
+
+    private fun composeCpu(art: Bitmap, factor: Float?): Bitmap {
+        Blur.forceCpu = true
+        try { return LogoHero.compose(art, 1280, 720, factor) } finally { Blur.forceCpu = false }
+    }
+
+    @Test fun sharpLevelDrawsTheLogoAtItsWantedSize() {
+        composeCpu(logoArt(1280, 720), 1f).captureRoboImage(shot("gate-hero-sharp"))
+    }
+
+    @Test fun softLevelKeepsTheLogoSharpAndSmallerOnAColourField() {
+        // A 320x180 raster banner enlarged into a 960 px bitmap (factor 3).
+        val out = composeCpu(logoArt(960, 540), 3f)
+        out.captureRoboImage(shot("gate-hero-soft"))
+        // The logo's ink is narrower than the 52% a sharp hero would give it.
+        val inkCols = (0 until out.width).filter { x -> (0 until out.height step 4).any { y -> Color.red(out.getPixel(x, y)) > 235 && Color.green(out.getPixel(x, y)) > 235 } }
+        assertTrue("ink spans ${inkCols.size} px", inkCols.isNotEmpty() && inkCols.last() - inkCols.first() < 1280 * 0.40)
+    }
+
+    @Test fun plainLevelIsOnlyTheAppsColour() {
+        val out = composeCpu(logoArt(64, 64), 1f)
+        out.captureRoboImage(shot("gate-hero-plain"))
+        // No white ink anywhere: a clean gradient.
+        assertTrue("no logo", (0 until out.width step 8).none { x -> (0 until out.height step 8).any { y -> Color.red(out.getPixel(x, y)) > 200 } })
+    }
+}

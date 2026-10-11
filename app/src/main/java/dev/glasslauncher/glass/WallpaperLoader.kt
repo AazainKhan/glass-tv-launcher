@@ -107,12 +107,15 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
 
     /** [fromHeroArt] from a URL (Coil's disk cache; nothing kept in memory). */
     suspend fun heroFromUrl(url: String, light: Boolean = false): Backdrop? {
+        // A stock or placeholder picture is not the app's art: the caller falls back to the app's own banner/icon.
+        if (ImageGate.isPlaceholder(url)) return null
         val request = coil3.request.ImageRequest.Builder(context).data(url).size(HERO_W, HERO_H).allowHardware(false)
             .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
         val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: return null
         val bitmap = image.toBitmap()
         // Amazon's icon is the logo on its colour; laid out tvOS's way (about half the width, above the tray).
-        val hero = dev.glasslauncher.apps.LogoHero.compose(bitmap, HERO_W, HERO_H)
+        // Decoded at its own size (Coil never enlarges): one art pixel is one native pixel.
+        val hero = dev.glasslauncher.apps.LogoHero.compose(bitmap, HERO_W, HERO_H, nativeFactor = 1f)
         bitmap.recycle()
         return fromHeroArt(hero, light).also { hero.recycle() }
     }
@@ -126,26 +129,24 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         val request = coil3.request.ImageRequest.Builder(context).data(url).size(COVER_SRC, COVER_SRC).allowHardware(false)
             .memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()
         val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: return null
-        val cover = image.toBitmap()
-        val scene = withContext(BakeDispatcher) { blurReady; coverScene(cover) }
-        cover.recycle()
+        return softFromBitmap(image.toBitmap(), light)
+    }
+
+    /**
+     * The soft level of the quality gate ([ImageGate]): [art] (recycled) centre-cropped to the screen's shape,
+     * heavily blurred and colour-boosted, with the cover look's sheen and shade; baked like any backdrop.
+     */
+    private suspend fun softFromBitmap(art: Bitmap, light: Boolean): Backdrop {
+        val scene = withContext(BakeDispatcher) { blurReady; coverScene(art) }
+        art.recycle()
         // At the hero size (1280x720), not 1080p: it is soft anyway, and a step in the Cover Flow must not wait on a
         // full-screen bake (that took ~1.1 s on the stick).
         return fromHeroArt(scene, light = light).also { scene.recycle() }
     }
 
-    /**
-     * The backdrop for a square cover shown at rest (P79): Spotify publishes albums at 640 px but serves the same
-     * art at 2000 px under another size code ([SpotifyArt.large]); baked sharp from that, the full-screen crop is
-     * under 1x. Anything without a larger variant (artists: 640 is their largest), or when it can't be fetched,
-     * gets the soft cover backdrop ([coverFromUrl]): never a 640 px picture stretched to 1080p.
-     */
-    suspend fun squareRestFromUrl(url: String, light: Boolean = false): Backdrop? {
-        SpotifyArt.large(url)?.let { big ->
-            runCatching { fromUrl(big, light = light) }.getOrNull()?.let { return it }
-        }
-        return coverFromUrl(url, light)
-    }
+    /** The resting backdrop of a square cover (P79): the same quality ladder as any picture, see [fromUrl]. */
+    suspend fun squareRestFromUrl(url: String, background: Boolean = false, light: Boolean = false): Backdrop? =
+        fromUrl(url, background = background, light = light)
 
     /** Starts the expensive one-time setup (RenderScript, the image loader) before the first bake needs it. */
     fun prewarm() {
@@ -155,19 +156,36 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
 
     enum class Scene { Wallpaper, Hero }
 
-    /** Downloads (or reuses Coil's cache for) a featured image and bakes it as the Home backdrop. */
+    /**
+     * Downloads (or reuses Coil's cache for) a featured image and bakes it as the Home backdrop, through the
+     * quality gate ([ImageGate], P79/P81): a larger variant of the same picture is tried first ([Variants]); a
+     * picture that would be stretched more than 1.25x is baked as the soft colour backdrop made from it; icon-sized
+     * or placeholder art gives null (the caller shows the theme's own backdrop). Never a stretched picture.
+     */
     suspend fun fromUrl(url: String, background: Boolean = false, light: Boolean = false): Backdrop? {
-        val request = coil3.request.ImageRequest.Builder(context)
-            .data(url)
-            .size(SHARP_W, SHARP_H)
-            .allowHardware(false)
-            // Baked into the backdrop right away; keeping the 3.6 MB source in Coil's memory cache only costs PSS.
-            .memoryCachePolicy(coil3.request.CachePolicy.DISABLED)
-            .build()
-        val result = coil3.SingletonImageLoader.get(context).execute(request)
-        val image = (result as? coil3.request.SuccessResult)?.image ?: return null
-        val bitmap = image.toBitmap()
-        return fromImage(bitmap, background = background, light = light).also { bitmap.recycle() }
+        var best: Bitmap? = null
+        for (candidate in Variants.candidates(url)) {
+            val request = coil3.request.ImageRequest.Builder(context)
+                .data(candidate)
+                .size(SHARP_W, SHARP_H)
+                .allowHardware(false)
+                // Baked into the backdrop right away; keeping the 3.6 MB source in Coil's memory cache only costs PSS.
+                .memoryCachePolicy(coil3.request.CachePolicy.DISABLED)
+                .build()
+            val image = (coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult)?.image ?: continue
+            val bitmap = image.toBitmap()
+            if (ImageGate.decide(candidate, bitmap.width, bitmap.height) == ImageGate.Level.Sharp) {
+                best?.recycle()
+                return fromImage(bitmap, background = background, light = light).also { bitmap.recycle() }
+            }
+            // Not sharp enough: keep the largest of the candidates for the soft level.
+            if (best == null || bitmap.width.toLong() * bitmap.height > best.width.toLong() * best.height) { best?.recycle(); best = bitmap } else bitmap.recycle()
+        }
+        val art = best ?: return null
+        return when (ImageGate.decide(url, art.width, art.height)) {
+            ImageGate.Level.Plain -> { art.recycle(); null }
+            else -> softFromBitmap(art, light)
+        }
     }
 
     /**

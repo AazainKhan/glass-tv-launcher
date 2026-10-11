@@ -55,15 +55,3 @@ internal fun coverScene(cover: Bitmap, blurRadius: Int = CoverLook.BLUR_RADIUS, 
 }
 
 private fun argb(alpha: Float, grey: Int) = ((alpha * 255).toInt() shl 24) or (grey shl 16) or (grey shl 8) or grey
-
-/**
- * Whether art [srcW]x[srcH] is too small to fill a [targetW]x[targetH] screen without being stretched more than
- * [limit] times (P79): the scale needed after cropping the art to the screen's shape. A square 640 cover on 1080p
- * is 3x: it gets the soft backdrop ([coverScene]); a 1920 px wide picture does not.
- */
-internal fun needsSoftBackdrop(srcW: Int, srcH: Int, targetW: Int = 1920, targetH: Int = 1080, limit: Float = 1.25f): Boolean {
-    if (srcW <= 0 || srcH <= 0) return false
-    // The part of the art that shows: the full width if the art is at least as tall as the screen's shape, else the full height.
-    val cropW = if (srcH * targetW >= srcW * targetH) srcW.toFloat() else srcH * targetW / targetH.toFloat()
-    return targetW / cropW > limit
-}
