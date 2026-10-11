@@ -35,12 +35,14 @@ object CcCatalog {
         CcCatalogEntry("vpn", "VPN", "Shows if a VPN is on; opens its app", R.drawable.ic_vpn),
         CcCatalogEntry("restart", "Restart", "Restart Fire TV", R.drawable.ic_restart, tier = CcTier.System),
         CcCatalogEntry("cleanup", "Clean Up", "Free memory and clear caches", R.drawable.ic_cleaning_services, tier = CcTier.System),
-        // The control arrives with milestone 6.
-        CcCatalogEntry("now_playing", "Now Playing", "Play, pause, skip any app", R.drawable.ic_music_note, implemented = false),
+        CcCatalogEntry("now_playing", "Now Playing", "Play, pause, skip any app", R.drawable.ic_music_note),
     ).filter { it.implemented }
 
     /** Controls the installed add-ons declare (the add-on platform is not built yet: none). */
-    val addons: List<CcCatalogEntry> = emptyList()
+    val addons: List<CcCatalogEntry>
+        get() = if (!CcShowcase.enabled) emptyList() else CcShowcase.tiles.map {
+            CcCatalogEntry(it.id, it.name, it.description, it.icon, addon = it.addon)
+        }
 
     fun all(): List<CcCatalogEntry> = glass + addons
     fun entry(id: String): CcCatalogEntry? = all().firstOrNull { it.id == id }

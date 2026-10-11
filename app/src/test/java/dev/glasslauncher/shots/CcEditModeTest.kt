@@ -119,7 +119,13 @@ class CcEditModeTest {
             compose.press(Button.Select)
             compose.settle()
             assertTrue("the new page is empty", !exists("cc-tile:wifi") && !exists("cc-tile:bluetooth"))
-            assertTrue("with its Add a Control slot", exists("cc-add"))
+            assertTrue("and the gallery opens for it", exists("cc-gallery"))
+            // Back from the gallery, then Back again: edit mode ends (the empty page is dropped) and Control Center stays.
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.settle()
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.settle()
+            assertTrue("edit mode over, Control Center still open", !exists("cc-edit-hints") && exists("control-center") && exists("cc-tile:wifi"))
         }
     }
 }

@@ -87,7 +87,7 @@ private val Blue = Color(0xFF0A84FF)
  * Tile sizes grow with the text size (Settings › Display & Text), so labels keep fitting instead of
  * being cut off: at Larger the Wi-Fi network name was truncated in a fixed 128 dp pill.
  */
-private class CcSizes(k: Float) {
+internal class CcSizes(k: Float) {
     /**
      * tvOS 27's Control Center is one grid of square cells: u is a cell, gap the one space between cells.
      * Circles are 1×1, pills 2×1 (as tall as a circle), the big tile 2×2 and square, wide rows 4×1, and the
@@ -476,6 +476,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var pageId by remember(active) { androidx.compose.runtime.mutableStateOf("controls") }
     // While a lifted tile is held over the menu bar (Up from the top row): the page it will drop onto.
     var hoverPage by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // The Add a Control gallery (null = closed, "" = the groups, else a group key): the + page icon opens it too.
+    var gallery by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // Showcase add-on tiles (debug flag): the Agents card, in place of the grid like the gallery.
+    CcShowcase.enabled = remember(active) { CcShowcase.flag(context) }
+    val agents = remember { CcAgentState() }
+    var agentCard by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Page icons show with more than one page, or while editing (the + icon makes a page).
     val alexaPage = layout.pages.size > 1 || editing
     // The focused round button's name, shown under the round buttons (they're icons only).
@@ -641,6 +647,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         draft?.let { d ->
                             val id = "page${d.pages.size}-${System.currentTimeMillis() % 100000}"
                             draft = d.copy(pages = d.pages + CcPage(id, "auto", emptyList())); pageId = id
+                            gallery = ""
                         }
                     })
                 }
@@ -705,7 +712,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             // The Add a Control gallery, in place of the grid (it's a window of its own, so the draft stays here):
             // null = closed, "" = the three groups, else a group key ("glass", "addons", "byapp").
-            var gallery by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
             val requesters = remember { mutableMapOf<String, FocusRequester>() }
             var pendingFocus by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
             LaunchedEffect(pendingFocus, placed) {
@@ -723,9 +729,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
             // closing Control Center save too).
-            androidx.compose.runtime.DisposableEffect(editing, lifted, gallery) {
-                ControlCenterWindow.editBack = if (editing) ({
+            androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard) {
+                val mine: (() -> Boolean)? = if (editing || agentCard) ({
                     when {
+                        // Back on the permission card is Deny.
+                        agentCard -> { agents.waiting = 0; agents.result = "Denied"; agentCard = false }
                         gallery == "" -> gallery = null
                         gallery != null -> gallery = ""
                         lifted != null -> cancelLift()
@@ -733,7 +741,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     }
                     true
                 }) else null
-                onDispose { ControlCenterWindow.editBack = null }
+                ControlCenterWindow.editBack = mine
+                // A page switch disposes the old page's effect after the new one set its own: only clear what is ours.
+                onDispose { if (ControlCenterWindow.editBack === mine) ControlCenterWindow.editBack = null }
             }
 
             // Edit mode's wobble: ONE infinite transition for the whole grid, rotationZ only (+/-0.8 degrees, 190 ms half
@@ -745,14 +755,40 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-wobble-t",
             )
             val wobbling = editing && !reduceMotion
-            if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
+            LaunchedEffect(agents.result) { if (agents.result != null) { kotlinx.coroutines.delay(2_000); agents.result = null } }
+            if (editing && gallery == null && !agentCard) Box(
+                Modifier.padding(bottom = sz.gap).width(sz.column).ccSurface(RoundedCornerShape(22.dp), LocalCcSheet.current)
+                    .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-edit-hints"),
+            ) {
+                Text(
+                    if (lifted != null) "Move · Select Drop\nBack Cancel" else "Select Move · ≡ Size · ⏯ Remove\nBack Done",
+                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
+                )
+            }
+            if (agentCard) CcAgentCard(sz) { allowed ->
+                agents.waiting = 0; agents.result = if (allowed) "Allowed" else "Denied"; agentCard = false
+                pendingFocus = "addon:claude/agents"
+            } else if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
             Box(
                 Modifier
                     .width(sz.column)
                     .height(if (rows == 0) 0.dp else u * rows + sz.gap * (rows - 1))
                     .onPreviewKeyEvent { e ->
                         val k = e.nativeKeyEvent
-                        if (!editing) return@onPreviewKeyEvent false
+                        if (!editing) {
+                            // On the 2x2 Now Playing, Left and Right are previous and next (wide enough that focus
+                            // already arrived from a neighbour); at 2x1 and 1x1 they move focus as usual.
+                            val playing = np
+                            val isBig = placed.firstOrNull { it.tile.id == "now_playing" }?.tile?.size == CcSize.S2x2
+                            if (focusedId == "now_playing" && isBig && playing != null &&
+                                (k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT || k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                                if (k.action == android.view.KeyEvent.ACTION_DOWN) {
+                                    if (k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) playing.previous() else playing.next()
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                            return@onPreviewKeyEvent false
+                        }
                         val down = k.action == android.view.KeyEvent.ACTION_DOWN
                         if (lifted != null) when (k.keyCode) {
                             android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
@@ -863,6 +899,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 onPlay = playOr { }) {
                                 tap { val next = !fast; fast = next; scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) } }()
                             }
+                            "now_playing" -> NowPlayingTile(np, tile.size, w, h, focusMod, hold, wobbleOn, ::tap, ::playOr, label)
                             "sleep_timer" -> {
                                 val value = dev.glasslauncher.system.SleepTimer.label(sleepLeft)
                                 val go = tap {
@@ -915,6 +952,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 }()
                             }
                         }
+                        if (CcShowcase.isShowcase(id)) ShowcaseTile(
+                            id, tile.size, w, h, agents, { agentCard = true }, focusMod, hold, wobbleOn, ::tap, ::playOr, label,
+                        )
                         // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.
                         if (editing && CcControls.removable(id)) Box(
                             Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp).size(18.dp)
@@ -927,15 +967,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             if (editing && lifted == null) CcTile("Add a Control", null, Shapes.pill, sz.column, sz.pill, onClick = { gallery = "" }, modifier = Modifier.padding(top = sz.gap).testTag("cc-add")) { fg ->
                 PillContent(R.drawable.ic_add, "Add a Control", null, fg, on = false, accent = fg)
             }
-            if (editing) Box(
-                Modifier.padding(top = sz.gap).width(sz.column).ccSurface(RoundedCornerShape(22.dp), LocalCcSheet.current)
-                    .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-edit-hints"),
-            ) {
-                Text(
-                    if (lifted != null) "Move · Select Drop\nBack Cancel" else "Select Move · ≡ Size · ⏯ Remove\nBack Done",
-                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
-                )
-            } else {
+            if (!editing) {
                 // The Edit pill: discoverability for hold-Select.
                 CcTile("Edit", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { enterEdit(refocus = true) }, modifier = Modifier.testTag("cc-edit")) { fg ->
                     PillContent(R.drawable.ic_edit_square, "Edit", null, fg, on = false, accent = fg)
@@ -1073,7 +1105,7 @@ private fun discColor(on: Boolean, fg: Color): Color {
 
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
 @Composable
-private fun PillContent(
+internal fun PillContent(
     @DrawableRes icon: Int,
     title: String,
     value: String?,
@@ -1100,7 +1132,7 @@ private fun PillContent(
 }
 
 @Composable
-private fun Round(
+internal fun Round(
     @DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {},
     modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onPlay: (() -> Unit)? = null, wiggle: Boolean = false,
     onClick: () -> Unit,
@@ -1118,7 +1150,7 @@ private fun Round(
 }
 
 @Composable
-private fun CcTile(
+internal fun CcTile(
     title: String,
     value: String?,
     shape: Shape,
@@ -1243,7 +1275,8 @@ private fun ccPageIcon(page: CcPage): Int = when (page.icon) {
     "home" -> R.drawable.ic_home
     "alexa" -> R.drawable.ic_mic
     "grid" -> R.drawable.ic_tune
-    else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.icon } ?: R.drawable.ic_tune
+    // A page of your own: its first control's glyph; a neutral one while it is empty (so it isn't mistaken for Controls).
+    else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.icon } ?: R.drawable.ic_widgets
 }
 
 /** The page's name for the icon's description: Controls and Alexa as before, the rest by their first control or "Page". */
