@@ -70,6 +70,21 @@ class RemoteKeysService : AccessibilityService() {
             SleepTimer.set(this, 0)
             showBanner("Sleep timer cancelled", 2_000)
         }
+        // "You can always back out" (P87): Back or Home while the app Glass just started hasn't drawn a window yet
+        // cancels it and returns Home. The gate closes the moment any app window appears, so Back inside an app is
+        // never taken. Both halves of the press are swallowed.
+        if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_HOME) && app.config.config.value.instantBack) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && LaunchGate.interruptible(now)) {
+                Log.i(TAG, "instant back: ${LaunchGate.launching(now)} hadn't drawn yet")
+                LaunchGate.clear()
+                interrupted = true
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                return true
+            }
+            if (interrupted && event.action == KeyEvent.ACTION_UP) { interrupted = false; return true }
+            if (interrupted) return true
+        }
         // Escape hatch: holding Back for 1.5 s goes Home from any app, even one that swallows Back, Home
         // and Recents (Fire TV Early Access did). The press itself still reaches the app. Timed from the
         // first down, not from key repeats: the system makes those after accessibility services have seen
@@ -98,6 +113,8 @@ class RemoteKeysService : AccessibilityService() {
     }
 
     private var escaped = false
+    /** A Back/Home press was taken as "cancel the launch": its remaining events are swallowed too. */
+    private var interrupted = false
     private val escape = Runnable {
         escaped = true
         runCatching { startActivity(HomeSetup.homeIntent(this)) }
@@ -166,6 +183,8 @@ class RemoteKeysService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
+        // Any window of another app (the target's, or a trampoline's) means the launch is on screen: Back is the app's.
+        if (pkg != packageName && pkg != "com.android.systemui") LaunchGate.windowShown(pkg, android.os.SystemClock.uptimeMillis())
         // Glass's own windows other than Home (the Control Center overlay itself) aren't an app change.
         val glassHome = pkg == packageName && event.className?.toString() == MainActivity::class.java.name
         if (pkg == packageName && !glassHome) return

@@ -705,6 +705,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     BackHandler {
         when {
+            // Back during the app-open zoom, before the app was started: undo it (P87).
+            transition.cancelBeforeHandoff() -> Unit
             moving != null -> moving = null
             folderMoving != null -> folderMoving = null
             // Control Center's edit mode takes Back first (cancel a lift, then save and leave edit mode).

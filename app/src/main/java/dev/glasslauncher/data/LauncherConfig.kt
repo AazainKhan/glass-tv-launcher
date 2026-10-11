@@ -44,6 +44,8 @@ data class LauncherConfig(
     val ccLayout: String? = null,
     /** Settings › About (Select on Version seven times): Control Center's demo add-on tiles, with fake data. Off by default. */
     val ccDemoTiles: Boolean = false,
+    /** Back or Home while an app Glass just started is still loading returns Home at once (P87). */
+    val instantBack: Boolean = true,
     /** Which one-time "hide by default" additions have been applied to this install. */
     val hiddenMigration: Int = 0,
     /** Screensaver: Glass's Aerials or photo slideshow, or Fire TV's own screensaver. */

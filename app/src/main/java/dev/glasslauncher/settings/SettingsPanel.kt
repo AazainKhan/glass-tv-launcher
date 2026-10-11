@@ -889,6 +889,8 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
     val requestIntent = remember(refresh) { HomeSetup.requestDefaultHomeIntent(context) }
     PanelTitle("Home Button")
     MenuRow("Default Home App", { refresh++ }, f, value = if (isDefault) "Glass TV Launcher" else "Another app")
+    ToggleRow("Instant back while apps load", cfg.instantBack, { on -> model.edit { it.copy(instantBack = on) } },
+        help = "Back or Home while an app you just opened is still loading cancels it and returns Home at once. Needs the Glass accessibility service. Back inside a running app is never changed.")
     if (!isDefault && requestIntent != null) {
         MenuRow("Make Glass TV Launcher the Default", { runCatching { context.startActivity(requestIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
     }

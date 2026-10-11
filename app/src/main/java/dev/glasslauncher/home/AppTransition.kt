@@ -91,6 +91,26 @@ class AppTransition(
 
     val running get() = window != null
 
+    /** The app hasn't been asked to start yet (the zoom is still within [HANDOFF_MS]). */
+    private var startRequested = false
+
+    /**
+     * Back during the zoom, before the app has been started: reverse the zoom and never start it (P87). False when
+     * there is nothing to cancel (no open zoom, or the app is already starting: Glass can't undo a start).
+     */
+    fun cancelBeforeHandoff(): Boolean {
+        if (window == null || closing || startRequested || job?.isActive != true) return false
+        job?.cancel()
+        job = scope.launch {
+            launch { fill.animateTo(0f, tween(CLOSE_FADE_MS)) }
+            progress.animateTo(0f, tween(CLOSE_MS, easing = FastOutSlowInEasing))
+            coverAlpha.animateTo(0f, tween(UNBLUR_MS))
+            reset()
+        }
+        last = null
+        return true
+    }
+
     fun open(app: AppEntry, from: Rect?, art: ImageBitmap?, view: android.view.View) {
         if (from == null || backdrop.rootSize == IntSize.Zero) { model.launch(app, view, from); return }
         job?.cancel()
@@ -109,11 +129,15 @@ class AppTransition(
             settle.snapTo(1f)
             window = w
             last = w
+            startRequested = false
             lastAt = android.os.SystemClock.uptimeMillis()
             launch { fill.animateTo(1f, tween(FILL_MS)) }
             launch { progress.animateTo(1f, tween(OPEN_MS, easing = ZoomOut)) }
             delay(HANDOFF_MS)
+            startRequested = true
             if (!startApp(app)) { reset(); return@launch }
+            // From here until its first window shows, Back or Home means "cancel it" (RemoteKeysService).
+            dev.glasslauncher.system.LaunchGate.begin(app.packageName, android.os.SystemClock.uptimeMillis())
             model.noteLaunched(app.packageName)
             // Some apps take seconds to cover Home; only undo if the app never took focus from it.
             delay(2_500)
