@@ -1,6 +1,7 @@
 package dev.glasslauncher.shots
 
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -52,6 +53,11 @@ class CcShowcaseTest {
                 compose.settle()
                 assertTrue("approve card", exists("cc-agent-card"))
                 assertTrue("Deny focused first: ${compose.focused()}", compose.focused()?.startsWith("cc-agent-deny") == true)
+                // The whole card is on screen, under the header: laid out in the panel, not in the scrolled tiles.
+                val card = compose.onNodeWithTag("cc-agent-card").fetchSemanticsNode().boundsInRoot
+                val clock = compose.onNodeWithTag("cc-clock").fetchSemanticsNode().boundsInRoot
+                assertTrue("card top ${card.top} is below the header (${clock.bottom})", card.top >= clock.bottom)
+                assertTrue("card bottom ${card.bottom} is inside the screen", card.bottom <= compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom)
                 compose.onRoot().captureRoboImage(shot("cc-agent-card"))
                 // Back is Deny: the card closes and the tile reads Denied.
                 scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }

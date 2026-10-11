@@ -149,6 +149,7 @@ class CcEditModeTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
             assertTrue("Back cancels and stays", !exists("cc-confirm") && exists("cc-tile:restart"))
+            assertTrue("focus returns to the Restart tile: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:restart") == true)
         }
     }
 }

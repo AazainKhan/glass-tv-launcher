@@ -508,6 +508,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var agentCard by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Restart's confirm is drawn here, over the grid (an overlay opened after Control Center closes was lost).
     var restartAsk by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // A control that should take focus once it is on screen (a new tile, the one a card or confirm came from).
+    var pendingFocus by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Page icons show with more than one page, or while editing (the + icon makes a page).
     val alexaPage = layout.pages.size > 1 || editing
     // The focused round button's name, shown under the round buttons (they're icons only).
@@ -544,6 +546,28 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     }
     LaunchedEffect(exiting) { if (exiting && draft != null) saveDraft() }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { saveDraft() } }
+    var liftBase by remember(active) { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
+    fun commitDraft() { saveDraft(); lifted = null; liftBase = null }
+    fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
+    // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
+    // closing Control Center save too).
+    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk) {
+        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk) ({
+            when {
+                restartAsk -> { restartAsk = false; pendingFocus = "restart" }
+                // Back on the permission card is Deny.
+                agentCard -> { agents.waiting = 0; agents.result = "Denied"; agentCard = false; pendingFocus = "addon:claude/agents" }
+                gallery == "" -> gallery = null
+                gallery != null -> gallery = ""
+                lifted != null -> cancelLift()
+                else -> commitDraft()
+            }
+            true
+        }) else null
+        ControlCenterWindow.editBack = mine
+        // A page switch disposes the old page's effect after the new one set its own: only clear what is ours.
+        onDispose { if (ControlCenterWindow.editBack === mine) ControlCenterWindow.editBack = null }
+    }
     val exitingNowEarly = androidx.compose.runtime.rememberUpdatedState(exiting)
     val exitingNow = exitingNowEarly
     // Where the close began (read once, here, so it isn't a per-frame dependency): the bubble turns from there.
@@ -692,9 +716,32 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
                 )
             }
+            // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
+            // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
+            if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 12.dp, bottom = 4.dp)) {
+            if (restartAsk) {
+                val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
+                CcConfirmCard(
+                    sz,
+                    title = if (canReboot) "Restart Fire TV?" else "Restart from Settings",
+                    body = if (canReboot) "Apps that are open will close." else "Fire TV can restart from Settings › My Fire TV.",
+                    confirm = if (canReboot) "Restart" else "Open Fire Settings",
+                    destructive = canReboot,
+                    onCancel = { restartAsk = false; pendingFocus = "restart" },
+                ) {
+                    restartAsk = false
+                    closeAll()
+                    if (canReboot) scope.launch { if (!dev.glasslauncher.system.RootFeatures.reboot(context)) SystemControls.open(context, Settings.ACTION_SETTINGS) }
+                    else SystemControls.open(context, Settings.ACTION_SETTINGS)
+                }
+            } else if (agentCard) CcAgentCard(sz) { allowed ->
+                agents.waiting = 0; agents.result = if (allowed) "Allowed" else "Denied"; agentCard = false
+                pendingFocus = "addon:claude/agents"
+            }
+            }
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
-            Column(
+            if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
                     .weight(1f, fill = false)
@@ -728,9 +775,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) }
             val placed = remember(tilesNow) { CcPacking.pack(tilesNow) }
             val rows = placed.maxOfOrNull { it.row + it.tile.size.h } ?: 0
-            var liftBase by remember(active) { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
             var focusedId by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
-            fun commitDraft() { saveDraft(); lifted = null; liftBase = null }
             fun enterEdit(refocus: Boolean = false) {
                 if (draft == null) draft = storedLayout
                 // The Alexa page isn't editable: edit mode starts on Controls.
@@ -745,7 +790,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 if (target != null && target != pid) { draft = draft?.moveToPage(pid, id, target); pageId = target }
                 hoverPage = null; lifted = null; liftBase = null
             }
-            fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
             fun moveLifted(dx: Int, dy: Int) {
                 val d = draft ?: return; val id = lifted ?: return
                 val all = d.page(pid)?.tiles ?: return
@@ -765,7 +809,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // The Add a Control gallery, in place of the grid (it's a window of its own, so the draft stays here):
             // null = closed, "" = the three groups, else a group key ("glass", "addons", "byapp").
             val requesters = remember { mutableMapOf<String, FocusRequester>() }
-            var pendingFocus by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
             LaunchedEffect(pendingFocus, placed) {
                 val id = pendingFocus ?: return@LaunchedEffect
                 if (placed.none { it.tile.id == id }) return@LaunchedEffect
@@ -778,25 +821,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 draft = d.add(pid, id)
                 gallery = null
                 pendingFocus = id
-            }
-            // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
-            // closing Control Center save too).
-            androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk) {
-                val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk) ({
-                    when {
-                        restartAsk -> restartAsk = false
-                        // Back on the permission card is Deny.
-                        agentCard -> { agents.waiting = 0; agents.result = "Denied"; agentCard = false }
-                        gallery == "" -> gallery = null
-                        gallery != null -> gallery = ""
-                        lifted != null -> cancelLift()
-                        else -> commitDraft()
-                    }
-                    true
-                }) else null
-                ControlCenterWindow.editBack = mine
-                // A page switch disposes the old page's effect after the new one set its own: only clear what is ours.
-                onDispose { if (ControlCenterWindow.editBack === mine) ControlCenterWindow.editBack = null }
             }
 
             // Edit mode's wobble: ONE infinite transition for the whole grid, rotationZ only (+/-0.8 degrees, 190 ms half
@@ -811,25 +835,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-wobble-t",
             ) else remember { androidx.compose.runtime.mutableStateOf(0f) }
             LaunchedEffect(agents.result) { if (agents.result != null) { kotlinx.coroutines.delay(2_000); agents.result = null } }
-            if (restartAsk) {
-                val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
-                CcConfirmCard(
-                    sz,
-                    title = if (canReboot) "Restart Fire TV?" else "Restart from Settings",
-                    body = if (canReboot) "Apps that are open will close." else "Fire TV can restart from Settings › My Fire TV.",
-                    confirm = if (canReboot) "Restart" else "Open Fire Settings",
-                    destructive = canReboot,
-                    onCancel = { restartAsk = false },
-                ) {
-                    restartAsk = false
-                    closeAll()
-                    if (canReboot) scope.launch { if (!dev.glasslauncher.system.RootFeatures.reboot(context)) SystemControls.open(context, Settings.ACTION_SETTINGS) }
-                    else SystemControls.open(context, Settings.ACTION_SETTINGS)
-                }
-            } else if (agentCard) CcAgentCard(sz) { allowed ->
-                agents.waiting = 0; agents.result = if (allowed) "Allowed" else "Denied"; agentCard = false
-                pendingFocus = "addon:claude/agents"
-            } else if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
+            if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
             Box(
                 Modifier
                     .width(sz.column)

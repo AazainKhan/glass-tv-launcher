@@ -1003,7 +1003,7 @@ private fun ColumnScope.AboutPage(model: HomeModel, cfg: LauncherConfig, f: Modi
     if (taps >= 7 || cfg.ccDemoTiles) {
         SectionLabel("Developer")
         ToggleRow("Demo tiles in Control Center", cfg.ccDemoTiles, { on -> model.edit { it.copy(ccDemoTiles = on) } },
-            help = "Demo data: adds fake Home Assistant, Claude Code, Plex and Weather tiles to the Add a Control gallery, to show how add-on tiles look. Nothing connects to those services.")
+            help = "Demo data: adds fake Home Assistant, Claude Code, Plex and Weather tiles to the Add a Control gallery, to show how add-on tiles look. Nothing connects to those services. This switch is hidden again when you leave About: select Version seven times to see it.")
     }
     Box(Modifier.size(1.dp))
 }
