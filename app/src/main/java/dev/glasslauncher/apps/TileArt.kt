@@ -221,6 +221,8 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
         spec.iconPack?.let { pack ->
             iconPacks.iconFor(pack, app.component)?.let { drawGenerated(canvas, it); return bitmap }
         }
+        // Our own art for apps whose icon reads dead on this row (the user's own icon above still wins).
+        if (BuiltinTiles.draw(canvas, WIDTH, HEIGHT, app.packageName)) return bitmap
         val banner = hiResBanner(app)
             ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
