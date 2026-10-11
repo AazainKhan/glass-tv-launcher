@@ -186,6 +186,8 @@ class AppTransition(
 
     /** Home is hidden: drop the window so nothing is left over if Home comes back another way. */
     fun onHomeStopped() {
+        // Something covered Home: whatever Glass launched is on screen now, so Back is its own (LaunchGate).
+        dev.glasslauncher.system.LaunchGate.homeStopped(android.os.SystemClock.uptimeMillis())
         if (closing) return
         job?.cancel()
         // An app Glass opened covers Home within a few seconds. Home leaving later than that (an app

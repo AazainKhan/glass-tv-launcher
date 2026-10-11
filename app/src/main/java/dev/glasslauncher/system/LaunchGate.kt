@@ -22,6 +22,12 @@ object LaunchGate {
         if (pkg != null && !drawn && now - at <= WINDOW_MS) drawn = true
     }
 
+    /**
+     * Glass's own Home was stopped (something covered it): the launched app's window, or a trampoline that never
+     * fires a window-state event, is in front, so Back is the app's.
+     */
+    fun homeStopped(now: Long) = windowShown("glass:home-stopped", now)
+
     /** True while a Back or Home press should cancel the launch instead of reaching the (not yet visible) app. */
     fun interruptible(now: Long): Boolean = pkg != null && !drawn && now - at in 0..WINDOW_MS
 

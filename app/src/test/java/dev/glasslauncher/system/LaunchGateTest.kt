@@ -41,4 +41,10 @@ class LaunchGateTest {
         LaunchGate.windowShown("a.b", now = 7_000)   // too late to matter
         assertFalse(LaunchGate.interruptible(now = 7_100))
     }
+
+    @Test fun homeBeingCoveredClosesTheGateEvenWithoutAWindowEvent() {
+        LaunchGate.begin("com.trampoline.app", now = 0)
+        LaunchGate.homeStopped(now = 800)
+        assertFalse(LaunchGate.interruptible(now = 900))
+    }
 }
