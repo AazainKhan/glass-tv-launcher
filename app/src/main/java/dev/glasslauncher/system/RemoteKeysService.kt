@@ -23,7 +23,10 @@ class RemoteKeysService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         // Some builds drop the XML flag; asking again at runtime turns key filtering on.
-        serviceInfo = serviceInfo.apply { flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS }
+        serviceInfo = serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
         Log.i(TAG, "connected, flags=${serviceInfo.flags} caps=${serviceInfo.capabilities}")
     }
 
@@ -75,11 +78,12 @@ class RemoteKeysService : AccessibilityService() {
         // never taken. Both halves of the press are swallowed.
         if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_HOME) && app.config.config.value.instantBack) {
             val now = android.os.SystemClock.uptimeMillis()
-            // The launched app has no focus until an activity of it has resumed: a starting window is not that (the
-            // system holds Back until then). The usage events say when it has (RecentApps.foregroundSince).
+            // The system holds Back until a window of the app has INPUT FOCUS (a starting window and a resumed
+            // activity both come earlier). So the app owns Back only once a focused application window of another
+            // package exists; until then Back is Glass's to take (P87).
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && LaunchGate.interruptible(now) &&
-                LaunchGate.shouldInterrupt(now, RecentApps.foregroundSince(this, LaunchGate.launchedAtWall(), packageName))) {
-                Log.i(TAG, "instant back: ${LaunchGate.launching(now)} had not taken the foreground")
+                LaunchGate.shouldInterrupt(now, appHasFocus())) {
+                Log.i(TAG, "instant back: ${LaunchGate.launching(now)} had no focused window yet")
                 LaunchGate.clear()
                 interrupted = true
                 performGlobalAction(GLOBAL_ACTION_HOME)
@@ -113,6 +117,17 @@ class RemoteKeysService : AccessibilityService() {
         // auto-repeat, and swallow every half of the press.
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) run(action)
         return true
+    }
+
+    /** Whether a focused application window of another package exists (the launched app can take Back). */
+    private fun appHasFocus(): Boolean {
+        val own = packageName
+        val windows = runCatching { windows }.getOrNull()
+            ?: return true   // can't see windows (capability off): assume the app has it, so Back is never taken
+        val focused = FocusPick.focusedAppPackage(windows.map { w ->
+            FocusPick.Win(w.isFocused, w.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION, runCatching { w.root?.packageName?.toString() }.getOrNull())
+        })
+        return focused != null && focused != own
     }
 
     private var escaped = false

@@ -19,24 +19,6 @@ object RecentApps {
     }
 
     /**
-     * Whether any app other than [ownPkg] has been brought to the foreground since [since] (wall-clock ms): its
-     * activity resumed, so it has input focus and Back is its own (P87). Without usage access this can't be known, so
-     * it answers true (the caller then never takes Back).
-     */
-    fun foregroundSince(context: Context, since: Long, ownPkg: String, now: Long = System.currentTimeMillis()): Boolean {
-        if (!hasUsageAccess(context)) return true
-        val usm = context.getSystemService(UsageStatsManager::class.java) ?: return true
-        val events = usm.queryEvents(since - 300L, now) ?: return true
-        val e = UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(e)
-            @Suppress("DEPRECATION")
-            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.packageName != ownPkg) return true
-        }
-        return false
-    }
-
-    /**
      * Apps brought to the front in the last [days] days per the system's usage history (Fire OS only
      * keeps it since the last restart), followed by launches Glass recorded itself ([own]). Only apps
      * on Home are returned, so system screens and launchers never show up. An app in [closed] (closed from the

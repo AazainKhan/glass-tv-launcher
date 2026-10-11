@@ -2,10 +2,10 @@ package dev.glasslauncher.system
 
 /**
  * "You can always back out" (P87): what Glass knows about the app it just started. For a few seconds after a launch,
- * Back or Home may be taken to mean "cancel it" and return Home, unless the app has really taken the foreground
- * (an activity resumed: [RecentApps.foregroundSince]); a window event is not enough (a starting/splash window
- * appears ~300 ms in, long before the app can take Back; the system holds Back until the activity has focus).
- * Pure (the clock is a parameter) so it is unit-tested; RemoteKeysService does the foreground check.
+ * Back or Home may be taken to mean "cancel it" and return Home, unless the app has a focused window (a starting/splash window
+ * appears ~300 ms in, and a resumed activity within a second, both long before the app can take Back: the system
+ * holds Back until a window has INPUT FOCUS). Pure (the clock is a parameter) so it is unit-tested; RemoteKeysService
+ * does the focus check ([FocusPick]).
  */
 object LaunchGate {
     /** How long after a launch Back/Home still means "cancel it" (a cap: the foreground check closes it earlier). */
