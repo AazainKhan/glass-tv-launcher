@@ -110,7 +110,7 @@ Risks:
 
 ## 10. Open decisions for the user
 
-1. DONE 2026-10-11: customizable CC approved; approve card is Deny-first.
+1. DONE 2026-10-11: customizable CC approved; approve card is Deny-first; default page is Apple TV's 4x4 (Settings 2x2, Wi-Fi, Bluetooth; Sleep, Clean Up, Restart, AirPlay; Theme, Saver, Switcher, Launcher) plus a 'More' page (Game Controllers, Performance, VPN).
 2. Approve the add-ons model and answer the spec's 7 open questions.
 3. Website copy direction, including whether to swap the Nuvio hero and the Kodi, Stremio and Jellyfin logos.
 4. The P75(B) hold-Home pairing test.
