@@ -136,7 +136,13 @@ internal fun CcAgentCard(sz: CcSizes, decide: (allowed: Boolean) -> Unit) {
     val first = remember { androidx.compose.ui.focus.FocusRequester() }
     androidx.compose.runtime.LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
     // Tight on purpose: the whole card, with the weather line in the header, must end above the tray clamp.
-    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(CARD_GAP), modifier = Modifier.width(sz.column).testTag("cc-agent-card")) {
+    Column(
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(CARD_GAP),
+        // One glass panel behind the whole card (the tiles' own material), so the title, command and path read over
+        // the Cover Flow art behind Control Center.
+        modifier = Modifier.width(sz.column).ccSurface(androidx.compose.foundation.shape.RoundedCornerShape(26.dp), LocalCcSheet.current)
+            .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-agent-card"),
+    ) {
         BasicText(CcShowcase.REQUEST_TITLE, style = Type.heading.copy(color = Color.White))
         BasicText(CcShowcase.REQUEST_WHO, style = Type.caption.copy(color = Color.White.copy(alpha = 0.75f)))
         Box(
@@ -149,10 +155,10 @@ internal fun CcAgentCard(sz: CcSizes, decide: (allowed: Boolean) -> Unit) {
         }
         BasicText(CcShowcase.REQUEST_WHERE, style = Type.caption.copy(color = Color.White.copy(alpha = 0.75f)))
         // Deny first, in the focused (white) capsule; Allow once needs a deliberate Down and Select.
-        CcTile("Deny", null, Shapes.pill, sz.column, CARD_BUTTON, onClick = { decide(false) }, modifier = Modifier.focusRequester(first).testTag("cc-agent-deny")) { fg ->
+        CcTile("Deny", null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = { decide(false) }, modifier = Modifier.focusRequester(first).testTag("cc-agent-deny")) { fg ->
             BasicText("Deny", style = Type.body.copy(color = fg))
         }
-        CcTile("Allow once", null, Shapes.pill, sz.column, CARD_BUTTON, onClick = { decide(true) }) { fg ->
+        CcTile("Allow once", null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = { decide(true) }) { fg ->
             BasicText("Allow once", style = Type.body.copy(color = fg))
         }
         BasicText("Expires in 9:42 · then asks on Mac", style = Type.caption.copy(color = Color.White.copy(alpha = 0.7f)))
@@ -210,15 +216,19 @@ internal fun NowPlayingTile(
 internal fun CcConfirmCard(sz: CcSizes, title: String, body: String, confirm: String, destructive: Boolean, onCancel: () -> Unit, onConfirm: () -> Unit) {
     val first = remember { androidx.compose.ui.focus.FocusRequester() }
     androidx.compose.runtime.LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
-    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(CARD_GAP), modifier = Modifier.width(sz.column).testTag("cc-confirm")) {
+    Column(
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(CARD_GAP),
+        modifier = Modifier.width(sz.column).ccSurface(androidx.compose.foundation.shape.RoundedCornerShape(26.dp), LocalCcSheet.current)
+            .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-confirm"),
+    ) {
         BasicText(title, style = Type.heading.copy(color = Color.White))
         BasicText(body, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f)))
         val cancelFirst = destructive
-        CcTile(confirm, null, Shapes.pill, sz.column, CARD_BUTTON, onClick = onConfirm,
+        CcTile(confirm, null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = onConfirm,
             modifier = (if (cancelFirst) Modifier else Modifier.focusRequester(first)).testTag("cc-confirm-yes")) { fg ->
             BasicText(confirm, style = Type.body.copy(color = fg))
         }
-        CcTile("Cancel", null, Shapes.pill, sz.column, CARD_BUTTON, onClick = onCancel,
+        CcTile("Cancel", null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = onCancel,
             modifier = (if (cancelFirst) Modifier.focusRequester(first) else Modifier).testTag("cc-confirm-cancel")) { fg ->
             BasicText("Cancel", style = Type.body.copy(color = fg))
         }
@@ -227,4 +237,4 @@ internal fun CcConfirmCard(sz: CcSizes, title: String, body: String, confirm: St
 
 /** Spacing and button height of the cards drawn in the panel (P83): tighter than the tiles' grid so a card fits. */
 private val CARD_GAP = 6.dp
-private val CARD_BUTTON = 46.dp
+private val CARD_BUTTON = 42.dp

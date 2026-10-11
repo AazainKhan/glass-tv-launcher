@@ -723,7 +723,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             )
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
-            if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 12.dp, bottom = 4.dp)) {
+            if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
             if (restartAsk) {
                 val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
                 CcConfirmCard(
