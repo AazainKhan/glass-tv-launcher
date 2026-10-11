@@ -126,6 +126,61 @@ object Screensaver {
 
     fun component(context: Context) = ComponentName(context, AerialDreamService::class.java)
 
+    /**
+     * The "always-on screensaver" setting (P80b), as pure decisions. The TV's sleep timeout is secure setting
+     * `sleep_timeout` (ms; <= 0 is AOSP's "never"). Turning it on writes -1 and remembers what was there; turning it
+     * off puts that back. Turning it on twice never overwrites the remembered value with -1.
+     */
+    object AlwaysOn {
+        /** Used when nothing was remembered (the key was missing): Fire's own default, 20 minutes. */
+        const val DEFAULT_MS = 20 * 60_000L
+
+        fun isOn(timeout: Long?): Boolean = timeout != null && timeout <= 0L
+
+        data class Step(val write: Long, val remember: Long?)
+
+        /** [current]: the sleep timeout now (null when unreadable); [saved]: what an earlier turn-on remembered. */
+        fun turnOn(current: Long?, saved: Long?): Step = Step(
+            write = -1L,
+            // Already never (turned on before, or set elsewhere): keep what was remembered, else a sane default.
+            remember = if (isOn(current)) saved else current ?: saved,
+        )
+
+        /** What to write when turning it off. */
+        fun turnOff(saved: Long?): Long = saved?.takeIf { it > 0L } ?: DEFAULT_MS
+    }
+
+    private const val PREFS = "screensaver"
+    private const val SAVED = "sleepTimeoutBefore"
+
+    fun sleepTimeout(context: Context): Long? =
+        runCatching { Settings.Secure.getLong(context.contentResolver, "sleep_timeout") }.getOrNull()
+
+    fun alwaysOn(context: Context): Boolean = AlwaysOn.isOn(sleepTimeout(context))
+
+    /** Whether Glass can write the TV's sleep timeout here: its own secure-settings grant, or root. */
+    fun canSetAlwaysOn(context: Context): Boolean = canWriteSecureSettings(context) || dev.glasslauncher.system.Root.known
+
+    /** Turns always-on on or off. Returns whether the setting now reads as asked. */
+    suspend fun setAlwaysOn(context: Context, on: Boolean): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, 0)
+        val saved = if (prefs.contains(SAVED)) prefs.getLong(SAVED, 0L) else null
+        val value: Long
+        if (on) {
+            val step = AlwaysOn.turnOn(sleepTimeout(context), saved)
+            step.remember?.let { prefs.edit().putLong(SAVED, it).apply() }
+            value = step.write
+        } else {
+            value = AlwaysOn.turnOff(saved)
+            prefs.edit().remove(SAVED).apply()
+        }
+        val wrote = canWriteSecureSettings(context) && runCatching { Settings.Secure.putLong(context.contentResolver, "sleep_timeout", value) }.getOrDefault(false)
+        if (!wrote && dev.glasslauncher.system.Root.available()) {
+            dev.glasslauncher.system.Root.action(context, "Screensaver always on: $on (sleep_timeout $value)", "settings put secure sleep_timeout $value")
+        }
+        return alwaysOn(context) == on
+    }
+
     fun canWriteSecureSettings(context: Context) =
         context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
 

@@ -596,6 +596,16 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     val context = LocalContext.current
     PanelTitle("Screen Saver")
     MenuRow("Current Selection", { push(Page.ScreensaverChoice) }, f, value = screensaverName(cfg.screensaverMode), chevron = true)
+    // The TV's sleep timeout set to "never", so the screensaver plays on (P80b); off puts the old timeout back.
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var alwaysOn by remember { mutableStateOf(Screensaver.alwaysOn(ctx)) }
+    val canAlwaysOn = Screensaver.canSetAlwaysOn(ctx)
+    ToggleRow("Always-On Screen Saver", alwaysOn, { v ->
+        scope.launch { Screensaver.setAlwaysOn(ctx, v); alwaysOn = Screensaver.alwaysOn(ctx) }
+    }, enabled = canAlwaysOn || alwaysOn,
+        help = if (canAlwaysOn || alwaysOn) "The TV never goes to sleep: the screen saver plays until you press a button. Off puts the old sleep timeout back."
+        else "Needs permission to change the TV's sleep timeout. One-time setup from a computer: ${Screensaver.GRANT_COMMAND}")
     if (cfg.screensaverMode == ScreensaverMode.System) {
         MenuRow("Fire TV Screensaver Settings", {
             SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Display & Sounds" })
