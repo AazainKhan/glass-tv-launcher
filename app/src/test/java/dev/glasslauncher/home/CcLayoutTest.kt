@@ -14,23 +14,44 @@ class CcLayoutTest {
     private fun t(id: String, s: CcSize = S1x1) = CcTile(id, s)
     private fun at(p: List<CcPlaced>, id: String) = p.first { it.tile.id == id }.let { it.row to it.col }
 
-    @Test fun theDefaultPacksToTodaysLayout() {
+    @Test fun theDefaultPacksToTheSpecsGrid() {
         val p = CcPacking.pack(CcLayout.default().page("controls")!!.tiles)
         assertEquals(0 to 0, at(p, "fire_settings"))
         assertEquals(0 to 2, at(p, "wifi"))
         assertEquals("beside the big tile, below Wi-Fi", 1 to 2, at(p, "bluetooth"))
+        // The new pill row (M5): Sleep Timer and VPN, then Launcher Settings full width.
+        assertEquals(2 to 0, at(p, "sleep_timer")); assertEquals(2 to 2, at(p, "vpn"))
+        assertEquals(3 to 0, at(p, "launcher"))
+        // The eight round buttons: four to a row.
+        assertEquals(listOf(4 to 0, 4 to 1, 4 to 2, 4 to 3, 5 to 0, 5 to 1, 5 to 2, 5 to 3),
+            listOf("controllers", "appearance", "screensaver", "switcher", "airplay", "performance", "cleanup", "restart").map { at(p, it) })
+    }
+
+    @Test fun todaysLayoutIsTheSameWithoutTheNewTiles() {
+        // The layout this was before the quick wins: Settings 2x2 with the two pills, Launcher full width, rounds.
+        val old = CcLayout.default().page("controls")!!.tiles.filter { it.id !in setOf("sleep_timer", "vpn", "cleanup", "restart") }
+        val p = CcPacking.pack(old)
         assertEquals(2 to 0, at(p, "launcher"))
-        // The seven round buttons: four to a row, as today.
-        assertEquals(listOf(3 to 0, 3 to 1, 3 to 2, 3 to 3, 4 to 0, 4 to 1, 4 to 2),
-            listOf("controllers", "appearance", "screensaver", "switcher", "airplay", "performance", "memory").map { at(p, it) })
+        assertEquals(listOf(3 to 0, 3 to 1, 3 to 2, 3 to 3, 4 to 0, 4 to 1),
+            listOf("controllers", "appearance", "screensaver", "switcher", "airplay", "performance").map { at(p, it) })
+    }
+
+    @Test fun freeMemoryIsNowCleanUp() {
+        assertTrue("memory" !in CcLayout.default().page("controls")!!.tiles.map { it.id })
+        val stored = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("memory", S1x1))))).toJson()
+        assertEquals(listOf("cleanup"), CcLayout.fromJson(stored)!!.page("controls")!!.tiles.map { it.id })
+        val hidden = CcLayout.default(hidden = setOf("memory")).page("controls")!!.tiles.map { it.id }
+        assertTrue("cleanup" !in hidden)
     }
 
     @Test fun anAbsentControlLeavesNoHole() {
-        // No AirPlay installed, not rooted (no Performance/Memory): three rounds and Theme... the rest close up.
-        val shown = CcLayout.default().page("controls")!!.tiles.filter { it.id !in setOf("airplay", "performance", "memory") }
+        // No AirPlay installed, not rooted (no Performance), no VPN app: the rest close up.
+        val shown = CcLayout.default().page("controls")!!.tiles.filter { it.id !in setOf("airplay", "performance", "vpn") }
         val p = CcPacking.pack(shown)
-        assertEquals(3 to 3, at(p, "switcher"))
-        assertEquals(4, p.maxOf { it.row } + 1)
+        assertEquals("Sleep Timer sits alone, left-aligned", 2 to 0, at(p, "sleep_timer"))
+        assertEquals(3 to 0, at(p, "launcher"))
+        assertEquals(4 to 3, at(p, "switcher"))
+        assertEquals(5 to 1, at(p, "restart"))
     }
 
     @Test fun aTwoWideTileThatDoesNotFitStartsTheNextRowAndNothingBackfills() {
@@ -112,7 +133,7 @@ class CcLayoutTest {
     @Test fun theOldHiddenSwitchesMigrateOutOfTheDefault() {
         val l = CcLayout.resolve(null, setOf("wifi", "memory", "alexa"))
         val ids = l.page("controls")!!.tiles.map { it.id }
-        assertTrue("wifi" !in ids && "memory" !in ids && "bluetooth" in ids)
+        assertTrue("wifi" !in ids && "cleanup" !in ids && "bluetooth" in ids)
         assertNull("alexa page off", l.page("alexa"))
         assertTrue(CcLayout.default().page("alexa") != null)
     }

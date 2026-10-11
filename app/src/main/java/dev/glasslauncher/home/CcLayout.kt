@@ -94,6 +94,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
             return if (!on) copy(pages = pages.filter { it.id != "alexa" })
             else if (page("alexa") != null) this else copy(pages = pages + CcPage("alexa", "alexa", emptyList()))
         }
+        val id = CcControls.canonical(id)
         if (shown(id) == on) return this
         if (!on) return copy(pages = pages.map { p -> p.copy(tiles = p.tiles.filter { it.id != id }) })
         val order = CcControls.DEFAULT_ORDER
@@ -127,8 +128,9 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
                 pages = dto.pages.map { p ->
                     CcPage(p.id, p.icon, p.tiles.mapNotNull { t ->
                         // An unknown size is the control's default one; an unknown id is kept (its add-on may return).
-                        val size = CcSize.parse(t.size) ?: CcControls.sizes(t.id).first()
-                        CcTile(t.id, size)
+                        val id = CcControls.canonical(t.id)
+                        val size = CcSize.parse(t.size) ?: CcControls.sizes(id).first()
+                        CcTile(id, size)
                     })
                 },
                 parked = dto.parked,
@@ -137,7 +139,8 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
 
         /** Today's Control Center (the ids of CONTROL_CENTER_TILES), minus what the user had turned off ([hidden], the old ccHidden). */
         fun default(hidden: Set<String> = emptySet()): CcLayout {
-            val controls = CcControls.DEFAULT_ORDER.filter { it !in hidden }.map { CcTile(it, CcControls.sizes(it).first()) }
+            val off = hidden.map { CcControls.canonical(it) }.toSet()
+            val controls = CcControls.DEFAULT_ORDER.filter { it !in off }.map { CcTile(it, CcControls.sizes(it).first()) }
             val pages = buildList {
                 add(CcPage("controls", "grid", controls))
                 // Alexa is a page of its own today (a menu-bar icon); the spec's page model keeps it that way until the pages work lands.
@@ -170,9 +173,12 @@ object CcControls {
 
     /** Today's packed order of the Controls page (the spec's default grid, before the new built-ins arrive). */
     val DEFAULT_ORDER = listOf(
-        "fire_settings", "wifi", "bluetooth", "launcher",
-        "controllers", "appearance", "screensaver", "switcher", "airplay", "performance", "memory",
+        "fire_settings", "wifi", "bluetooth", "sleep_timer", "vpn", "launcher",
+        "controllers", "appearance", "screensaver", "switcher", "airplay", "performance", "cleanup", "restart",
     )
+
+    /** Ids that were renamed: Free Memory became Clean Up (it does both jobs, one tap). */
+    fun canonical(id: String): String = if (id == "memory") "cleanup" else id
 
     /** An add-on's control (`addon:...`) may use 1x1 and 2x1 only; an unknown built-in is 1x1. */
     fun sizes(id: String): List<CcSize> = TABLE[id] ?: if (id.startsWith("addon:")) listOf(CcSize.S2x1, CcSize.S1x1) else ONE

@@ -339,8 +339,9 @@ class ControlCenterMotionTest {
                 // The whole screen, and the bottom band separately (the shelf's cards sit there).
                 val ratios = listOf(Triple("screen", 0.04f, 0.96f), Triple("top", 0.04f, 0.3f), Triple("middle", 0.3f, 0.7f), Triple("bottom band", 0.70f, 0.96f)).map { (name, y0, y1) -> name to luma(b1, y0, y1) / luma(b0, y0, y1) }
                 assertTrue("with $ups Ups first, outside the panel the screen is as bright as before by $ratios (want <= 0.58 each)", ratios.all { it.second <= 0.58f + 0.01f })
-                // The right side below the panel (under the round buttons: the tray and shelf cards): dimmed too.
-                val right = luma(b1, 0.80f, 0.96f, 0.70f, 0.98f) / luma(b0, 0.80f, 0.96f, 0.70f, 0.98f)
+                // The strip just left of the panel, low on the screen (the tray and shelf cards): dimmed too. (The panel
+                // itself now reaches the bottom: two more rows and the Edit pill, P83.)
+                val right = luma(b1, 0.80f, 0.96f, 0.64f, 0.68f) / luma(b0, 0.80f, 0.96f, 0.64f, 0.68f)
                 assertTrue("with $ups Ups first, the right side under the panel is $right as bright as before (want <= 0.60)", right <= 0.60f)
             }
         }

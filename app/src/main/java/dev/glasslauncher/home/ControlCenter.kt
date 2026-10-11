@@ -425,7 +425,8 @@ private val CC_DIM_COLOR = Color.Black.copy(alpha = CC_DIM_ALPHA)
 val CONTROL_CENTER_TILES = listOf(
     "alexa" to "Alexa Page", "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
     "controllers" to "Game Controllers", "appearance" to "Theme", "screensaver" to "Screen Saver",
-    "switcher" to "App Switcher", "performance" to "Performance", "memory" to "Free Memory",
+    "switcher" to "App Switcher", "performance" to "Performance", "sleep_timer" to "Sleep Timer", "vpn" to "VPN",
+    "cleanup" to "Clean Up", "restart" to "Restart",
 )
 
 /**
@@ -485,6 +486,13 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val rooted by produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
     var fast by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(dev.glasslauncher.system.RootFeatures.fast(context)) }
     var freed by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<Int?>(null) }
+    // Clean Up's result line ("cleaning…", then what it freed, for a few seconds).
+    var cleaned by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // Sleep Timer: the end is stored; the pill re-reads it twice a minute (never per frame).
+    var sleepLeft by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(dev.glasslauncher.system.SleepTimer.remainingMs(context)) }
+    LaunchedEffect(active) { while (active) { sleepLeft = dev.glasslauncher.system.SleepTimer.remainingMs(context); kotlinx.coroutines.delay(30_000) } }
+    val vpnConnected = dev.glasslauncher.system.VpnControl.rememberConnected(active)
+    val vpnApps = remember(active) { dev.glasslauncher.system.VpnControl.apps(context) }
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
@@ -658,7 +666,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // CcPacking (next-fit, so it reproduces the fixed layout this was). Edit mode changes a draft of it.
             val u = sz.round
             val pid = layout.page(shownPage)?.id ?: layout.pages.first().id
-            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance", "memory" -> rooted; else -> true } }
+            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance" -> rooted; "vpn" -> vpnApps.isNotEmpty(); else -> true } }
             val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) }
             val placed = remember(tilesNow) { CcPacking.pack(tilesNow) }
             val rows = placed.maxOfOrNull { it.row + it.tile.size.h } ?: 0
@@ -855,8 +863,56 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 onPlay = playOr { }) {
                                 tap { val next = !fast; fast = next; scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) } }()
                             }
-                            "memory" -> Round(R.drawable.ic_cleaning_services, freed?.let { "Free Memory, $it MB freed" } ?: "Free Memory", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) {
-                                tap { scope.launch { freed = dev.glasslauncher.system.RootFeatures.freeMemory(context) } }()
+                            "sleep_timer" -> {
+                                val value = dev.glasslauncher.system.SleepTimer.label(sleepLeft)
+                                val go = tap {
+                                    val next = dev.glasslauncher.system.SleepTimer.next(dev.glasslauncher.system.SleepTimer.choice(context))
+                                    dev.glasslauncher.system.SleepTimer.set(context, next)
+                                    sleepLeft = dev.glasslauncher.system.SleepTimer.remainingMs(context)
+                                }
+                                val on = sleepLeft > 0
+                                if (one) Round(R.drawable.ic_do_not_disturb_on, "Sleep Timer, $value", on = on, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
+                                else CcTile("Sleep Timer", value, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, on = on) { fg ->
+                                    // "Sleep Timer" doesn't fit a 2x1 pill at the 13 sp floor: the pill says "Sleep", the tile's description keeps the full name.
+                                    PillContent(R.drawable.ic_do_not_disturb_on, "Sleep", value, fg, on = on, accent = Blue)
+                                }
+                            }
+                            "vpn" -> {
+                                val value = if (vpnConnected) "Connected" else "Off"
+                                val go = tap { vpnApps.firstOrNull()?.let { (pkg, _) -> system { dev.glasslauncher.system.VpnControl.open(context, pkg) } } }
+                                if (one) Round(R.drawable.ic_vpn, "VPN, $value", on = vpnConnected, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
+                                else CcTile("VPN", value, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, on = vpnConnected) { fg ->
+                                    PillContent(R.drawable.ic_vpn, "VPN", value, fg, on = vpnConnected, accent = Blue)
+                                }
+                            }
+                            "restart" -> {
+                                val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
+                                val ask = {
+                                    closeAll()
+                                    if (canReboot) open(Overlay.Confirm("Restart Fire TV?", "Apps that are open will close.", "Restart", destructive = true) {
+                                        scope.launch { if (!dev.glasslauncher.system.RootFeatures.reboot(context)) SystemControls.open(context, Settings.ACTION_SETTINGS) }
+                                    }) else open(Overlay.Confirm("Restart from Settings", "Fire TV can restart from Settings › My Fire TV.", "Open Fire Settings") {
+                                        SystemControls.open(context, Settings.ACTION_SETTINGS)
+                                    })
+                                }
+                                Round(R.drawable.ic_restart, "Restart", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) { tap { ask() }() }
+                            }
+                            "cleanup" -> Round(R.drawable.ic_cleaning_services, cleaned?.let { "Clean Up, $it" } ?: "Clean Up", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) {
+                                tap {
+                                    if (cleaned != "cleaning…") scope.launch {
+                                        cleaned = "cleaning…"
+                                        val r = dev.glasslauncher.system.RootFeatures.cleanUp(context)
+                                        freed = r.memoryMb
+                                        cleaned = when {
+                                            r.cachesMb >= 1024 -> "%.1f GB".format(r.cachesMb / 1024f)
+                                            r.cachesMb > 0 -> "${r.cachesMb} MB"
+                                            r.bulkCaches -> "${r.memoryMb} MB memory"
+                                            else -> "memory only"
+                                        }
+                                        kotlinx.coroutines.delay(4_000)
+                                        cleaned = null
+                                    }
+                                }()
                             }
                         }
                         // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.

@@ -31,12 +31,11 @@ object CcCatalog {
         CcCatalogEntry("switcher", "App Switcher", "Recent apps", R.drawable.ic_apps),
         CcCatalogEntry("airplay", "AirPlay", "Receive AirPlay (PhairPlay)", R.drawable.ic_airplay, app = "PhairPlay"),
         CcCatalogEntry("performance", "Performance", "Fast or Balanced", R.drawable.ic_speed, tier = CcTier.Root),
-        CcCatalogEntry("memory", "Free Memory", "End background apps", R.drawable.ic_cleaning_services, tier = CcTier.Root),
-        // Built in the model; the controls themselves arrive with milestones 5 and 6.
-        CcCatalogEntry("sleep_timer", "Sleep Timer", "Sleep after 15 to 90 minutes", R.drawable.ic_do_not_disturb_on, tier = CcTier.Root, implemented = false),
-        CcCatalogEntry("vpn", "VPN", "Connect or disconnect", R.drawable.ic_info, implemented = false),
-        CcCatalogEntry("restart", "Restart", "Restart Fire TV", R.drawable.ic_system_update, tier = CcTier.System, implemented = false),
-        CcCatalogEntry("cleanup", "Clean Up", "Free memory and caches", R.drawable.ic_cleaning_services, tier = CcTier.System, implemented = false),
+        CcCatalogEntry("sleep_timer", "Sleep Timer", "Pause and sleep after 15 to 90 minutes", R.drawable.ic_do_not_disturb_on),
+        CcCatalogEntry("vpn", "VPN", "Shows if a VPN is on; opens its app", R.drawable.ic_vpn),
+        CcCatalogEntry("restart", "Restart", "Restart Fire TV", R.drawable.ic_restart, tier = CcTier.System),
+        CcCatalogEntry("cleanup", "Clean Up", "Free memory and clear caches", R.drawable.ic_cleaning_services, tier = CcTier.System),
+        // The control arrives with milestone 6.
         CcCatalogEntry("now_playing", "Now Playing", "Play, pause, skip any app", R.drawable.ic_music_note, implemented = false),
     ).filter { it.implemented }
 

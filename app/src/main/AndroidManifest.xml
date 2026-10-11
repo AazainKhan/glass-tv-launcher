@@ -57,7 +57,15 @@
     <uses-permission android:name="com.android.providers.tv.permission.ACCESS_ALL_EPG_DATA" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.android.providers.tv.permission.ACCESS_WATCHED_PROGRAMS" tools:ignore="ProtectedPermissions" />
 
+    <!-- Restart (system app) and Clean Up's bulk cache clear (P83 M5): privileged; scripts/privapp-check allowlists them. -->
+    <uses-permission android:name="android.permission.REBOOT" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.CLEAR_APP_CACHE" tools:ignore="ProtectedPermissions" />
+
     <queries>
+        <!-- Control Center's VPN pill: which installed apps are VPN apps. -->
+        <intent>
+            <action android:name="android.net.VpnService" />
+        </intent>
         <package android:name="com.phairplay.firetv" />
         <package android:name="com.phairplay.googletv" />
         <package android:name="com.amazon.vizzini" />
@@ -194,6 +202,9 @@
                 android:resource="@xml/remote_keys" />
         </service>
 
+        <receiver
+            android:name=".system.SleepTimer$Receiver"
+            android:exported="false" />
         <receiver
             android:name=".system.InstallResultReceiver"
             android:exported="false" />

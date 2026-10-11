@@ -230,6 +230,42 @@ object RootFeatures {
         return (availableMb() - before).coerceAtLeast(0)
     }
 
+    /** Restart: root `svc power reboot`; a system app PowerManager.reboot (REBOOT); else false (the caller opens Fire's settings). */
+    suspend fun reboot(context: Context): Boolean {
+        if (Root.known || Root.available()) return Root.action(context, "Restart", "svc power reboot || reboot").ok
+        return runCatching {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            android.os.PowerManager::class.java.getMethod("reboot", String::class.java).invoke(pm, null)
+            true
+        }.getOrDefault(false)
+    }
+
+    /** What Clean Up freed: bulk caches in MB (root `pm trim-caches`, system app freeStorageAndNotify; none otherwise) and memory in MB. */
+    data class CleanUp(val cachesMb: Int, val memoryMb: Int, val bulkCaches: Boolean)
+
+    suspend fun cleanUp(context: Context): CleanUp {
+        val memory = freeMemory(context)
+        val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+        val before = stat.availableBytes
+        var bulk = false
+        if (Root.known || Root.available()) {
+            bulk = Root.action(context, "Clean up: trim caches", "pm trim-caches 999G").ok
+        } else {
+            bulk = runCatching {
+                val pm = context.packageManager
+                val m = android.content.pm.PackageManager::class.java.getMethod(
+                    "freeStorageAndNotify", String::class.java, Long::class.javaPrimitiveType, Class.forName("android.content.pm.IPackageDataObserver"),
+                )
+                m.invoke(pm, null, Long.MAX_VALUE, null)
+                true
+            }.getOrDefault(false)
+        }
+        kotlinx.coroutines.delay(800)
+        stat.restat(android.os.Environment.getDataDirectory().path)
+        val freed = ((stat.availableBytes - before).coerceAtLeast(0) / (1024 * 1024)).toInt()
+        return CleanUp(freed, memory, bulk)
+    }
+
     fun availableMb(): Int = runCatching {
         File("/proc/meminfo").readLines().first { it.startsWith("MemAvailable:") }.split(Regex("\\s+"))[1].toInt() / 1024
     }.getOrDefault(0)
