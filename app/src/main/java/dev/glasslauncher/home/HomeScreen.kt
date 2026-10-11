@@ -144,6 +144,10 @@ private const val GPU_TRIM_AFTER_MS = 4_000L
 private const val APP_HERO_FADE_MS = 200
 /** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
 private const val PREVIEW_FADE_MS = 450
+/** How long after Home leaves the full-screen Cover Flow the leftovers are released (after the morph and its frames). */
+private const val COLLAPSE_TRIM_MS = 900L
+/** The preview's fade-in waits for its soft scene to be on the backdrop, at most this long (P92). */
+private const val SCENE_WAIT_MS = 1_500L
 /** ...and this long shows its titles (tvOS 27: the shelf moves with the user first). */
 private const val TITLES_AFTER_MS = 1_500L
 /** Now Playing stays on Home this long after playback stops (track changes, short pauses). */
@@ -332,6 +336,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // the Cover Flow re-bakes and dissolves nothing.
     val softFeed = feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)
     val coverBackdrop = coverShelf || softFeed
+    // The scene url whose soft backdrop is up (set by the backdrop effect below); the preview's fade-in waits for it.
+    var coverSceneFor by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(sceneUrl) { delay(SCENE_WAIT_MS); if (coverSceneFor != sceneUrl) coverSceneFor = sceneUrl }
     // A Cover Flow whose cover couldn't be fetched shows the wallpaper; it bakes again when the network returns (P65).
     val coverNetwork = if (coverBackdrop) dev.glasslauncher.ui.NetworkEpoch.value else 0
     LaunchedEffect(sceneUrl, wallpaper, cfg.background, dark, takeoverArt, appHeroPkg, coverBackdrop, coverNetwork) {
@@ -380,6 +387,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement. (The same scene again, as
         // when the network returns with the cover already showing, is left as it is.)
         if (next !== backdrop.backdrop) backdrop.swap(next, animate = backdrop.backdrop != null)
+        // The preview's covers may show now: their scene is the backdrop (P92).
+        if (coverBackdrop) coverSceneFor = sceneUrl
         // Cover Flow: bake the covers either side while this one rests, so the next step needn't wait.
         if (coverShelf && feed != null) {
             for (i in listOf(heroIndex + 1, heroIndex - 1)) {
@@ -392,6 +401,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
     }
 
+    // Back from the full-screen Cover Flow (P92): what browsing left behind goes: the neighbours' baked scenes (only
+    // the showing one is kept), and the full flow's cover bitmaps (its pool is released as the flow leaves). A GC hint
+    // a moment later lets the freed native pixels go (they are only released when the collector runs).
+    LaunchedEffect(expanded) {
+        if (expanded) return@LaunchedEffect
+        delay(COLLAPSE_TRIM_MS)
+        if (!expanded && expand.value == 0f) {
+            HeroCache.cover.keepOnly(sceneUrl?.let { "$it|$dark" })
+            dev.glasslauncher.featured.CoverArtCache.Flow.release()
+            dev.glasslauncher.ui.GpuCaches.trim()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { System.gc() }
+        }
+    }
     // Once Home has settled on a scene, the renderer's copies of the scenes it has left are released
     // (see GpuCaches): they otherwise pile up while browsing titles and app heroes.
     LaunchedEffect(backdrop.backdrop, expanded, overlays.size, ControlCenterWindow.open) {
@@ -810,7 +832,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     Box(Modifier.testTag("top-shelf-app-hero:$appHeroPkg")) { Box(Modifier.size(1.dp).testTag("app-art:$appHeroPkg")) }
                 }
                 // Spotify at rest (P79b): the carousel itself, covers at their own size, in the Top Shelf area.
-                val previewOn = feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured
+                // On arrival the covers wait for their soft scene to be on the backdrop (else they sit over the previous
+                // app's picture for the second it takes to bake), at most SCENE_WAIT_MS.
+                val previewOn = feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured &&
+                    (coverSceneFor == sceneUrl || sceneUrl == null || expanded)
                 // Fades in with the backdrop's dissolve and out when focus leaves (the feed is kept just for that).
                 val lastCovers = remember { arrayOfNulls<dev.glasslauncher.featured.FeaturedFeed>(1) }
                 if (previewOn) lastCovers[0] = feed

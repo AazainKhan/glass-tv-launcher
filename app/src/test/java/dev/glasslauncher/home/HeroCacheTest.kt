@@ -21,4 +21,14 @@ class HeroCacheTest {
         c.trim()
         assertEquals(0, c.size)
     }
+
+    @Test fun keepOnlyDropsWhatABrowseLeftBehind() {
+        val c = HeroCache<String>(max = 3)
+        c["a"] = "1"; c["b"] = "2"; c["c"] = "3"
+        c.keepOnly("b")
+        assertEquals(1, c.size)
+        assertEquals("2", c["b"])
+        c.keepOnly(null)
+        assertEquals(0, c.size)
+    }
 }

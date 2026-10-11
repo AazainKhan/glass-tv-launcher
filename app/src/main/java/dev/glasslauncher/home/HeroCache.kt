@@ -15,6 +15,9 @@ class HeroCache<V>(private val max: Int) {
     operator fun set(key: String, value: V) { synchronized(map) { map[key] = value } }
     fun trim() = synchronized(map) { map.clear() }
 
+    /** Drops everything but [key] (the scene that is showing): what a Cover Flow browse left behind (P92). */
+    fun keepOnly(key: String?) = synchronized(map) { map.keys.retainAll { it == key } }
+
     companion object {
         /** Home's app heroes. Two: the one showing and the one just left. */
         val app = HeroCache<dev.glasslauncher.glass.Backdrop>(max = 2)

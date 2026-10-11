@@ -223,9 +223,13 @@ private fun rememberCoverArt(url: String?, pool: CoverArtCache.Pool, sizePx: Int
     val context = LocalContext.current
     // Asked again when the network returns: a failed load is not final.
     val network = dev.glasslauncher.ui.NetworkEpoch.value
-    val art by produceState(url?.let { pool.get(it) }, url, network) {
+    // The full flow's cover shows the resting preview's bitmap of the same cover until its own is baked (P92): no
+    // fallback tile and no wait at the hand-over, and the sharp one replaces it as it arrives.
+    val stand: (String) -> ImageBitmap? = { u -> pool.get(u) ?: if (pool === CoverArtCache.Flow) CoverArtCache.Rest.get(u) else null }
+    val art by produceState(url?.let { stand(it) }, url, network) {
         if (url == null) return@produceState
         pool.get(url)?.let { value = it; return@produceState }
+        stand(url)?.let { value = it }
         value = withContext(Dispatchers.Default) {
             // Not kept in Coil's memory cache either: the baked cover is the only copy (the disk cache has the file).
             val request = ImageRequest.Builder(context).data(url).size(sizePx).allowHardware(false)
