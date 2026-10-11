@@ -41,7 +41,7 @@ import java.io.File
  * Add-ons send `{glyphKey, label, value, state, actions}`; Glass draws it, so these are drawn with Glass's own pieces.
  */
 internal object CcShowcase {
-    /** Set by Control Center when it opens: the catalog offers these only while on. */
+    /** Set by Control Center when it opens (Settings > About > Demo tiles, or the debug file flag): the catalog offers these only while on. */
     @Volatile var enabled = false
 
     fun flag(context: Context): Boolean =
@@ -197,6 +197,29 @@ internal fun NowPlayingTile(
         else -> CcTile("Now Playing", label, Shapes.pill, w, h, onClick = go, modifier = modifier, onLongClick = onLongClick, onPlay = playOr { go() }, wiggle = wiggle,
             on = np?.playing == true) { fg ->
             PillContent(R.drawable.ic_music_note, if (np != null) np.title else "Music", if (np != null) np.artist else "Idle", fg, on = np?.playing == true, accent = Color.White)
+        }
+    }
+}
+
+/**
+ * A confirm drawn inside Control Center, over the grid (Restart): Cancel has focus first when [destructive] (a stray
+ * Select must not restart), Back cancels.
+ */
+@Composable
+internal fun CcConfirmCard(sz: CcSizes, title: String, body: String, confirm: String, destructive: Boolean, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    val first = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column).testTag("cc-confirm")) {
+        BasicText(title, style = Type.heading.copy(color = Color.White))
+        BasicText(body, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f)))
+        val cancelFirst = destructive
+        CcTile(confirm, null, Shapes.pill, sz.column, sz.pill, onClick = onConfirm,
+            modifier = (if (cancelFirst) Modifier else Modifier.focusRequester(first)).testTag("cc-confirm-yes")) { fg ->
+            BasicText(confirm, style = Type.body.copy(color = fg))
+        }
+        CcTile("Cancel", null, Shapes.pill, sz.column, sz.pill, onClick = onCancel,
+            modifier = (if (cancelFirst) Modifier.focusRequester(first) else Modifier).testTag("cc-confirm-cancel")) { fg ->
+            BasicText("Cancel", style = Type.body.copy(color = fg))
         }
     }
 }

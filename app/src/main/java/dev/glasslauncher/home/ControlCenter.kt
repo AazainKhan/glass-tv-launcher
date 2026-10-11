@@ -482,9 +482,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // The tile lifted in edit mode (the hint bar, outside the scrolling tiles, reads it).
     var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Showcase add-on tiles (debug flag): the Agents card, in place of the grid like the gallery.
-    CcShowcase.enabled = remember(active) { CcShowcase.flag(context) }
+    CcShowcase.enabled = cfg.ccDemoTiles || remember(active) { CcShowcase.flag(context) }
     val agents = remember { CcAgentState() }
     var agentCard by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // Restart's confirm is drawn here, over the grid (an overlay opened after Control Center closes was lost).
+    var restartAsk by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Page icons show with more than one page, or while editing (the + icon makes a page).
     val alexaPage = layout.pages.size > 1 || editing
     // The focused round button's name, shown under the round buttons (they're icons only).
@@ -636,7 +638,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(if (iconCount > 2) 6.dp else 10.dp), modifier = Modifier.padding(start = 16.dp)) {
                     // The Alexa app's own icon (loaded once per open); the mic if it isn't installed.
                     val alexaIcon = remember(active) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }
-                    layout.pages.forEachIndexed { i, pg ->
+                    // Not editable, so out of the strip (and the walk to +) while editing.
+                    layout.pages.filter { !(editing && it.id == "alexa") }.forEachIndexed { i, pg ->
                         val lit = pg.id == (hoverPage ?: pageId)
                         val show = { if (hoverPage == null) pageId = pg.id }
                         // Play/Pause on a page icon in edit mode deletes the page; its tiles go to Controls (nothing is lost).
@@ -648,7 +651,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             Image(alexaIcon, null, modifier = Modifier.size(26.dp).clip(CircleShape))
                         } else PageIcon(ccPageIcon(pg), ccPageLabel(pg), selected = lit, index = i, onShow = show, onPlay = delete)
                     }
-                    if (editing) PageIcon(R.drawable.ic_add, "New page", selected = false, index = minOf(layout.pages.size, 7), onShow = {}, onPlay = null, onSelect = {
+                    if (editing) PageIcon(R.drawable.ic_add, "New page", selected = false, index = minOf(layout.pages.size - 1, 7), onShow = {}, onPlay = null, onSelect = {
                         draft?.let { d ->
                             val id = "page${d.pages.size}-${System.currentTimeMillis() % 100000}"
                             draft = d.copy(pages = d.pages + CcPage(id, "auto", emptyList())); pageId = id
@@ -697,6 +700,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             fun commitDraft() { saveDraft(); lifted = null; liftBase = null }
             fun enterEdit(refocus: Boolean = false) {
                 if (draft == null) draft = storedLayout
+                // The Alexa page isn't editable: edit mode starts on Controls.
+                if (pageId == "alexa") pageId = "controls"
                 // From the Edit pill (which goes away): focus lands on the first tile.
                 if (refocus) scope.launch { withFrameNanos { }; runCatching { first.requestFocus() } }
             }
@@ -743,9 +748,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
             // closing Control Center save too).
-            androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard) {
-                val mine: (() -> Boolean)? = if (editing || agentCard) ({
+            androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk) {
+                val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk) ({
                     when {
+                        restartAsk -> restartAsk = false
                         // Back on the permission card is Deny.
                         agentCard -> { agents.waiting = 0; agents.result = "Denied"; agentCard = false }
                         gallery == "" -> gallery = null
@@ -763,14 +769,31 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // Edit mode's wobble: ONE infinite transition for the whole grid, rotationZ only (+/-0.8 degrees, 190 ms half
             // period, each tile out of phase), read in the layer phase: nothing recomposes or re-layouts per frame.
             val wobbleOn = false
-            val wobbleClock = androidx.compose.animation.core.rememberInfiniteTransition(label = "cc-wobble").animateFloat(
+            val wobbling = editing && !reduceMotion
+            // Only while editing is there a clock at all: outside edit mode nothing here ticks (the open/close is
+            // GPU-bound on this stick, and an idle infinite transition kept frames coming).
+            val wobbleClock: androidx.compose.runtime.State<Float> = if (wobbling) androidx.compose.animation.core.rememberInfiniteTransition(label = "cc-wobble").animateFloat(
                 initialValue = 0f, targetValue = 1f,
                 animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.LinearEasing)),
                 label = "cc-wobble-t",
-            )
-            val wobbling = editing && !reduceMotion
+            ) else remember { androidx.compose.runtime.mutableStateOf(0f) }
             LaunchedEffect(agents.result) { if (agents.result != null) { kotlinx.coroutines.delay(2_000); agents.result = null } }
-            if (agentCard) CcAgentCard(sz) { allowed ->
+            if (restartAsk) {
+                val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
+                CcConfirmCard(
+                    sz,
+                    title = if (canReboot) "Restart Fire TV?" else "Restart from Settings",
+                    body = if (canReboot) "Apps that are open will close." else "Fire TV can restart from Settings › My Fire TV.",
+                    confirm = if (canReboot) "Restart" else "Open Fire Settings",
+                    destructive = canReboot,
+                    onCancel = { restartAsk = false },
+                ) {
+                    restartAsk = false
+                    closeAll()
+                    if (canReboot) scope.launch { if (!dev.glasslauncher.system.RootFeatures.reboot(context)) SystemControls.open(context, Settings.ACTION_SETTINGS) }
+                    else SystemControls.open(context, Settings.ACTION_SETTINGS)
+                }
+            } else if (agentCard) CcAgentCard(sz) { allowed ->
                 agents.waiting = 0; agents.result = if (allowed) "Allowed" else "Denied"; agentCard = false
                 pendingFocus = "addon:claude/agents"
             } else if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
@@ -854,10 +877,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             .offset { off }
                             .size(w, h)
                             .zIndex(if (isLifted) 2f else 0f)
-                            .graphicsLayer {
+                            // No layer of its own at rest: only while editing, lifting or settling a lift.
+                            .then(if (editing || liftScale != 1f) Modifier.graphicsLayer {
                                 scaleX = liftScale; scaleY = liftScale
                                 if (wobbling) rotationZ = 0.8f * kotlin.math.sin(((wobbleClock.value + pl.row * 0.13f + pl.col * 0.29f) * 2f * Math.PI).toFloat())
-                            }
+                            } else Modifier)
                             .testTag("cc-tile:$id"),
                     ) {
                         val one = tile.size == CcSize.S1x1
@@ -928,15 +952,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 }
                             }
                             "restart" -> {
-                                val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
-                                val ask = {
-                                    closeAll()
-                                    if (canReboot) open(Overlay.Confirm("Restart Fire TV?", "Apps that are open will close.", "Restart", destructive = true) {
-                                        scope.launch { if (!dev.glasslauncher.system.RootFeatures.reboot(context)) SystemControls.open(context, Settings.ACTION_SETTINGS) }
-                                    }) else open(Overlay.Confirm("Restart from Settings", "Fire TV can restart from Settings › My Fire TV.", "Open Fire Settings") {
-                                        SystemControls.open(context, Settings.ACTION_SETTINGS)
-                                    })
-                                }
+                                val ask = { restartAsk = true; pendingFocus = null }
                                 Round(R.drawable.ic_restart, "Restart", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) { tap { ask() }() }
                             }
                             "cleanup" -> Round(R.drawable.ic_cleaning_services, cleaned?.let { "Clean Up, $it" } ?: "Clean Up", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) {

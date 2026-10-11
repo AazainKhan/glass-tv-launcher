@@ -114,8 +114,10 @@ class CcEditModeTest {
             compose.settle()
             assertTrue("focus stays on the resized tile: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:wifi") == true)
             // Up to the page icons, Right twice to the + icon, Select: a new empty page with its Add slot.
+            // (In edit mode the Alexa page isn't in the strip: Controls, then +.)
             compose.press(Button.Up)
-            compose.press(Button.Right, Button.Right)
+            repeat(3) { if (compose.focused()?.contains("New page") != true) compose.press(Button.Right) }
+            assertTrue("on +: ${compose.focused()}", compose.focused()?.contains("New page") == true)
             compose.press(Button.Select)
             compose.settle()
             assertTrue("the new page is empty", !exists("cc-tile:wifi") && !exists("cc-tile:bluetooth"))
@@ -126,6 +128,26 @@ class CcEditModeTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
             assertTrue("edit mode over, Control Center still open", !exists("cc-edit-hints") && exists("control-center") && exists("cc-tile:wifi"))
+        }
+    }
+
+    @Test fun restartAsksInsideControlCenterAndBackCancels() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            // Down to the round rows, then Right along them to Restart.
+            repeat(8) { if (compose.focused()?.startsWith("cc-tile:restart") != true) compose.press(Button.Down) }
+            repeat(4) { if (compose.focused()?.startsWith("cc-tile:restart") != true) compose.press(Button.Right) }
+            assertTrue("on Restart: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:restart") == true)
+            compose.press(Button.Select)
+            compose.settle()
+            assertTrue("the confirm is in Control Center", exists("cc-confirm") && exists("control-center"))
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.settle()
+            assertTrue("Back cancels and stays", !exists("cc-confirm") && exists("cc-tile:restart"))
         }
     }
 }

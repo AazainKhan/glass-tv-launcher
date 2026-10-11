@@ -37,7 +37,7 @@ class CcShowcaseTest {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         File(ctx.filesDir, "cc-showcase").apply { parentFile?.mkdirs() }.writeText("1")
         try {
-            TvHarness.setUp(config = { it.copy(ccLayout = layout.toJson()) })
+            TvHarness.setUp(config = { it.copy(ccLayout = layout.toJson(), ccDemoTiles = true) })
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 compose.waitForHome()
                 compose.press(Button.Up, Button.Up, Button.Up, Button.Select)

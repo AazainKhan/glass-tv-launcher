@@ -198,7 +198,7 @@ fun SettingsPanel(
                 Page.HomeButton -> HomeButtonPage(model, cfg, f)
                 Page.Updates -> UpdatesPage(f)
                 Page.Backup -> BackupPage(model, f)
-                Page.About -> AboutPage(f)
+                Page.About -> AboutPage(model, cfg, f)
                 Page.Accessibility -> AccessibilityPage(model, cfg, f)
                 Page.RemoteButtons -> RemoteButtonsPage(cfg, f, ::push)
                 Page.RootTools -> RootToolsPage(f, ::push)
@@ -989,15 +989,22 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
 }
 
 @Composable
-private fun ColumnScope.AboutPage(f: Modifier) {
+private fun ColumnScope.AboutPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
     PanelTitle("Glass TV Launcher")
-    MenuRow("Version", {}, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})",
+    // Select on Version seven times reveals the developer switch below (hidden otherwise; off by default).
+    var taps by remember { mutableStateOf(0) }
+    MenuRow("Version", { taps++ }, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})",
         help = "Open source under the Apache License 2.0. github.com/${BuildConfig.UPDATE_REPO}")
     MenuRow("Content Sources", {},
         help = "Aerials from Apple; titles from the apps, JustWatch, Stremio, TMDB, YouTube or Plex; weather by Open-Meteo. Uses the TMDB API but isn't endorsed by TMDB.")
     SectionLabel("Privacy")
     MenuRow("Glass TV Launcher Collects No Data", {},
         help = "No accounts, analytics, ads or tracking. It only contacts the services you turn on, and sends nothing but the request.")
+    if (taps >= 7 || cfg.ccDemoTiles) {
+        SectionLabel("Developer")
+        ToggleRow("Demo tiles in Control Center", cfg.ccDemoTiles, { on -> model.edit { it.copy(ccDemoTiles = on) } },
+            help = "Demo data: adds fake Home Assistant, Claude Code, Plex and Weather tiles to the Add a Control gallery, to show how add-on tiles look. Nothing connects to those services.")
+    }
     Box(Modifier.size(1.dp))
 }
 

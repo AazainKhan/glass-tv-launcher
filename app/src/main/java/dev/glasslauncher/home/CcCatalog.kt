@@ -41,7 +41,7 @@ object CcCatalog {
     /** Controls the installed add-ons declare (the add-on platform is not built yet: none). */
     val addons: List<CcCatalogEntry>
         get() = if (!CcShowcase.enabled) emptyList() else CcShowcase.tiles.map {
-            CcCatalogEntry(it.id, it.name, it.description, it.icon, addon = it.addon)
+            CcCatalogEntry(it.id, it.name, "Demo data · ${it.description}", it.icon, addon = it.addon)
         }
 
     fun all(): List<CcCatalogEntry> = glass + addons
