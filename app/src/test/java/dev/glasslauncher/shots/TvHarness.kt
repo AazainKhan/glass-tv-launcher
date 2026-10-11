@@ -91,7 +91,7 @@ object TvHarness {
      * Call before launching the activity. [config] edits the stored [LauncherConfig]; by default the
      * first-run tips are marked seen so they don't trap focus.
      */
-    fun setUp(featured: Boolean = true, config: (LauncherConfig) -> LauncherConfig = { it }) {
+    fun setUp(featured: Boolean = true, squareFeed: Boolean = false, config: (LauncherConfig) -> LauncherConfig = { it }) {
         // Keep Control Center's sheet (baked with each backdrop) readable, so tests can compare the tiles with it.
         dev.glasslauncher.home.CcMaterial.recordLast = true
         dev.glasslauncher.glass.GlassMatch.keepPixels = true
@@ -99,7 +99,7 @@ object TvHarness {
         pinClock()
         useBitmapFactoryForImages()
         installApps()
-        if (featured) seedFeatured()
+        if (featured) seedFeatured(squareFeed)
         val app = ApplicationProvider.getApplicationContext<GlassApp>().app
         // From the defaults every time: the stored config outlives a test, so one test's text size or theme
         // leaked into the next.
@@ -174,7 +174,7 @@ object TvHarness {
     }
 
     /** Writes the featured cache in [dev.glasslauncher.featured.FeaturedRepository]'s format. */
-    private fun seedFeatured() {
+    private fun seedFeatured(square: Boolean = false) {
         val context = ApplicationProvider.getApplicationContext<GlassApp>()
         val titles = listOf(
             "Northern Lights" to "A cartographer maps the last uncharted coastline.",
@@ -188,7 +188,7 @@ object TvHarness {
         )
         val items = titles.mapIndexed { i, (title, description) ->
             val image = File(fixtures(), "featured${i + 1}.jpg").toURI().toString()
-            """{"id":"fixture-$i","title":"$title","subtitle":"2026 · ${90 + i * 7} min","description":"$description","image":"$image"}"""
+            """{"id":"fixture-$i","title":"$title","subtitle":"2026 · ${90 + i * 7} min","description":"$description","image":"$image"${if (square) ",\"aspect\":1.0" else ""}}"""
         }
         val key = dev.glasslauncher.featured.cacheKey(FeaturedConfig()).replace("\"", "\\\"")
         File(context.cacheDir, "featured.json").writeText(

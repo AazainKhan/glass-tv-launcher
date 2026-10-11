@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -84,6 +85,10 @@ fun CoverFlow(
     coverArt: (@Composable (String?, Boolean) -> ImageBitmap?)? = null,
     /** At rest on Home (P79b): the same carousel as a picture: not focusable, no keys, no label or title. */
     preview: Boolean = false,
+    /** The covers' own opacity on top of their pose (read in the layer phase): Home holds them back while the preview morphs (P86). */
+    coversAlpha: () -> Float = { 1f },
+    /** The app's glyph beside the title (P86). */
+    labelIcon: ImageBitmap? = null,
 ) {
     if (items.isEmpty()) return
     val reduceMotion = LocalUiPrefs.current.reduceMotion
@@ -128,7 +133,15 @@ fun CoverFlow(
             })
             .testTag(if (preview) "cover-preview" else "cover-flow"),
     ) {
-        if (!preview) Text(label, Modifier.align(Alignment.TopCenter).padding(top = 22.dp).testTag("cover-flow-label"))
+        if (!preview) androidx.compose.foundation.layout.Row(
+            Modifier.align(Alignment.TopCenter).padding(top = 22.dp).testTag("cover-flow-label"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+        ) {
+            // The app's own glyph at the title's height, beside it.
+            labelIcon?.let { Image(it, null, modifier = Modifier.size(26.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))) }
+            Text(label)
+        }
         // The covers: nearest the centre last, so each is drawn over the one outside it.
         // The window follows the target index (so it changes only when a key is pressed); each cover's own
         // pose is read from the animated position in the layer phase, so a glide never recomposes the row.
@@ -145,6 +158,7 @@ fun CoverFlow(
                     coverPx = coverPx,
                     art = art(items[i].image, i == current),
                     item = items[i],
+                    coversAlpha = coversAlpha,
                     tag = if (preview) "preview-cover:$i" else "cover:$i",
                     modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp),
                 )
@@ -161,7 +175,7 @@ fun CoverFlow(
 }
 
 @Composable
-private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx: Float, art: ImageBitmap?, item: FeaturedItem, tag: String, modifier: Modifier) {
+private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx: Float, art: ImageBitmap?, item: FeaturedItem, coversAlpha: () -> Float, tag: String, modifier: Modifier) {
     val density = LocalDensity.current
     Box(
         modifier
@@ -174,7 +188,7 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
                 rotationY = pose.rotationY
                 scaleX = pose.scale
                 scaleY = pose.scale
-                alpha = pose.alpha
+                alpha = pose.alpha * coversAlpha()
                 cameraDistance = 14f * density.density
                 // The reflection belongs under the cover: scale and turn about the cover's own centre.
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f / (1f + CoverReflection.HEIGHT))
@@ -271,24 +285,47 @@ internal object CoverArtCache {
  * Nothing is baked or drawn per frame beyond the cover layers the flow already has.
  */
 @Composable
-fun CoverPreview(feed: FeaturedFeed, index: Int, expand: () -> Float, restCentreY: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+fun CoverPreview(
+    feed: FeaturedFeed, index: Int, expand: () -> Float, restCentreY: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
+    /** A small caption above the covers ("Listen Now", tvOS Music style). */
+    heading: String? = null,
+) {
     val density = LocalDensity.current
     val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
     val shiftPx = with(density) { (restCentreY.toPx() - (screenH.dp.toPx() / 2f)) }
     val focus = remember { FocusRequester() }
+    Box(modifier.fillMaxSize()) {
     Box(
-        modifier.fillMaxSize().graphicsLayer {
+        Modifier.fillMaxSize().graphicsLayer {
             val p = expand().coerceIn(0f, 1f)
             val s = REST_SCALE + (1f - REST_SCALE) * p
             scaleX = s; scaleY = s
             translationY = shiftPx * (1f - p)
-            // The expanded flow's own alpha is (p - 0.4) / 0.6: this one hands over as that one arrives.
-            alpha = (1f - ((p - 0.4f) / 0.6f)).coerceIn(0f, 1f)
+            // One morph (P86): these covers grow and move into the full-screen pose and stay until they are exactly
+            // there; then the expanded flow's covers take over in the same frame (same bitmaps, same pose), so there
+            // is no frame with two carousels showing. Down runs it back.
+            alpha = if (p >= HANDOVER) 0f else 1f
         },
     ) {
         CoverFlow(items = feed.items, index = index, onIndex = {}, onOpen = {}, onExit = {}, label = "", focusRequester = focus, preview = true)
     }
+    if (heading != null) {
+        val inset = dev.glasslauncher.ui.LocalMetrics.current.inset
+        androidx.compose.foundation.text.BasicText(
+            heading,
+            style = Type.secondary.copy(color = Color.White.copy(alpha = 0.78f), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+            modifier = Modifier
+                .padding(start = inset)
+                .offset(y = restCentreY - (COVER_DP * REST_SCALE / 2f).dp - 38.dp)
+                .graphicsLayer { alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f) }
+                .testTag("cover-preview-heading"),
+        )
+    }
+    }
 }
+
+/** The expand progress at which the preview's covers hand over to the full flow's (they are in the same pose). */
+const val HANDOVER = 0.995f
 
 /** How much smaller the resting carousel is than the full-screen one. */
 private const val REST_SCALE = 0.62f

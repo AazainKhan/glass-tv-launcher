@@ -142,6 +142,8 @@ private const val SHELF_FOLLOW_MS = 450L
 private const val APP_HERO_MS = 250L
 private const val GPU_TRIM_AFTER_MS = 4_000L
 private const val APP_HERO_FADE_MS = 200
+/** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
+private const val PREVIEW_FADE_MS = 450
 /** ...and this long shows its titles (tvOS 27: the shelf moves with the user first). */
 private const val TITLES_AFTER_MS = 1_500L
 /** Now Playing stays on Home this long after playback stops (track changes, short pauses). */
@@ -284,7 +286,35 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
     }
     // The app's own hero shows until its titles are due: after a dwell, with titles on, and some to show.
-    val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded)
+    // A shelf app known to be square covers (Spotify, learned once it has rested and kept): its soft scene and Cover
+    // Flow preview come straight away, one dissolve from the previous backdrop, not the app's flat hero first and
+    // the covers popping in 1.5 s later (P86).
+    val coverApps = remember {
+        androidx.compose.runtime.mutableStateSetOf<String>().also { it.addAll(context.getSharedPreferences("home", 0).getStringSet("coverApps", emptySet()).orEmpty()) }
+    }
+    val feedIsCovers = feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)
+    val coverEarly = feedIsCovers && heroApp != null && heroApp in coverApps
+    LaunchedEffect(dwelled, feedIsCovers, shelfApp) {
+        val app = shelfApp
+        if (dwelled && feedIsCovers && app != null && app == heroApp && app !in coverApps) {
+            coverApps += app
+            context.getSharedPreferences("home", 0).edit().putStringSet("coverApps", coverApps.toSet()).apply()
+        }
+    }
+    val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded || coverEarly)
+    // The shelf app's own glyph for the Cover Flow's title (decoded once per app, small).
+    val shelfIcon by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, shelfApp) {
+        value = shelfApp?.let { pkg ->
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val d = context.packageManager.getApplicationIcon(pkg)
+                    val b = android.graphics.Bitmap.createBitmap(52, 52, android.graphics.Bitmap.Config.ARGB_8888)
+                    d.setBounds(0, 0, 52, 52); d.draw(android.graphics.Canvas(b))
+                    b.asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
     val appHeroShown = cfg.background == BackgroundMode.Featured && takeover == null && !expanded && heroApp != null && !titlesDue
     val appHeroPkg = heroApp.takeIf { appHeroShown }
     val appHeroes = HeroCache.app
@@ -778,12 +808,21 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     Box(Modifier.testTag("top-shelf-app-hero:$appHeroPkg")) { Box(Modifier.size(1.dp).testTag("app-art:$appHeroPkg")) }
                 }
                 // Spotify at rest (P79b): the carousel itself, covers at their own size, in the Top Shelf area.
-                if (feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured) {
+                val previewOn = feed != null && softFeed && cfg.topShelfTitles && takeover == null && !appHeroShown && cfg.background == BackgroundMode.Featured
+                // Fades in with the backdrop's dissolve and out when focus leaves (the feed is kept just for that).
+                val lastCovers = remember { arrayOfNulls<dev.glasslauncher.featured.FeaturedFeed>(1) }
+                if (previewOn) lastCovers[0] = feed
+                val previewAlpha by androidx.compose.animation.core.animateFloatAsState(
+                    if (previewOn) 1f else 0f, androidx.compose.animation.core.tween(if (prefs.reduceMotion) 120 else PREVIEW_FADE_MS), label = "preview-fade",
+                )
+                val previewFeed = if (previewOn) feed else lastCovers[0]
+                if (previewFeed != null && (previewOn || previewAlpha > 0.01f)) {
                     CoverPreview(
-                        feed = feed, index = heroIndex.coerceIn(0, feed.items.lastIndex), expand = { expand.value },
+                        feed = previewFeed, index = heroIndex.coerceIn(0, previewFeed.items.lastIndex), expand = { expand.value },
+                        heading = "Listen Now",
                         restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) * 0.55f,
                         modifier = Modifier.testTag("cover-preview-host").graphicsLayer {
-                            alpha = idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
+                            alpha = previewAlpha * idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
                             translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
                         },
                     )
@@ -875,6 +914,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         onSheet = { shelfSheet = it },
                         // Up from the Cover Flow reaches the pill (Control Center), as the card row's Play button did.
                         upTo = pillRequester,
+                        labelIcon = shelfIcon,
                     )
                 }
             }

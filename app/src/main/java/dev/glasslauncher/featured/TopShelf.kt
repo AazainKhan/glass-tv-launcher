@@ -140,6 +140,8 @@ fun ExpandedShelf(
     onSheet: (Boolean) -> Unit = {},
     /** Where Up goes from a Cover Flow (Home's status pill, P67). */
     upTo: FocusRequester? = null,
+    /** The shelf app's glyph beside the Cover Flow's title (P86). */
+    labelIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     val m = LocalMetrics.current
     val context = LocalContext.current
@@ -164,6 +166,10 @@ fun ExpandedShelf(
                 items = feed.items, index = index, onIndex = onIndex,
                 onOpen = { it.open(context) }, onExit = onExitDown,
                 label = feed.heading, focusRequester = firstCard, upTo = upTo,
+                // The preview's covers morph into this pose and stay until they are there (CoverPreview); these take
+                // over at that moment, so the covers never show twice. The title and labels fade in with the group.
+                coversAlpha = { if (progress() >= HANDOVER) 1f else 0f },
+                labelIcon = labelIcon,
             )
             return@Box
         }

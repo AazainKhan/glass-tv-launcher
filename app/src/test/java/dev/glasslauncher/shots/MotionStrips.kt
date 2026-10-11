@@ -100,6 +100,28 @@ class MotionStrips {
         }
     }
 
+    // P86: the resting Cover Flow preview morphing into the full-screen flow, and back.
+    @Test fun coverUp() {
+        assumeTrue(only == "all" || only == "cover-up")
+        TvHarness.setUp(squareFeed = true)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome(); compose.settle()
+            val shots = compose.frames(Button.Up, 24, 32)
+            println("strip: " + sheet("cover-up", shots, 32, 6).absolutePath)
+        }
+    }
+
+    @Test fun coverDown() {
+        assumeTrue(only == "all" || only == "cover-down")
+        TvHarness.setUp(squareFeed = true)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome(); compose.settle()
+            compose.press(Button.Up); compose.settle()
+            val shots = compose.frames(Button.Down, 24, 32)
+            println("strip: " + sheet("cover-down", shots, 32, 6).absolutePath)
+        }
+    }
+
     @Test fun controlCenterClose() {
         assumeTrue(only == "all" || only == "control-center-close")
         TvHarness.setUp()
