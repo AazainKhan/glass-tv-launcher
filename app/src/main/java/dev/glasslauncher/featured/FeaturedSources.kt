@@ -375,7 +375,8 @@ object JustWatch : FeaturedSource {
             put("query", kotlinx.serialization.json.JsonPrimitive(QUERY))
             put("variables", kotlinx.serialization.json.buildJsonObject {
                 put("country", kotlinx.serialization.json.JsonPrimitive(country))
-                put("first", kotlinx.serialization.json.JsonPrimitive(15))
+                // Many titles have no backdrop at this size and are dropped (Prime showed ~4 of 15): ask for more, keep 20.
+                put("first", kotlinx.serialization.json.JsonPrimitive(FETCH))
                 put("filter", kotlinx.serialization.json.buildJsonObject {
                     put("packages", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(service.code))))
                 })
@@ -389,8 +390,19 @@ object JustWatch : FeaturedSource {
             check(r.isSuccessful) { "HTTP ${r.code}" }
             json.parseToJsonElement(r.body.string())
         }
+        val items = parse(root, service)
+        check(items.isNotEmpty()) { "JustWatch: no titles for ${service.name}" }
+        FeaturedFeed("Popular on ${service.name}", items)
+    }
+
+    /** Titles asked for per request, and kept (those without a backdrop are dropped, so ask for more than we keep). */
+    private const val FETCH = 40
+    const val KEEP = 20
+
+    /** The popular-titles response into items (pure, tested): only titles with a backdrop, in JustWatch's order, up to [KEEP]. */
+    fun parse(root: kotlinx.serialization.json.JsonElement, service: Service): List<FeaturedItem> {
         val edges = root.jsonObject["data"]?.jsonObject?.get("popularTitles")?.jsonObject?.get("edges")?.jsonArray ?: error("JustWatch: no titles")
-        val items = edges.mapNotNull { e ->
+        return edges.mapNotNull { e ->
             val node = e.jsonObject["node"]?.jsonObject ?: return@mapNotNull null
             val c = node["content"]?.jsonObject ?: return@mapNotNull null
             val offer = node["offers"]?.jsonArray?.firstOrNull()?.jsonObject
@@ -409,8 +421,6 @@ object JustWatch : FeaturedSource {
                 genre = c["genres"]?.jsonArray?.firstNotNullOfOrNull { genres[it.jsonObject["shortName"].str()] },
                 durationMin = c["runtime"].str()?.toIntOrNull(),
             )
-        }
-        check(items.isNotEmpty()) { "JustWatch: no titles for ${service.name}" }
-        FeaturedFeed("Popular on ${service.name}", items)
+        }.take(KEEP)
     }
 }
