@@ -49,4 +49,43 @@ class CcEditModeTest {
             assertTrue("Wi-Fi now sits below Bluetooth (top ${top("wifi")} vs ${top("bluetooth")})", top("wifi") > top("bluetooth"))
         }
     }
+
+    private fun exists(tag: String) = compose.onAllNodes(androidx.compose.ui.test.hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+
+    @Test fun removeThenAddAControlBackFromTheGallery() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            repeat(12) { if (compose.focused()?.startsWith("cc-edit") != true) compose.press(Button.Down) }
+            compose.press(Button.Select)
+            compose.settle()
+            // Right to Wi-Fi, Play/Pause removes it (no confirm: the gallery brings it back).
+            compose.press(Button.Right, Button.PlayPause)
+            compose.settle()
+            assertTrue("Wi-Fi is gone", !exists("cc-tile:wifi"))
+            // Down to the Add a Control slot, Select: the groups; Select Glass: the list, with Wi-Fi first and not added.
+            repeat(12) { if (compose.focused()?.startsWith("cc-add") != true) compose.press(Button.Down) }
+            compose.press(Button.Select)
+            compose.settle()
+            assertTrue("gallery groups", exists("cc-gallery"))
+            compose.press(Button.Select)
+            compose.settle()
+            assertTrue("Wi-Fi is offered", exists("cc-gallery:wifi"))
+            compose.onRoot().captureRoboImage(shot("cc-gallery"))
+            // Back goes up a level (groups), then Select Glass again and add Wi-Fi: back on the grid, focused on it.
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.settle()
+            assertTrue("still in the gallery, at the groups", exists("cc-gallery") && !exists("cc-gallery:wifi"))
+            compose.press(Button.Select, Button.Select)
+            compose.settle()
+            assertTrue("Wi-Fi is back on the grid", exists("cc-tile:wifi") && !exists("cc-gallery"))
+            assertTrue("focus landed on it: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:wifi") == true)
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.settle()
+            assertTrue("saved and left edit mode", !exists("cc-edit-hints") && exists("cc-tile:wifi"))
+        }
+    }
 }

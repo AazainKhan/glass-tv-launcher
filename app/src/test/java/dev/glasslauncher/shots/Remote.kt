@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 /** D-pad and remote buttons, as Compose key events. */
 enum class Button(val key: Key) {
     Up(Key.DirectionUp), Down(Key.DirectionDown), Left(Key.DirectionLeft), Right(Key.DirectionRight),
-    Select(Key.DirectionCenter), Back(Key.Back), Menu(Key.Menu),
+    Select(Key.DirectionCenter), Back(Key.Back), Menu(Key.Menu), PlayPause(Key.MediaPlayPause),
 }
 
 /** Presses each button in turn and lets the UI settle after each. */

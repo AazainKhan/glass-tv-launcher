@@ -655,13 +655,41 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 draft = d.remove("controls", id); if (lifted == id) { lifted = null; liftBase = null }
                 scope.launch { withFrameNanos { }; runCatching { first.requestFocus() } }
             }
-            // Back: drops a lift, else saves and leaves edit mode (Home and closing Control Center save too).
-            androidx.compose.runtime.DisposableEffect(editing, lifted) {
-                ControlCenterWindow.editBack = if (editing) ({ if (lifted != null) cancelLift() else commitDraft(); true }) else null
+            // The Add a Control gallery, in place of the grid (it's a window of its own, so the draft stays here):
+            // null = closed, "" = the three groups, else a group key ("glass", "addons", "byapp").
+            var gallery by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            val requesters = remember { mutableMapOf<String, FocusRequester>() }
+            var pendingFocus by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            LaunchedEffect(pendingFocus, placed) {
+                val id = pendingFocus ?: return@LaunchedEffect
+                if (placed.none { it.tile.id == id }) return@LaunchedEffect
+                withFrameNanos { }
+                runCatching { (if (id == "fire_settings") first else requesters[id])?.requestFocus() }
+                pendingFocus = null
+            }
+            fun addControl(id: String) {
+                val d = draft ?: return
+                draft = d.add("controls", id)
+                gallery = null
+                pendingFocus = id
+            }
+            // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
+            // closing Control Center save too).
+            androidx.compose.runtime.DisposableEffect(editing, lifted, gallery) {
+                ControlCenterWindow.editBack = if (editing) ({
+                    when {
+                        gallery == "" -> gallery = null
+                        gallery != null -> gallery = ""
+                        lifted != null -> cancelLift()
+                        else -> commitDraft()
+                    }
+                    true
+                }) else null
                 onDispose { ControlCenterWindow.editBack = null }
             }
             LaunchedEffect(exiting) { if (exiting && draft != null) commitDraft() }
             val wobbleOn = editing && !reduceMotion
+            if (gallery != null) CcGallery(gallery!!, layout, sz, { gallery = it }, ::addControl) else {
             Box(
                 Modifier
                     .width(sz.column)
@@ -703,7 +731,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     fun tap(go: () -> Unit): () -> Unit = { if (editing) liftToggle(id) else go() }
                     val hold: (() -> Unit)? = if (editing) null else ({ enterEdit(); focusedId = id })
                     fun playOr(go: () -> Unit): () -> Unit = { if (editing) removeTile(id) else go() }
-                    val focusMod = Modifier.onFocusChanged { if (it.isFocused) focusedId = id }
+                    val requester = if (id == "fire_settings") first else requesters.getOrPut(id) { FocusRequester() }
+                    val focusMod = Modifier.focusRequester(requester).onFocusChanged { if (it.isFocused) focusedId = id }
                     Box(
                         Modifier
                             .offset { off }
@@ -714,7 +743,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     ) {
                         val one = tile.size == CcSize.S1x1
                         when (id) {
-                            "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), w, h, modifier = Modifier.focusRequester(first).then(focusMod),
+                            "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), w, h, modifier = focusMod,
                                 onClick = tap { closeAll(); open(Overlay.TvSettings) }, onLongClick = hold, onPlay = playOr { closeAll(); open(Overlay.TvSettings) }, wiggle = wobbleOn) { fg ->
                                 BigIcon(R.drawable.ic_settings, "Settings", fg)
                             }
@@ -769,6 +798,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     }
                 }
             }
+            if (editing && lifted == null) CcTile("Add a Control", null, Shapes.pill, sz.column, sz.pill, onClick = { gallery = "" }, modifier = Modifier.padding(top = sz.gap).testTag("cc-add")) { fg ->
+                PillContent(R.drawable.ic_add, "Add a Control", null, fg, on = false, accent = fg)
+            }
             if (editing) Text(
                 if (lifted != null) "Arrows Move · Select Drop\nBack Cancel" else "Select Move · Menu Size · Play Remove\nBack Done",
                 style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = headerColor, maxLines = 2,
@@ -787,6 +819,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     maxLines = 1,
                     modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
                 )
+            }
             }
             }
             }
@@ -1013,3 +1046,54 @@ private fun CcTile(
     }
 }
 
+
+/**
+ * The "Add a Control" gallery (P83 M3), drawn in place of the grid while edit mode is on: three groups (Glass,
+ * Add-ons, By App), then the controls of one, each a pill with its icon, name and a line (what it does, or "Added").
+ * Select adds the control at the end of the page and returns to the grid with focus on it; one already on the page
+ * (and not parameterized) just returns.
+ */
+@Composable
+private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (String?) -> Unit, add: (String) -> Unit) {
+    val first = remember(group) { FocusRequester() }
+    LaunchedEffect(group) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column).testTag("cc-gallery")) {
+        Text(
+            when (group) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
+            style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+        )
+        if (group == "") {
+            val groups = listOf(
+                Triple("glass", "Glass", R.drawable.ic_tune),
+                Triple("addons", "Add-ons", R.drawable.ic_widgets),
+                Triple("byapp", "By App", R.drawable.ic_apps),
+            )
+            groups.forEachIndexed { i, (key, name, icon) ->
+                CcTile(name, null, Shapes.pill, sz.column, sz.pill, onClick = { setGroup(key) }, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier) { fg ->
+                    PillContent(icon, name, null, fg, on = false, accent = fg)
+                }
+            }
+        } else {
+            val entries: List<Pair<String?, CcCatalogEntry>> = when (group) {
+                "glass" -> CcCatalog.glass.map { null to it }
+                "addons" -> CcCatalog.addons.map { null to it }
+                else -> CcCatalog.byApp().flatMap { (app, list) -> list.map { app to it } }
+            }
+            if (entries.isEmpty()) Text("No add-ons installed", style = Type.caption, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp))
+            var lastApp: String? = null
+            entries.forEachIndexed { i, (app, e) ->
+                if (app != null && app != lastApp) { lastApp = app; Text(app, style = Type.caption, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp, top = 4.dp)) }
+                val added = layout.shown(e.id) && '#' !in e.id
+                val line = when {
+                    added -> "Added"
+                    e.tier.tag != null -> "${e.tier.tag} · ${e.description}"
+                    else -> e.description
+                }
+                CcTile(e.name, line, Shapes.pill, sz.column, sz.pill, onClick = { if (added) setGroup(null) else add(e.id) },
+                    modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("cc-gallery:${e.id}")) { fg ->
+                    PillContent(e.icon, e.name, line, fg, on = added, accent = Blue)
+                }
+            }
+        }
+    }
+}
