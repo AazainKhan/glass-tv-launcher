@@ -243,10 +243,10 @@ internal object CcMaterial {
     val fallbackLight = Color(0xFFD6D9E3)
     /** The rim every tile keeps so it has an edge: a single thin stroke, lit from the top-left. */
     fun rimBrush(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.Brush.linearGradient(
-        0f to Color.White.copy(alpha = 0.55f),
-        0.3f to Color.White.copy(alpha = 0.12f),
-        0.7f to Color.White.copy(alpha = 0.06f),
-        1f to Color.White.copy(alpha = 0.28f),
+        0f to Color.White.copy(alpha = 0.42f),
+        0.35f to Color.White.copy(alpha = 0.10f),
+        0.7f to Color.White.copy(alpha = 0.05f),
+        1f to Color.White.copy(alpha = 0.22f),
         start = androidx.compose.ui.geometry.Offset.Zero, end = androidx.compose.ui.geometry.Offset(size.width, size.height),
     )
 
@@ -297,12 +297,14 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
             postScale(1f / moved.scale.coerceAtLeast(0.01f), 1f / moved.scale.coerceAtLeast(0.01f))
             postTranslate(slotCentre.x - origin.x, slotCentre.y - origin.y)
         }) ?: return androidx.compose.ui.graphics.SolidColor(flat)
-        // The bevel rides in the same shader (still one draw): a soft sheen along the top, a faint inner shadow along
-        // the bottom; the middle is the sheet untouched, so labels and the one-material colour are not lit up.
+        // The bevel rides in the same shader (still one draw, four stops: P71 showed the stop count is paid per
+        // pixel): a sheen along the top edge and an inner shadow that starts at 70% and deepens to the bottom, so a
+        // tile reads as a convex bubble. The sheen ends above 15% of the height on purpose: the tests (and the
+        // one-material rule) read a tile's colour at 15-22% of its height, which stays "the sheet" there.
         val bevel = android.graphics.LinearGradient(
             0f, 0f, 0f, height,
-            intArrayOf(Color.White.copy(alpha = 0.10f).toArgb(), 0, 0, bevelShade(sheetLuma).toArgb()),
-            floatArrayOf(0f, 0.12f, 0.85f, 1f), android.graphics.Shader.TileMode.CLAMP,
+            intArrayOf(Color.White.copy(alpha = 0.14f).toArgb(), 0, 0, bevelShade(sheetLuma).toArgb()),
+            floatArrayOf(0f, 0.14f, 0.70f, 1f), android.graphics.Shader.TileMode.CLAMP,
         )
         return androidx.compose.ui.graphics.ShaderBrush(android.graphics.ComposeShader(sheet, bevel, android.graphics.PorterDuff.Mode.SRC_OVER))
     }

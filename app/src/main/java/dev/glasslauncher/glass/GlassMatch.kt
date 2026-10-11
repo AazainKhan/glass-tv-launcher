@@ -54,6 +54,20 @@ object GlassMatch {
     val CC_TINT = Color.Black.copy(alpha = 0.06f)
     /** In light appearance: a white veil (20%, as before the shared sheet) so the glass reads lighter; Control Center keeps white text on it, so the dim is baked in as well. */
     val CC_TINT_LIGHT = Color.White.copy(alpha = 0.2f)
+    /**
+     * Liquid-glass body (P76), all in the bake, so the draw costs nothing: the scene is blurred [CC_BLUR_PASSES]
+     * times (busy art, a Cover Flow, becomes soft colour fields, not shapes), its colour boosted by [CC_SATURATION]
+     * around its own luma (vibrancy, as tvOS's glass), and lifted toward white by [CC_LIFT] so
+     * the tiles read as translucent glass, not near-black slabs. The sheet stays one opaque picture, so tiles
+     * remain "the sheet at their position" (VisualChecks.controlCenterIsOneMaterial). A departure from P10's
+     * flat dimmed scene, on purpose (the user: "too sharp", "more liquid glass bubble").
+     */
+    const val CC_BLUR_PASSES = 10
+    const val CC_SATURATION = 1.35f
+    const val CC_LIFT = 0.14f
+    /** Light appearance's lift: its tiles must stay clearly brighter than the dark ones (ControlCenterMotionTest). */
+    const val CC_LIFT_LIGHT = 0.26f
+
     /** How much Control Center mutes the screen behind it; its sheet is the scene muted by the same amount. */
     const val CC_DIM = 0.42f
     /**
@@ -73,7 +87,8 @@ object GlassMatch {
     fun ccSheet(clear: Bitmap, light: Boolean = false): PanelSheet? {
         val t0 = android.os.SystemClock.elapsedRealtime()
         val w = clear.width.toFloat(); val h = clear.height.toFloat()
-        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, CC_DIM, CC_COLS) ?: return null
+        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, CC_DIM, CC_COLS,
+            blurPasses = CC_BLUR_PASSES, saturation = CC_SATURATION, lift = if (light) CC_LIFT_LIGHT else CC_LIFT) ?: return null
         val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
         val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft
         // Fire OS drops Log.d from apps, so debug builds log at info level.
@@ -86,7 +101,10 @@ object GlassMatch {
      * [source], which covers the root: [cols] cells across, each the mean of a few samples, then one 3x3 box blur,
      * then [fill]. The scene stays visible: nothing is averaged towards one colour. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.
      */
-    fun panelSheet(source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = 40): Sheet? {
+    fun panelSheet(
+        source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = 40,
+        blurPasses: Int = 1, saturation: Float = 1f, lift: Float = 0f,
+    ): Sheet? {
         if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
         sheetBakes++
         val rows = (cols * height / width).toInt().coerceIn(2, 128)
@@ -124,8 +142,19 @@ object GlassMatch {
                 out[i + j * cols] = sum / n
             }
         }
-        val br = blur(r); val bg = blur(g); val bbl = blur(b)
-        val pixels = IntArray(cols * rows) { Color(br[it], bg[it], bbl[it]).let { c -> fill(c, tint, dim).toArgb() } }
+        var br = r; var bg = g; var bbl = b
+        repeat(blurPasses.coerceAtLeast(1)) { br = blur(br); bg = blur(bg); bbl = blur(bbl) }
+        val pixels = IntArray(cols * rows) {
+            // Colour boosted around its own luma, then the usual tint and dim, then the lift toward white.
+            val y = 0.2126f * br[it] + 0.7152f * bg[it] + 0.0722f * bbl[it]
+            val base = Color(
+                (y + (br[it] - y) * saturation).coerceIn(0f, 1f),
+                (y + (bg[it] - y) * saturation).coerceIn(0f, 1f),
+                (y + (bbl[it] - y) * saturation).coerceIn(0f, 1f),
+            )
+            val filled = fill(base, tint, dim)
+            (if (lift > 0f) Color.White.copy(alpha = lift).compositeOver(filled) else filled).toArgb()
+        }
         return Sheet(pixels, cols, rows)
     }
 }
