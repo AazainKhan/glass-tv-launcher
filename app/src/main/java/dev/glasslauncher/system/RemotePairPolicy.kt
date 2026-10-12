@@ -45,15 +45,18 @@ object RemotePairPolicy {
     /** GAP appearance "Generic Remote Control" (0x0180), which the Fire remote advertises. */
     const val REMOTE_APPEARANCE = 0x0180
 
-    /** Scanned this long with a bonded remote that never advertised: say so (fresh batteries are the usual cause). */
+    /**
+     * Scanned this long with a bonded remote that never advertised: say so (fresh batteries are the usual cause).
+     * Only with Glass Home in front: Fire remotes disconnect when idle, which is normal during a movie.
+     */
     const val BATTERY_HINT_AFTER_MS = 90_000L
     /** At most one battery hint per this long. */
     const val BATTERY_HINT_EVERY_MS = 10 * 60_000L
 
     fun batteryHint(
-        haveBondedRemote: Boolean, remoteConnected: Boolean, screenOn: Boolean,
+        haveBondedRemote: Boolean, remoteConnected: Boolean, screenOn: Boolean, homeInFront: Boolean,
         scanningForMs: Long, silentForMs: Long, sinceLastHintMs: Long,
-    ): Boolean = haveBondedRemote && !remoteConnected && screenOn &&
+    ): Boolean = haveBondedRemote && !remoteConnected && screenOn && homeInFront &&
         scanningForMs >= BATTERY_HINT_AFTER_MS && silentForMs >= BATTERY_HINT_AFTER_MS && sinceLastHintMs >= BATTERY_HINT_EVERY_MS
 
     /** A remote that is close enough to be the user's. */

@@ -104,12 +104,13 @@ class RemotePairPolicyTest {
     }
 
     @Test fun silentBondedRemoteGetsTheBatteryHintOncePerTenMinutes() {
-        fun hint(bonded: Boolean = true, connected: Boolean = false, screen: Boolean = true, scanning: Long = 100_000, silent: Long = 100_000, since: Long = 1_000_000) =
-            RemotePairPolicy.batteryHint(bonded, connected, screen, scanning, silent, since)
+        fun hint(bonded: Boolean = true, connected: Boolean = false, screen: Boolean = true, home: Boolean = true, scanning: Long = 100_000, silent: Long = 100_000, since: Long = 1_000_000) =
+            RemotePairPolicy.batteryHint(bonded, connected, screen, home, scanning, silent, since)
         assertEquals(true, hint())
         assertEquals("not bonded: nothing to say about batteries", false, hint(bonded = false))
         assertEquals("connected", false, hint(connected = true))
         assertEquals("screen off", false, hint(screen = false))
+        assertEquals("a movie is in front: the remote sleeping is normal", false, hint(home = false))
         assertEquals("just started scanning", false, hint(scanning = 30_000))
         assertEquals("it advertised a moment ago", false, hint(silent = 10_000))
         assertEquals("said it a minute ago", false, hint(since = 60_000))

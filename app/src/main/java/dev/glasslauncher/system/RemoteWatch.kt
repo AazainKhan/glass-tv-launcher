@@ -37,6 +37,9 @@ object RemoteWatch {
     val card: StateFlow<Boolean> = _card
     fun cardShown() { _card.value = false }
 
+    /** Glass Home is the resumed activity (no app or playback in front); set by MainActivity. */
+    @Volatile var homeInFront = false
+
     private var started = false
     private var lastDisconnect = 0L
     private var cardOffered = false

@@ -45,9 +45,15 @@ class MainActivity : ComponentActivity() {
         dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
     }
 
+    override fun onPause() {
+        super.onPause()
+        dev.glasslauncher.system.RemoteWatch.homeInFront = false
+    }
+
     override fun onResume() {
         super.onResume()
         stoppedSinceResume = false
+        dev.glasslauncher.system.RemoteWatch.homeInFront = true
         // Coming back to Home while the banner is up (the screensaver was dismissed) is the user returning.
         dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
         // However Glass came back (Home, Back out of the store), Amazon's launcher goes off again; and if it
