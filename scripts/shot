@@ -15,5 +15,6 @@ fi
 # Header (API 30): u32 width, u32 height, u32 format, u32 dataspace; then RGBA pixels.
 read -r WIDTH HEIGHT < <(head -c 8 "$RAW" | od -An -tu4)
 SCALE=(); [ "$W" = 0 ] || SCALE=(-vf "scale=$W:-1")
-tail -c +17 "$RAW" | ffmpeg -loglevel error -y -f rawvideo -pix_fmt rgba -s "${WIDTH}x${HEIGHT}" -i - "${SCALE[@]}" -frames:v 1 "$OUT"
+# "${SCALE[@]}" on an empty array trips `set -u` on macOS's stock bash (3.2): the +default idiom is the portable guard.
+tail -c +17 "$RAW" | ffmpeg -loglevel error -y -f rawvideo -pix_fmt rgba -s "${WIDTH}x${HEIGHT}" -i - "${SCALE[@]+"${SCALE[@]}"}" -frames:v 1 "$OUT"
 echo "$OUT"

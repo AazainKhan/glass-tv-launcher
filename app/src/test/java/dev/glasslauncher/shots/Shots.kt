@@ -53,12 +53,24 @@ fun ComposeTestRule.stableImage(): Bitmap {
         n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text).orEmpty()
             .any { Regex("""^\d{1,2}:\d{2}( ?[ap]\.?m\.?)?$""", RegexOption.IGNORE_CASE).matches(it.text.trim()) }
     }
-    val tagged = volatileTags.flatMap { (tag, anchor) ->
+    // Control Center draws its own glass over the status pill without removing it (it's still composed, just
+    // covered): masking the pill's bounds too painted a flat rect over real, non-time-dependent CC content (the
+    // Settings tile, the Wi-Fi pill) wherever they happened to sit under where the pill used to be (F13). Its own
+    // clock (cc-clock) is the one actually on screen then, so the Home status bar's tags are skipped while it's up.
+    val ccOpen = onAllNodes(hasTestTag("control-center"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+    val tagsToMask = if (ccOpen) volatileTags.filterKeys { it.startsWith("cc-") } else volatileTags
+    val tagged = tagsToMask.flatMap { (tag, anchor) ->
         onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot to anchor }
     }
-    // An untagged time text is only masked if no tagged node already contains it; its side is a guess by position.
+    // The hidden Home status bar's own bounds (not masked while covered, above), so an untagged scan below doesn't
+    // catch its clock text either and mask it a second time, over real CC content.
+    val hiddenWhileCcOpen = if (!ccOpen) emptyList() else volatileTags.keys.filterNot { it.startsWith("cc-") }.flatMap { tag ->
+        onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot }
+    }
+    // An untagged time text is only masked if no tagged (or hidden-behind-CC) node already contains it; its side is a
+    // guess by position.
     val untagged = onAllNodes(timeText, useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot }
-        .filter { r -> tagged.none { (t, _) -> t.left <= r.left && t.top <= r.top && t.right >= r.right && t.bottom >= r.bottom } }
+        .filter { r -> (tagged.map { it.first } + hiddenWhileCcOpen).none { t -> t.left <= r.left && t.top <= r.top && t.right >= r.right && t.bottom >= r.bottom } }
         .map { it to if (bitmap.width - it.right < RIGHT_ANCHOR_BAND) MaskAnchor.Right else MaskAnchor.Left }
     for ((r, anchor) in tagged + untagged) {
         val m = maskRect(r.left, r.top, r.right, r.bottom, anchor)
