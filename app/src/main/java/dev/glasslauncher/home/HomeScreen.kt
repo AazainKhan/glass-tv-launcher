@@ -728,6 +728,20 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             }
         }
     }
+    // P93: a plain-APK install can't turn Glass's accessibility service on itself: once, a card that opens Fire's
+    // Accessibility settings (never again until the setting is turned back on).
+    val keysCard by dev.glasslauncher.system.KeysService.card.collectAsStateWithLifecycle()
+    LaunchedEffect(keysCard, overlays.isEmpty()) {
+        if (!keysCard || overlays.isNotEmpty()) return@LaunchedEffect
+        dev.glasslauncher.system.KeysService.cardShown()
+        open(Overlay.Confirm(
+            "Turn on remote buttons?",
+            "Glass needs its accessibility service for the remote's app buttons and instant Back. Turn it on in Accessibility settings.",
+            "Open Accessibility Settings",
+        ) {
+            runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        })
+    }
     BackHandler {
         when {
             // Back during the app-open zoom, before the app was started: undo it (P87).

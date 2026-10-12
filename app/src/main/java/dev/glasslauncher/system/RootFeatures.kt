@@ -144,28 +144,11 @@ object RootFeatures {
 
     // ── The remote-keys accessibility service must always be on (P87) ────────────────────────────
 
-    private const val KEYS_SERVICE = "dev.glasslauncher/dev.glasslauncher.system.RemoteKeysService"
-
     /** The enabled-services setting with [service] in it (pure, tested): unchanged when it already is. */
     fun withService(current: String?, service: String): String = when {
         current.isNullOrBlank() || current == "null" -> service
         current.split(':').any { it == service } -> current
         else -> "$current:$service"
-    }
-
-    /**
-     * After an update that changes the service's capabilities the system can leave it off; nobody is at the TV to turn
-     * it back on (the remote's app buttons, Recent Apps and instant back depend on it). When Glass has root it
-     * writes the setting back itself, once per start. A no-op without root or when the service is already enabled.
-     */
-    suspend fun keepKeysService(context: Context) {
-        val current = android.provider.Settings.Secure.getString(context.contentResolver, "enabled_accessibility_services")
-        val wanted = withService(current, KEYS_SERVICE)
-        val enabled = android.provider.Settings.Secure.getInt(context.contentResolver, "accessibility_enabled", 0) == 1
-        if (wanted == current && enabled) return
-        if (!Root.available()) return
-        Root.action(context, "Remote keys service was off: turned back on",
-            "settings put secure enabled_accessibility_services '$wanted'\nsettings put secure accessibility_enabled 1")
     }
 
     suspend fun setHomeTakeover(context: Context, on: Boolean): Root.Result = (if (on) {
