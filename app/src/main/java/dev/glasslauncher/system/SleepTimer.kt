@@ -27,6 +27,15 @@ object SleepTimer {
     /** Off, then the choices the tile steps through on Select. */
     val CHOICES = listOf(0, 15, 30, 60, 90)
 
+    /**
+     * Whether the timer can put the stick to sleep at zero: root (KEYCODE_SLEEP) or Glass's accessibility service
+     * (lock-screen action). Without either the tile must not start a timer that would silently do nothing.
+     */
+    fun canSleep(root: Boolean, keysServiceOn: Boolean): Boolean = root || keysServiceOn
+
+    fun canSleep(context: Context): Boolean =
+        canSleep(Root.known, RemoteKeysService.instance != null || HomeSetup.isRemoteKeysEnabled(context))
+
     /** The choice after [choice] (0 = Off): Select steps Off, 15, 30, 60, 90, Off. */
     fun next(choice: Int): Int = CHOICES[(CHOICES.indexOf(choice).coerceAtLeast(0) + 1) % CHOICES.size]
 

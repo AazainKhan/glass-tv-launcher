@@ -69,3 +69,20 @@ class KeysServicePolicyTest {
         }
     }
 }
+
+/** P95: the Home card and the Sleep Timer's capability. */
+class HomeCardPolicyTest {
+    @Test fun cardOnlyWhereGlassIsNotHomeAndNothingElseWillMakeItHome() {
+        assertEquals(true, HomeCardPolicy.show(isDefaultHome = false, guardOn = false, hasRoot = false, shown = false))
+        assertEquals("already home", false, HomeCardPolicy.show(true, false, false, false))
+        assertEquals("guard on", false, HomeCardPolicy.show(false, true, false, false))
+        assertEquals("root keeps Home", false, HomeCardPolicy.show(false, false, true, false))
+        assertEquals("only once", false, HomeCardPolicy.show(false, false, false, true))
+    }
+
+    @Test fun sleepNeedsRootOrTheKeysService() {
+        assertEquals(true, SleepTimer.canSleep(root = true, keysServiceOn = false))
+        assertEquals(true, SleepTimer.canSleep(root = false, keysServiceOn = true))
+        assertEquals(false, SleepTimer.canSleep(root = false, keysServiceOn = false))
+    }
+}

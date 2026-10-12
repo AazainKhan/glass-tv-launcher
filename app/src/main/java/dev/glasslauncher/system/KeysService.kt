@@ -19,6 +19,12 @@ object KeysService {
 
     fun cardShown() { _card.value = false }
 
+    private val _homeCard = MutableStateFlow(false)
+    /** True when Home should show its one "Make Glass your Home" card (P95 gap 1); consumed with [homeCardShown]. */
+    val homeCard: StateFlow<Boolean> = _homeCard
+
+    fun homeCardShown() { _homeCard.value = false }
+
     /** The setting changed (Settings): turning it on again re-arms the enable attempt and the card. */
     fun onSettingChanged(context: Context, on: Boolean) {
         val p = context.getSharedPreferences(PREFS, 0).edit()
@@ -48,6 +54,7 @@ object KeysService {
         val hasSecure = app.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED
         // su is only asked when it is needed (the service is off, the setting on and there is no secure-settings write).
         val hasRoot = settingOn && !on && !hasSecure && Root.available()
+        homeSetup(app, prefs, hasSecure)
         val state = KeysServicePolicy.State(
             settingOn = settingOn, serviceOn = on, mode = KeysServicePolicy.mode(hasSecure, hasRoot), updateTime = updateTime,
             lastOnUpdate = if (prefs.contains("lastOnUpdate")) prefs.getLong("lastOnUpdate", 0L) else null,
@@ -70,6 +77,22 @@ object KeysService {
                 _card.value = true
             }
         }
+    }
+
+    /**
+     * Becoming Home (P95 gap 1): re-enable the Home guard after a force-stop when WRITE_SECURE_SETTINGS is held,
+     * otherwise offer the card (once) that says how to make Glass Home.
+     */
+    private suspend fun homeSetup(app: Context, prefs: android.content.SharedPreferences, hasSecure: Boolean) {
+        val cfg = app.app.config.config.value
+        val guardOn = HomeSetup.isGuardEnabled(app)
+        if (cfg.homeGuard && !guardOn && hasSecure) { HomeSetup.setGuardEnabled(app, true); return }
+        val isHome = HomeSetup.isDefaultHome(app)
+        if (isHome || guardOn || prefs.getBoolean("homeCardShown", false)) return
+        if (!HomeCardPolicy.show(isHome, guardOn, Root.known || Root.available(), false)) return
+        if (android.os.Build.FINGERPRINT == "robolectric") return
+        prefs.edit().putBoolean("homeCardShown", true).apply()
+        _homeCard.value = true
     }
 
     private suspend fun enable(context: Context, mode: WriteMode) {

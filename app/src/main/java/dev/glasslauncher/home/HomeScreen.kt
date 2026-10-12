@@ -730,6 +730,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // P93: a plain-APK install can't turn Glass's accessibility service on itself: once, a card that opens Fire's
     // Accessibility settings (never again until the setting is turned back on).
+    // P95: the first-run "Make Glass your Home" card (a plain APK isn't Home until the user does one of two things).
+    val homeCard by dev.glasslauncher.system.KeysService.homeCard.collectAsStateWithLifecycle()
+    LaunchedEffect(homeCard, overlays.isEmpty()) {
+        if (!homeCard || overlays.isNotEmpty()) return@LaunchedEffect
+        dev.glasslauncher.system.KeysService.homeCardShown()
+        open(Overlay.Confirm(
+            "Make Glass your Home",
+            "Turn on Glass in Accessibility so the Home button comes back here. Or from a computer, once: ${dev.glasslauncher.system.HomeSetup.DISABLE_STOCK_COMMAND}",
+            "Open Accessibility Settings",
+        ) {
+            runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        })
+    }
     val keysCard by dev.glasslauncher.system.KeysService.card.collectAsStateWithLifecycle()
     LaunchedEffect(keysCard, overlays.isEmpty()) {
         if (!keysCard || overlays.isNotEmpty()) return@LaunchedEffect

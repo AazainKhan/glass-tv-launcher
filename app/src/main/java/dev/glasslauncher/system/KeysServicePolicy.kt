@@ -58,3 +58,10 @@ object KeysServicePolicy {
         else -> Action.UserTurnedOff
     }
 }
+
+/** P95 gap 1: a plain APK isn't Home until the user does one of two things, so Glass says so once. */
+object HomeCardPolicy {
+    /** Shown once, only where Glass isn't Home, the Home guard isn't on and root isn't there to make it Home. */
+    fun show(isDefaultHome: Boolean, guardOn: Boolean, hasRoot: Boolean, shown: Boolean): Boolean =
+        !isDefaultHome && !guardOn && !hasRoot && !shown
+}

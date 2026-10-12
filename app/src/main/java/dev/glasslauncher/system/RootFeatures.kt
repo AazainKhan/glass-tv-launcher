@@ -234,9 +234,22 @@ object RootFeatures {
      */
     suspend fun freeMemory(context: Context): Int {
         val before = availableMb()
-        Root.action(context, "Free memory", "am kill-all")
+        if (Root.known || Root.available()) Root.action(context, "Free memory", "am kill-all")
+        else killBackground(context)
         kotlinx.coroutines.delay(600)
         return (availableMb() - before).coerceAtLeast(0)
+    }
+
+    /**
+     * No root: ask the system to end the cached background processes of every launchable app but Glass
+     * (KILL_BACKGROUND_PROCESSES is a normal permission). Anything playing or otherwise perceptible keeps running.
+     */
+    private fun killBackground(context: Context) {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val launchers = android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LEANBACK_LAUNCHER)
+        context.packageManager.queryIntentActivities(launchers, 0)
+            .map { it.activityInfo.packageName }.distinct().filter { it != context.packageName }
+            .forEach { runCatching { am.killBackgroundProcesses(it) } }
     }
 
     /** Restart: root `svc power reboot`; a system app PowerManager.reboot (REBOOT); else false (the caller opens Fire's settings). */

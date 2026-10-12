@@ -979,8 +979,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 val value = dev.glasslauncher.system.SleepTimer.label(sleepLeft)
                                 val go = tap {
                                     val next = dev.glasslauncher.system.SleepTimer.next(dev.glasslauncher.system.SleepTimer.choice(context))
-                                    dev.glasslauncher.system.SleepTimer.set(context, next)
-                                    sleepLeft = dev.glasslauncher.system.SleepTimer.remainingMs(context)
+                                    if (next > 0 && !dev.glasslauncher.system.SleepTimer.canSleep(context)) {
+                                        // No root and the accessibility service is off: it could not sleep the stick. Say so and open the page.
+                                        android.widget.Toast.makeText(context, "Sleep Timer needs Glass turned on in Accessibility", android.widget.Toast.LENGTH_LONG).show()
+                                        runCatching {
+                                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        }
+                                    } else {
+                                        dev.glasslauncher.system.SleepTimer.set(context, next)
+                                        sleepLeft = dev.glasslauncher.system.SleepTimer.remainingMs(context)
+                                    }
                                 }
                                 val on = sleepLeft > 0
                                 // 1x1: while it runs, the minutes left ("28") replace the glyph (spec: a short value may).
@@ -1014,8 +1023,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                         cleaned = when {
                                             r.cachesMb >= 1024 -> "%.1f GB".format(r.cachesMb / 1024f)
                                             r.cachesMb > 0 -> "${r.cachesMb} MB"
-                                            r.bulkCaches -> "${r.memoryMb} MB memory"
-                                            else -> "memory only"
+                                            r.memoryMb > 0 -> "${r.memoryMb} MB memory"
+                                            r.bulkCaches -> "Nothing to clean"
+                                            else -> "Already clean"
                                         }
                                         kotlinx.coroutines.delay(4_000)
                                         cleaned = null
