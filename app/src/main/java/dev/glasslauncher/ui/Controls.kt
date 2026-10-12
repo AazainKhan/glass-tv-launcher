@@ -114,10 +114,10 @@ fun MenuRow(
             .fillMaxWidth()
             .heightIn(min = 38.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(bg, Shapes.pill)
             // In light appearance the white focus capsule stands out by a soft shadow under it, as tvOS's does, not by a
             // dark ring (P105 #8).
             .then(if (focused && palette.light) Modifier.shadow(10.dp, Shapes.pill, clip = false, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.30f)) else Modifier)
+            .background(bg, Shapes.pill)
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused

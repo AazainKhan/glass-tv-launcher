@@ -246,6 +246,50 @@ private fun SettingsPageIcon(title: String) {
     }
 }
 
+/**
+ * The Settings page's wash (P105 #8): the scene's mean hue at a fixed lightness, so a light page is a pale tint of the
+ * wallpaper (not flat near-white, where the white focus capsule had weak contrast) and a dark one a deep tint. With
+ * no scene it is the neutral pair it always was. Pure apart from [meanColor], so it is tested on the JVM.
+ */
+internal object SettingsTint {
+    private val LIGHT_NEUTRAL = androidx.compose.ui.graphics.Color(0xFFF2F2F8) to androidx.compose.ui.graphics.Color(0xFFE3E6F0)
+    private val DARK_NEUTRAL = androidx.compose.ui.graphics.Color(0xFF22252E) to androidx.compose.ui.graphics.Color(0xFF111217)
+
+    /** The mean colour (ARGB) of [bitmap], by scaling it to one pixel. */
+    fun meanColor(bitmap: android.graphics.Bitmap): Int =
+        android.graphics.Bitmap.createScaledBitmap(bitmap, 1, 1, true).let { it.getPixel(0, 0).also { _ -> if (it !== bitmap) it.recycle() } }
+
+    /** The page's top and bottom colours for a scene whose mean colour is [meanArgb] (null: neutral). */
+    fun page(meanArgb: Int?, light: Boolean): List<androidx.compose.ui.graphics.Color> {
+        val neutral = if (light) LIGHT_NEUTRAL else DARK_NEUTRAL
+        if (meanArgb == null) return listOf(neutral.first, neutral.second)
+        val r = (meanArgb shr 16 and 0xFF) / 255f; val g = (meanArgb shr 8 and 0xFF) / 255f; val b = (meanArgb and 0xFF) / 255f
+        val mx = maxOf(r, g, b); val mn = minOf(r, g, b); val d = mx - mn
+        val hue = when {
+            d == 0f -> 0f
+            mx == r -> 60f * (((g - b) / d) % 6f)
+            mx == g -> 60f * ((b - r) / d + 2f)
+            else -> 60f * ((r - g) / d + 4f)
+        }.let { if (it < 0f) it + 360f else it }
+        val sat = if (mx == 0f) 0f else d / mx
+        // A grey scene stays near neutral; a coloured one tints, within a band that keeps text and capsule contrast.
+        val s = if (light) 0.05f + 0.20f * sat else 0.10f + 0.35f * sat
+        val top = if (light) 0.965f else 0.17f
+        val bottom = if (light) 0.905f else 0.075f
+        fun c(v: Float): androidx.compose.ui.graphics.Color {
+            val chroma = v * s
+            val x = chroma * (1f - kotlin.math.abs((hue / 60f) % 2f - 1f))
+            val m = v - chroma
+            val (rr, gg, bb) = when ((hue / 60f).toInt() % 6) {
+                0 -> Triple(chroma, x, 0f); 1 -> Triple(x, chroma, 0f); 2 -> Triple(0f, chroma, x)
+                3 -> Triple(0f, x, chroma); 4 -> Triple(x, 0f, chroma); else -> Triple(chroma, 0f, x)
+            }
+            return androidx.compose.ui.graphics.Color(rr + m, gg + m, bb + m)
+        }
+        return listOf(c(top), c(bottom))
+    }
+}
+
 private val SETTINGS_ICONS = mapOf(
     "Appearance" to dev.glasslauncher.R.drawable.ic_dark_mode,
     "Display & Text" to dev.glasslauncher.R.drawable.ic_format_size,
@@ -335,8 +379,10 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     FullOverlay(active) {
         // A calm washed page, not glass over Home: through the glass, the grid and the shelf's giant
         // wordmark ghosted behind the rows (audit 9.3). Tinted faintly by the scene's own colour.
-        val page = if (palette.light) listOf(androidx.compose.ui.graphics.Color(0xFFF2F2F8), androidx.compose.ui.graphics.Color(0xFFE3E6F0))
-            else listOf(androidx.compose.ui.graphics.Color(0xFF22252E), androidx.compose.ui.graphics.Color(0xFF111217))
+        // The scene's mean hue tints it (the audit's spec: a white capsule on a flat near-white page has weak contrast).
+        val scene = dev.glasslauncher.glass.LocalBackdrop.current.backdrop
+        val mean = remember(scene) { scene?.let { runCatching { SettingsTint.meanColor(it.blurredSoftware.asAndroidBitmap()) }.getOrNull() } }
+        val page = remember(mean, palette.light) { SettingsTint.page(mean, palette.light) }
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(page)))
         androidx.tv.material3.Text(
             sink.title,
