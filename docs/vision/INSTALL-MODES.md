@@ -133,12 +133,8 @@ Self-healing state follows P93's pattern:
 - Pro/OS repair it through su after updates and respect a manual off.
 - APK shows a card linking to the right Fire Settings page.
 
-## Testing APK mode on the rooted stick
+## Testing APK mode
 
-There's no unrooted stick, so APK mode is simulated on the real one and restored afterwards:
-- Magisk › Superuser: deny Glass, so `Root.available()` is false.
-- `scripts/remote-keys uninstall --reboot`, so the keymap is gone.
-- Remove the `glass-system` module, so Glass is a plain user app.
-- Revoke the grants: `pm revoke dev.glasslauncher android.permission.WRITE_SECURE_SETTINGS`, `appops set dev.glasslauncher GET_USAGE_STATS default`, and the notification listener.
+APK mode is tested on the **emulator** (`scripts/emulator`) as a plain APK install: no su, no keymap, no system app, no grants. The rooted stick is not changed for these tests. Afterwards, run `scripts/emulator release-usb` so the stick stays on adb.
 
-Run the e2e suite plus a checklist of the 🔴 rows above. This needs the user's go-ahead: it changes root grants and modules that the Pro install depends on.
+Simulate APK mode on the stick only when a check really needs Fire-specific behaviour, and ask the Agent Manager first. Examples: whether a11y `LOCK_SCREEN` sleeps Fire OS 8, or Fire's own key policy.
