@@ -307,7 +307,21 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             context.getSharedPreferences("home", 0).edit().putStringSet("coverApps", coverApps.toSet()).apply()
         }
     }
-    val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded || coverEarly)
+    // An app whose feed has been shown before is a known quantity (its titles are on disk and in memory): its real art is
+    // what the shelf shows after the same short beat as the app hero, not a logo hero first and the art 1.5 s later
+    // (two swaps, P105 #12 follow-up). Learned once the feed has rested and kept, like the cover apps above.
+    val feedApps = remember {
+        androidx.compose.runtime.mutableStateSetOf<String>().also { it.addAll(context.getSharedPreferences("home", 0).getStringSet("feedApps", emptySet()).orEmpty()) }
+    }
+    val feedEarly = !feedIsCovers && feed != null && heroApp != null && shelfApp == heroApp && heroApp in feedApps
+    LaunchedEffect(dwelled, feed != null, shelfApp) {
+        val app = shelfApp
+        if (dwelled && feed != null && app != null && app == heroApp && app !in feedApps && !feedIsCovers) {
+            feedApps += app
+            context.getSharedPreferences("home", 0).edit().putStringSet("feedApps", feedApps.toSet()).apply()
+        }
+    }
+    val titlesDue = cfg.topShelfTitles && feed != null && (dwelled || expanded || coverEarly || feedEarly)
     // The shelf app's own glyph for the Cover Flow's title (decoded once per app, small).
     val shelfIcon by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, shelfApp) {
         value = shelfApp?.let { pkg ->
