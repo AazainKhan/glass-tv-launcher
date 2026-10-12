@@ -779,9 +779,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             )
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
-            if (restartAsk || agentCard || remotesPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-            if (remotesPlatter) CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
-            else if (restartAsk) {
+            if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            if (restartAsk) {
                 val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
                 CcConfirmCard(
                     sz,
@@ -804,10 +803,27 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
             val scrollState = androidx.compose.foundation.rememberScrollState()
-            if (!restartAsk && !agentCard && !remotesPlatter) Column(
+            // The grid and the Remotes platter swap with a 200 ms side push both ways (tvOS pushes a module over the page and
+            // pops it back the same way; spring 0.9/700 = tvOS's overlay spring, no bounce).
+            androidx.compose.animation.AnimatedContent(
+                targetState = remotesPlatter,
+                modifier = Modifier.weight(1f, fill = false),
+                transitionSpec = {
+                    val push = targetState
+                    val s = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(0.9f, 700f, androidx.compose.ui.unit.IntOffset(1, 1))
+                    val f = androidx.compose.animation.core.spring<Float>(0.9f, 700f)
+                    androidx.compose.animation.ContentTransform(
+                        targetContentEnter = androidx.compose.animation.slideInHorizontally(s) { w -> if (push) w / 3 else -w / 3 } + androidx.compose.animation.fadeIn(f),
+                        initialContentExit = androidx.compose.animation.slideOutHorizontally(s) { w -> if (push) -w / 3 else w / 3 } + androidx.compose.animation.fadeOut(f),
+                    )
+                },
+                label = "cc-platter",
+            ) { showPlatter ->
+            if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+                CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
+            } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
-                    .weight(1f, fill = false)
                     // The viewport starts 14 dp below the header's bottom while the tiles keep their place (content
                     // starts 2 dp inside it), so a scrolled row is cut under the header, not over its text.
                     .padding(top = CC_BLEED - 2.dp)
@@ -1131,6 +1147,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     maxLines = 1,
                     modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
                 )
+            }
             }
             }
             }
