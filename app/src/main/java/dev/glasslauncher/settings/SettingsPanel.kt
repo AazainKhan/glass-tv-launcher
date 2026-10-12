@@ -527,7 +527,7 @@ private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: M
     val packs = remember(refresh) { graph.iconPacks.installed() }
     val sources = remember(refresh) { dev.glasslauncher.apps.IconPackSources.available(context) }
     val canPick = remember { dev.glasslauncher.apps.IconPackSources.canPickFiles(context) }
-    val toast = { text: String -> android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show() }
+    val toast = { text: String -> dev.glasslauncher.system.RemoteNotice.show(context, text, 4_000) }
     val pickApk = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val ok = try { context.startActivity(dev.glasslauncher.apps.IconPackSources.installIntent(uri)); true }

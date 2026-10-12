@@ -72,9 +72,7 @@ object KeysService {
             }
             KeysServicePolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(instantBack = false) }
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    Toast.makeText(app, "Remote buttons off. Turn on in Glass Settings", Toast.LENGTH_LONG).show()
-                }
+                RemoteNotice.show(app, "Remote buttons off. Turn on in Glass Settings", 4_000)
             }
             KeysServicePolicy.Action.ShowCard -> {
                 // Robolectric has no root and no secure write, so every UI test would open the card over Home.
@@ -103,9 +101,7 @@ object KeysService {
             }
             HomeGuardPolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(homeGuard = false) }
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    Toast.makeText(app, "Home Button Takeover off. Turn on in Glass Settings", Toast.LENGTH_LONG).show()
-                }
+                RemoteNotice.show(app, "Home Button Takeover off. Turn on in Glass Settings", 4_000)
                 return
             }
             HomeGuardPolicy.Action.Nothing -> Unit

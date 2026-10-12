@@ -1071,7 +1071,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     val next = dev.glasslauncher.system.SleepTimer.next(dev.glasslauncher.system.SleepTimer.choice(context))
                                     if (next > 0 && !dev.glasslauncher.system.SleepTimer.canSleep(context)) {
                                         // No root and the accessibility service is off: it could not sleep the stick. Say so and open the page.
-                                        android.widget.Toast.makeText(context, "Sleep Timer needs Glass turned on in Accessibility", android.widget.Toast.LENGTH_LONG).show()
+                                        dev.glasslauncher.system.RemoteNotice.show(context, "Sleep Timer needs Glass turned on in Accessibility", 4_000)
                                         runCatching {
                                             context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
                                                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))

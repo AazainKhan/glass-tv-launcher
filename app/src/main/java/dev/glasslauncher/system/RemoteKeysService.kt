@@ -38,12 +38,16 @@ class RemoteKeysService : AccessibilityService() {
     // ── Banner (Sleep Timer's one-minute warning) ─────────────────────────────────────────────────
 
     private var banner: android.view.View? = null
-    private val dropBanner = Runnable { hideBanner() }
+    private val dropBanner = Runnable { hideBanner(animate = true) }
 
-    /** A small glass pill at the top centre, over any app (an accessibility overlay: never takes focus or touches). */
+    /**
+     * Glass's toast (P105 #13): a capsule at the status pill's spot, top right, over any app (an accessibility overlay:
+     * never takes focus or touches). It scales from 0.9 and fades in over 130 ms and leaves the same way, with a soft
+     * 1 dp rim, not the hard stroke and the one-frame pop the Sleep Timer banner had; replaces Android's grey toast.
+     */
     fun showBanner(text: String, forMs: Long) {
         handler.post {
-            hideBanner()
+            hideBanner(animate = false)
             val dp = resources.displayMetrics.density
             val view = android.widget.TextView(this).apply {
                 this.text = text
@@ -51,25 +55,37 @@ class RemoteKeysService : AccessibilityService() {
                 textSize = 16f
                 setPadding((22 * dp).toInt(), (12 * dp).toInt(), (22 * dp).toInt(), (12 * dp).toInt())
                 background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(0xE6202024.toInt()); cornerRadius = 40 * dp
-                    setStroke((1 * dp).toInt(), 0x33FFFFFF)
+                    setColor(0xE61C1C1E.toInt()); cornerRadius = 40 * dp
+                    setStroke((1 * dp).toInt(), 0x1AFFFFFF)
                 }
+                alpha = 0f; scaleX = 0.9f; scaleY = 0.9f
+                // Grows out of its top-right corner, where the status pill is.
+                pivotX = 1_000f; pivotY = 0f
             }
             val params = android.view.WindowManager.LayoutParams(
                 android.view.WindowManager.LayoutParams.WRAP_CONTENT, android.view.WindowManager.LayoutParams.WRAP_CONTENT,
                 android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 android.graphics.PixelFormat.TRANSLUCENT,
-            ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL; y = (36 * dp).toInt() }
-            runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params); banner = view }
+            ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.END; x = (44 * dp).toInt(); y = (44 * dp).toInt() }
+            runCatching {
+                (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params)
+                banner = view
+                view.post { view.pivotX = view.width.toFloat(); view.pivotY = 0f }
+                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(130)
+                    .setInterpolator(android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).start()
+            }
             handler.postDelayed(dropBanner, forMs)
         }
     }
 
-    private fun hideBanner() {
+    private fun hideBanner(animate: Boolean = true) {
         handler.removeCallbacks(dropBanner)
-        banner?.let { v -> runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).removeView(v) } }
+        val v = banner ?: return
         banner = null
+        val remove = { runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).removeView(v) } }
+        if (!animate) { remove(); return }
+        v.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(130).withEndAction { remove() }.start()
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {

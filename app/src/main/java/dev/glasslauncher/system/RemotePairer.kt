@@ -279,7 +279,7 @@ class RemotePairer(private val context: Context) {
             pendingConnect -= d.address
             hidPolicyAllowed(d)
             connect(d)
-            Toast.makeText(app, "Remote paired", Toast.LENGTH_SHORT).show()
+            RemoteNotice.show(app, "Remote paired", 2_500)
         }
     }
 
