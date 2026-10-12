@@ -27,4 +27,14 @@ class KeptUnderCardTest {
         val stack = listOf(Overlay.Settings, Overlay.Tips)
         assertEquals(listOf(false, false), listOf(keptUnderCard(stack, 0), keptUnderCard(stack, 1)))
     }
+
+    @Test fun aSidePanelOrMenuIsNotKeptUnderTheCardButAFullPageIs() {
+        // P105 #6: the card is the one glass layer over Home; a panel under it would be a second one.
+        val folder = dev.glasslauncher.data.Folder("f", "Folder", emptyList())
+        assertEquals(false, keptUnderCard(listOf(Overlay.FolderMenu(folder), confirm("one")), 0))
+        assertEquals(true, keptUnderCard(listOf(Overlay.Settings, confirm("one")), 0))
+        assertEquals(true, keptUnderCard(listOf(Overlay.ControlCenter, confirm("one")), 0))
+        assertEquals("a page under a menu under the card: the menu goes, the page stays", listOf(true, false),
+            listOf(Overlay.Settings, Overlay.FolderMenu(folder), confirm("one")).let { st -> listOf(keptUnderCard(st, 0), keptUnderCard(st, 1)) })
+    }
 }
