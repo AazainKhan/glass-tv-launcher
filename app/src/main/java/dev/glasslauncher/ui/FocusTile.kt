@@ -92,7 +92,10 @@ fun FocusTile(
     val lift by animateFloatAsState(if (focused) 1f else 0f, if (focused) Motion.focusIn() else Motion.focusOut(), label = "lift")
     val tiltX = remember { Animatable(0f) }
     val tiltY = remember { Animatable(0f) }
-    val wiggleAngle = remember { Animatable(0f) }
+    // Move mode's jiggle (P109, tvOS 26.6 HBAppGridView): only the moved cell, rotation +-1.62 deg and a 5-point
+    // translate, 0.325 s linear, forever; one clock read in the layer phase (nothing recomposes per frame).
+    val wiggleClock = remember { Animatable(0f) }
+    val wiggleOn = remember { Animatable(0f) }
 
     LaunchedEffect(focused) {
         if (!focused || prefs.reduceMotion) return@LaunchedEffect
@@ -103,11 +106,14 @@ fun FocusTile(
     }
     LaunchedEffect(wiggle) {
         if (wiggle && !prefs.reduceMotion) {
-            // Edit mode: a gentle wobble (tvOS-like, subtler than iOS's jiggle).
-            wiggleAngle.snapTo(-0.8f)
-            wiggleAngle.animateTo(0.8f, infiniteRepeatable(tween(190, easing = androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse))
+            // Entering is a state change only: it starts at once. tvOS has no lift scale here; the cell keeps its focused look.
+            wiggleOn.snapTo(1f)
+            wiggleClock.snapTo(0f)
+            wiggleClock.animateTo(1f, infiniteRepeatable(tween(Jiggle.PERIOD_MS, easing = androidx.compose.animation.core.LinearEasing), RepeatMode.Restart))
+        } else {
+            // Leaving settles from where it is to rest in 0.0875 s.
+            wiggleOn.animateTo(0f, tween(Jiggle.EXIT_MS, easing = androidx.compose.animation.core.LinearEasing))
         }
-        else wiggleAngle.animateTo(0f, tween(120))
     }
 
     Box(
@@ -151,7 +157,14 @@ fun FocusTile(
                 scaleY = scale
                 rotationX = tiltX.value
                 rotationY = tiltY.value
-                rotationZ = wiggleAngle.value
+                val k = wiggleOn.value
+                if (k > 0f) {
+                    val t = wiggleClock.value
+                    rotationZ = k * Jiggle.rotationDeg(t)
+                    val dp = 0.667f * density
+                    translationX = k * Jiggle.dx(t) * dp
+                    translationY = k * Jiggle.dy(t) * dp
+                } else rotationZ = 0f
                 cameraDistance = 14f * density
                 this.shape = shape
                 clip = true
@@ -257,3 +270,30 @@ private const val TILT_DEG = 1.5f
 
 /** How much bigger a focused tile is drawn, unless it says otherwise. */
 const val FOCUSED_SCALE = 1.2f
+
+/**
+ * The tvOS 26.6 Home edit jiggle (HBAppGridView, REA's decode): rotation keyframes -0.02822, +0.02822, -0.02822 rad and a
+ * translate through (-1,1) (-1,-2) (-1,0) (1,-1) (-1,1) pt, evenly spaced and linear, over 0.325 s, repeating. Pure.
+ */
+internal object Jiggle {
+    const val PERIOD_MS = 325
+    const val EXIT_MS = 88
+    private const val ROT_DEG = 1.617f
+    private val X = floatArrayOf(-1f, -1f, -1f, 1f, -1f)
+    private val Y = floatArrayOf(1f, -2f, 0f, -1f, 1f)
+
+    /** [t] in 0..1 over one period: -a at 0, +a at 0.5, -a at 1 (linear). */
+    fun rotationDeg(t: Float): Float {
+        val tri = 1f - kotlin.math.abs(2f * t.coerceIn(0f, 1f) - 1f)
+        return -ROT_DEG + 2f * ROT_DEG * tri
+    }
+
+    private fun along(v: FloatArray, t: Float): Float {
+        val p = t.coerceIn(0f, 1f) * (v.size - 1)
+        val i = p.toInt().coerceAtMost(v.size - 2)
+        return v[i] + (v[i + 1] - v[i]) * (p - i)
+    }
+
+    fun dx(t: Float) = along(X, t)
+    fun dy(t: Float) = along(Y, t)
+}
