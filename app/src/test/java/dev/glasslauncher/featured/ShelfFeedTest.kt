@@ -8,23 +8,21 @@ import org.junit.Test
 class ShelfFeedTest {
     @Test fun aFeedLoadedForAnotherAppIsNotTheNewAppsFeed() {
         // Spotify's feed stays in the state after Apple TV's fetch failed.
-        assertFalse(ShelfFeed.owns("4:spotify", "4:appletv", "appletv", "appletv", followsFocus = true))
-        assertTrue(ShelfFeed.owns("4:appletv", "4:appletv", "appletv", "appletv", followsFocus = true))
+        assertFalse(ShelfFeed.owns("4:spotify", "4:appletv"))
+        assertTrue(ShelfFeed.owns("4:appletv", "4:appletv"))
+        assertFalse(ShelfFeed.owns(null, "4:a"))
     }
 
-    @Test fun noKeyMeansNoFeed() {
-        assertFalse(ShelfFeed.owns(null, "4:a", "a", "a", followsFocus = true))
+    @Test fun theOldCoverFlowStopsSteppingTheMomentFocusLeavesItsApp() {
+        // Focus moved to Apple TV; the shelf app still says Spotify for the beat before it catches up.
+        assertTrue(ShelfFeed.focusLeft("appletv", "spotify", followsFocus = true))
+        assertFalse(ShelfFeed.focusLeft("spotify", "spotify", followsFocus = true))
     }
 
-    @Test fun theOldFeedStopsTheMomentFocusLeavesItsApp() {
-        // Focus moved to Apple TV; the shelf app (and its key) still say Spotify for the 250 ms beat.
-        assertFalse(ShelfFeed.owns("4:spotify", "4:spotify", "appletv", "spotify", followsFocus = true))
-        // Back on Spotify before the shelf moved: the feed is the right one again.
-        assertTrue(ShelfFeed.owns("4:spotify", "4:spotify", "spotify", "spotify", followsFocus = true))
-    }
-
-    @Test fun aFixedSourceIgnoresWhichAppIsFocused() {
-        assertTrue(ShelfFeed.owns("4:fixed", "4:fixed", "appletv", null, followsFocus = false))
+    @Test fun aFixedSourceOrAnUnsetShelfNeverCountsAsLeft() {
+        assertFalse(ShelfFeed.focusLeft("appletv", null, followsFocus = true))
+        assertFalse(ShelfFeed.focusLeft("appletv", "spotify", followsFocus = false))
+        assertFalse(ShelfFeed.focusLeft(null, "spotify", followsFocus = true))
     }
 
     @Test fun theHoldEngagesWhenTheNewAppHasNoFeedOrScene() {
