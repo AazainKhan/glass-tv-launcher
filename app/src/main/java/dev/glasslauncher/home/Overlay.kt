@@ -144,7 +144,7 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = enter.value },
+            .graphicsLayer { alpha = enter.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha },
     ) {
         GlassBox(
             modifier = Modifier
@@ -175,6 +175,7 @@ fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
             .fillMaxSize()
             .graphicsLayer {
                 alpha = enter.value
+                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
                 val s = OverlayMotion.scale(enter.value, reduceMotion)
                 scaleX = s; scaleY = s
             }
