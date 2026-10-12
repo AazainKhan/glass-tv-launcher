@@ -1105,6 +1105,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.
                         if (editing && id != ADD_TILE && CcControls.removable(id)) Box(
                             Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp).size(18.dp)
+                                // The badges arrive after the tiles have (P101 continuity): they are not part of the tiles'
+                                // entrance, so they wait for it instead of showing on Home first.
+                                .graphicsLayer { alpha = if (motion.enabled) ((motion.p - 0.8f) / 0.2f).coerceIn(0f, 1f) else 1f }
                                 .background(Color(0xE61C1C1E), CircleShape),
                             contentAlignment = Alignment.Center,
                         ) { Box(Modifier.size(width = 8.dp, height = 2.dp).background(Color.White, CircleShape)) }

@@ -1041,14 +1041,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     // Tagged for the device tests (e2e/): which overlays are up, and which one is on top.
                     val tag = (if (leaving) "overlay-leaving:" else if (top) "overlay-top:" else "overlay:") + (overlay::class.simpleName ?: "Overlay")
                     // Control Center is collapsing into its corner over what it was opened from (Settings > Edit Layout, Done):
-                    // that page waits, then fades in once Control Center is gone, so the grid never draws on top of it.
+                    // that page waits, then fades in once Control Center is gone, so the grid never draws on top of it. The
+                    // hold applies in the very frame of Back (an animated value would start one frame late and show the page).
                     val heldForCc = CcEditEntry.returning && !leaving && exiting.any { it is Overlay.ControlCenter }
                     val heldAlpha by androidx.compose.animation.core.animateFloatAsState(
                         if (heldForCc) 0f else 1f,
                         if (heldForCc) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(if (prefs.reduceMotion) 1 else 160),
                         label = "cc-return",
                     )
-                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
+                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (heldForCc) 0f else (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
                             OverlayContent(
                                 overlay = overlay,
