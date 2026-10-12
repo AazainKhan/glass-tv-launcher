@@ -8,12 +8,11 @@ import dev.glasslauncher.app
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** Carries out [KeysServicePolicy]'s decision (P93). Called on every Home resume; the first call of a process is "at boot". */
+/** Carries out [KeysServicePolicy]'s decision (P93). Called on every Home resume; "at boot" is a changed system boot counter, not a new process. */
 object KeysService {
     private const val PREFS = "keysService"
     private const val SERVICE = "dev.glasslauncher/dev.glasslauncher.system.RemoteKeysService"
 
-    @Volatile private var checked = false
     private val _card = MutableStateFlow(false)
     /** True when Home should show its one "turn on remote buttons" card (consumed with [cardShown]). */
     val card: StateFlow<Boolean> = _card
@@ -37,7 +36,11 @@ object KeysService {
     suspend fun check(context: Context) {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(PREFS, 0)
-        val atBoot = !checked; checked = true
+        // A boot, not a process restart (LMK and crashes restart Glass too): the system's boot counter changed.
+        val bootCount = Settings.Global.getInt(app.contentResolver, "boot_count", -1)
+        val lastBoot = if (prefs.contains("bootCount")) prefs.getInt("bootCount", -1) else null
+        val atBoot = KeysServicePolicy.isBoot(bootCount, lastBoot)
+        if (bootCount >= 0 && bootCount != lastBoot) prefs.edit().putInt("bootCount", bootCount).apply()
         val settingOn = app.app.config.config.value.instantBack
         val version = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).longVersionCode }.getOrDefault(0L)
         val on = serviceOn(app)

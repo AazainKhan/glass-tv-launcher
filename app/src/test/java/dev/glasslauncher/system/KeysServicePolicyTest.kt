@@ -19,6 +19,13 @@ class KeysServicePolicyTest {
         assertEquals(WriteMode.None, KeysServicePolicy.mode(hasSecureWrite = false, hasRoot = false))
     }
 
+    @Test fun aBootIsAChangedBootCounterNotANewProcess() {
+        assertEquals(true, KeysServicePolicy.isBoot(bootCount = 8, lastBootCount = 7))
+        assertEquals("same boot, process restarted", false, KeysServicePolicy.isBoot(bootCount = 7, lastBootCount = 7))
+        assertEquals("first run, nothing to compare", false, KeysServicePolicy.isBoot(bootCount = 7, lastBootCount = null))
+        assertEquals("no counter", false, KeysServicePolicy.isBoot(bootCount = -1, lastBootCount = 7))
+    }
+
     @Test fun settingOffMeansNothingIsDone() {
         for (mode in WriteMode.entries) {
             assertEquals(Action.Nothing, KeysServicePolicy.decide(state(setting = false, service = false, mode = mode)))

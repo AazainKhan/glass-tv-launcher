@@ -47,7 +47,6 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         chore(Dispatchers.Default) { dev.glasslauncher.ui.TileShadow.focus; dev.glasslauncher.ui.TileShadow.contact }
         // Old tiles on disk (changed apps, removed packs) are cleared away once per start, off the main thread.
         chore(Dispatchers.IO) { tileArt.trimDisk() }
-        chore(Dispatchers.IO) { dev.glasslauncher.system.HomeSetup.ensureRemoteKeys(this@GlassApp) }
         chore(Dispatchers.IO) { dev.glasslauncher.system.RootFeatures.reapplyAtStart(this@GlassApp) }
         // Own remote pairing (Settings > Root, P75 B): only when it was turned on.
         if (dev.glasslauncher.system.RootFeatures.ownRemotePairing(this)) {

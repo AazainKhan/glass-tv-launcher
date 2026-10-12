@@ -19,6 +19,12 @@ object KeysServicePolicy {
         else -> WriteMode.None
     }
 
+    /**
+     * A real boot, not a process restart: the system's boot counter changed since the last check. A missing counter
+     * (-1) is never a boot, so a killed Glass process can't undo a manual off.
+     */
+    fun isBoot(bootCount: Int, lastBootCount: Int?): Boolean = bootCount >= 0 && lastBootCount != null && bootCount != lastBootCount
+
     sealed interface Action {
         data object Nothing : Action
         /** The setting is on and the service is: remember this version as the last one it was seen on. */
