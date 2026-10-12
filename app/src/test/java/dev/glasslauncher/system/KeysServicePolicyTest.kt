@@ -49,6 +49,13 @@ class KeysServicePolicyTest {
         assertEquals(Action.Enable, KeysServicePolicy.decide(state(version = 2_000, last = 1_000)))
     }
 
+    @Test fun aManualOffRightAfterTheHealIsTheUsersBecauseTheHealRecordedTheInstall() {
+        // The update heal ran (Enable) and recorded this install time; the user then turns the service off.
+        val installed = 2_000L
+        assertEquals(Action.Enable, KeysServicePolicy.decide(state(version = installed, last = 1_000)))
+        assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(version = installed, last = installed)))
+    }
+
     @Test fun atBootItIsReEnabledEvenOnTheSameVersion() {
         assertEquals(Action.Enable, KeysServicePolicy.decide(state(boot = true)))
     }
@@ -99,6 +106,11 @@ class HomeGuardPolicyTest {
 
     @Test fun aManualOffOnTheSameInstallIsRespected() {
         assertEquals(HomeGuardPolicy.Action.UserTurnedOff, d())
+    }
+
+    @Test fun aManualOffRightAfterTheGuardHealIsRespected() {
+        assertEquals(HomeGuardPolicy.Action.Enable, d(update = 2_000, last = 1_000))
+        assertEquals(HomeGuardPolicy.Action.UserTurnedOff, d(update = 2_000, last = 2_000))
     }
 
     @Test fun nothingWithoutTheSettingOrTheGrant() {

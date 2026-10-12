@@ -63,7 +63,11 @@ object KeysService {
         when (KeysServicePolicy.decide(state)) {
             KeysServicePolicy.Action.Nothing -> Unit
             KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).apply()
-            KeysServicePolicy.Action.Enable -> enable(app, state.mode)
+            KeysServicePolicy.Action.Enable -> {
+                enable(app, state.mode)
+                // Record this install as healed: a manual off right after the heal is the user's, not an update's.
+                prefs.edit().putLong("lastOnUpdate", updateTime).apply()
+            }
             KeysServicePolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(instantBack = false) }
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -90,7 +94,11 @@ object KeysService {
         val last = if (prefs.contains("guardOnUpdate")) prefs.getLong("guardOnUpdate", 0L) else null
         when (HomeGuardPolicy.decide(cfg.homeGuard, guardOn, hasSecure, atBoot, updateTime, last)) {
             HomeGuardPolicy.Action.RecordOn -> prefs.edit().putLong("guardOnUpdate", updateTime).apply()
-            HomeGuardPolicy.Action.Enable -> { HomeSetup.setGuardEnabled(app, true); return }
+            HomeGuardPolicy.Action.Enable -> {
+                HomeSetup.setGuardEnabled(app, true)
+                prefs.edit().putLong("guardOnUpdate", updateTime).apply()
+                return
+            }
             HomeGuardPolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(homeGuard = false) }
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
