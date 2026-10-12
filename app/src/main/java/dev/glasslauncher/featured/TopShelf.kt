@@ -95,11 +95,11 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
                 .widthIn(max = 340.dp)
                 .graphicsLayer { alpha = (1f - expanded() * 3f).coerceIn(0f, 1f) },
         ) {
-            // At rest tvOS shows only the big wordmark; details wait for the full-screen view. Titles
-            // dissolve into each other in step with the backdrop.
-            // Only a real logo shows at rest: a plain-text title would be one generic font for every
-            // service. The name appears in full screen (Up), with its details.
-            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { if (it.logo != null) Wordmark(it, height = 72.dp, textFallback = false) }
+            // At rest tvOS shows only the title, top left; details wait for the full-screen view. Titles dissolve into
+            // each other in step with the backdrop. The logo where the title has one, else its name in text (rows
+            // from TV apps such as Nuvio's Continue Watching and Popular have no logo art, and showed only the picture;
+            // P116); the home screen holds it back until the art is up, so it arrives with the art.
+            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { Wordmark(it, height = 72.dp, textFallback = true) }
         }
     }
 }
