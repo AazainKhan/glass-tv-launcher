@@ -60,7 +60,9 @@ object KeysService {
             lastOnUpdate = if (prefs.contains("lastOnUpdate")) prefs.getLong("lastOnUpdate", 0L) else null,
             atBoot = atBoot, cardShown = prefs.getBoolean("cardShown", false),
         )
-        when (KeysServicePolicy.decide(state)) {
+        val action = KeysServicePolicy.decide(state)
+        android.util.Log.i("GlassKeys", "check: setting=$settingOn service=$on mode=${state.mode} boot=$atBoot update=$updateTime last=${state.lastOnUpdate} -> $action")
+        when (action) {
             KeysServicePolicy.Action.Nothing -> Unit
             KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).apply()
             KeysServicePolicy.Action.Enable -> {
