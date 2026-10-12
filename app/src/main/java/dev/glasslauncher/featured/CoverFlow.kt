@@ -247,11 +247,14 @@ private fun rememberCoverArt(url: String?, pool: CoverArtCache.Pool, sizePx: Int
             }
             val source = result?.image?.toBitmap() ?: return@withContext null
             val squared = CoverReflection.squared(source)
-            CoverReflection.bake(squared).asImageBitmap().also {
-                pool.put(url, it)
-                // The source (and a cropped copy of it) is only the baking input now.
-                if (squared !== source) squared.recycle()
-            }
+            val baked = CoverReflection.bake(squared)
+            // The source (and a cropped copy of it) is only the baking input now.
+            if (squared !== source) squared.recycle()
+            // Kept as a hardware bitmap: its pixels live only in the GPU texture, not also in a software copy (the dock's
+            // covers held ~14 MB of native heap on top of their ~14 MB of textures), and the upload happens here, off
+            // the render thread, instead of in the first frame that draws the cover.
+            val art = baked.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { baked.recycle() } ?: baked
+            art.asImageBitmap().also { pool.put(url, it) }
         }
     }
     return art
