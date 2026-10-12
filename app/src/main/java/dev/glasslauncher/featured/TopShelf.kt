@@ -86,7 +86,7 @@ private const val SLIDE_FADE_MS = 270
  * Logos are drawn as white wordmarks so they read on any art (some ship black-on-transparent).
  */
 @Composable
-fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = Modifier) {
+fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = Modifier, textFallback: Boolean = true) {
     val m = LocalMetrics.current
     Box(modifier) {
         Column(
@@ -98,8 +98,9 @@ fun ShelfTitle(item: FeaturedItem, expanded: () -> Float, modifier: Modifier = M
             // At rest tvOS shows only the title, top left; details wait for the full-screen view. Titles dissolve into
             // each other in step with the backdrop. The logo where the title has one, else its name in text (rows
             // from TV apps such as Nuvio's Continue Watching and Popular have no logo art, and showed only the picture;
-            // P116); the home screen holds it back until the art is up, so it arrives with the art.
-            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { Wordmark(it, height = 72.dp, textFallback = true) }
+            // P116); the home screen holds it back until the art is up, so it arrives with the art. [textFallback] is off for
+            // a shelf of square covers: its name is the caption above the tray (P123), not a second, large title.
+            Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-title") { Wordmark(it, height = 72.dp, textFallback = textFallback) }
         }
     }
 }

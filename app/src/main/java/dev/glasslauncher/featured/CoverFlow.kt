@@ -298,6 +298,8 @@ internal object CoverArtCache {
 @Composable
 fun CoverPreview(
     feed: FeaturedFeed, index: Int, expand: () -> Float, restCentreY: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
+    /** Where the tray's top edge is: the caption sits just above it (P123). */
+    trayTop: androidx.compose.ui.unit.Dp = restCentreY,
     /** The focused cover's own title and subtitle above the covers, in small type (P106), the same text the full flow shows under it. */
     caption: Boolean = false,
 ) {
@@ -321,36 +323,29 @@ fun CoverPreview(
         CoverFlow(items = feed.items, index = index, onIndex = {}, onOpen = {}, onExit = {}, label = "", focusRequester = focus, preview = true)
     }
     if (caption && feed.items.isNotEmpty()) {
-        val inset = dev.glasslauncher.ui.LocalMetrics.current.inset
+        val m = dev.glasslauncher.ui.LocalMetrics.current
         val item = feed.items[index.coerceIn(0, feed.items.lastIndex)]
+        // The album or playlist's name alone, one line, bottom left just above the tray and starting at its left edge
+        // (P123); the covers keep the whole shelf above it.
         Crossfade(
-            item, animationSpec = tween(220), label = "cover-preview-caption",
+            item.title, animationSpec = tween(220), label = "cover-preview-caption",
             modifier = Modifier
-                .padding(start = inset)
-                .offset(y = restCentreY - (COVER_DP * REST_SCALE / 2f).dp - 56.dp)
+                .align(Alignment.BottomStart)
+                .padding(start = m.trayMargin, bottom = screenH.dp - trayTop + 8.dp)
+                .widthIn(max = 380.dp)
                 .graphicsLayer {
                     alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f)
-                    // Two lines of text that don't overlap: no offscreen layer needed for the fade.
+                    // One line of text: no offscreen layer needed for the fade.
                     compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
                 }
                 .testTag("cover-preview-caption"),
-        ) { it ->
-            Column(Modifier.widthIn(max = 380.dp)) {
-                androidx.compose.foundation.text.BasicText(
-                    it.title,
-                    style = Type.label.copy(color = Color.White.copy(alpha = 0.9f)),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("cover-preview-title"),
-                )
-                it.subtitle?.let { sub ->
-                    androidx.compose.foundation.text.BasicText(
-                        sub,
-                        style = Type.caption.copy(color = Color.White.copy(alpha = 0.68f)),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp).testTag("cover-preview-subtitle"),
-                    )
-                }
-            }
+        ) { title ->
+            androidx.compose.foundation.text.BasicText(
+                title,
+                style = Type.label.copy(color = Color.White.copy(alpha = 0.9f)),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("cover-preview-title"),
+            )
         }
     }
     }

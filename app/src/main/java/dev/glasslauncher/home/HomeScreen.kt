@@ -993,6 +993,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         feed = previewFeed, index = heroIndex.coerceIn(0, previewFeed.items.lastIndex), expand = { expand.value },
                         caption = true,
                         restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) * 0.55f,
+                        trayTop = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp),
                         modifier = Modifier.testTag("cover-preview-host").graphicsLayer {
                             alpha = previewAlpha * idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
                             translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
@@ -1002,6 +1003,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 if (hero != null && takeover == null && !appHeroShown) {
                     ShelfTitle(
                         item = hero,
+                        textFallback = !softFeed,
                         expanded = { expand.value },
                         modifier = Modifier
                             .fillMaxSize()
