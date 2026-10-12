@@ -65,7 +65,8 @@ internal fun MoveBanner(key: String, layout: HomeLayout, modifier: Modifier = Mo
             // The hints change as the app moves between the tray and the grid: grow, don't jump.
             .animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
             .clip(Shapes.pill)
-            .glass(LocalBackdrop.current, Shapes.pill, GlassStyle.panel(palette.light))
+            // One surface (GLASS-04): the scrim alone. It was glass with the scrim on top of it, a muddy grey that was
+            // neither glass nor solid; the bar must stay legible over any page (MoveHintsTest), which the scrim does (P105 #18).
             .background(scrim, Shapes.pill)
             .padding(horizontal = 26.dp, vertical = 12.dp)
             .testTag("move-banner"),

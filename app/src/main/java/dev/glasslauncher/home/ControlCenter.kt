@@ -1290,7 +1290,8 @@ internal fun PillContent(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(sz.disc)
-                .then(if (disc) Modifier.background(discColor(on, fg), CircleShape) else Modifier),
+                // On is a bare blue glyph on the tinted pill (tvOS 27), not iOS 18's white blob; off keeps a faint well (P105 #15).
+                .then(if (disc) Modifier.background(if (on) Color.Transparent else fg.copy(alpha = 0.16f), CircleShape) else Modifier),
         ) { Glyph(icon, if (on) accent else fg, Modifier.size(sz.discGlyph)) }
         Column(Modifier.padding(start = 7.dp)) {
             Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
