@@ -141,7 +141,9 @@ private const val SCENE_HOLD_MAX_MS = 2_000L
 /** Home has rested this long before the shader warm-up draws (P115). */
 private const val SHADER_WARM_AFTER_MS = 4_000L
 /** How dark the held scene goes (tvOS dims the outgoing art for about 230 ms before the new crossfade). */
-private const val HOLD_DIM = 0.4f
+private const val HOLD_DIM = 0.25f
+/** How long the new app's scene may take before the old one is dimmed at all: a quick (cached) switch never dips (user, 2026-10-12). */
+private const val HOLD_GRACE_MS = 700L
 /** The longest the shelf's title waits for its art before it shows anyway. */
 private const val SCENE_TITLE_WAIT_MS = 1_500L
 /** The next slide's bake starts once input has been quiet this long (never during a scroll). */
@@ -385,7 +387,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(heroApp) { if (heroApp != null) { delay(SCENE_HOLD_MAX_MS); sceneOfApp = heroApp } }
     // The hold's dim rides the backdrop state itself (sceneDim), so the glass over it (tray, pill) dims with the scene and
     // stays one material; written from the animation, not read in composition (no recomposition per frame).
-    val holdTarget = if (heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && cfg.background == BackgroundMode.Featured && !prefs.reduceMotion) HOLD_DIM else 0f
+    // Not at once: moving along the tray, the scene is usually there within a beat (cached art), and a dip to dark for it
+    // read as a black flash on every switch. Only a scene that is really late dims the old one.
+    var holdArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(heroApp, sceneOfApp) {
+        holdArmed = false
+        if (heroApp != null && sceneOfApp != null && sceneOfApp != heroApp) { delay(HOLD_GRACE_MS); holdArmed = true }
+    }
+    val holdTarget = if (holdArmed && dev.glasslauncher.featured.ShelfFeed.holds(heroApp, sceneOfApp, cfg.background == BackgroundMode.Featured, prefs.reduceMotion)) HOLD_DIM else 0f
     val holdAnim = remember { Animatable(0f) }
     // After the first frame following the focus change (the stall there ate the tween's start on the stick: the dim landed
     // in three frames, a cut), over 300 ms so it is seen for at least 150 ms.

@@ -17,4 +17,8 @@ object ShelfFeed {
      */
     fun focusLeft(focusedApp: String?, shelfApp: String?, followsFocus: Boolean): Boolean =
         followsFocus && focusedApp != null && shelfApp != null && focusedApp != shelfApp
+
+    /** Whether the previous app's scene is held dimmed: focus is on [heroApp] but the scene on screen is [sceneOfApp]'s. */
+    fun holds(heroApp: String?, sceneOfApp: String?, featuredBackground: Boolean, reduceMotion: Boolean): Boolean =
+        heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && featuredBackground && !reduceMotion
 }

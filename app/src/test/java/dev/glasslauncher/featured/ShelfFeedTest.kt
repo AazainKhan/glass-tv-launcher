@@ -36,4 +36,13 @@ class ShelfFeedTest {
         assertFalse(ShelfFeed.focusLeft("appletv", "spotify", followsFocus = false))
         assertFalse(ShelfFeed.focusLeft(null, "spotify", followsFocus = true))
     }
+
+    @Test fun theHoldNeedsTheNewAppsSceneToBeMissingAndTheFeaturedBackground() {
+        assertTrue(ShelfFeed.holds("appletv", "spotify", featuredBackground = true, reduceMotion = false))
+        assertFalse(ShelfFeed.holds("appletv", "appletv", true, false))
+        assertFalse(ShelfFeed.holds("appletv", null, true, false))
+        assertFalse(ShelfFeed.holds(null, "spotify", true, false))
+        assertFalse(ShelfFeed.holds("appletv", "spotify", featuredBackground = false, reduceMotion = false))
+        assertFalse(ShelfFeed.holds("appletv", "spotify", featuredBackground = true, reduceMotion = true))
+    }
 }
