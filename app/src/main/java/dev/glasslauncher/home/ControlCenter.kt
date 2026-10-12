@@ -980,7 +980,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         val one = tile.size == CcSize.S1x1
                         when (id) {
                             ADD_TILE -> CcTile("Add a Control", null, Shapes.pill, w, h, onClick = { gallery = "" }, modifier = focusMod) { fg ->
-                                PillContent(R.drawable.ic_add, "Add a Control", null, fg, on = false, accent = fg)
+                                // 2x1 is 104 dp wide: "Add a Control" doesn't fit at the text floor, so the cell says "Add" (its
+                                // accessibility name is still "Add a Control", from the tile's description).
+                                PillContent(R.drawable.ic_add, "Add", null, fg, on = false, accent = fg)
                             }
                             "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), w, h, modifier = focusMod,
                                 onClick = tap { closeAll(); open(Overlay.TvSettings) }, onLongClick = hold, onPlay = playOr { closeAll(); open(Overlay.TvSettings) }, wiggle = wobbleOn) { fg ->
