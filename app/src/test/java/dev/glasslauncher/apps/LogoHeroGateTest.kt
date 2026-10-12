@@ -31,6 +31,17 @@ class LogoHeroGateTest {
         c.drawRect(3.0f * u, 0.30f * h, 7.0f * u, 0.44f * h, p)
     }
 
+    @Test fun aRasterLogoOnA1080pHeroIsNeverEnlarged() {
+        // P108: Nuvio's banner is a 320x180 PNG whose wordmark is ~260 px wide. Laid out on a 1920x1080 hero at its
+        // own pixels (nativeFactor 1, limit 1): drawn no larger than it is, so the screen shows it 1:1.
+        val plan = LogoHero.plan(inkW = 260, inkH = 70, w = 1920, h = 1080, nativeFactor = 1f, limit = 1f)
+        assertTrue("scale ${plan.scale} must not exceed 1", plan.scale <= 1f)
+        assertEquals(Level.Soft, plan.level)
+        // The old 1280x720 hero drew it at 1.25x its pixels, and the screen then stretched the hero 1.5x more.
+        val old = LogoHero.plan(inkW = 780, inkH = 210, w = 1280, h = 720, nativeFactor = 3f)
+        assertTrue("old on-screen enlargement ${old.scale * 3 * 1.5f} was over 1.8x", old.scale * 3 * 1.5f > 1.8f)
+    }
+
     @Test fun planIsPure() {
         // Native 1280 px art, logo ink 400 px, drawn at 1:1 to 666 px: 1.67x wanted from native: soft... unless native is big.
         assertEquals(Level.Sharp, LogoHero.plan(inkW = 700, inkH = 300, w = 1280, h = 720, nativeFactor = 1f).level)

@@ -102,7 +102,10 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
      */
     suspend fun fromHeroArt(image: Bitmap, light: Boolean = false): Backdrop = withContext(BakeDispatcher) {
         val job = coroutineContext[kotlinx.coroutines.Job]
-        bake(cropToScreen(image, recycleSource = false, outW = HERO_W, outH = HERO_H), Scene.Wallpaper, light) { job?.isActive != false }
+        // A hero laid out at 1080p (a raster logo at its own pixels, P108) is baked at 1080p: shrinking it to 720p
+        // would have the screen enlarge it again.
+        val full = image.width >= SHARP_W
+        bake(cropToScreen(image, recycleSource = false, outW = if (full) SHARP_W else HERO_W, outH = if (full) SHARP_H else HERO_H), Scene.Wallpaper, light) { job?.isActive != false }
     }
 
     /** [fromHeroArt] from a URL (Coil's disk cache; nothing kept in memory). */

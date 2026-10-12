@@ -70,21 +70,23 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
         // The logo art at a sharp size and its own aspect (vector banners crisp), then laid out tvOS's way.
         val banner = hiResBanner(app) ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()
             ?: runCatching { pm.getApplicationBanner(app.packageName) }.getOrNull()
-        var nativeFactor: Float? = null
-        val art = (banner ?: hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull())?.let { d ->
-            val iw = d.intrinsicWidth.takeIf { it > 0 } ?: 320
-            val ih = d.intrinsicHeight.takeIf { it > 0 } ?: 180
-            val scale = 960f / maxOf(iw, ih)
-            // A raster banner or icon (a 320 px PNG) enlarged to 960 is what looked pixelated: the logo is held to
-            // 1.25x its own pixels (P81). Vectors have no native size.
-            if (d is android.graphics.drawable.BitmapDrawable) nativeFactor = scale
-            Bitmap.createBitmap((iw * scale).toInt().coerceAtLeast(1), (ih * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { bmp ->
-                d.setBounds(0, 0, bmp.width, bmp.height)
-                (d as? android.graphics.drawable.BitmapDrawable)?.paint?.isFilterBitmap = true
-                d.draw(Canvas(bmp))
-            }
-        } ?: return null
-        return LogoHero.compose(art, w, h, nativeFactor).also { art.recycle() }
+        val d = banner ?: hiResIcon(app) ?: runCatching { pm.getActivityIcon(app.component) }.getOrNull() ?: return null
+        // A raster banner or icon (Nuvio's is a 320x180 PNG) has no sharper version: it is laid out on a full 1080p
+        // hero at no more than its own pixels (P108), so the screen never enlarges it either. The intrinsic size of a
+        // density-scaled drawable is not its pixels, so the bitmap's own size is used.
+        (d as? android.graphics.drawable.BitmapDrawable)?.bitmap?.let { raw ->
+            val art = raw.copy(Bitmap.Config.ARGB_8888, false)
+            return LogoHero.compose(art, SCREEN_W, SCREEN_H, nativeFactor = 1f, limit = 1f).also { art.recycle() }
+        }
+        val iw = d.intrinsicWidth.takeIf { it > 0 } ?: 320
+        val ih = d.intrinsicHeight.takeIf { it > 0 } ?: 180
+        val scale = 960f / maxOf(iw, ih)
+        // Vectors have no native size: drawn at 960 and laid out at the hero size.
+        val art = Bitmap.createBitmap((iw * scale).toInt().coerceAtLeast(1), (ih * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { bmp ->
+            d.setBounds(0, 0, bmp.width, bmp.height)
+            d.draw(Canvas(bmp))
+        }
+        return LogoHero.compose(art, w, h, null).also { art.recycle() }
     }
 
     /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */
@@ -436,6 +438,9 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
     companion object {
         // 5:3, the tvOS app tile shape.
         const val WIDTH = 340
+        /** A raster logo's hero is laid out at the screen's own size, so nothing enlarges it (P108). */
+        const val SCREEN_W = 1920
+        const val SCREEN_H = 1080
         const val HEIGHT = 204
         /** Bumped whenever the drawing changes, so tiles drawn by an older build are not reused from disk. */
         const val DISK_VERSION = 2

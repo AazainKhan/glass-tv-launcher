@@ -33,11 +33,11 @@ object LogoHero {
      * icon-sized: the logo is still drawn, at no more than [ImageGate.LIMIT] times its native pixels and centred, on a
      * plain gradient from the app's colour (the app keeps its identity; P81 stick finding, Stremio).
      */
-    fun plan(inkW: Int, inkH: Int, w: Int, h: Int, nativeFactor: Float?): Plan {
+    fun plan(inkW: Int, inkH: Int, w: Int, h: Int, nativeFactor: Float?, limit: Float = ImageGate.LIMIT): Plan {
         val wanted = minOf(w * INK_WIDTH / inkW.coerceAtLeast(1), h * INK_HEIGHT / inkH.coerceAtLeast(1))
         if (nativeFactor == null) return Plan(wanted, ImageGate.Level.Sharp)
         val nativeW = inkW / nativeFactor; val nativeH = inkH / nativeFactor
-        val most = ImageGate.LIMIT / nativeFactor
+        val most = limit / nativeFactor
         if (maxOf(nativeW, nativeH) < ICON_INK) return Plan(minOf(wanted, most), ImageGate.Level.Plain)
         return if (wanted <= most) Plan(wanted, ImageGate.Level.Sharp) else Plan(most, ImageGate.Level.Soft)
     }
@@ -51,10 +51,10 @@ object LogoHero {
      * at most [ImageGate.LIMIT] times its native size (a colour field made from the art around it when that is
      * smaller than wanted), or not at all when it is icon-sized (the app's colour alone).
      */
-    fun compose(art: Bitmap, w: Int = 1280, h: Int = 720, nativeFactor: Float? = null): Bitmap {
+    fun compose(art: Bitmap, w: Int = 1280, h: Int = 720, nativeFactor: Float? = null, limit: Float = ImageGate.LIMIT): Bitmap {
         val bg = edgeColour(art)
         val ink = inkBounds(art, bg) ?: Rect(0, 0, art.width, art.height)
-        val plan = plan(ink.width(), ink.height(), w, h, nativeFactor)
+        val plan = plan(ink.width(), ink.height(), w, h, nativeFactor, limit)
         val scale = plan.scale
         val dw = ink.width() * scale; val dh = ink.height() * scale
         val left = (w - dw) / 2f; val top = h * CENTRE_Y - dh / 2f
