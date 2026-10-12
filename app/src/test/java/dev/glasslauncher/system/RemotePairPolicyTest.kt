@@ -71,4 +71,51 @@ class RemotePairPolicyTest {
         assertEquals(false, RemotePairPolicy.looksLikeRemote(0x0200, "Phone"))
         assertEquals(false, RemotePairPolicy.looksLikeRemote(null, null))
     }
+
+    // The Fire remote's advert as the btsnoop showed it, built from its fields: flags 0x05, HID 0x1812, appearance
+    // 0x0180, Amazon company 0x0171 with product 0x0427 (not a byte-for-byte capture).
+    private val remoteAdvert = byteArrayOf(
+        0x02, 0x01, 0x05,
+        0x03, 0x03, 0x12, 0x18,
+        0x03, 0x19, 0x80.toByte(), 0x01,
+        0x05, 0xFF.toByte(), 0x71, 0x01, 0x27, 0x04,
+    )
+
+    @Test fun theRemotesAdvertParsesAndIsDiscoverableThroughTheLimitedFlag() {
+        val p = AdvParser.parse(remoteAdvert)
+        assertEquals(0x05, p.flags)
+        assertEquals(setOf(0x1812), p.uuids16)
+        assertEquals(setOf(0x0171), p.companyIds)
+        assertEquals(0x0180, p.appearance)
+        assertEquals("limited discoverable counts", true, AdvParser.discoverable(p.flags))
+        assertEquals("general discoverable counts", true, AdvParser.discoverable(0x06))
+        assertEquals("BR/EDR-not-supported alone is not discoverable", false, AdvParser.discoverable(0x04))
+        assertEquals(false, AdvParser.discoverable(null))
+    }
+
+    @Test fun aTruncatedAdvertParsesWhatItCanAndNeverThrows() {
+        assertEquals(0x05, AdvParser.parse(remoteAdvert.copyOf(5)).flags)
+        assertEquals(null, AdvParser.parse(byteArrayOf(0x09, 0x19, 0x00)).appearance)
+        assertEquals(null, AdvParser.parse(ByteArray(0)).flags)
+    }
+
+    @Test fun theRemoteInLimitedModeIsBondedAndOtherHidDevicesAreNot() {
+        val p = AdvParser.parse(remoteAdvert)
+        val remote = Advert("AA:BB:CC:DD:EE:01", amazon = true, hid = true, discoverable = AdvParser.discoverable(p.flags), rssi = -50, appearance = p.appearance)
+        assertEquals(Action.Bond, RemotePairPolicy.decide(remote, state))
+        assertEquals("a keyboard's appearance", Action.Ignore, RemotePairPolicy.decide(remote.copy(appearance = 0x03C1), state))
+        assertEquals("no appearance advertised still bonds on Amazon + HID", Action.Bond, RemotePairPolicy.decide(remote.copy(appearance = null), state))
+    }
+
+    @Test fun silentBondedRemoteGetsTheBatteryHintOncePerTenMinutes() {
+        fun hint(bonded: Boolean = true, connected: Boolean = false, screen: Boolean = true, scanning: Long = 100_000, silent: Long = 100_000, since: Long = 1_000_000) =
+            RemotePairPolicy.batteryHint(bonded, connected, screen, scanning, silent, since)
+        assertEquals(true, hint())
+        assertEquals("not bonded: nothing to say about batteries", false, hint(bonded = false))
+        assertEquals("connected", false, hint(connected = true))
+        assertEquals("screen off", false, hint(screen = false))
+        assertEquals("just started scanning", false, hint(scanning = 30_000))
+        assertEquals("it advertised a moment ago", false, hint(silent = 10_000))
+        assertEquals("said it a minute ago", false, hint(since = 60_000))
+    }
 }

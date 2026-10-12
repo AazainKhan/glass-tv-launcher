@@ -17,6 +17,8 @@ object RemotePairPolicy {
         val discoverable: Boolean,
         /** Signal strength in dBm: a stale-bond banner is only for a remote in the room, not a neighbour's. */
         val rssi: Int = -127,
+        /** GAP appearance (AD type 0x19), when advertised: the Fire remote says 0x0180 (generic remote control). */
+        val appearance: Int? = null,
     )
 
     data class State(
@@ -40,6 +42,20 @@ object RemotePairPolicy {
      */
     enum class Action { Ignore, Bond, Connect, Rebond, StaleBond }
 
+    /** GAP appearance "Generic Remote Control" (0x0180), which the Fire remote advertises. */
+    const val REMOTE_APPEARANCE = 0x0180
+
+    /** Scanned this long with a bonded remote that never advertised: say so (fresh batteries are the usual cause). */
+    const val BATTERY_HINT_AFTER_MS = 90_000L
+    /** At most one battery hint per this long. */
+    const val BATTERY_HINT_EVERY_MS = 10 * 60_000L
+
+    fun batteryHint(
+        haveBondedRemote: Boolean, remoteConnected: Boolean, screenOn: Boolean,
+        scanningForMs: Long, silentForMs: Long, sinceLastHintMs: Long,
+    ): Boolean = haveBondedRemote && !remoteConnected && screenOn &&
+        scanningForMs >= BATTERY_HINT_AFTER_MS && silentForMs >= BATTERY_HINT_AFTER_MS && sinceLastHintMs >= BATTERY_HINT_EVERY_MS
+
     /** A remote that is close enough to be the user's. */
     const val NEAR_RSSI = -65
 
@@ -62,6 +78,8 @@ object RemotePairPolicy {
     fun decide(ad: Advert, s: State): Action {
         if (!s.screenOn || s.remoteConnected) return Action.Ignore
         if (!ad.amazon || !ad.hid) return Action.Ignore
+        // Never bond a random HID device: where an appearance is advertised it must be the remote's.
+        if (ad.appearance != null && ad.appearance != REMOTE_APPEARANCE) return Action.Ignore
         if (!ad.discoverable) {
             return if (ad.address !in s.bonded && !s.haveBondedRemote && ad.rssi >= NEAR_RSSI) Action.StaleBond else Action.Ignore
         }
@@ -74,4 +92,37 @@ object RemotePairPolicy {
 
     /** Whether to scan at all: the screen is on and no Amazon remote is connected. */
     fun shouldScan(screenOn: Boolean, remoteConnected: Boolean) = screenOn && !remoteConnected
+}
+
+/**
+ * Raw advertisement parser (the Fire remote: flags 0x05 = LE Limited Discoverable + BR/EDR not supported, HID 0x1812,
+ * appearance 0x0180, Amazon company 0x0171). Android's ScanRecord exposes some of this; reading the bytes keeps
+ * the accept rules in one tested place.
+ */
+object AdvParser {
+    data class Parsed(val flags: Int?, val uuids16: Set<Int>, val companyIds: Set<Int>, val appearance: Int?)
+
+    /** LE Limited (0x01) or General (0x02) Discoverable: the remote in pairing mode, whichever it uses. */
+    fun discoverable(flags: Int?): Boolean = flags != null && (flags and 0x03) != 0
+
+    fun parse(raw: ByteArray): Parsed {
+        var flags: Int? = null
+        val uuids = HashSet<Int>(); val companies = HashSet<Int>(); var appearance: Int? = null
+        var i = 0
+        while (i < raw.size) {
+            val len = raw[i].toInt() and 0xFF
+            if (len == 0 || i + 1 + len > raw.size) break
+            val type = raw[i + 1].toInt() and 0xFF
+            val d = raw.copyOfRange(i + 2, i + 1 + len)
+            fun le16(o: Int) = (d[o].toInt() and 0xFF) or ((d[o + 1].toInt() and 0xFF) shl 8)
+            when (type) {
+                0x01 -> if (d.isNotEmpty()) flags = d[0].toInt() and 0xFF
+                0x02, 0x03 -> for (o in 0 until d.size - 1 step 2) uuids += le16(o)
+                0x19 -> if (d.size >= 2) appearance = le16(0)
+                0xFF -> if (d.size >= 2) companies += le16(0)
+            }
+            i += 1 + len
+        }
+        return Parsed(flags, uuids, companies, appearance)
+    }
 }

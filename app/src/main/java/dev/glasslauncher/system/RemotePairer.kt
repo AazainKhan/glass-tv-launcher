@@ -46,6 +46,9 @@ class RemotePairer(private val context: Context) {
     private var started = false
     private var lastRebond = 0L
     private var lastStaleNotice = 0L
+    private var scanStartedAt = 0L
+    private var lastRemoteAdvert = 0L
+    private var lastBatteryHint = 0L
     private val failures = HashMap<String, Int>()
     private val lastAction = HashMap<String, Long>()
     private val pendingConnect = HashSet<String>()
@@ -154,10 +157,33 @@ class RemotePairer(private val context: Context) {
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build()
         runCatching { scanner.startScan(listOf(filter), settings, callback); scanning = true; Log.i(TAG, "scan started") }
             .onFailure { Log.w(TAG, "scan failed to start", it) }
+        if (scanning) { scanStartedAt = System.currentTimeMillis(); handler.postDelayed(batteryCheck, 20_000) }
+    }
+
+    /** A bonded remote that never advertises while we scan: usually dead batteries (they masked this once). */
+    private val batteryCheck = object : Runnable {
+        @SuppressLint("MissingPermission")
+        override fun run() {
+            if (!scanning) return
+            val now = System.currentTimeMillis()
+            val since = maxOf(scanStartedAt, lastRemoteAdvert)
+            val hint = RemotePairPolicy.batteryHint(
+                haveBondedRemote = runCatching { adapter?.bondedDevices.orEmpty().any { isAmazonRemote(it) } }.getOrDefault(false),
+                remoteConnected = anyRemoteConnected(), screenOn = power?.isInteractive == true,
+                scanningForMs = now - scanStartedAt, silentForMs = now - since, sinceLastHintMs = now - lastBatteryHint,
+            )
+            if (hint) {
+                lastBatteryHint = now
+                Log.w(TAG, "bonded remote silent for ${(now - since) / 1000} s while scanning")
+                RemoteNotice.show(app, "The remote isn't answering. Try fresh batteries, then hold Home for 10 s.", 15_000)
+            }
+            handler.postDelayed(this, 20_000)
+        }
     }
 
     @SuppressLint("MissingPermission")
     private fun stopScan() {
+        handler.removeCallbacks(batteryCheck)
         if (!scanning) return
         scanning = false
         runCatching { adapter?.bluetoothLeScanner?.stopScan(callback) }
@@ -171,13 +197,18 @@ class RemotePairer(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun onAdvert(r: ScanResult) {
         val rec = r.scanRecord ?: return
+        val parsed = rec.bytes?.let { AdvParser.parse(it) }
+        // Limited OR General discoverable (the Fire remote advertises flags 0x05: Limited + BR/EDR not supported).
+        val flags = (parsed?.flags ?: 0) or rec.advertiseFlags.coerceAtLeast(0)
         val ad = RemotePairPolicy.Advert(
             address = r.device.address,
             amazon = rec.manufacturerSpecificData?.get(AMAZON_COMPANY_ID) != null,
             hid = rec.serviceUuids?.any { it.uuid == ParcelUuid.fromString(HID_SERVICE_UUID).uuid } == true,
-            discoverable = (rec.advertiseFlags and FLAG_LE_GENERAL_DISCOVERABLE) != 0,
+            discoverable = AdvParser.discoverable(flags),
             rssi = r.rssi,
+            appearance = parsed?.appearance,
         )
+        if (ad.amazon && ad.hid) lastRemoteAdvert = System.currentTimeMillis()
         val now = System.currentTimeMillis()
         val bonded = runCatching { adapter?.bondedDevices.orEmpty().map { it.address }.toSet() }.getOrDefault(emptySet())
         val state = RemotePairPolicy.State(
@@ -254,7 +285,6 @@ class RemotePairer(private val context: Context) {
         const val TAG = "GlassRemotePair"
         const val AMAZON_COMPANY_ID = 0x0171
         const val HID_SERVICE_UUID = "00001812-0000-1000-8000-00805f9b34fb"
-        private const val FLAG_LE_GENERAL_DISCOVERABLE = 0x02
         /** BluetoothProfile.HID_HOST (hidden constant) and BluetoothDevice.TRANSPORT_LE, CONNECTION_POLICY_ALLOWED. */
         private const val HID_HOST = 4
         private const val TRANSPORT_LE = 2
