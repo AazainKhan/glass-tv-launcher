@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onKeyEvent
@@ -114,8 +115,9 @@ fun MenuRow(
             .heightIn(min = 38.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .background(bg, Shapes.pill)
-            // In light appearance the white focus capsule needs an edge to stand out from the bright page.
-            .then(if (focused && palette.light) Modifier.border(1.5.dp, palette.focusRing, Shapes.pill) else Modifier)
+            // In light appearance the white focus capsule stands out by a soft shadow under it, as tvOS's does, not by a
+            // dark ring (P105 #8).
+            .then(if (focused && palette.light) Modifier.shadow(10.dp, Shapes.pill, clip = false, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.30f)) else Modifier)
             .onFocusChanged {
                 if (it.isFocused && !focused && prefs.sounds) view.playSoundEffect(navigationSound())
                 focused = it.isFocused

@@ -101,21 +101,24 @@ fun OverlayContent(
     when (overlay) {
         is Overlay.AppMenu -> AnchoredMenu(active, overlay.anchor) { first -> AppMenuBody(overlay, model, first, open, closeAll, startMove, startFolderMove) }
         is Overlay.MoveTo -> AnchoredMenu(active, overlay.anchor) { first -> MoveToBody(overlay, model, layout, cfg, first, open, closeAll) }
-        is Overlay.FolderMenu -> SidePanel(active) {
-            MenuList(active) { first ->
-                PanelTitle(overlay.folder.name)
-                MenuRow("Open", { closeAll(); open(Overlay.FolderOpen(overlay.folder.id)) }, Modifier.focusRequester(first))
-                MenuRow("Rename", {
-                    open(Overlay.TextInput("Rename Folder", overlay.folder.name) { model.renameFolder(overlay.folder.id, it); closeAll() })
+        is Overlay.FolderMenu -> AnchoredMenu(active, overlay.anchor) { first ->
+            // A context menu beside the folder's tile, like an app's (P105 #17), named for the folder it acts on.
+            val palette = LocalPalette.current
+            Text(
+                overlay.folder.name, style = Type.secondary, color = palette.secondary, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 2.dp).testTag("menu-header"),
+            )
+            MenuRow("Open", { closeAll(); open(Overlay.FolderOpen(overlay.folder.id)) }, Modifier.focusRequester(first))
+            MenuRow("Rename", {
+                open(Overlay.TextInput("Rename Folder", overlay.folder.name) { model.renameFolder(overlay.folder.id, it); closeAll() })
+            })
+            MenuRow("Move", { startMove(folderKey(overlay.folder.id)) })
+            MenuRow("Remove Folder", {
+                open(Overlay.Confirm("Remove “${overlay.folder.name}”?", "Its apps go back to Home; nothing is uninstalled.", "Remove Folder", destructive = true) {
+                    model.deleteFolder(overlay.folder.id); closeAll()
                 })
-                MenuRow("Move", { startMove(folderKey(overlay.folder.id)) })
-                MenuRow("Remove Folder", {
-                    open(Overlay.Confirm("Remove “${overlay.folder.name}”?", "Its apps go back to Home; nothing is uninstalled.", "Remove Folder", destructive = true) {
-                        model.deleteFolder(overlay.folder.id); closeAll()
-                    })
-                })
-                Hint("Removing a folder puts its apps back on the home screen.")
-            }
+            })
         }
         is Overlay.FolderPicker -> SidePanel(active) {
             MenuList(active) { first ->

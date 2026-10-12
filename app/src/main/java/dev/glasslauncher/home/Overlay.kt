@@ -49,7 +49,8 @@ sealed interface Overlay {
     /** [anchor]: the tile's bounds in the window, so the menu opens beside it (tvOS context menu). */
     data class AppMenu(val app: AppEntry, val inDock: Boolean, val folderId: String?, val anchor: androidx.compose.ui.geometry.Rect? = null) : Overlay
     data class MoveTo(val app: AppEntry, val inDock: Boolean, val folderId: String?, val anchor: androidx.compose.ui.geometry.Rect?) : Overlay
-    data class FolderMenu(val folder: Folder) : Overlay
+    /** [anchor]: the folder tile's bounds, so the menu opens beside it like an app's (tvOS context menu), not as a side panel. */
+    data class FolderMenu(val folder: Folder, val anchor: androidx.compose.ui.geometry.Rect? = null) : Overlay
     /** [anchor]: the folder tile's bounds, so the panel grows out of it. */
     data class FolderOpen(val folderId: String, val anchor: androidx.compose.ui.geometry.Rect? = null) : Overlay
     data class FolderPicker(val app: AppEntry) : Overlay

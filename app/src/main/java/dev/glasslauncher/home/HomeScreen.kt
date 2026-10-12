@@ -952,7 +952,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         onRowFocused = ::onRowFocused,
                         onAppMenu = { app, inDock -> open(Overlay.AppMenu(app, inDock, null, menuAnchor.bounds)) },
                         onFolderOpen = { open(Overlay.FolderOpen(it, menuAnchor.bounds)) },
-                        onFolderMenu = { open(Overlay.FolderMenu(it)) },
+                        onFolderMenu = { open(Overlay.FolderMenu(it, menuAnchor.bounds)) },
                         onSettings = { open(Overlay.Settings) },
                         launch = { app, bounds -> model.launch(app, view, bounds) },
                         modifier = Modifier
@@ -1512,7 +1512,7 @@ private fun FolderCell(
         onFocused = onFocused,
         onClick = { anchorStore.bounds = tileBounds.rect(); onOpen() },
         tileModifier = Modifier.onGloballyPositioned { tileBounds.coords = it },
-        onMenu = onMenu,
+        onMenu = { anchorStore.bounds = tileBounds.rect(); onMenu() },
         glassBackground = true,
     ) {
         // HOME-06: a glass tile holding a 3x2 mini grid, filled from the top left like tvOS.
@@ -1681,4 +1681,7 @@ private suspend fun appHeroBackdrop(
  * came from, and a confirm over a confirm over that page too, so everything beneath a top confirm stays visible (P64).
  */
 internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
-    index >= 0 && stack.lastOrNull() is Overlay.Confirm && index < stack.lastIndex
+    index >= 0 && stack.lastOrNull() is Overlay.Confirm && index < stack.lastIndex &&
+        // Only a full page (Settings and its kin) stays drawn under the card; a side panel or menu goes, so the card is the
+        // one glass layer over Home instead of a second one stacked on the panel (P105 #6).
+        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.AppSwitcher, is Overlay.Confirm -> true; else -> false }
