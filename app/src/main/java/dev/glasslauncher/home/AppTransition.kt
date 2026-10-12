@@ -81,6 +81,13 @@ class AppTransition(
     val fill = Animatable(0f)
     /** Close only: 1 = landed large, 0 = exactly the focused tile. */
     val settle = Animatable(1f)
+    /** The launch window's own opacity: a page (Settings) fades it off itself on open, and on with it on close (P105 #7). */
+    val windowAlpha = Animatable(1f)
+    /**
+     * True while [openPage] has the page coming up under its window: the page then enters already opaque (no fade of
+     * its own), so when the window fades off it there is only the page underneath, never Home.
+     */
+    var pageOpening by mutableStateOf(false); private set
 
     private var last: LaunchWindow? = null
     /** When [last] launched: Home leaving much later than that isn't that app opening. */
@@ -165,6 +172,7 @@ class AppTransition(
             val w = LaunchWindow(entry, tile, null, color, glyph)
             closing = false
             cover = captured
+            windowAlpha.snapTo(1f)
             coverAlpha.snapTo(1f)
             progress.snapTo(OPEN_START)
             fill.snapTo(0f)
@@ -174,13 +182,31 @@ class AppTransition(
             last = null
             launch { fill.animateTo(1f, tween(FILL_MS)) }
             progress.animateTo(1f, tween(PAGE_OPEN_MS, easing = ZoomOut))
-            // The page is composed under the full-screen window; once it is drawn the window goes (its colour is the page's).
-            show()
-            withFrameNanos { }; withFrameNanos { }
-            delay(PAGE_HOLD_MS)
-            coverAlpha.snapTo(0f)
-            window = null
-            cover = null
+            // The page is composed under the full-screen window, already opaque; once it is drawn the window fades off
+            // it on one alpha. The blurred Home isn't drawn meanwhile (the page covers it), so no frame shows Home.
+            pageOpening = true
+            try {
+                show()
+                // The page's first frames are slow (composition, first draw): on the stick about 300 ms went by with
+                // nothing presented, and a fade started on a timer was over before it showed. Wait for two steady frames
+                // (as the close does), then hold a moment and fade.
+                var previous = withFrameNanos { it }
+                var steady = 0
+                for (i in 0 until 30) {
+                    val now = withFrameNanos { it }
+                    steady = if (now - previous < 25_000_000L) steady + 1 else 0
+                    previous = now
+                    if (steady >= 2) break
+                }
+                delay(PAGE_HOLD_MS)
+                coverAlpha.snapTo(0f)
+                windowAlpha.animateTo(0f, tween(PAGE_REVEAL_MS))
+                window = null
+                cover = null
+            } finally {
+                pageOpening = false
+                windowAlpha.snapTo(1f)
+            }
         }
     }
 
@@ -190,7 +216,7 @@ class AppTransition(
         page = null
         val target = tile ?: w.tile
         val coverImage = cover ?: backdrop.backdrop?.blurredSoftware ?: return
-        playClose(w.copy(tile = target), coverImage)
+        playClose(w.copy(tile = target), coverImage, fadeIn = true)
     }
 
     /**
@@ -262,7 +288,8 @@ class AppTransition(
         return true
     }
 
-    private fun playClose(w: LaunchWindow, coverImage: ImageBitmap) {
+    /** [fadeIn]: a page's close; the window fades on over the page (held opaque meanwhile) before it shrinks. */
+    private fun playClose(w: LaunchWindow, coverImage: ImageBitmap, fadeIn: Boolean = false) {
         job?.cancel()
         job = scope.launch {
             val me = coroutineContext[Job]
@@ -274,6 +301,12 @@ class AppTransition(
             progress.snapTo(1f)
             fill.snapTo(1f)
             settle.snapTo(1f)
+            if (fadeIn) {
+                // The page's rows fade into the window rather than vanish in one frame (the cover isn't drawn under a
+                // full-size window, so what shows through is the page itself).
+                windowAlpha.snapTo(0f)
+                windowAlpha.animateTo(1f, tween(PAGE_CLOSE_FADE_MS))
+            } else windowAlpha.snapTo(1f)
             // Home's first frames after coming back are slow (the system shows its snapshot, the full
             // window, meanwhile): start the clock once frames are steady, or the shrink is skipped.
             var previous = withFrameNanos { it }
@@ -320,6 +353,10 @@ class AppTransition(
         /** A page zooms to full screen in this long, then holds this long under the window while it draws. */
         const val PAGE_OPEN_MS = 260
         const val PAGE_HOLD_MS = 60L
+        /** The window fades off the page this long on open, and onto it this long on close (the page holds opaque longer). */
+        const val PAGE_REVEAL_MS = 120
+        const val PAGE_CLOSE_FADE_MS = 100
+        const val PAGE_CLOSE_HOLD_MS = 120L
         const val CLOSE_MS = 300
         const val CLOSE_FADE_MS = 110
         const val LAND_MS = 125
@@ -395,7 +432,8 @@ fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
             }
         }
         if (f > 0f) {
-            drawRoundRect(w.color, rect.topLeft, rect.size, CornerRadius(radius), alpha = f)
+            val wa = t.windowAlpha.value
+            drawRoundRect(w.color, rect.topLeft, rect.size, CornerRadius(radius), alpha = f * wa)
             w.glyph?.let { g ->
                 // The glyph stays about tile-sized and centred, as the launch screen's logo does.
                 val gw = lerp(w.tile.width * 0.62f, w.tile.width * 0.9f, toFull)
@@ -404,7 +442,7 @@ fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
                     g,
                     dstOffset = IntOffset((rect.center.x - gw / 2).toInt(), (rect.center.y - gh / 2).toInt()),
                     dstSize = IntSize(gw.toInt(), gh.toInt()),
-                    alpha = f * 0.55f,
+                    alpha = f * 0.55f * wa,
                     colorFilter = grey,
                 )
             }

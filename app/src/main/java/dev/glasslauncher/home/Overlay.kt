@@ -167,8 +167,8 @@ object OverlayMotion {
 
 /** Fades and scales a full-screen overlay in. */
 @Composable
-fun FullOverlay(active: Boolean, scale: Boolean = true, content: @Composable BoxScope.() -> Unit) {
-    val enter = rememberOverlayEnter()
+fun FullOverlay(active: Boolean, scale: Boolean = true, instant: Boolean = false, content: @Composable BoxScope.() -> Unit) {
+    val enter = rememberOverlayEnter(instant)
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     Box(
         Modifier
@@ -327,11 +327,17 @@ private val SETTINGS_ICONS = mapOf(
  * mid-open reverses from where it is with its velocity and the exit is quick (P105 #17). Reduce Motion: the fade.
  */
 @Composable
-fun rememberOverlayEnter(): Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
-    val enter = remember { Animatable(0f) }
+fun rememberOverlayEnter(instant: Boolean = false): Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
+    val enter = remember { Animatable(if (instant) 1f else 0f) }
     val exiting = LocalOverlayExiting.current
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     LaunchedEffect(exiting) {
+        // Under the app transition's window (Settings from its tile, P105 #7): in already opaque, and out only once the
+        // window has faded back on over it, so neither hand-off shows Home through the page.
+        if (instant) {
+            if (exiting) { kotlinx.coroutines.delay(AppTransition.PAGE_CLOSE_HOLD_MS); enter.snapTo(0f) }
+            return@LaunchedEffect
+        }
         if (exiting && !reduceMotion) enter.animateTo(0f, androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 1000f, visibilityThreshold = 0.001f))
         else enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())
     }
@@ -386,7 +392,10 @@ val LocalTitleSink = androidx.compose.runtime.staticCompositionLocalOf<TitleSink
 fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val palette = dev.glasslauncher.ui.LocalPalette.current
     val sink = remember { TitleSink() }
-    FullOverlay(active, scale = false) {
+    // Opened out of its tile, the page comes up under the zoom's window (which fades off it) instead of fading in itself.
+    val transition = LocalAppTransition.current
+    val underWindow = remember { transition?.pageOpening == true }
+    FullOverlay(active, scale = false, instant = underWindow) {
         // A calm washed page, not glass over Home: through the glass, the grid and the shelf's giant
         // wordmark ghosted behind the rows (audit 9.3). Tinted faintly by the scene's own colour.
         // The scene's mean hue tints it (the audit's spec: a white capsule on a flat near-white page has weak contrast).
