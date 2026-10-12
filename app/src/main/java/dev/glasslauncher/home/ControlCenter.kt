@@ -1025,7 +1025,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                             r.cachesMb > 0 -> "${r.cachesMb} MB"
                                             r.memoryMb > 0 -> "${r.memoryMb} MB memory"
                                             r.bulkCaches -> "Nothing to clean"
-                                            else -> "Already clean"
+                                            else -> "Freed no memory"
                                         }
                                         kotlinx.coroutines.delay(4_000)
                                         cleaned = null

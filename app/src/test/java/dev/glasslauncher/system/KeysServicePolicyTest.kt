@@ -86,3 +86,24 @@ class HomeCardPolicyTest {
         assertEquals(false, SleepTimer.canSleep(root = false, keysServiceOn = false))
     }
 }
+
+class HomeGuardPolicyTest {
+    private fun d(setting: Boolean = true, guard: Boolean = false, secure: Boolean = true, boot: Boolean = false, update: Long = 10, last: Long? = 10) =
+        HomeGuardPolicy.decide(setting, guard, secure, boot, update, last)
+
+    @Test fun healedAtBootAndAfterAnUpdate() {
+        assertEquals(HomeGuardPolicy.Action.Enable, d(boot = true))
+        assertEquals(HomeGuardPolicy.Action.Enable, d(update = 11, last = 10))
+        assertEquals(HomeGuardPolicy.Action.Enable, d(last = null))
+    }
+
+    @Test fun aManualOffOnTheSameInstallIsRespected() {
+        assertEquals(HomeGuardPolicy.Action.UserTurnedOff, d())
+    }
+
+    @Test fun nothingWithoutTheSettingOrTheGrant() {
+        assertEquals(HomeGuardPolicy.Action.Nothing, d(setting = false))
+        assertEquals(HomeGuardPolicy.Action.Nothing, d(secure = false))
+        assertEquals(HomeGuardPolicy.Action.RecordOn, d(guard = true))
+    }
+}

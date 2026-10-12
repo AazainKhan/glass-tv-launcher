@@ -54,7 +54,7 @@ object KeysService {
         val hasSecure = app.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED
         // su is only asked when it is needed (the service is off, the setting on and there is no secure-settings write).
         val hasRoot = settingOn && !on && !hasSecure && Root.available()
-        homeSetup(app, prefs, hasSecure)
+        homeSetup(app, prefs, hasSecure, atBoot, updateTime)
         val state = KeysServicePolicy.State(
             settingOn = settingOn, serviceOn = on, mode = KeysServicePolicy.mode(hasSecure, hasRoot), updateTime = updateTime,
             lastOnUpdate = if (prefs.contains("lastOnUpdate")) prefs.getLong("lastOnUpdate", 0L) else null,
@@ -80,13 +80,26 @@ object KeysService {
     }
 
     /**
-     * Becoming Home (P95 gap 1): re-enable the Home guard after a force-stop when WRITE_SECURE_SETTINGS is held,
-     * otherwise offer the card (once) that says how to make Glass Home.
+     * Becoming Home (P95 gap 1): re-enable the Home guard after a boot or an update when WRITE_SECURE_SETTINGS is
+     * held (a manual off in Accessibility settings is respected: the setting flips off), otherwise offer the card
+     * (once) that says how to make Glass Home.
      */
-    private suspend fun homeSetup(app: Context, prefs: android.content.SharedPreferences, hasSecure: Boolean) {
+    private suspend fun homeSetup(app: Context, prefs: android.content.SharedPreferences, hasSecure: Boolean, atBoot: Boolean, updateTime: Long) {
         val cfg = app.app.config.config.value
         val guardOn = HomeSetup.isGuardEnabled(app)
-        if (cfg.homeGuard && !guardOn && hasSecure) { HomeSetup.setGuardEnabled(app, true); return }
+        val last = if (prefs.contains("guardOnUpdate")) prefs.getLong("guardOnUpdate", 0L) else null
+        when (HomeGuardPolicy.decide(cfg.homeGuard, guardOn, hasSecure, atBoot, updateTime, last)) {
+            HomeGuardPolicy.Action.RecordOn -> prefs.edit().putLong("guardOnUpdate", updateTime).apply()
+            HomeGuardPolicy.Action.Enable -> { HomeSetup.setGuardEnabled(app, true); return }
+            HomeGuardPolicy.Action.UserTurnedOff -> {
+                app.app.config.update { it.copy(homeGuard = false) }
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    Toast.makeText(app, "Home Button Takeover off. Turn on in Glass Settings", Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+            HomeGuardPolicy.Action.Nothing -> Unit
+        }
         val isHome = HomeSetup.isDefaultHome(app)
         if (isHome || guardOn || prefs.getBoolean("homeCardShown", false)) return
         if (!HomeCardPolicy.show(isHome, guardOn, Root.known || Root.available(), false)) return

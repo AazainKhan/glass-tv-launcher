@@ -65,3 +65,16 @@ object HomeCardPolicy {
     fun show(isDefaultHome: Boolean, guardOn: Boolean, hasRoot: Boolean, shown: Boolean): Boolean =
         !isDefaultHome && !guardOn && !hasRoot && !shown
 }
+
+/** P95 review: the Home guard follows the same rule as the keys service: healed at boot or an update, a manual off is respected. */
+object HomeGuardPolicy {
+    enum class Action { Nothing, RecordOn, Enable, UserTurnedOff }
+
+    fun decide(settingOn: Boolean, guardOn: Boolean, hasSecure: Boolean, atBoot: Boolean, updateTime: Long, lastOnUpdate: Long?): Action = when {
+        !settingOn -> Action.Nothing
+        guardOn -> Action.RecordOn
+        !hasSecure -> Action.Nothing
+        atBoot || lastOnUpdate == null || lastOnUpdate != updateTime -> Action.Enable
+        else -> Action.UserTurnedOff
+    }
+}
