@@ -189,6 +189,7 @@ class RemotePairer(private val context: Context) {
                 haveBondedRemote = runCatching { adapter?.bondedDevices.orEmpty().any { isAmazonRemote(it) } }.getOrDefault(false),
                 remoteConnected = anyRemoteConnected(), screenOn = power?.isInteractive == true,
                 homeInFront = RemoteWatch.homeInFront,
+                sinceOtherInputMs = RemoteWatch.sinceOtherInputMs(),
                 scanningForMs = now - scanStartedAt, silentForMs = now - since, sinceLastHintMs = now - lastBatteryHint,
             )
             if (hint) {

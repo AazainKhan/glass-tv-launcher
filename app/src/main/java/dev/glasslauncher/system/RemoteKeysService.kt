@@ -71,6 +71,9 @@ class RemoteKeysService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        // A key from anything but the remote (CEC, a phone app, a controller) says the user is at the TV: the
+        // fresh-batteries hint is allowed for a while after it (P98), never on a plain idle Home.
+        if (event.action == KeyEvent.ACTION_DOWN) RemoteWatch.noteKey(event.device?.name)
         // The Sleep Timer's one-minute banner is up: any key cancels the timer (the key still reaches the app).
         if (event.action == KeyEvent.ACTION_DOWN && SleepTimer.warning(this)) {
             SleepTimer.set(this, 0)

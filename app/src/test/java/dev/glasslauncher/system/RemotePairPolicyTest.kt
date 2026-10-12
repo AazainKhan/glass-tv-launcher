@@ -104,8 +104,8 @@ class RemotePairPolicyTest {
     }
 
     @Test fun silentBondedRemoteGetsTheBatteryHintOncePerTenMinutes() {
-        fun hint(bonded: Boolean = true, connected: Boolean = false, screen: Boolean = true, home: Boolean = true, scanning: Long = 100_000, silent: Long = 100_000, since: Long = 1_000_000) =
-            RemotePairPolicy.batteryHint(bonded, connected, screen, home, scanning, silent, since)
+        fun hint(bonded: Boolean = true, connected: Boolean = false, screen: Boolean = true, home: Boolean = true, scanning: Long = 100_000, silent: Long = 100_000, since: Long = 1_000_000, other: Long? = 30_000) =
+            RemotePairPolicy.batteryHint(bonded, connected, screen, home, scanning, silent, since, other)
         assertEquals(true, hint())
         assertEquals("not bonded: nothing to say about batteries", false, hint(bonded = false))
         assertEquals("connected", false, hint(connected = true))
@@ -114,6 +114,12 @@ class RemotePairPolicyTest {
         assertEquals("just started scanning", false, hint(scanning = 30_000))
         assertEquals("it advertised a moment ago", false, hint(silent = 10_000))
         assertEquals("said it a minute ago", false, hint(since = 60_000))
+        // P98 follow-up: an asleep remote on an idle Home is normal; only a user pressing something else is trying.
+        assertEquals("plain idle: no other input ever", false, hint(other = null))
+        assertEquals("other input long ago", false, hint(other = 10 * 60_000L))
+        assertEquals("other input just now", true, hint(other = 5_000))
+        assertEquals("the edge of the window", true, hint(other = RemotePairPolicy.OTHER_INPUT_WINDOW_MS))
+        assertEquals("just past it", false, hint(other = RemotePairPolicy.OTHER_INPUT_WINDOW_MS + 1))
     }
 }
 

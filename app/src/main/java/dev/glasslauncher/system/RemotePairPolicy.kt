@@ -56,8 +56,16 @@ object RemotePairPolicy {
     fun batteryHint(
         haveBondedRemote: Boolean, remoteConnected: Boolean, screenOn: Boolean, homeInFront: Boolean,
         scanningForMs: Long, silentForMs: Long, sinceLastHintMs: Long,
+        /** Ms since a key came from something that is not the remote (CEC, a phone app, a controller); null = never. */
+        sinceOtherInputMs: Long? = null,
     ): Boolean = haveBondedRemote && !remoteConnected && screenOn && homeInFront &&
-        scanningForMs >= BATTERY_HINT_AFTER_MS && silentForMs >= BATTERY_HINT_AFTER_MS && sinceLastHintMs >= BATTERY_HINT_EVERY_MS
+        scanningForMs >= BATTERY_HINT_AFTER_MS && silentForMs >= BATTERY_HINT_AFTER_MS && sinceLastHintMs >= BATTERY_HINT_EVERY_MS &&
+        // Only when the user is plausibly trying to use the remote: they are pressing something else right now. A remote
+        // that is merely asleep on an idle Home (normal) is never reported; this is not a battery gauge.
+        sinceOtherInputMs != null && sinceOtherInputMs in 0..OTHER_INPUT_WINDOW_MS
+
+    /** A key from a non-remote source this recent means the user is at the TV and not using the remote. */
+    const val OTHER_INPUT_WINDOW_MS = 2 * 60_000L
 
     /** A remote that is close enough to be the user's. */
     const val NEAR_RSSI = -65

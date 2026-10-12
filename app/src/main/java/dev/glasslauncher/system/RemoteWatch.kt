@@ -37,6 +37,17 @@ object RemoteWatch {
     val card: StateFlow<Boolean> = _card
     fun cardShown() { _card.value = false }
 
+    /** When a key last came from a source that is not an Amazon remote (uptime ms), 0 = never. */
+    @Volatile private var otherInputAt = 0L
+
+    /** Called for every key the keys service sees: [deviceName] is the input device's name (null if unknown). */
+    fun noteKey(deviceName: String?) {
+        if (!RemotePairPolicy.isAmazonRemoteName(deviceName)) otherInputAt = android.os.SystemClock.uptimeMillis()
+    }
+
+    /** Ms since the last non-remote key, null if there has not been one. */
+    fun sinceOtherInputMs(now: Long = android.os.SystemClock.uptimeMillis()): Long? = otherInputAt.takeIf { it > 0 }?.let { now - it }
+
     /** Glass Home is the resumed activity (no app or playback in front); set by MainActivity. */
     @Volatile var homeInFront = false
 
