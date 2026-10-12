@@ -23,3 +23,17 @@ object CoverAutoplay {
         return (index + d).coerceIn(0, size - 1) to d
     }
 }
+
+/**
+ * The Top Shelf's slideshow and Cover Flow autoplay stop after a minute with no input (P102): every step re-bakes a
+ * backdrop, which was 14% of a core for the slideshow and 22-27% for Cover Flow, all night, with nobody watching. It
+ * stays on the current item; any key resumes it. Pure, so the rule is unit-tested; Home reads its idle clock.
+ */
+object TopShelfIdle {
+    /** No input for this long: autoplay holds on the current item. */
+    const val PAUSE_AFTER_MS = 60_000L
+    /** How often a paused autoplay looks for the next key (a cheap timer, never a bake). */
+    const val POLL_MS = 2_000L
+
+    fun paused(sinceInputMs: Long): Boolean = sinceInputMs >= PAUSE_AFTER_MS
+}

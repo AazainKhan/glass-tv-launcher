@@ -136,6 +136,8 @@ enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings,
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
+/** The next slide's bake starts once input has been quiet this long (never during a scroll). */
+private const val BAKE_AHEAD_QUIET_MS = 1_500L
 /** Focus rests this long on a top-row app before the shelf switches to its content. */
 private const val SHELF_FOLLOW_MS = 450L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
@@ -586,21 +588,35 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // back and forth; not at all with Reduce Motion (it would only jump).
         val covers = dev.glasslauncher.featured.CardShape.square(feed.items)
         if (covers && prefs.reduceMotion) return@LaunchedEffect
-        delay(if (covers) dev.glasslauncher.featured.CoverAutoplay.STEP_MS else SLIDE_MS)
-        val quiet = if (covers) dev.glasslauncher.featured.CoverAutoplay.QUIET_MS else SLIDE_QUIET_MS
-        while (idle.millisSinceInput() < quiet) delay(quiet - idle.millisSinceInput() + 50)
+        // After a minute with no input the shelf holds on this item (P102): no bakes at all until a key resumes it.
+        while (dev.glasslauncher.featured.TopShelfIdle.paused(idle.millisSinceInput())) delay(dev.glasslauncher.featured.TopShelfIdle.POLL_MS)
         val (stepTo, stepDir) = if (covers) dev.glasslauncher.featured.CoverAutoplay.next(heroIndex, coverDir, feed.items.size)
             else ((heroIndex + 1) % feed.items.size) to 1
         val next = stepTo
         val url = feed.items[next].image
-        // Pre-baked at background priority, so a slide never competes with a scroll or focus move.
-        if (url != null) {
-            // Square covers: the soft cover scene, cached under the key the resting backdrop looks up (P79).
-            if (dev.glasslauncher.featured.CardShape.square(feed.items)) {
-                // The soft scene bakes at background priority (coverFromUrl's own bake), under the key rest looks up.
+        // The scene the next step shows, baked at background priority (so it never competes with a scroll or focus
+        // move) and kept under the key the resting backdrop looks up (P79); nothing when it is already there.
+        suspend fun bakeNext() {
+            if (url == null) return
+            if (covers) {
                 if (HeroCache.cover["$url|$dark"] == null) runCatching { graph.wallpapers.coverFromUrl(url, light = !dark) }.getOrNull()?.let { HeroCache.cover["$url|$dark"] = it }
-            } else runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
+            } else if (prebaked[0]?.first != url) {
+                runCatching { graph.wallpapers.fromUrl(url, background = true, light = !dark) }.getOrNull()?.let { prebaked[0] = url to it }
+            }
         }
+        // Bake the next scene while this one holds (P102), so the step at the end of the hold is only a swap and the
+        // bake never lands on the dissolve; but not while a key is still moving things (a scroll or focus move).
+        val holdStart = android.os.SystemClock.elapsedRealtime()
+        while (idle.millisSinceInput() < BAKE_AHEAD_QUIET_MS) delay(BAKE_AHEAD_QUIET_MS - idle.millisSinceInput() + 50)
+        bakeNext()
+        val hold = if (covers) dev.glasslauncher.featured.CoverAutoplay.STEP_MS else SLIDE_MS
+        delay((hold - (android.os.SystemClock.elapsedRealtime() - holdStart)).coerceAtLeast(0L))
+        val quiet = if (covers) dev.glasslauncher.featured.CoverAutoplay.QUIET_MS else SLIDE_QUIET_MS
+        // The hold may have crossed the minute: wait out the pause here too, then the usual few quiet seconds.
+        while (dev.glasslauncher.featured.TopShelfIdle.paused(idle.millisSinceInput())) delay(dev.glasslauncher.featured.TopShelfIdle.POLL_MS)
+        while (idle.millisSinceInput() < quiet) delay(quiet - idle.millisSinceInput() + 50)
+        // Normally already baked; if a focus move consumed it, bake now.
+        bakeNext()
         feed.items[next].logo?.let { logo -> runCatching { coil3.SingletonImageLoader.get(context).execute(dev.glasslauncher.featured.logoRequest(context, logo)) } }
         coverDir = stepDir
         heroIndex = next

@@ -24,3 +24,18 @@ class CoverAutoplayTest {
         assertEquals(0, CoverAutoplay.next(0, 1, 1).first)
     }
 }
+
+class TopShelfIdleTest {
+    @org.junit.Test fun autoplayHoldsAfterAMinuteWithNoInputAndResumesOnAKey() {
+        org.junit.Assert.assertEquals(false, TopShelfIdle.paused(0))
+        org.junit.Assert.assertEquals(false, TopShelfIdle.paused(59_999))
+        org.junit.Assert.assertEquals(true, TopShelfIdle.paused(60_000))
+        org.junit.Assert.assertEquals(true, TopShelfIdle.paused(3_600_000))
+        // A key resets the idle clock to ~0: not paused again.
+        org.junit.Assert.assertEquals(false, TopShelfIdle.paused(12))
+    }
+
+    @org.junit.Test fun theResumePollIsCheapNotABakeLoop() {
+        org.junit.Assert.assertTrue(TopShelfIdle.POLL_MS >= 1_000L)
+    }
+}
