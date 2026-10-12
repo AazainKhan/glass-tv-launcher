@@ -22,7 +22,8 @@ private const val FEED_VERSION = 4
 /** The cache key for [cfg]'s feed, versioned so a feed cached before items gained a field (logos) is fetched again. */
 fun cacheKey(cfg: FeaturedConfig) = "$FEED_VERSION:$cfg"
 
-data class FeaturedState(val feed: FeaturedFeed? = null, val error: String? = null)
+/** [key] is the [cacheKey] the [feed] was loaded for: a failed fetch keeps the previous feed up, and it is not the new app's. */
+data class FeaturedState(val feed: FeaturedFeed? = null, val error: String? = null, val key: String? = null)
 
 /** Loads the selected source, keeps the last good result on disk so the shelf is filled instantly at boot. */
 class FeaturedRepository(context: Context, private val http: OkHttpClient) {
@@ -44,7 +45,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         val key = cacheKey(cfg)
         val now = SystemClock.elapsedRealtime()
         memory[key]?.let { (feed, at) ->
-            _state.value = FeaturedState(feed)
+            _state.value = FeaturedState(feed, key = key)
             loadedKey = key; loadedAt = at
             if (!force && now - at < 30 * 60_000L) return@withLock
         }
@@ -53,7 +54,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         // Switching source: show its cached feed if there is one; otherwise keep the current shelf up until
         // the new one arrives (blanking it would drop the backdrop to the wallpaper for a moment).
         if (loadedKey != key) readCache(key)?.let {
-            _state.value = FeaturedState(it)
+            _state.value = FeaturedState(it, key = key)
             // Seen again soon: the memory copy is marked old enough that a fresh fetch still follows.
             memory[key] = it to (now - 25 * 60_000L)
         }
@@ -66,7 +67,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
             }
         }
         result.onSuccess { feed ->
-            _state.value = FeaturedState(feed)
+            _state.value = FeaturedState(feed, key = key)
             loadedKey = key
             loadedAt = SystemClock.elapsedRealtime()
             memory[key] = feed to loadedAt

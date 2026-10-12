@@ -222,7 +222,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
-    val feed = featuredState.feed?.takeIf { featuredCfg != null && it.items.isNotEmpty() }
+    // Only the feed fetched for the shelf's own app: a failed fetch (offline) keeps the previous app's feed in the state,
+    // and it must neither show nor autoplay under the new focus; nor once focus has left its app (ShelfFeed).
+    val feed = featuredState.feed?.takeIf {
+        featuredCfg != null && it.items.isNotEmpty() && dev.glasslauncher.featured.ShelfFeed.owns(
+            stateKey = featuredState.key, wantedKey = dev.glasslauncher.featured.cacheKey(featuredCfg),
+            focusedApp = lastDockFocused?.removePrefix("app:"), shelfApp = shelfApp,
+            followsFocus = cfg.featured.mode == dev.glasslauncher.data.FeaturedMode.FocusedApp && cfg.topShelfTitles,
+        )
+    }
     // A different shelf starts from its first item; a shelf of square covers (Spotify's Cover Flow preview) from the
     // middle one, so there are covers on both sides (P85). Keyed, so the first frame already has it (no jump).
     var heroIndex by remember(feed?.items?.firstOrNull()?.id) {
@@ -369,7 +377,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(heroApp) { if (heroApp != null) { delay(SCENE_HOLD_MAX_MS); sceneOfApp = heroApp } }
     // The hold's dim rides the backdrop state itself (sceneDim), so the glass over it (tray, pill) dims with the scene and
     // stays one material; written from the animation, not read in composition (no recomposition per frame).
-    val holdTarget = if (heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && cfg.background == BackgroundMode.Featured && !prefs.reduceMotion) HOLD_DIM else 0f
+    val holdTarget = if (dev.glasslauncher.featured.ShelfFeed.holds(heroApp, sceneOfApp, cfg.background == BackgroundMode.Featured, prefs.reduceMotion)) HOLD_DIM else 0f
     val holdAnim = remember { Animatable(0f) }
     // After the first frame following the focus change (the stall there ate the tween's start on the stick: the dim landed
     // in three frames, a cut), over 300 ms so it is seen for at least 150 ms.
