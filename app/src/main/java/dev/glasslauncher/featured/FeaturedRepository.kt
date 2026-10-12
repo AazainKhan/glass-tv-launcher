@@ -28,11 +28,8 @@ data class FeaturedState(val feed: FeaturedFeed? = null, val error: String? = nu
 class FeaturedRepository(context: Context, private val http: OkHttpClient) {
     private val app = context.applicationContext
 
-    @Serializable
-    private data class Cached(val key: String, val heading: String, val items: List<FeaturedItem>)
-
-    private val file = File(context.cacheDir, "featured.json")
-    private val json = Json { ignoreUnknownKeys = true }
+    /** Several feeds on disk (one per shelf app, 24 at most), so a restart or an evicted app comes back at once (P105 #12). */
+    private val disk = DiskFeedCache(File(context.cacheDir, "featured"), legacy = File(context.cacheDir, "featured.json"))
     private val mutex = Mutex()
     private val _state = MutableStateFlow(FeaturedState())
     val state: StateFlow<FeaturedState> = _state
@@ -55,7 +52,11 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         if (fresh && !force) return@withLock
         // Switching source: show its cached feed if there is one; otherwise keep the current shelf up until
         // the new one arrives (blanking it would drop the backdrop to the wallpaper for a moment).
-        if (loadedKey != key) readCache(key)?.let { _state.value = FeaturedState(it) }
+        if (loadedKey != key) readCache(key)?.let {
+            _state.value = FeaturedState(it)
+            // Seen again soon: the memory copy is marked old enough that a fresh fetch still follows.
+            memory[key] = it to (now - 25 * 60_000L)
+        }
         val result = when (cfg.source) {
             FeaturedSourceId.ContinueWatching -> runCatching { TvRows.continueWatching(app).withCinemeta(http) }
             FeaturedSourceId.TvApp -> runCatching { TvRows.appRow(app, cfg.appPackage, appLabel(cfg.appPackage)).withCinemeta(http) }
@@ -79,13 +80,45 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
 
     private fun appLabel(pkg: String) = runCatching { app.packageManager.getApplicationLabel(app.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
 
-    private suspend fun readCache(key: String): FeaturedFeed? = withContext(Dispatchers.IO) {
-        runCatching { json.decodeFromString(Cached.serializer(), file.readText()) }.getOrNull()
-            ?.takeIf { it.key == key }
-            ?.let { FeaturedFeed(it.heading, it.items) }
+    private suspend fun readCache(key: String): FeaturedFeed? = withContext(Dispatchers.IO) { disk.read(key) }
+
+    private suspend fun writeCache(key: String, feed: FeaturedFeed) = withContext(Dispatchers.IO) { disk.write(key, feed) }
+}
+
+/**
+ * The feeds kept on disk, one file per cache key, newest-used kept: a shelf for an app seen before is filled from here
+ * the first frame, not after a network round trip (Apple TV's art took over 600 ms uncached). Plain files, so it is
+ * tested on the JVM.
+ */
+class DiskFeedCache(private val dir: File, private val max: Int = 24, private val legacy: File? = null) {
+    @Serializable
+    private data class Cached(val key: String, val heading: String, val items: List<FeaturedItem>)
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun fileFor(key: String) = File(dir, key.hashCode().toUInt().toString(16) + ".json")
+
+    fun read(key: String): FeaturedFeed? {
+        val f = fileFor(key)
+        fun parse(file: File) = runCatching { json.decodeFromString(Cached.serializer(), file.readText()) }.getOrNull()?.takeIf { it.key == key }
+        // The single file the previous version wrote (and the device tests seed) is still read, for its own key.
+        val cached = parse(f) ?: legacy?.let { parse(it) } ?: return null
+        runCatching { if (f.exists()) f.setLastModified(System.currentTimeMillis()) }
+        return FeaturedFeed(cached.heading, cached.items)
     }
 
-    private suspend fun writeCache(key: String, feed: FeaturedFeed) = withContext(Dispatchers.IO) {
-        runCatching { file.writeText(json.encodeToString(Cached.serializer(), Cached(key, feed.heading, feed.items))) }
+    fun write(key: String, feed: FeaturedFeed) {
+        runCatching {
+            dir.mkdirs()
+            fileFor(key).writeText(json.encodeToString(Cached.serializer(), Cached(key, feed.heading, feed.items)))
+            trim()
+        }
+    }
+
+    /** Keeps the [max] most recently used files. */
+    private fun trim() {
+        val files = dir.listFiles { f -> f.name.endsWith(".json") } ?: return
+        if (files.size <= max) return
+        files.sortedByDescending { it.lastModified() }.drop(max).forEach { it.delete() }
     }
 }
