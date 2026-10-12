@@ -9,7 +9,7 @@ Hardware note: the stick in this workspace (AFTKRT "karat", MT8696T, 2 GB, Fire 
 Gaming forums and reviews converge on a short list. None of it needs Glass to run games; it needs Glass to remove friction.
 
 1. **Pick up and play in two button presses.** Controller on, game running, with no hunting through five apps.
-2. **The controller just works.** Stays paired, shows battery, reconnects after reboot. Pairing drops are the top complaint class ([fire-tv-demands #17](file:///Users/aazain/Documents/glass-launcher/docs/research/fire-tv-demands.md); RetroPie/Lakka threads show the same "bond lost after reboot, power-cycle the pad" pattern on other Linux/Android boxes, anecdote: [RetroPie](https://retropie.org.uk/forum/post/199677)).
+2. **The controller just works.** Stays paired, shows battery, reconnects after reboot. Pairing drops are the top complaint class ([fire-tv-demands #17](fire-tv-demands.md); RetroPie/Lakka threads show the same "bond lost after reboot, power-cycle the pad" pattern on other Linux/Android boxes, anecdote: [RetroPie](https://retropie.org.uk/forum/post/199677)).
 3. **Low, steady latency**, and honesty about when the network is the problem. A dying controller or weak Bluetooth is routinely mistaken for lag ([Android Central](https://www.androidcentral.com/best-gaming-controllers-amazon-fire-tv), [Steam Community](https://steamcommunity.com/app/353380/discussions/4/4208120159994173527)).
 4. **One library** instead of siloed stores: Game Pass, GeForce NOW, Steam, my PC, retro.
 5. **Social glue**: who is online, can I join, did I just unlock something.
