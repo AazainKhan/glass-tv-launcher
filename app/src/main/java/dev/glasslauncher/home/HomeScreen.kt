@@ -140,12 +140,10 @@ private const val SLIDE_QUIET_MS = 3_000L
 private const val SCENE_TITLE_WAIT_MS = 1_500L
 /** The next slide's bake starts once input has been quiet this long (never during a scroll). */
 private const val BAKE_AHEAD_QUIET_MS = 1_500L
-/** Focus rests this long on a top-row app before the shelf switches to its content. */
-private const val SHELF_FOLLOW_MS = 450L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
 private const val APP_HERO_MS = 250L
 private const val GPU_TRIM_AFTER_MS = 4_000L
-private const val APP_HERO_FADE_MS = 200
+private const val APP_HERO_FADE_MS = 270
 /** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
 private const val PREVIEW_FADE_MS = 450
 /** How long after Home leaves the full-screen Cover Flow the leftovers are released (after the morph and its frames). */

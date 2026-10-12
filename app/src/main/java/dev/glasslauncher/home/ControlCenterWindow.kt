@@ -66,6 +66,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
      * without the capture) the tiles draw a smoky translucent tint over the live app.
      */
     private val backdrop = BackdropState().apply { translucentWindow = true; sceneDim = CC_DIM_ALPHA }
+    /** The scene dim for the appearance in use (P105 #14): light mutes less. */
+    private fun dimNow(light: Boolean) = if (light) dev.glasslauncher.glass.GlassMatch.CC_DIM_LIGHT else CC_DIM_ALPHA
     private var capture: kotlinx.coroutines.Job? = null
     /** Open over Home: the glass follows Home's scene (a slide can change under Control Center). */
     private var overHome by mutableStateOf(false)
@@ -171,6 +173,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val front = (service as? dev.glasslauncher.system.RemoteKeysService)?.frontApp
         val home = sceneFor(front, homeStarted, homeBackdrop)
         overHome = home != null
+        backdrop.sceneDim = dimNow(lightNow())
         if (home != null) {
             app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(home, animate = false) }
             attach()

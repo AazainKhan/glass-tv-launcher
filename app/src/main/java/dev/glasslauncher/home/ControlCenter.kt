@@ -85,7 +85,7 @@ import dev.glasslauncher.widgets.rememberClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val Blue = Color(0xFF0A84FF)
+private val Blue = Color(0xFF0091FF)
 
 /**
  * Tile sizes grow with the text size (Settings › Display & Text), so labels keep fitting instead of
@@ -137,12 +137,12 @@ object CcMorph {
      */
     val openSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.9f, stiffness = 700f, visibilityThreshold = 0.001f)
     /** Closing: critically damped and quicker, about 250 ms to the pill. */
-    val closeSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 450f, visibilityThreshold = 0.001f)
+    val closeSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 900f, visibilityThreshold = 0.001f)
     /**
      * When the close has visibly landed (the spring is within 1% of the pill; the rest is an invisible tail).
      * The overlay window / in-launcher overlay is removed then, so it stops taking input (a test ties it to the spring).
      */
-    const val CLOSE_MS = 320
+    const val CLOSE_MS = 230
 
     /** The pill has split into its two drops, and they have reached the page icons' spots, by this much of p. */
     const val SPLIT_END = 0.35f
@@ -154,7 +154,7 @@ object CcMorph {
     private const val GLYPH_FROM = 0.75f
     /** The first controls start to grow at this p; the farthest from their drop start [TILE_SPREAD] later. */
     private const val TILE_FROM = 0.2f
-    private const val TILE_SPREAD = 0.25f
+    private const val TILE_SPREAD = 0.15f
     /** The header (time, date, weather) grows from the pill's clock over this much of p, and shows by [HEADER_SHOWN]. */
     private const val HEADER_END = 0.6f
     private const val HEADER_SHOWN = 0.25f
@@ -454,6 +454,7 @@ internal const val CC_DIM_ALPHA = GlassMatch.CC_DIM
 /** The time, date and weather share one opacity, slightly muted, as tvOS's header. */
 private const val HEADER_ALPHA = 0.85f
 private val CC_DIM_COLOR = Color.Black.copy(alpha = CC_DIM_ALPHA)
+private val CC_DIM_COLOR_LIGHT = Color.Black.copy(alpha = GlassMatch.CC_DIM_LIGHT)
 
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
 val CONTROL_CENTER_TILES = listOf(
@@ -675,7 +676,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // follows the spring (drawn, not a layer with alpha, which would be a full-screen offscreen pass), and
             // over another app (an overlay window) the system composites it without redrawing anything.
             val e = enter.value.coerceIn(0f, 1f)
-            if (e > 0f) drawRect(CC_DIM_COLOR, alpha = e)
+            if (e > 0f) drawRect(if (dark) CC_DIM_COLOR else CC_DIM_COLOR_LIGHT, alpha = e)
             // The open's material from its very first frame: the backdrop is in place before Control Center
             // attaches, but the effect that takes the sheet only runs after a frame has drawn (bare icons, P29).
             if (!exiting && sheetRef.sheet == null) takeSheet()

@@ -70,6 +70,8 @@ object GlassMatch {
 
     /** How much Control Center mutes the screen behind it; its sheet is the scene muted by the same amount. */
     const val CC_DIM = 0.42f
+    /** Light appearance mutes less (tvOS: x0.69 light, x0.57 dark; P105 #14). 0.31 is tvOS but left white text on light tiles at 4.29:1, under the 4.5:1 test, so 0.38. */
+    const val CC_DIM_LIGHT = 0.38f
     /**
      * The screen region the sheet covers (fractions of the root): from a quarter of the width to the right edge, full
      * height. Control Center's panel sits top-right (never wider than 40% at the largest text), and edit mode (P101)
@@ -88,7 +90,7 @@ object GlassMatch {
     fun ccSheet(clear: Bitmap, light: Boolean = false): PanelSheet? {
         val t0 = android.os.SystemClock.elapsedRealtime()
         val w = clear.width.toFloat(); val h = clear.height.toFloat()
-        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, CC_DIM, CC_COLS,
+        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, if (light) CC_DIM_LIGHT else CC_DIM, CC_COLS,
             blurPasses = CC_BLUR_PASSES, saturation = CC_SATURATION, lift = if (light) CC_LIFT_LIGHT else CC_LIFT) ?: return null
         val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
         val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft

@@ -268,14 +268,14 @@ class AppTransition(
         const val FILL_MS = 110
         /** startActivity this far into the zoom; the app's first window fades in over the rest. */
         const val HANDOFF_MS = 170L
-        const val CLOSE_MS = 220
+        const val CLOSE_MS = 300
         const val CLOSE_FADE_MS = 110
         const val LAND_MS = 125
-        const val UNBLUR_MS = 200
+        const val UNBLUR_MS = 120
         /** Home stopping later than this after a launch isn't that launch. */
         const val STALE_LAUNCH_MS = 6_000L
         /** Where the close lands before settling, relative to the focused tile. */
-        const val LAND_SCALE = 1.3f
+        const val LAND_SCALE = 1.5f
 
         /** Exponential decelerate with τ ≈ 130 ms over 450 ms (k = 3.5), full speed on the first frame. */
         val ZoomOut = Easing { x -> ((1f - exp(-3.5f * x)) / (1f - exp(-3.5f))) }

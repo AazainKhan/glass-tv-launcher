@@ -78,7 +78,7 @@ private const val LOGO_MAX_W = 880
 private const val LOGO_MAX_H = 300
 
 /** Matches the backdrop's dissolve (BackdropState.swap). */
-private const val SLIDE_FADE_MS = 550
+private const val SLIDE_FADE_MS = 270
 
 /**
  * The featured item's wordmark over the full-bleed backdrop, top left like an Apple TV top shelf.

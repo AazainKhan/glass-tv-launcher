@@ -59,7 +59,7 @@ class CcMorphTest {
     // Near controls start first; everything has started by 45% and finishes at 1.
     @Test fun theStaggerStartsNearControlsFirst() {
         assertEquals(0.2f, CcMorph.tileStart(0f, 500f), 0.001f)
-        assertEquals(0.45f, CcMorph.tileStart(500f, 500f), 0.001f)
+        assertEquals(0.35f, CcMorph.tileStart(500f, 500f), 0.001f)
         assertTrue(CcMorph.tileStart(100f, 500f) < CcMorph.tileStart(300f, 500f))
         assertEquals(0f, CcMorph.tile(0.2f, 0.3f), 0f)
         assertEquals(1f, CcMorph.tile(1f, 0.45f), 0f)
