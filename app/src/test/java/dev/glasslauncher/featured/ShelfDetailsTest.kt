@@ -72,4 +72,12 @@ class PersonPhotosTest {
         assertNull(PersonPhotos.photoFrom(summary("""{"type":"standard","description":"American actress"}""")))
         assertNull(PersonPhotos.photoFrom(summary("""{"type":"standard","description":"American actress","thumbnail":{"source":"http://u/x.jpg"}}""")))
     }
+
+    @Test fun onlyAnAnswerIsRemembered() {
+        assertEquals(true, PersonPhotos.cacheable(200))
+        assertEquals(true, PersonPhotos.cacheable(404))
+        assertEquals("a network error has no code", false, PersonPhotos.cacheable(null))
+        assertEquals(false, PersonPhotos.cacheable(503))
+        assertEquals(false, PersonPhotos.cacheable(429))
+    }
 }

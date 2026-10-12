@@ -96,9 +96,13 @@ internal object PersonPhotos {
         return ((summary["thumbnail"] as? JsonObject)?.get("source") as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.startsWith("https://") }
     }
 
+    /** A result worth remembering: the page exists (200) or doesn't (404). A network error or a 5xx is tried again next view. */
+    fun cacheable(httpCode: Int?): Boolean = httpCode == 200 || httpCode == 404
+
     fun lookup(http: OkHttpClient, name: String): String? {
         cache[name]?.let { return it.takeIf { u -> u != NONE } }
         val title = java.net.URLEncoder.encode(name.trim().replace(' ', '_'), "UTF-8").replace("+", "%20")
+        var code: Int? = null
         val url = runCatching {
             val req = okhttp3.Request.Builder()
                 .url("https://en.wikipedia.org/api/rest_v1/page/summary/$title")
@@ -106,11 +110,13 @@ internal object PersonPhotos {
                 .header("User-Agent", USER_AGENT)
                 .build()
             http.newCall(req).execute().use { r ->
+                code = r.code
                 if (!r.isSuccessful) null
                 else photoFrom(kotlinx.serialization.json.Json.parseToJsonElement(r.body?.string().orEmpty()).jsonObject)
             }
         }.getOrNull()
-        cache[name] = url ?: NONE
+        // Only an answer is remembered; a failure to reach Wikipedia is not a "no photo".
+        if (cacheable(code)) cache[name] = url ?: NONE
         return url
     }
 }
