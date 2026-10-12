@@ -22,7 +22,12 @@ private const val FEED_VERSION = 4
 /** The cache key for [cfg]'s feed, versioned so a feed cached before items gained a field (logos) is fetched again. */
 fun cacheKey(cfg: FeaturedConfig) = "$FEED_VERSION:$cfg"
 
-data class FeaturedState(val feed: FeaturedFeed? = null, val error: String? = null)
+/**
+ * [key] is the [cacheKey] the [feed] was loaded for; [settledKey] the key whose load has finished (feed or failure), null
+ * while one is under way. A failed fetch keeps the previous feed up, so a feed whose [key] is not the wanted one and whose
+ * wanted key has settled is stale for good (ShelfFeed.usable).
+ */
+data class FeaturedState(val feed: FeaturedFeed? = null, val error: String? = null, val key: String? = null, val settledKey: String? = null)
 
 /** Loads the selected source, keeps the last good result on disk so the shelf is filled instantly at boot. */
 class FeaturedRepository(context: Context, private val http: OkHttpClient) {
@@ -44,7 +49,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         val key = cacheKey(cfg)
         val now = SystemClock.elapsedRealtime()
         memory[key]?.let { (feed, at) ->
-            _state.value = FeaturedState(feed)
+            _state.value = FeaturedState(feed, key = key, settledKey = key)
             loadedKey = key; loadedAt = at
             if (!force && now - at < 30 * 60_000L) return@withLock
         }
@@ -53,10 +58,12 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         // Switching source: show its cached feed if there is one; otherwise keep the current shelf up until
         // the new one arrives (blanking it would drop the backdrop to the wallpaper for a moment).
         if (loadedKey != key) readCache(key)?.let {
-            _state.value = FeaturedState(it)
+            _state.value = FeaturedState(it, key = key, settledKey = null)
             // Seen again soon: the memory copy is marked old enough that a fresh fetch still follows.
             memory[key] = it to (now - 25 * 60_000L)
         }
+        // A load for this key is under way: whatever feed is up stays until it settles (it is the shelf's, not this app's).
+        _state.value = _state.value.copy(settledKey = null)
         val result = when (cfg.source) {
             FeaturedSourceId.ContinueWatching -> runCatching { TvRows.continueWatching(app).withCinemeta(http) }
             FeaturedSourceId.TvApp -> runCatching { TvRows.appRow(app, cfg.appPackage, appLabel(cfg.appPackage)).withCinemeta(http) }
@@ -66,13 +73,13 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
             }
         }
         result.onSuccess { feed ->
-            _state.value = FeaturedState(feed)
+            _state.value = FeaturedState(feed, key = key, settledKey = key)
             loadedKey = key
             loadedAt = SystemClock.elapsedRealtime()
             memory[key] = feed to loadedAt
             writeCache(key, feed)
         }.onFailure { e ->
-            _state.value = _state.value.copy(error = if (_state.value.feed == null) e.message ?: "Couldn't load featured content" else null)
+            _state.value = _state.value.copy(error = if (_state.value.feed == null) e.message ?: "Couldn't load featured content" else null, settledKey = key)
             loadedKey = key
             loadedAt = SystemClock.elapsedRealtime() - 25 * 60_000L
         }
