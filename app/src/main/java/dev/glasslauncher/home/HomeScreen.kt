@@ -138,6 +138,8 @@ private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
 /** How long a held scene waits for the new app's scene before it lets go anyway. */
 private const val SCENE_HOLD_MAX_MS = 2_000L
+/** Home has rested this long before the shader warm-up draws (P115). */
+private const val SHADER_WARM_AFTER_MS = 4_000L
 /** How dark the held scene goes (tvOS dims the outgoing art for about 230 ms before the new crossfade). */
 private const val HOLD_DIM = 0.4f
 /** The longest the shelf's title waits for its art before it shows anyway. */
@@ -1153,6 +1155,22 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             if (reveal.value < 1f) StartupMark(loading = !ready, alpha = { 1f - reveal.value })
 
             AppTransitionLayer(transition, warmSource = backdrop.backdrop?.blurredSoftware.takeIf { ready })
+
+            // After an install or update, once Home has settled: the draw variants the animated paths use, drawn once,
+            // invisibly, so their shaders compile now and not in the first focus move or overlay open (P115).
+            val warmPrefs = remember { context.getSharedPreferences("home", 0) }
+            val updatedAt = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L) }
+            var warmDue by remember { mutableStateOf(updatedAt != 0L && ShaderWarmup.due(updatedAt, warmPrefs.getLong(ShaderWarmup.KEY, -1L))) }
+            var warmGo by remember { mutableStateOf(false) }
+            LaunchedEffect(ready, warmDue, overlays.isEmpty(), reveal.value >= 1f) {
+                if (ready && warmDue && overlays.isEmpty() && reveal.value >= 1f) { delay(SHADER_WARM_AFTER_MS); warmGo = true }
+            }
+            if (warmDue && warmGo) {
+                ShaderWarmupLayer(sample = backdrop.backdrop?.blurredSoftware) {
+                    warmPrefs.edit().putLong(ShaderWarmup.KEY, updatedAt).apply()
+                    warmDue = false
+                }
+            }
 
             // The frame before an appearance/background/text-size change, fading out over the new one.
             dissolve.image?.let { frame ->
