@@ -81,6 +81,8 @@ fun MenuRow(
     checked: Boolean? = null,
     /** One short line about this row, shown in the Settings page's left column while it has focus. */
     help: String? = null,
+    /** The label centred in the row (an alert's buttons, as tvOS draws them). */
+    centered: Boolean = false,
 ) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
@@ -152,7 +154,7 @@ fun MenuRow(
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
             leading?.invoke()
-            Text(title, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(title, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = if (centered) androidx.compose.ui.text.style.TextAlign.Center else null, modifier = Modifier.weight(1f))
             if (value != null) Text(value, style = Type.secondary, color = if (focused) fg.copy(alpha = 0.7f) else palette.secondary, maxLines = 1)
             trailing?.invoke(this)
             if (checked != null) Switch(checked, focused)

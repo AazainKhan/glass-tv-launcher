@@ -320,12 +320,20 @@ private val SETTINGS_ICONS = mapOf(
     "Root Log" to dev.glasslauncher.R.drawable.ic_code,
 )
 
-/** 0 → 1 on entrance and back to 0 on exit, with the overlay curve (~130 ms each way). */
+/**
+ * 0 → 1 on entrance and back to 0 on exit. In, the 130 ms overlay curve: a spring there sat half-transparent for three
+ * frames (appMenuHasNoGhostFrames allows two), whatever its stiffness. Out, a critically damped spring, so a Back
+ * mid-open reverses from where it is with its velocity and the exit is quick (P105 #17). Reduce Motion: the fade.
+ */
 @Composable
 fun rememberOverlayEnter(): Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
     val enter = remember { Animatable(0f) }
     val exiting = LocalOverlayExiting.current
-    LaunchedEffect(exiting) { enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay()) }
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    LaunchedEffect(exiting) {
+        if (exiting && !reduceMotion) enter.animateTo(0f, androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 1000f, visibilityThreshold = 0.001f))
+        else enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())
+    }
     return enter
 }
 
@@ -476,7 +484,7 @@ fun Modifier.fadeBottom(height: androidx.compose.ui.unit.Dp): Modifier = this
 fun AnchoredMenu(
     active: Boolean,
     anchor: androidx.compose.ui.geometry.Rect?,
-    width: Dp = 270.dp,
+    width: Dp = 220.dp,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.(androidx.compose.ui.focus.FocusRequester) -> Unit,
 ) {
     val enter = rememberOverlayEnter()
