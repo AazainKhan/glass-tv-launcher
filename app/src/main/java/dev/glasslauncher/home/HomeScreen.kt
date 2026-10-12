@@ -237,6 +237,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val density = LocalDensity.current
     val overlays = remember { mutableStateListOf<Overlay>() }
     var moving by remember { mutableStateOf<String?>(null) }
+    // Settings was opened from its tile (with the zoom): its close plays back into that tile.
+    var settingsFromTile by remember { mutableStateOf(false) }
+    val settingsEntry = remember { dev.glasslauncher.apps.AppEntry("dev.glasslauncher.settings", "Settings", android.content.ComponentName("dev.glasslauncher", "dev.glasslauncher.MainActivity")) }
+    val gearGlyph = remember {
+        runCatching {
+            val d = androidx.core.content.ContextCompat.getDrawable(context, dev.glasslauncher.R.drawable.ic_settings)!!
+            val b = android.graphics.Bitmap.createBitmap(192, 192, android.graphics.Bitmap.Config.ARGB_8888)
+            d.setBounds(0, 0, 192, 192); d.setTint(android.graphics.Color.WHITE); d.draw(android.graphics.Canvas(b))
+            b.asImageBitmap()
+        }.getOrNull()
+    }
     // The app being rearranged inside the open folder (Rearrange Folder in its app menu).
     var folderMoving by remember { mutableStateOf<String?>(null) }
     // While an app is being moved the layout is edited in memory and saved once, when the move ends.
@@ -499,6 +510,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // Overlays on their way out (exit animation), drawn above the rest until it finishes.
     val exiting = remember { mutableStateListOf<Overlay>() }
+    // Settings (opened out of its tile) is gone: its window comes back full screen and shrinks into the tile (P105 #7).
+    val settingsUp = overlays.any { it === Overlay.Settings }
+    LaunchedEffect(settingsUp) {
+        if (!settingsUp && settingsFromTile) {
+            settingsFromTile = false
+            val b = menuAnchor.bounds
+            val tile = b?.let { val dx = it.width * 0.1f; val dy = it.height * 0.1f; Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy) }
+            transition.closePage(tile)
+        }
+    }
     fun dismiss(overlay: Overlay) {
         exiting.add(overlay)
         scope.launch {
@@ -1000,7 +1021,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         onAppMenu = { app, inDock -> open(Overlay.AppMenu(app, inDock, null, menuAnchor.bounds)) },
                         onFolderOpen = { open(Overlay.FolderOpen(it, menuAnchor.bounds)) },
                         onFolderMenu = { open(Overlay.FolderMenu(it, menuAnchor.bounds)) },
-                        onSettings = { open(Overlay.Settings) },
+                        onSettings = {
+                            // Settings opens out of its tile as an app does (P105 #7): the same zoom with the page's colour
+                            // and the gear; with no tile bounds it just opens.
+                            val b = menuAnchor.bounds
+                            val from = b?.let { val dx = it.width * 0.1f; val dy = it.height * 0.1f; Rect(it.left - dx, it.top - dy, it.right + dx, it.bottom + dy) }
+                            if (from == null || prefs.reduceMotion) open(Overlay.Settings)
+                            else {
+                                settingsFromTile = true
+                                transition.openPage(
+                                    from, settingsEntry, if (dark) Color(0xFF22252E) else Color(0xFFF2F2F8), gearGlyph, view,
+                                ) { open(Overlay.Settings) }
+                            }
+                        },
                         launch = { app, bounds -> model.launch(app, view, bounds) },
                         modifier = Modifier
                             .graphicsLayer {
@@ -1588,6 +1621,8 @@ private fun FolderCell(
 /** The launcher's own Settings, presented like the Apple TV Settings app tile at the end of the grid. */
 @Composable
 private fun SettingsCell(focusRequester: FocusRequester, onFocused: () -> Unit, onOpen: () -> Unit) {
+    val tileBounds = remember { TileBounds() }
+    val anchorStore = LocalMenuAnchor.current
     TileWithLabel(
         label = "Settings",
         tag = "settings-tile",
@@ -1595,8 +1630,10 @@ private fun SettingsCell(focusRequester: FocusRequester, onFocused: () -> Unit, 
         isNew = false,
         focusRequester = focusRequester,
         onFocused = onFocused,
-        onClick = onOpen,
-        onMenu = onOpen,
+        // The tile's bounds go to the home screen (as an app's do) so Settings can zoom out of it.
+        onClick = { anchorStore.bounds = tileBounds.rect(); onOpen() },
+        onMenu = { anchorStore.bounds = tileBounds.rect(); onOpen() },
+        tileModifier = Modifier.onGloballyPositioned { tileBounds.coords = it },
     ) {
         Box(
             Modifier

@@ -148,6 +148,51 @@ class AppTransition(
         }
     }
 
+    /** The in-Glass page (Settings) whose zoom is up; its close plays back into the tile it grew from. */
+    private var page: LaunchWindow? = null
+
+    /**
+     * Settings (and any page Glass shows itself) from its tile, as an app opens (P105 #7): the same zoom, with the page's
+     * own colour and a glyph on a full-screen window, then [show] puts the page up under it and the window goes. Home
+     * isn't stopped, so this plays no lifecycle close: see [closePage].
+     */
+    fun openPage(tile: Rect?, entry: AppEntry, color: Color, glyph: ImageBitmap?, view: android.view.View, show: () -> Unit) {
+        if (tile == null || backdrop.rootSize == IntSize.Zero) { show(); return }
+        startRequested = true // a page is not an app start: Back cancels nothing here
+        job?.cancel()
+        job = scope.launch {
+            val captured = captureScreen(view) ?: backdrop.backdrop?.blurredSoftware
+            val w = LaunchWindow(entry, tile, null, color, glyph)
+            closing = false
+            cover = captured
+            coverAlpha.snapTo(1f)
+            progress.snapTo(OPEN_START)
+            fill.snapTo(0f)
+            settle.snapTo(1f)
+            window = w
+            page = w
+            last = null
+            launch { fill.animateTo(1f, tween(FILL_MS)) }
+            progress.animateTo(1f, tween(PAGE_OPEN_MS, easing = ZoomOut))
+            // The page is composed under the full-screen window; once it is drawn the window goes (its colour is the page's).
+            show()
+            withFrameNanos { }; withFrameNanos { }
+            delay(PAGE_HOLD_MS)
+            coverAlpha.snapTo(0f)
+            window = null
+            cover = null
+        }
+    }
+
+    /** The page opened by [openPage] is going: its window comes back full screen and shrinks into [tile] (the focused tile). */
+    fun closePage(tile: Rect?) {
+        val w = page ?: return
+        page = null
+        val target = tile ?: w.tile
+        val coverImage = cover ?: backdrop.backdrop?.blurredSoftware ?: return
+        playClose(w.copy(tile = target), coverImage)
+    }
+
     /**
      * The screen as it is, small and blurred. PixelCopy reads the window's last frame on the
      * compositor's side straight into a 480×270 bitmap, so the UI thread never waits on it
@@ -213,13 +258,18 @@ class AppTransition(
         last = null
         val target = tileBounds(w.app) ?: w.tile
         val coverImage = cover ?: backdrop.backdrop?.blurredSoftware ?: return false
+        playClose(w.copy(tile = target), coverImage)
+        return true
+    }
+
+    private fun playClose(w: LaunchWindow, coverImage: ImageBitmap) {
         job?.cancel()
         job = scope.launch {
             val me = coroutineContext[Job]
             try {
             cover = coverImage
             closing = true
-            window = w.copy(tile = target)
+            window = w
             coverAlpha.snapTo(1f)
             progress.snapTo(1f)
             fill.snapTo(1f)
@@ -252,7 +302,6 @@ class AppTransition(
                 }
             }
         }
-        return true
     }
 
     private fun reset() {
@@ -268,6 +317,9 @@ class AppTransition(
         const val FILL_MS = 110
         /** startActivity this far into the zoom; the app's first window fades in over the rest. */
         const val HANDOFF_MS = 170L
+        /** A page zooms to full screen in this long, then holds this long under the window while it draws. */
+        const val PAGE_OPEN_MS = 260
+        const val PAGE_HOLD_MS = 60L
         const val CLOSE_MS = 300
         const val CLOSE_FADE_MS = 110
         const val LAND_MS = 125

@@ -167,7 +167,7 @@ object OverlayMotion {
 
 /** Fades and scales a full-screen overlay in. */
 @Composable
-fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
+fun FullOverlay(active: Boolean, scale: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter()
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     Box(
@@ -176,7 +176,8 @@ fun FullOverlay(active: Boolean, content: @Composable BoxScope.() -> Unit) {
             .graphicsLayer {
                 alpha = enter.value
                 compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-                val s = OverlayMotion.scale(enter.value, reduceMotion)
+                // An opaque page (Settings) never scales: its box edge would show against Home for a few frames (P105 #7).
+                val s = if (scale) OverlayMotion.scale(enter.value, reduceMotion) else 1f
                 scaleX = s; scaleY = s
             }
             .trapFocus(active),
@@ -385,7 +386,7 @@ val LocalTitleSink = androidx.compose.runtime.staticCompositionLocalOf<TitleSink
 fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     val palette = dev.glasslauncher.ui.LocalPalette.current
     val sink = remember { TitleSink() }
-    FullOverlay(active) {
+    FullOverlay(active, scale = false) {
         // A calm washed page, not glass over Home: through the glass, the grid and the shelf's giant
         // wordmark ghosted behind the rows (audit 9.3). Tinted faintly by the scene's own colour.
         // The scene's mean hue tints it (the audit's spec: a white capsule on a flat near-white page has weak contrast).
