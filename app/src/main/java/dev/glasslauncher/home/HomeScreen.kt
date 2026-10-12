@@ -136,6 +136,10 @@ enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings,
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
+/** How long a held scene waits for the new app's scene before it lets go anyway. */
+private const val SCENE_HOLD_MAX_MS = 2_000L
+/** How dark the held scene goes (tvOS dims the outgoing art for about 230 ms before the new crossfade). */
+private const val HOLD_DIM = 0.4f
 /** The longest the shelf's title waits for its art before it shows anyway. */
 private const val SCENE_TITLE_WAIT_MS = 1_500L
 /** The next slide's bake starts once input has been quiet this long (never during a scroll). */
@@ -347,6 +351,21 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     var sceneShownFor by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sceneUrl) { if (sceneUrl != null) { delay(SCENE_TITLE_WAIT_MS); sceneShownFor = sceneUrl } }
     val titleReady = sceneUrl == null || sceneShownFor == sceneUrl
+    // The app whose scene the backdrop shows now. While focus has moved to another app and its scene hasn't arrived
+    // (uncached art, a slow bake), the previous app's scene is held dimmed instead of standing in as if it were the new
+    // app's (P105 #12 follow-up); it undims as the new scene dissolves in. A scene that never comes lets go after 2 s.
+    var sceneOfApp by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(heroApp) { if (heroApp != null) { delay(SCENE_HOLD_MAX_MS); sceneOfApp = heroApp } }
+    // The hold's dim rides the backdrop state itself (sceneDim), so the glass over it (tray, pill) dims with the scene and
+    // stays one material; written from the animation, not read in composition (no recomposition per frame).
+    val holdTarget = if (heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && cfg.background == BackgroundMode.Featured && !prefs.reduceMotion) HOLD_DIM else 0f
+    val holdAnim = remember { Animatable(0f) }
+    // After the first frame following the focus change (the stall there ate the tween's start on the stick: the dim landed
+    // in three frames, a cut), over 300 ms so it is seen for at least 150 ms.
+    LaunchedEffect(holdTarget) {
+        androidx.compose.runtime.withFrameNanos { }
+        holdAnim.animateTo(holdTarget, tween(300)) { backdrop.sceneDim = value }
+    }
     val titleGate by androidx.compose.animation.core.animateFloatAsState(
         if (titleReady) 1f else 0f,
         if (titleReady && !prefs.reduceMotion) androidx.compose.animation.core.tween(Motion.OVERLAY_MS) else androidx.compose.animation.core.snap(),
@@ -393,7 +412,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             // twice, only for these 200 ms.
             if (baked != null) {
             backdrop.glassFades = true
-            backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); return@LaunchedEffect }
+            backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); sceneOfApp = appHeroPkg; return@LaunchedEffect }
         }
         if (cfg.background == BackgroundMode.Motion) return@LaunchedEffect
         // The featured feed is usually a few ms behind the first composition: wait for it rather than
@@ -419,6 +438,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (next !== backdrop.backdrop) backdrop.swap(next, animate = backdrop.backdrop != null)
         // The shelf's title and logo may come in now: the art they sit on is on screen (P107).
         sceneShownFor = sceneUrl
+        sceneOfApp = shelfApp ?: heroApp
         // The preview's covers may show now: their scene is the backdrop (P92).
         if (coverBackdrop) coverSceneFor = feed?.items?.firstOrNull()?.id
         // Cover Flow: bake the covers either side while this one rests, so the next step needn't wait.
@@ -1197,6 +1217,9 @@ private fun BackdropLayer(state: BackdropState, drawSharp: Boolean) {
             alpha = alphaForMotion * if (previous != null) state.fade.value else 1f,
             filterQuality = FilterQuality.Low,
         )
+        // The previous app's scene waiting for the new one: dimmed (one translucent rect, only while it waits).
+        val h = state.sceneDim
+        if (h > 0.001f) drawRect(Color.Black, alpha = h)
     }
 }
 

@@ -54,7 +54,7 @@ class BackdropState {
      */
     var translucentWindow = false
     /** The scene behind this glass is dimmed by this much (Control Center's wash): glass samples it dimmed too. */
-    var sceneDim = 0f
+    var sceneDim by androidx.compose.runtime.mutableFloatStateOf(0f)
     var backdrop by mutableStateOf<Backdrop?>(null)
         private set
     /** The backdrop being faded out after a scene change; only non-null for the duration of [fade]. */
