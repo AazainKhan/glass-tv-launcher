@@ -222,22 +222,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
-    // Only the feed fetched for the shelf's own app: a failed fetch (offline) keeps the previous app's feed in the state,
-    // and it must not stand in for the new app's (ShelfFeed). While the shelf has not caught up to focus yet the old feed
-    // stays up, so the Cover Flow leaves with its own exit animation, not by vanishing.
-    val feed = featuredState.feed?.takeIf {
-        featuredCfg != null && it.items.isNotEmpty() && dev.glasslauncher.featured.ShelfFeed.owns(featuredState.key, dev.glasslauncher.featured.cacheKey(featuredCfg))
-    }
-    // Focus has left the app whose feed this is: its Cover Flow and slideshow stop stepping at once.
-    val focusLeftShelf = dev.glasslauncher.featured.ShelfFeed.focusLeft(
-        focusedApp = lastDockFocused?.removePrefix("app:"), shelfApp = shelfApp,
-        followsFocus = cfg.featured.mode == dev.glasslauncher.data.FeaturedMode.FocusedApp && cfg.topShelfTitles,
-    )
+    val feed = featuredState.feed?.takeIf { featuredCfg != null && it.items.isNotEmpty() }
     // A different shelf starts from its first item; a shelf of square covers (Spotify's Cover Flow preview) from the
     // middle one, so there are covers on both sides (P85). Keyed, so the first frame already has it (no jump).
-    val stateFeed = featuredState.feed?.takeIf { it.items.isNotEmpty() }
-    var heroIndex by remember(stateFeed?.items?.firstOrNull()?.id) {
-        mutableIntStateOf(if (stateFeed != null && dev.glasslauncher.featured.CardShape.square(stateFeed.items)) dev.glasslauncher.featured.CoverAutoplay.startIndex(stateFeed.items.size) else 0)
+    var heroIndex by remember(feed?.items?.firstOrNull()?.id) {
+        mutableIntStateOf(if (feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)) dev.glasslauncher.featured.CoverAutoplay.startIndex(feed.items.size) else 0)
     }
     // The preview's stepping direction (back and forth, never a sweep from the last cover to the first).
     var coverDir by remember { mutableIntStateOf(1) }
@@ -380,7 +369,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(heroApp) { if (heroApp != null) { delay(SCENE_HOLD_MAX_MS); sceneOfApp = heroApp } }
     // The hold's dim rides the backdrop state itself (sceneDim), so the glass over it (tray, pill) dims with the scene and
     // stays one material; written from the animation, not read in composition (no recomposition per frame).
-    val holdTarget = if (dev.glasslauncher.featured.ShelfFeed.holds(heroApp, sceneOfApp, cfg.background == BackgroundMode.Featured, prefs.reduceMotion)) HOLD_DIM else 0f
+    val holdTarget = if (heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && cfg.background == BackgroundMode.Featured && !prefs.reduceMotion) HOLD_DIM else 0f
     val holdAnim = remember { Animatable(0f) }
     // After the first frame following the focus change (the stall there ate the tween's start on the stick: the dim landed
     // in three frames, a cut), over 300 ms so it is seen for at least 150 ms.
@@ -655,9 +644,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         homeLifecycle.addObserver(observer)
         onDispose { homeLifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown, prefs.reduceMotion, focusLeftShelf) {
-        // Only while titles show: an app's own hero never advances or bakes slides; nor once focus has left the shelf's app.
-        if (!homeVisible || takeover != null || appHeroShown || focusLeftShelf) return@LaunchedEffect
+    LaunchedEffect(feed, heroIndex, expanded, overlays.isEmpty(), ControlCenterWindow.open, cfg.background, focusedRow >= 2, homeVisible, takeover != null, appHeroShown, prefs.reduceMotion) {
+        // Only while titles show: an app's own hero never advances or bakes slides.
+        if (!homeVisible || takeover != null || appHeroShown) return@LaunchedEffect
         // Paused under Control Center too: its translucent tiles would change colour with every slide.
         if (feed == null || feed.items.size < 2 || overlays.isNotEmpty() || ControlCenterWindow.open || cfg.background != BackgroundMode.Featured || focusedRow >= 2) return@LaunchedEffect
         // Full screen is browsed by hand: the row, details and backdrop follow focus, not a timer (advancing
