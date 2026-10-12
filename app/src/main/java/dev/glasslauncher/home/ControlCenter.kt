@@ -1434,7 +1434,7 @@ internal fun CcTile(
                     val round = emerge?.now()?.round ?: 1f
                     val outline = if (round < 1f) ccRounding(rest, size, round) else rest
                     onDrawBehind {
-                        if (onA > 0f) drawOutline(outline, Color.White, alpha = onA)
+                        // "On" is the accent glyph on the control's glass, never a white fill (F09): white means focus only.
                         if (focusA > 0f) drawOutline(outline, palette.focusFill, alpha = focusA)
                     }
                 },
