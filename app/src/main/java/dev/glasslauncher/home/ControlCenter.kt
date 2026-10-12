@@ -248,6 +248,17 @@ private val CC_BLEED = 16.dp
 internal object CcEditEntry {
     @Volatile var startInEdit = false
     @Volatile var fromSettings = false
+
+    /**
+     * Settings' Control Center page is up: Home composes Control Center once, hidden, so the first open's one-off cost
+     * (class loading and a cold composition, ~330 ms on the stick) is paid there and not between Select and the
+     * first frame of the grid growing. [warmed] stays set for the process: it is a warm-up, not state.
+     */
+    var warmWanted by androidx.compose.runtime.mutableStateOf(false)
+    var warmed by androidx.compose.runtime.mutableStateOf(false)
+
+    /** Done/Back from an edit that came from Settings: Settings waits until Control Center has collapsed. */
+    var returning by androidx.compose.runtime.mutableStateOf(false)
 }
 
 /** tvOS's bottom inset for the panel (about 78 px at 1080p). */
@@ -577,7 +588,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     fun commitDraft() {
         saveDraft(); lifted = null; liftBase = null
         // Opened from Settings › Control Center › Edit Layout: Done (or Back) returns there.
-        if (CcEditEntry.fromSettings) { CcEditEntry.fromSettings = false; closeTop() }
+        if (CcEditEntry.fromSettings) { CcEditEntry.fromSettings = false; CcEditEntry.returning = true; closeTop() }
     }
     LaunchedEffect(active) {
         if (active && CcEditEntry.startInEdit) {

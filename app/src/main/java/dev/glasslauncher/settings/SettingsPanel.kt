@@ -1290,6 +1290,8 @@ private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: M
 @Composable
 private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
     PanelTitle("Control Center")
+    androidx.compose.runtime.LaunchedEffect(Unit) { dev.glasslauncher.home.CcEditEntry.warmWanted = true }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { dev.glasslauncher.home.CcEditEntry.warmWanted = false } }
     // The only way into edit mode (P101): Control Center opens on the right already editing; Done returns here.
     val openOverlay = dev.glasslauncher.home.LocalOpenOverlay.current
     MenuRow("Edit Layout", {

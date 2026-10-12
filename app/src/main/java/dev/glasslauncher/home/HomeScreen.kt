@@ -1019,6 +1019,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
             moving?.let { MoveBanner(it, layout, Modifier.align(Alignment.BottomCenter)) }
 
+            // The return from Settings' edit is over once Control Center has left.
+            LaunchedEffect(exiting.none { it is Overlay.ControlCenter }) { if (exiting.none { it is Overlay.ControlCenter }) CcEditEntry.returning = false }
+            // Control Center opened from Settings (Edit Layout): composed once, hidden, while Settings' page for it is up,
+            // so the open's cold-composition cost isn't between Select and the grid growing (P101).
+            if (CcEditEntry.warmWanted && !CcEditEntry.warmed && overlays.lastOrNull() == Overlay.Settings) {
+                Box(Modifier.size(1.dp).graphicsLayer { alpha = 0f }) {
+                    ControlCenter({}, cfg, active = false, open = {}, closeAll = {})
+                }
+                LaunchedEffect(Unit) { delay(1_500); CcEditEntry.warmed = true }
+            }
             // One loop over open and leaving overlays, keyed by identity, so an overlay keeps its state
             // (and its animation) when it moves from open to leaving.
             (overlays + exiting.filter { it !in overlays }).forEach { overlay ->
@@ -1030,7 +1040,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     val underCard = !top && !leaving && keptUnderCard(overlays, overlays.indexOf(overlay))
                     // Tagged for the device tests (e2e/): which overlays are up, and which one is on top.
                     val tag = (if (leaving) "overlay-leaving:" else if (top) "overlay-top:" else "overlay:") + (overlay::class.simpleName ?: "Overlay")
-                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f }) {
+                    // Control Center is collapsing into its corner over what it was opened from (Settings > Edit Layout, Done):
+                    // that page waits, then fades in once Control Center is gone, so the grid never draws on top of it.
+                    val heldForCc = CcEditEntry.returning && !leaving && exiting.any { it is Overlay.ControlCenter }
+                    val heldAlpha by androidx.compose.animation.core.animateFloatAsState(
+                        if (heldForCc) 0f else 1f,
+                        if (heldForCc) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(if (prefs.reduceMotion) 1 else 160),
+                        label = "cc-return",
+                    )
+                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
                             OverlayContent(
                                 overlay = overlay,
