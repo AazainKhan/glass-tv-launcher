@@ -1027,18 +1027,14 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 val go = tap { system { SystemControls.open(context, Settings.ACTION_WIFI_SETTINGS) } }
                                 val icon = if (wifiOn) R.drawable.ic_wifi else R.drawable.ic_wifi_off
                                 if (one) Round(icon, "Wi-Fi, $network", on = wifiOn, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
-                                else CcTile("Wi-Fi", network, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
-                                    PillContent(icon, "Wi-Fi", network, fg, on = wifiOn, accent = Blue)
-                                }
+                                else PillOrBig(tile.size, w, h, "Wi-Fi", network, icon, wifiOn, Blue, go, focusMod, hold, playOr { go() }, wobbleOn)
                             }
                             "bluetooth" -> {
                                 val btValue = when (bluetooth) { true -> "On"; false -> "Off"; null -> "Devices" }
                                 val go = tap { system { SystemControls.openBluetooth(context) } }
                                 val icon = if (bluetooth == false) R.drawable.ic_bluetooth_disabled else R.drawable.ic_bluetooth
                                 if (one) Round(icon, "Bluetooth, $btValue", on = bluetooth == true, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
-                                else CcTile("Bluetooth", btValue, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn) { fg ->
-                                    PillContent(icon, "Bluetooth", btValue, fg, on = bluetooth == true, accent = Blue)
-                                }
+                                else PillOrBig(tile.size, w, h, "Bluetooth", btValue, icon, bluetooth == true, Blue, go, focusMod, hold, playOr { go() }, wobbleOn)
                             }
                             "launcher" -> {
                                 val go = tap { closeAll(); open(Overlay.Settings) }
@@ -1048,19 +1044,19 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
                                 }
                             }
-                            "remotes" -> Round(R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { remotesPlatter = true }) { tap { remotesPlatter = true }() }
-                            "controllers" -> Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
-                            "appearance" -> Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
+                            "remotes" -> SizedRound(tile.size, w, h, "Remotes", null, R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { remotesPlatter = true }) { tap { remotesPlatter = true }() }
+                            "controllers" -> SizedRound(tile.size, w, h, "Gamepad", null, R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
+                            "appearance" -> SizedRound(tile.size, w, h, "Theme", if (dark) "Dark" else "Light", if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }) {
                                 tap { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }()
                             }
-                            "screensaver" -> Round(R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
-                            "switcher" -> Round(R.drawable.ic_apps, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
+                            "screensaver" -> SizedRound(tile.size, w, h, "Saver", null, R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
+                            "switcher" -> SizedRound(tile.size, w, h, "Apps", null, R.drawable.ic_apps, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
                             "airplay" -> airPlay?.let { (state, set) ->
                                 val value = when { state.sender != null -> "Connected to ${state.sender}"; state.on -> "On"; else -> "Off" }
-                                Round(R.drawable.ic_airplay, "AirPlay, $value", on = state.on, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { set(!state.on) }) { tap { set(!state.on) }() }
+                                SizedRound(tile.size, w, h, "AirPlay", if (state.sender != null) "Connected" else if (state.on) "On" else "Off", R.drawable.ic_airplay, "AirPlay, $value", on = state.on, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { set(!state.on) }) { tap { set(!state.on) }() }
                             }
-                            "performance" -> Round(R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
+                            "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "Fast" else "Balanced", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { }) {
                                 tap { val next = !fast; fast = next; scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) } }()
                             }
@@ -1087,24 +1083,20 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     androidx.compose.foundation.text.BasicText("${(sleepLeft + 59_999) / 60_000}", style = Type.heading.copy(color = fg))
                                 }
                                 else if (one) Round(R.drawable.ic_do_not_disturb_on, "Sleep Timer, $value", on = on, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
-                                else CcTile("Sleep Timer", value, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, on = on) { fg ->
-                                    // "Sleep Timer" doesn't fit a 2x1 pill at the 13 sp floor: the pill says "Sleep", the tile's description keeps the full name.
-                                    PillContent(R.drawable.ic_do_not_disturb_on, "Sleep", value, fg, on = on, accent = Blue)
-                                }
+                                // "Sleep Timer" doesn't fit a 2x1 pill at the 13 sp floor: the pill says "Sleep", the tile's description keeps the full name.
+                                else PillOrBig(tile.size, w, h, "Sleep", value, R.drawable.ic_do_not_disturb_on, on, Blue, go, focusMod, hold, playOr { go() }, wobbleOn, name = "Sleep Timer")
                             }
                             "vpn" -> {
                                 val value = if (vpnConnected) "Connected" else "Off"
                                 val go = tap { vpnApps.firstOrNull()?.let { (pkg, _) -> system { dev.glasslauncher.system.VpnControl.open(context, pkg) } } }
                                 if (one) Round(R.drawable.ic_vpn, "VPN, $value", on = vpnConnected, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
-                                else CcTile("VPN", value, Shapes.pill, w, h, onClick = go, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, on = vpnConnected) { fg ->
-                                    PillContent(R.drawable.ic_vpn, "VPN", value, fg, on = vpnConnected, accent = Blue)
-                                }
+                                else PillOrBig(tile.size, w, h, "VPN", value, R.drawable.ic_vpn, vpnConnected, Blue, go, focusMod, hold, playOr { go() }, wobbleOn)
                             }
                             "restart" -> {
                                 val ask = { restartAsk = true; pendingFocus = null }
-                                Round(R.drawable.ic_restart, "Restart", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) { tap { ask() }() }
+                                SizedRound(tile.size, w, h, "Restart", null, R.drawable.ic_restart, "Restart", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) { tap { ask() }() }
                             }
-                            "cleanup" -> Round(R.drawable.ic_cleaning_services, cleaned?.let { "Clean Up, $it" } ?: "Clean Up", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) {
+                            "cleanup" -> SizedRound(tile.size, w, h, "Clean Up", cleaned, R.drawable.ic_cleaning_services, cleaned?.let { "Clean Up, $it" } ?: "Clean Up", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) {
                                 tap {
                                     if (cleaned != "cleaning…") scope.launch {
                                         cleaned = "cleaning…"
@@ -1137,17 +1129,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         ) { Box(Modifier.size(width = 8.dp, height = 2.dp).background(Color.White, CircleShape)) }
                     }
                 }
-            }
-            if (!editing) {
-                // The focused round button's name. It takes its line (so the column doesn't jump as focus moves),
-                // except while music plays: then the music card follows the buttons on the grid's gap instead.
-                if (np == null) Text(
-                    roundLabel?.replace(", ", " · ") ?: freed?.let { "$it MB freed" } ?: "",
-                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
-                    color = headerColor,
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 4.dp).testTag("cc-caption"),
-                )
             }
             }
             }
@@ -1192,10 +1173,11 @@ private fun Glyph(@DrawableRes icon: Int, tint: Color, modifier: Modifier = Modi
 }
 
 @Composable
-private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color) {
+private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color, value: String? = null, on: Boolean = false, accent: Color = fg) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Glyph(icon, fg, Modifier.size(LocalCcSizes.current.bigGlyph))
+        Glyph(icon, if (on) accent else fg, Modifier.size(LocalCcSizes.current.bigGlyph))
         Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = fg)
+        value?.let { Text(it, style = Type.caption, color = fg.copy(alpha = 0.7f), maxLines = 1) }
     }
 }
 
@@ -1317,6 +1299,40 @@ internal fun Round(
         if (!f) onLabel(null)
     }) { fg ->
         Glyph(icon, fg, Modifier.size(sz.roundGlyph))
+    }
+}
+
+/**
+ * A control as the layout sized it (F01): a circle with only its glyph (the name is its description), a pill with glyph,
+ * title and value, or a big tile (glyph over title and value), as iOS 18's Control Center resizes its controls.
+ */
+@Composable
+internal fun SizedRound(
+    size: CcSize, w: Dp, h: Dp, title: String, value: String?,
+    @DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {},
+    modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onPlay: (() -> Unit)? = null, wiggle: Boolean = false,
+    accent: Color = Blue,
+    onClick: () -> Unit,
+) {
+    if (size == CcSize.S1x1) {
+        Round(icon, label, on, onLabel, modifier, onLongClick, onPlay, wiggle, onClick)
+    } else {
+        // The pill shows the short title; the tile's description keeps the control's full name.
+        PillOrBig(size, w, h, title, value, icon, on, accent, onClick, modifier, onLongClick, onPlay, wiggle, name = label.substringBefore(", "))
+    }
+}
+
+/** The pill (2x1) or big (2x2) form of a control: the same tile, a different shape and content. */
+@Composable
+internal fun PillOrBig(
+    size: CcSize, w: Dp, h: Dp, title: String, value: String?, @DrawableRes icon: Int, on: Boolean, accent: Color,
+    onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onPlay: (() -> Unit)? = null, wiggle: Boolean = false,
+    name: String = title,
+) {
+    val big = size == CcSize.S2x2
+    CcTile(name, value, if (big) RoundedCornerShape(26.dp) else Shapes.pill, w, h, onClick = onClick, modifier = modifier, onLongClick = onLongClick,
+        onPlay = onPlay ?: onClick, wiggle = wiggle, on = on) { fg ->
+        if (big) BigIcon(icon, title, fg, value, on, accent) else PillContent(icon, title, value, fg, on = on, accent = accent)
     }
 }
 

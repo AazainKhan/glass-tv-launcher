@@ -19,14 +19,15 @@ class CcLayoutTest {
         assertEquals(0 to 0, at(p, "fire_settings"))
         assertEquals(0 to 2, at(p, "wifi"))
         assertEquals("beside the big tile, below Wi-Fi", 1 to 2, at(p, "bluetooth"))
-        assertEquals(listOf(2 to 0, 2 to 1, 2 to 2, 2 to 3), listOf("sleep_timer", "cleanup", "restart", "airplay").map { at(p, it) })
-        assertEquals(listOf(3 to 0, 3 to 1, 3 to 2, 3 to 3), listOf("appearance", "screensaver", "switcher", "launcher").map { at(p, it) })
+        // F01: Sleep Timer, Clean Up and Restart are 2x1 pills; AirPlay and Theme are circles.
+        assertEquals(listOf(2 to 0, 2 to 2, 3 to 0), listOf("sleep_timer", "cleanup", "restart").map { at(p, it) })
+        assertEquals(listOf(3 to 2, 3 to 3), listOf("airplay", "appearance").map { at(p, it) })
         assertEquals("four rows, no scroll at rest", 4, p.maxOf { it.row + it.tile.size.h })
     }
 
     @Test fun theSecondDefaultPageIsMore() {
         val more = CcLayout.default().page("more")!!
-        assertEquals(listOf("controllers", "remotes", "performance", "vpn"), more.tiles.map { it.id })
+        assertEquals(listOf("screensaver", "switcher", "launcher", "controllers", "remotes", "performance", "vpn"), more.tiles.map { it.id })
         assertEquals(CcSize.S2x1, more.tiles.last().size)
         assertEquals(listOf("controls", "more", "alexa"), CcLayout.default().pages.map { it.id })
     }
@@ -43,8 +44,7 @@ class CcLayoutTest {
         // No AirPlay (PhairPlay not installed): Theme etc. close up one place; four rows still hold.
         val shown = CcLayout.default().page("controls")!!.tiles.filter { it.id != "airplay" }
         val p = CcPacking.pack(shown)
-        assertEquals(2 to 3, at(p, "appearance"))
-        assertEquals(3 to 2, at(p, "launcher"))
+        assertEquals(3 to 2, at(p, "appearance"))
     }
 
     @Test fun aTwoWideTileThatDoesNotFitStartsTheNextRowAndNothingBackfills() {
@@ -77,9 +77,10 @@ class CcLayoutTest {
     @Test fun resizeCyclesTheAllowedSizesAndAOneSizeControlIsUnchanged() {
         var l = CcLayout.default()
         l = l.resize("controls", "wifi"); assertEquals(S1x1, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
-        l = l.resize("controls", "wifi"); assertEquals(S2x1, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
+        l = l.resize("controls", "wifi"); assertEquals(S2x2, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
+        l = l.resize("controls", "wifi"); assertEquals("wraps to the pill", S2x1, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
         assertEquals(l, l.resize("controls", "fire_settings"))
-        assertEquals("1x1 -> 4x1 (wraps)", S4x1, CcLayout.default().resize("controls", "launcher").page("controls")!!.tiles.first { it.id == "launcher" }.size)
+        assertEquals("1x1 -> 4x1 (wraps)", S4x1, CcLayout.default().resize("more", "launcher").page("more")!!.tiles.first { it.id == "launcher" }.size)
     }
 
     @Test fun fireSettingsCannotBeRemovedOthersCan() {

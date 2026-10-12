@@ -139,8 +139,8 @@ class CcEditModeTest {
             compose.settle()
             assertTrue("no edit button in Control Center (edit is entered from Settings only)", !exists("cc-edit") && !exists("cc-add"))
             // Down to the round rows, then Right along them to Restart.
-            // The default's third row is Sleep, Clean Up, Restart (AirPlay hides without PhairPlay): one Down, then Right.
-            compose.press(Button.Down)
+            // The default's third row is Sleep Timer and Clean Up (pills), the fourth Restart (a pill): Down twice, then Right if needed.
+            compose.press(Button.Down, Button.Down)
             repeat(4) { if (compose.focused()?.startsWith("cc-tile:restart") != true) compose.press(Button.Right) }
             assertTrue("on Restart: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:restart") == true)
             compose.press(Button.Select)

@@ -210,18 +210,23 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
 /** What each control is: the sizes it allows (default first) and whether it may be removed or added twice. */
 object CcControls {
     private val ONE = listOf(CcSize.S1x1)
+    /** Icon only, a pill with its name (and value), a big tile: every control that has a name can be any of these (F01). */
+    private val CIRCLE_PILL = listOf(CcSize.S1x1, CcSize.S2x1)
+    private val CIRCLE_PILL_BIG = listOf(CcSize.S1x1, CcSize.S2x1, CcSize.S2x2)
+    private val PILL_FIRST = listOf(CcSize.S2x1, CcSize.S1x1, CcSize.S2x2)
     private val TABLE: Map<String, List<CcSize>> = mapOf(
         "fire_settings" to listOf(CcSize.S2x2),
-        "wifi" to listOf(CcSize.S2x1, CcSize.S1x1),
-        "bluetooth" to listOf(CcSize.S2x1, CcSize.S1x1),
+        "wifi" to PILL_FIRST,
+        "bluetooth" to PILL_FIRST,
         "launcher" to listOf(CcSize.S4x1, CcSize.S2x1, CcSize.S1x1),
-        "sleep_timer" to listOf(CcSize.S2x1, CcSize.S1x1),
-        "vpn" to listOf(CcSize.S2x1, CcSize.S1x1),
-        "restart" to ONE,
-        "cleanup" to listOf(CcSize.S1x1, CcSize.S2x1),
+        "sleep_timer" to PILL_FIRST,
+        "vpn" to PILL_FIRST,
+        "restart" to listOf(CcSize.S2x1, CcSize.S1x1),
+        "cleanup" to PILL_FIRST,
         "now_playing" to listOf(CcSize.S2x2, CcSize.S2x1, CcSize.S1x1),
-        "controllers" to ONE, "remotes" to ONE, "appearance" to ONE, "screensaver" to ONE, "switcher" to ONE, "airplay" to ONE,
-        "performance" to ONE, "memory" to ONE,
+        "controllers" to CIRCLE_PILL, "remotes" to CIRCLE_PILL, "screensaver" to CIRCLE_PILL, "switcher" to CIRCLE_PILL,
+        "appearance" to CIRCLE_PILL_BIG, "airplay" to CIRCLE_PILL_BIG, "performance" to CIRCLE_PILL_BIG,
+        "memory" to PILL_FIRST,
     )
 
     /** Rows a page holds without scrolling: tvOS's panel is about 867 px tall at 1080p and a row pitch is 112 px. */
@@ -239,16 +244,20 @@ object CcControls {
 
     /**
      * The default first page, exactly 4 columns x 4 rows (130 px pitch, the panel's viewport ends after four rows), so
-     * it fits with no scroll at rest: Settings 2x2 beside Wi-Fi and Bluetooth, then two rows of eight 1x1 controls.
+     * it fits with no scroll at rest: Settings 2x2 beside Wi-Fi and Bluetooth, then Sleep Timer and Clean Up as pills,
+     * Restart as a pill beside AirPlay and Theme as circles (F01: the three that carry a state or a result get a name).
      */
     val DEFAULT_CONTROLS = listOf(
         CcTile("fire_settings", CcSize.S2x2), CcTile("wifi", CcSize.S2x1), CcTile("bluetooth", CcSize.S2x1),
-        CcTile("sleep_timer", CcSize.S1x1), CcTile("cleanup", CcSize.S1x1), CcTile("restart", CcSize.S1x1), CcTile("airplay", CcSize.S1x1),
-        CcTile("appearance", CcSize.S1x1), CcTile("screensaver", CcSize.S1x1), CcTile("switcher", CcSize.S1x1), CcTile("launcher", CcSize.S1x1),
+        CcTile("sleep_timer", CcSize.S2x1), CcTile("cleanup", CcSize.S2x1), CcTile("restart", CcSize.S2x1), CcTile("airplay", CcSize.S1x1),
+        CcTile("appearance", CcSize.S1x1),
     )
 
     /** The default second page. */
-    val DEFAULT_MORE = listOf(CcTile("controllers", CcSize.S1x1), CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S1x1), CcTile("vpn", CcSize.S2x1))
+    val DEFAULT_MORE = listOf(
+        CcTile("screensaver", CcSize.S1x1), CcTile("switcher", CcSize.S1x1), CcTile("launcher", CcSize.S1x1), CcTile("controllers", CcSize.S1x1),
+        CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S1x1), CcTile("vpn", CcSize.S2x1),
+    )
 
     /** Ids that were renamed: Free Memory became Clean Up (it does both jobs, one tap). */
     fun canonical(id: String): String = if (id == "memory") "cleanup" else id
