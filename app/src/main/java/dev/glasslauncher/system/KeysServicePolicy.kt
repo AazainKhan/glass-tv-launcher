@@ -39,9 +39,9 @@ object KeysServicePolicy {
         val settingOn: Boolean,
         val serviceOn: Boolean,
         val mode: WriteMode,
-        val versionCode: Long,
-        /** The Glass versionCode the service was last seen on under, or null (never seen, or the setting was re-enabled). */
-        val lastOnVersion: Long?,
+        val updateTime: Long,
+        /** The install time (PackageInfo.lastUpdateTime) the service was last seen on under, or null (never seen, or the setting was re-enabled). */
+        val lastOnUpdate: Long?,
         /** The first check of this process: Glass has just started (boot, or a restart after an update). */
         val atBoot: Boolean,
         /** The Home card has already been shown since the setting was last turned on. */
@@ -54,7 +54,7 @@ object KeysServicePolicy {
         s.mode == WriteMode.None -> if (s.cardShown) Action.Nothing else Action.ShowCard
         // Off, and Glass may turn it on: after an update or at boot (or never seen on) that is the system dropping it;
         // otherwise (same version, seen on before) someone switched it off.
-        s.atBoot || s.lastOnVersion == null || s.lastOnVersion != s.versionCode -> Action.Enable
+        s.atBoot || s.lastOnUpdate == null || s.lastOnUpdate != s.updateTime -> Action.Enable
         else -> Action.UserTurnedOff
     }
 }

@@ -22,7 +22,7 @@ object KeysService {
     /** The setting changed (Settings): turning it on again re-arms the enable attempt and the card. */
     fun onSettingChanged(context: Context, on: Boolean) {
         val p = context.getSharedPreferences(PREFS, 0).edit()
-        if (on) p.remove("lastOnVersion").putBoolean("cardShown", false)
+        if (on) p.remove("lastOnUpdate").putBoolean("cardShown", false)
         p.apply()
         if (!on) _card.value = false
     }
@@ -42,19 +42,20 @@ object KeysService {
         val atBoot = KeysServicePolicy.isBoot(bootCount, lastBoot)
         if (bootCount >= 0 && bootCount != lastBoot) prefs.edit().putInt("bootCount", bootCount).apply()
         val settingOn = app.app.config.config.value.instantBack
-        val version = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).longVersionCode }.getOrDefault(0L)
+        // lastUpdateTime, not versionCode: versionCode is hard-coded in build.gradle.kts and never changes between updates.
+        val updateTime = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime }.getOrDefault(0L)
         val on = serviceOn(app)
         val hasSecure = app.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED
         // su is only asked when it is needed (the service is off, the setting on and there is no secure-settings write).
         val hasRoot = settingOn && !on && !hasSecure && Root.available()
         val state = KeysServicePolicy.State(
-            settingOn = settingOn, serviceOn = on, mode = KeysServicePolicy.mode(hasSecure, hasRoot), versionCode = version,
-            lastOnVersion = if (prefs.contains("lastOnVersion")) prefs.getLong("lastOnVersion", 0L) else null,
+            settingOn = settingOn, serviceOn = on, mode = KeysServicePolicy.mode(hasSecure, hasRoot), updateTime = updateTime,
+            lastOnUpdate = if (prefs.contains("lastOnUpdate")) prefs.getLong("lastOnUpdate", 0L) else null,
             atBoot = atBoot, cardShown = prefs.getBoolean("cardShown", false),
         )
         when (KeysServicePolicy.decide(state)) {
             KeysServicePolicy.Action.Nothing -> Unit
-            KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnVersion", version).apply()
+            KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).apply()
             KeysServicePolicy.Action.Enable -> enable(app, state.mode)
             KeysServicePolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(instantBack = false) }

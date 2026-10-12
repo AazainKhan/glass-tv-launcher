@@ -44,6 +44,11 @@ class KeysServicePolicyTest {
         }
     }
 
+    @Test fun aReinstallOfTheSameVersionCodeIsStillAnUpdate() {
+        // versionCode never changes between builds; the install time does.
+        assertEquals(Action.Enable, KeysServicePolicy.decide(state(version = 2_000, last = 1_000)))
+    }
+
     @Test fun atBootItIsReEnabledEvenOnTheSameVersion() {
         assertEquals(Action.Enable, KeysServicePolicy.decide(state(boot = true)))
     }
