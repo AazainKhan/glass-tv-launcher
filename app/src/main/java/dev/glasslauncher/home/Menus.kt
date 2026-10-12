@@ -686,7 +686,11 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
         }
     }
     Box(Modifier.fillMaxSize().trapFocus(active), contentAlignment = Alignment.Center) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = dim.value }.background(Scrim))
+        // Drawn, not a graphicsLayer alpha: no layer for a full-screen fade (the draw reads the animation directly).
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val a = dim.value
+            if (a > 0.001f) drawRect(Scrim, alpha = a)
+        }
         Box(Modifier.graphicsLayer { alpha = card.value }) {
             // About 252 dp (tvOS's 504 px alert), the title and message leading, the buttons centred.
             GlassBoxCard(Modifier.width(252.dp)) {
