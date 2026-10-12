@@ -145,3 +145,15 @@ class RemoteStatusTest {
         assertEquals("a battery of 101 is not a percent", "Not seen yet", RemoteStatus.line(false, null, 0, 101, now))
     }
 }
+
+class WriteThrottleTest {
+    @Test fun oneWritePerKeyPerThirtySeconds() {
+        val t = WriteThrottle(30_000L)
+        assertEquals(true, t.allow("a", 1_000))
+        assertEquals(false, t.allow("a", 10_000))
+        assertEquals("another remote is its own key", true, t.allow("b", 10_000))
+        assertEquals(false, t.allow("a", 30_999))
+        assertEquals(true, t.allow("a", 31_000))
+        assertEquals("a clock that went back is allowed", true, t.allow("a", 5_000))
+    }
+}

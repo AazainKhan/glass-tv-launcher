@@ -22,6 +22,9 @@ class RemoteKeysService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        // A bound keys service is a second way to have the always-on remote scan armed (P100): a Home that was force-
+        // stopped cancels the scan's PendingIntent, and nothing delivers to a stopped app until it starts again.
+        if (RootFeatures.ownRemotePairing(this)) runCatching { RemotePairer.obtain(this).start() }
         // Some builds drop the XML flag; asking again at runtime turns key filtering on.
         serviceInfo = serviceInfo.apply {
             flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or

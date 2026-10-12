@@ -43,9 +43,22 @@ object RemoteStatus {
     }
 }
 
+/** At most one write per key per [everyMs]; keeps the registry off the prefs for every advert. */
+class WriteThrottle(private val everyMs: Long = 30_000L) {
+    private val last = HashMap<String, Long>()
+    @Synchronized
+    fun allow(key: String, nowMs: Long): Boolean {
+        val prev = last[key]
+        if (prev != null && nowMs - prev < everyMs && nowMs >= prev) return false
+        last[key] = nowMs
+        return true
+    }
+}
+
 /** Last-seen record per remote address, in the app's prefs. A handful of entries: no database. */
 class RemoteRegistry(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("remotes", 0)
+    private companion object { val throttle = WriteThrottle() }
 
     fun all(): List<RemoteSeen> = runCatching {
         val a = JSONArray(prefs.getString("seen", "[]"))
@@ -55,6 +68,8 @@ class RemoteRegistry(context: Context) {
     /** Records a sighting; [rssi] 0 keeps the one already stored (a connect or disconnect has no signal). */
     @Synchronized
     fun record(address: String, name: String?, rssi: Int, nowMs: Long = System.currentTimeMillis()) {
+        // A remote in pairing mode advertises about 500 times a minute: one write per address per 30 s.
+        if (!throttle.allow(address, nowMs)) return
         val old = all().associateBy { it.address }
         val prev = old[address]
         val next = old + (address to RemoteSeen(address, name ?: prev?.name.orEmpty(), nowMs, if (rssi < 0) rssi else prev?.rssi ?: 0))
