@@ -55,6 +55,7 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.network.httpHeaders
 import coil3.request.transformations
 import dev.glasslauncher.app
 import dev.glasslauncher.home.stopAtRowEnds
@@ -430,7 +431,9 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                                         Text(initials(p.name), style = Type.title, color = Color.White.copy(alpha = 0.85f), maxLines = 1, softWrap = false)
                                         p.photo?.let {
                                             AsyncImage(
-                                                model = ImageRequest.Builder(context).data(it).size(128, 128).crossfade(true).build(),
+                                                model = ImageRequest.Builder(context).data(it).size(128, 128).crossfade(true)
+                                                    .httpHeaders(coil3.network.NetworkHeaders.Builder().set("User-Agent", PersonPhotos.USER_AGENT).build())
+                                                    .build(),
                                                 contentDescription = p.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
                                             )
                                         }

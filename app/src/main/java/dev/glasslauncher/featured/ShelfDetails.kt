@@ -83,6 +83,8 @@ data class ShelfDetails(
 internal object PersonPhotos {
     private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private const val NONE = ""
+    /** Wikimedia refuses generic agents (okhttp's default gets 403), for the summary and the thumbnail alike. */
+    const val USER_AGENT = "GlassLauncher/1.0 (https://github.com/AazainKhan/glass-tv-launcher)"
     private val CALLING = Regex("actor|actress|director|filmmaker|comedian|screenwriter|producer|singer|musician|presenter|voice", RegexOption.IGNORE_CASE)
 
     /** The thumbnail URL in a summary JSON, or null when the page isn't a person of that calling or has no picture. */
@@ -101,7 +103,7 @@ internal object PersonPhotos {
             val req = okhttp3.Request.Builder()
                 .url("https://en.wikipedia.org/api/rest_v1/page/summary/$title")
                 // Wikimedia asks for a descriptive agent.
-                .header("User-Agent", "GlassLauncher/1.0 (https://github.com/AazainKhan/glass-tv-launcher)")
+                .header("User-Agent", USER_AGENT)
                 .build()
             http.newCall(req).execute().use { r ->
                 if (!r.isSuccessful) null
