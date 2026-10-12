@@ -76,6 +76,63 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     /** An open asked for and waiting on the screen capture (up to [CAPTURE_WAIT_MS]): the window isn't attached yet, but a close must still win. */
     private var pending = false
 
+    /**
+     * Kept warm (P111 d, behind a flag, default off): after the first open the window is not removed but parked, 1x1
+     * and untouchable, its composition live in its "closed" state, so the next open resizes it instead of adding a new
+     * accessibility window (about 80% of the 130 ms key-to-first-frame in Yin's trace was that, plus a cold first
+     * composition). While parked: [view] is set, [exiting] is true, [warm] is true, the lifecycle is CREATED.
+     */
+    private var warm = false
+
+    /** Whether to keep the window warm: the marker file `files/cc-warm` (Yin's A/B on the stick: touch or remove it). */
+    private fun warmWanted(): Boolean = java.io.File(service.filesDir, "cc-warm").exists()
+
+    private fun fullParams() = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+        PixelFormat.TRANSLUCENT,
+    ).apply { title = "Glass Control Center" }
+
+    private fun parkedFlags() = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+
+    private fun composeView(): ComposeView = cached ?: ComposeView(service).apply {
+        setViewTreeLifecycleOwner(this@ControlCenterWindow)
+        setViewTreeSavedStateRegistryOwner(this@ControlCenterWindow)
+        setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnLifecycleDestroyed(this@ControlCenterWindow))
+        setContent { Host() }
+    }.also { cached = it }
+
+    /** Parks the attached window (1x1, untouchable) instead of removing it. */
+    private fun park(v: android.view.View) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        lp.width = 1; lp.height = 1; lp.flags = parkedFlags()
+        runCatching { windows.updateViewLayout(v, lp) }
+        warm = true
+    }
+
+    /** Warms the window up when the flag is on: attaches it parked, once, so the first open is only a resize. */
+    fun warmUp() {
+        if (!warmWanted() || view != null || pending) return
+        val v = composeView()
+        exiting = true
+        val lp = fullParams().apply { width = 1; height = 1; flags = parkedFlags() }
+        runCatching { windows.addView(v, lp) }.onFailure { android.util.Log.w("ControlCenterWindow", "warmUp: addView failed", it); exiting = false; return }
+        view = v
+        warm = true
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        android.util.Log.i("ControlCenterWindow", "warmUp: parked")
+    }
+
+    /** The service is going: the window goes with it, parked or not. */
+    fun release() {
+        val v = view ?: return
+        runCatching { windows.removeView(v) }
+        view = null; warm = false; exiting = false; open = false; pillCovered = false; pending = false
+    }
+
     val showing: Boolean get() = (view != null || pending) && !exiting
 
     companion object {
@@ -137,36 +194,35 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     fun show() {
         // Opening Control Center is an interaction: it cancels a Sleep Timer that is showing its banner.
         dev.glasslauncher.system.SleepTimer.cancelOnInteraction(service)
-        if (view != null) {
+        if (view != null && !warm) {
             if (exiting) { exiting = false; open = true; removal?.let(handler::removeCallbacks); takesInput(true) }
             android.util.Log.i("ControlCenterWindow", "show: already attached (exiting=$exiting)")
             return
         }
         if (pending) { android.util.Log.i("ControlCenterWindow", "show: an open is already pending"); return }
-        exiting = false
+        // A parked window stays "closed" until its material is in place (attach), so it doesn't start opening bare.
+        if (!warm) exiting = false
         pending = true
         shownAt = android.os.SystemClock.uptimeMillis()
         // Built once and kept: its composition survives the window being removed, so a second open only
         // re-attaches it (composing Control Center from scratch cost the slowest frames of opening).
-        val v = cached ?: ComposeView(service).apply {
-            setViewTreeLifecycleOwner(this@ControlCenterWindow)
-            setViewTreeSavedStateRegistryOwner(this@ControlCenterWindow)
-            setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnLifecycleDestroyed(this@ControlCenterWindow))
-            setContent { Host() }
-        }.also { cached = it }
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-            PixelFormat.TRANSLUCENT,
-        ).apply { title = "Glass Control Center" }
+        val v = composeView()
+        val params = fullParams()
         fun attach() {
             // A hide() while the capture was pending withdrew the open.
-            if (view != null || !pending) return
+            if (!pending || (view != null && !warm)) return
             pending = false
-            runCatching { windows.addView(v, params) }.onFailure { android.util.Log.w("ControlCenterWindow", "show: addView failed", it); return }
-            view = v
+            if (warm) {
+                // The parked window grows to the screen and takes input again: no new accessibility window.
+                val lp = v.layoutParams as? WindowManager.LayoutParams
+                if (lp != null) { lp.width = WindowManager.LayoutParams.MATCH_PARENT; lp.height = WindowManager.LayoutParams.MATCH_PARENT; lp.flags = params.flags }
+                runCatching { windows.updateViewLayout(v, lp) }.onFailure { android.util.Log.w("ControlCenterWindow", "show: resize failed", it); return }
+                warm = false
+                exiting = false
+            } else {
+                runCatching { windows.addView(v, params) }.onFailure { android.util.Log.w("ControlCenterWindow", "show: addView failed", it); return }
+                view = v
+            }
             open = true
             lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         }
@@ -204,12 +260,17 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         takesInput(false)
         val remove = Runnable {
             if (view === v && exiting) {
-                runCatching { windows.removeView(v) }.onFailure { android.util.Log.w("ControlCenterWindow", "removeView failed; window state cleared anyway", it) }
-                view = null
+                if (warmWanted()) {
+                    // Kept warm: parked, still "closed" (exiting stays true), composition alive.
+                    park(v)
+                } else {
+                    runCatching { windows.removeView(v) }.onFailure { android.util.Log.w("ControlCenterWindow", "removeView failed; window state cleared anyway", it) }
+                    view = null
+                    exiting = false
+                }
                 capture?.cancel()
                 overHome = false
                 backdrop.clear()
-                exiting = false
                 // Home's pill comes back as the capsule lands on it, not while it's still shrinking.
                 open = false
                 pillCovered = false

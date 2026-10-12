@@ -31,6 +31,8 @@ class RemoteKeysService : AccessibilityService() {
                 android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
         Log.i(TAG, "connected, flags=${serviceInfo.flags} caps=${serviceInfo.capabilities}")
+        // Behind the files/cc-warm marker (default off): Control Center's window is attached parked so the first open is a resize.
+        runCatching { controlCenter.warmUp() }
     }
 
     // ── Banner (Sleep Timer's one-minute warning) ─────────────────────────────────────────────────
@@ -227,6 +229,7 @@ class RemoteKeysService : AccessibilityService() {
     override fun onDestroy() {
         if (instance === this) instance = null
         controlCenter.hide()
+        controlCenter.release()
         handler.removeCallbacks(capture)
         super.onDestroy()
     }
