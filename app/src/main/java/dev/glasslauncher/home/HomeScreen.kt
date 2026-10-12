@@ -983,14 +983,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 val sceneUp = coverSceneFor == shelfKey || shelfKey == null || expanded
                 // Fades in with the backdrop's dissolve and out when focus leaves (the feed is kept just for that).
                 val lastCovers = remember { arrayOfNulls<dev.glasslauncher.featured.FeaturedFeed>(1) }
-                if (previewOn) lastCovers[0] = feed
+                // The leaving preview keeps the index it had too (P120): the shelf catching up swaps the feed and re-keys
+                // heroIndex within a frame or two, and a fading carousel must not be re-centred on the new app's first item.
+                val lastIndex = remember { IntArray(1) }
+                if (previewOn) { lastCovers[0] = feed; lastIndex[0] = heroIndex }
                 val previewAlpha by androidx.compose.animation.core.animateFloatAsState(
                     if (previewOn && sceneUp) 1f else 0f, androidx.compose.animation.core.tween(if (prefs.reduceMotion) 120 else PREVIEW_FADE_MS), label = "preview-fade",
                 )
                 val previewFeed = if (previewOn) feed else lastCovers[0]
                 if (previewFeed != null && (previewOn || previewAlpha > 0.01f)) {
                     CoverPreview(
-                        feed = previewFeed, index = heroIndex.coerceIn(0, previewFeed.items.lastIndex), expand = { expand.value },
+                        feed = previewFeed, index = (if (previewOn) heroIndex else lastIndex[0]).coerceIn(0, previewFeed.items.lastIndex), expand = { expand.value },
                         caption = true,
                         restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) * 0.55f,
                         trayTop = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp),
