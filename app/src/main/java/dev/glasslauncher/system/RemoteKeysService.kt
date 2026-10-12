@@ -31,7 +31,7 @@ class RemoteKeysService : AccessibilityService() {
                 android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
         Log.i(TAG, "connected, flags=${serviceInfo.flags} caps=${serviceInfo.capabilities}")
-        // Behind the files/cc-warm marker (default off): Control Center's window is attached parked so the first open is a resize.
+        // On by default (files/cc-cold turns it off): Control Center's window is attached parked so the first open is a resize.
         runCatching { controlCenter.warmUp() }
     }
 

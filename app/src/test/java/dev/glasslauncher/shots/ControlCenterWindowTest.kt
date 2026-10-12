@@ -21,6 +21,8 @@ import android.os.Looper
 /**
  * The Control Center overlay window's lifecycle on the JVM: whenever it is logically closed it must not be
  * attached (or at least must neither take focus nor touches), whatever the order of show / hide / toggle.
+ * Most tests run cold (the `files/cc-cold` marker), where a close removes the window; the warm tests at the end
+ * check the default, where a close parks it 1x1 and untouchable and the next open reuses it.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = TV)
@@ -31,6 +33,7 @@ class ControlCenterWindowTest {
     @Before fun setUp() {
         TvHarness.setUp()
         service = Robolectric.buildService(RemoteKeysService::class.java).create().get()
+        java.io.File(service.filesDir, "cc-cold").writeText("")
         // The shadow's success path hands over a fake buffer; a failed capture takes the same attach path.
         shadowOf(service).setTakeScreenshotErrorCode(1)
         window = service.controlCenter
@@ -39,6 +42,8 @@ class ControlCenterWindowTest {
     @After fun tearDown() {
         window.hide()
         idle(CcMorph.CLOSE_MS + 500L)
+        window.release()
+        java.io.File(service.filesDir, "cc-cold").delete()
         ControlCenterWindow.homeBackdrop = null
         ControlCenterWindow.pillBounds = null
         TvHarness.restoreClock()
@@ -126,6 +131,50 @@ class ControlCenterWindowTest {
         window.show(); idle(50)
         assertEquals(1, attached().size)
         window.hide(); idle(CcMorph.CLOSE_MS + 100L)
+        assertEquals(0, attached().size)
+    }
+
+    private fun warm() { java.io.File(service.filesDir, "cc-cold").delete() }
+
+    private fun width(v: View) = (v.layoutParams as WindowManager.LayoutParams).width
+
+    @Test fun warmByDefaultACloseParksTheWindowInsteadOfRemovingIt() {
+        warm(); overHome()
+        window.show(); idle(50)
+        val opened = attached().single()
+        window.hide(); idle(CcMorph.CLOSE_MS + 100L)
+        val parked = attached().single()
+        assertTrue("the same window is kept", parked === opened)
+        assertFalse("a parked window takes no input", takesInput(parked))
+        assertEquals(1, width(parked))
+        assertFalse(ControlCenterWindow.open)
+        assertFalse(window.showing)
+    }
+
+    @Test fun warmReopenReusesTheParkedWindowAndTakesInputAgain() {
+        warm(); overHome()
+        window.show(); idle(50)
+        val first = attached().single()
+        window.hide(); idle(CcMorph.CLOSE_MS + 100L)
+        window.show(); idle(50)
+        val again = attached().single()
+        assertTrue("no second window", again === first)
+        assertTrue(takesInput(again))
+        assertEquals(WindowManager.LayoutParams.MATCH_PARENT, width(again))
+    }
+
+    @Test fun warmUpParksAtConnectAndReleaseRemovesIt() {
+        warm()
+        window.warmUp()
+        val parked = attached().single()
+        assertFalse(takesInput(parked))
+        assertFalse(window.showing)
+        window.release(); idle(50)
+        assertEquals(0, attached().size)
+    }
+
+    @Test fun theColdMarkerKeepsWarmUpFromAttachingAnything() {
+        window.warmUp()
         assertEquals(0, attached().size)
     }
 }

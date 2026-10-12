@@ -77,7 +77,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     private var pending = false
 
     /**
-     * Kept warm (P111 d, behind a flag, default off): after the first open the window is not removed but parked, 1x1
+     * Kept warm (P111 d, default on): after the first open the window is not removed but parked, 1x1
      * and untouchable, its composition live in its "closed" state, so the next open resizes it instead of adding a new
      * accessibility window (about 80% of the 130 ms key-to-first-frame in Yin's trace was that, plus a cold first
      * composition). While parked: [view] is set, [exiting] is true, [warm] is true, the lifecycle is CREATED.
@@ -85,11 +85,12 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     private var warm = false
 
     /**
-     * Whether to keep the window warm: the marker file `files/cc-warm` (parked 1x1) or `files/cc-warm-full` (parked at
-     * full size, fully transparent: its composition is laid out at the real size, so an open only flips alpha and
-     * input; costs a full-screen surface, which the A/B must measure).
+     * Whether to keep the window warm. Parked 1x1 by default: on the stick it cut the first frame from 112–143 ms to
+     * about 80 ms for no measurable PSS. The marker file `files/cc-cold` turns it off (a new window per open, as
+     * before). `files/cc-warm-full` parks it at full size, fully transparent, so an open only flips alpha and input
+     * (about 53 ms); it stays off because the full-screen surface cost about +5.7 MB PSS, over the +3 MB allowed.
      */
-    private fun warmWanted(): Boolean = warmFull() || java.io.File(service.filesDir, "cc-warm").exists()
+    private fun warmWanted(): Boolean = warmFull() || !java.io.File(service.filesDir, "cc-cold").exists()
     private fun warmFull(): Boolean = java.io.File(service.filesDir, "cc-warm-full").exists()
 
     private fun fullParams() = WindowManager.LayoutParams(
