@@ -158,7 +158,7 @@ Work cheapest-first. Most UI work never needs the device.
 - Snapshots take about 2.5 s and `wait stable` about 5 s, so prefer `scripts/key … settle` plus `scripts/shot` for quick loops. `find <text>` **taps** the match. `perf frames` needs `scripts/tv open dev.glasslauncher` first.
 - Every agent-device version shares one daemon in `~/.agent-device`; two sessions on different versions keep replacing each other's daemon. Keep everyone on the pinned version, or set `AGENT_DEVICE_STATE_DIR` per session.
 
-**3. Numbers:** `scripts/perf-run [--rounds N] [keys…]` (see below). `scripts/perf-gate` builds release, runs it, and fails against `perf-budget.json` (p90, p99, janky %, PSS, idle CPU): run it before merging rendering changes. `scripts/bench` runs the Macrobenchmarks (cold startup and D-pad browsing, with and without the Baseline Profile) and `scripts/bench profile` regenerates the profile; both need Magisk root for the adb Shell user.
+**3. Numbers:** `scripts/perf-run [--rounds N] [keys…]` (see below). `scripts/perf-gate` builds release, runs two routes (the dock, where the Top Shelf autoplays, and the grid) and fails against `perf-budget.json` on either route's deadline-missed %, p99 or PSS, or idle CPU; janky %, high-input-latency % and p90 are reported, not judged (Android 11 flags on-time autoplay frames as high input latency). Run it before merging rendering changes. `scripts/bench` runs the Macrobenchmarks (cold startup and D-pad browsing, with and without the Baseline Profile) and `scripts/bench profile` regenerates the profile; both need Magisk root for the adb Shell user.
 
 ## Remote buttons (Fire TV)
 

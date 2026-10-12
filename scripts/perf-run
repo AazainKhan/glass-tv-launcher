@@ -2,7 +2,8 @@
 # Repeatable frame-time benchmark for a key sequence (the recipe from CLAUDE.md).
 #   scripts/perf-run [--rounds N] [--no-compile] [keys...]
 # Defaults: 3 rounds of "down down up up right right left left" with 1.4 s gaps (real remote
-# pacing). Prints one JSON line: frames, janky %, p50/p90/p95/p99 ms, PSS MB, idle CPU %.
+# pacing). Prints one JSON line: frames, janky % (and its deadline-missed and high-input-latency shares), p50/p90/p95/p99
+# ms, PSS MB, idle CPU %.
 # Don't record video or run agent-device snapshots during a run: both cost GPU/CPU.
 set -euo pipefail
 source "$(dirname "$0")/lib/device.sh"
@@ -39,9 +40,13 @@ cpu="$(adb shell "p=\$(pidof $PKG); a=\$(awk '{print \$14+\$15}' /proc/\$p/stat)
 num() { echo "$gfx" | sed -n "s/.*$1: *\([0-9.]*\).*/\1/p" | head -1; }
 # deadlineMissed and highInputLatency split gfxinfo's "Janky frames": Android 11 also flags frames of an
 # animation running long after the last key (the slideshow) as high input latency, drawn on time or not.
-printf '{"pkg":"%s","keys":%d,"frames":%s,"janky":%s,"deadlineMissed":%s,"highInputLatency":%s,"jankyPct":%s,"p50":%s,"p90":%s,"p95":%s,"p99":%s,"pssMB":%s,"idleCpuPct":%s}\n' \
-  "$PKG" "$(( ROUNDS * ${#KEYS[@]} ))" "$(num 'Total frames rendered')" "$(num 'Janky frames')" \
-  "$(num 'Number Frame deadline missed')" "$(num 'Number High input latency')" \
+frames="$(num 'Total frames rendered')"; missed="$(num 'Number Frame deadline missed')"; hil="$(num 'Number High input latency')"
+# perf-gate judges deadlineMissedPct; highInputLatencyPct is reported apart and never fails it.
+pct() { awk -v a="${1:-0}" -v b="${2:-0}" 'BEGIN { if (b > 0) printf "%.2f", 100 * a / b; else print "null" }'; }
+printf '{"pkg":"%s","keys":%d,"frames":%s,"janky":%s,"deadlineMissed":%s,"highInputLatency":%s,"jankyPct":%s,"deadlineMissedPct":%s,"highInputLatencyPct":%s,"p50":%s,"p90":%s,"p95":%s,"p99":%s,"pssMB":%s,"idleCpuPct":%s}\n' \
+  "$PKG" "$(( ROUNDS * ${#KEYS[@]} ))" "$frames" "$(num 'Janky frames')" \
+  "$missed" "$hil" \
   "$(echo "$gfx" | sed -n 's/.*Janky frames: [0-9]* (\([0-9.]*\)%).*/\1/p' | head -1)" \
+  "$(pct "$missed" "$frames")" "$(pct "$hil" "$frames")" \
   "$(num '50th percentile')" "$(num '90th percentile')" "$(num '95th percentile')" "$(num '99th percentile')" \
   "$(( ${pss_kb:-0} / 1024 ))" "${cpu:-null}"

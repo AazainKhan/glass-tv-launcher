@@ -3,8 +3,9 @@
 # scripts/perf-run, and fails (exit 1) on any metric over budget. Run before merging UI or
 # rendering changes. Needs the stick free: close tv-live (its recorder skews numbers).
 #   scripts/perf-gate [--no-build] [--rounds N] [--samples S]
-# Each sample is a separate perf-run (fresh gfxinfo window); the gate judges the median of S samples
-# (default 3), since one run's janky % varies by up to ~3 points on the same build (P39, P48).
+# Each sample is a separate perf-run (fresh gfxinfo window); the gate judges the median of S samples (default 3,
+# since one run varies by up to ~3 points on the same build: P39, P48), on two routes (dock and grid), for
+# deadline-missed %, p99 and PSS, plus idle CPU on a static Home.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"; require_device_access
@@ -18,20 +19,31 @@ fi
 [ "$build" = 0 ] || scripts/build release >/dev/null
 # A first round after install pays one-off GPU shader compilation (~5% janky frames); discard it.
 scripts/perf-run --rounds 1 >/dev/null
-runs=()
-for _ in $(seq 1 "$samples"); do runs+=("$(scripts/perf-run --rounds "$rounds" --no-compile | tail -1)"); done
-result="$(python3 "$ROOT/scripts/lib/perf-median.py" "${runs[@]}")"
+# Two routes, each the median of S samples: the dock (the default keys: the Top Shelf autoplays and pages under them)
+# and the grid (the shelf pauses there). Both are judged; a route over budget fails the gate.
+route() { local runs=(); for _ in $(seq 1 "$samples"); do runs+=("$(scripts/perf-run --rounds "$rounds" --no-compile "$@" | tail -1)"); done; python3 "$ROOT/scripts/lib/perf-median.py" "${runs[@]}"; }
+dock="$(route)"
+grid="$(route down down right right left left up down)"
 # Idle CPU is judged on a static Home: with focus in the grid the top-shelf slideshow pauses. At rest on
 # the dock the slideshow costs ~0.5 s of CPU per slide (bake + cross-fade), reported as slideshowIdleCpuPct.
 static="$(scripts/perf-run --rounds 1 --no-compile down right left | tail -1)"
-result="$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); s=json.loads(sys.argv[2]); r["slideshowIdleCpuPct"]=r["idleCpuPct"]; r["idleCpuPct"]=s["idleCpuPct"]; print(json.dumps(r))' "$result" "$static")"
+result="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); g=json.loads(sys.argv[2]); s=json.loads(sys.argv[3]); print(json.dumps({"dock": d, "grid": g, "idleCpuPct": s["idleCpuPct"], "slideshowIdleCpuPct": d["idleCpuPct"], "p90": d["p90"]}))' "$dock" "$grid" "$static")"
 scripts/dev-mode off >/dev/null
 echo "$result"
 mkdir -p "$ROOT/build" && echo "$result" > "$ROOT/build/perf-last.json"  # read by scripts/vitals
 python3 - "$result" "$ROOT/perf-budget.json" <<'PY'
 import json, sys
 r = json.loads(sys.argv[1]); b = json.load(open(sys.argv[2]))
-bad = [f"{k} {r.get(k)} > {v}" for k, v in b.items() if not k.startswith("_") and r.get(k) is not None and float(r[k]) > v]
+# Jank is judged as frames that missed their deadline, plus p99. Janky % and high-input-latency % are reported, not
+# judged: Android 11 flags on-time frames of an animation that runs long after the last key (the shelf's autoplay).
+per_route = {k: v for k, v in b.items() if not k.startswith("_") and k != "idleCpuPct"}
+bad = [f"{name} {k} {r[name].get(k)} > {v}" for name in ("dock", "grid") for k, v in per_route.items() if r[name].get(k) is not None and float(r[name][k]) > v]
+if "idleCpuPct" in b and r.get("idleCpuPct") is not None and float(r["idleCpuPct"]) > b["idleCpuPct"]:
+    bad.append(f"idleCpuPct {r['idleCpuPct']} > {b['idleCpuPct']}")
+for name in ("dock", "grid"):
+    x = r[name]
+    print(f"{name}: deadline missed {x.get('deadlineMissedPct')}%, p99 {x.get('p99')} ms, PSS {x.get('pssMB')} MB "
+          f"(reported: janky {x.get('jankyPct')}%, high input latency {x.get('highInputLatencyPct')}%, p90 {x.get('p90')} ms)")
 print("perf-gate: " + ("FAIL: " + "; ".join(bad) if bad else "pass"))
 sys.exit(1 if bad else 0)
 PY
