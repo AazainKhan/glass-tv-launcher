@@ -190,6 +190,9 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
                 scaleX = pose.scale
                 scaleY = pose.scale
                 alpha = pose.alpha * coversAlpha()
+                // Each cover is one image (its reflection baked in): alpha per draw looks the same and spares a fading
+                // flow an offscreen layer per cover (first-use "flush layers" cost on the stick).
+                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
                 cameraDistance = 14f * density.density
                 // The reflection belongs under the cover: scale and turn about the cover's own centre.
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f / (1f + CoverReflection.HEIGHT))
@@ -322,7 +325,11 @@ fun CoverPreview(
             modifier = Modifier
                 .padding(start = inset)
                 .offset(y = restCentreY - (COVER_DP * REST_SCALE / 2f).dp - 56.dp)
-                .graphicsLayer { alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f) }
+                .graphicsLayer {
+                    alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f)
+                    // Two lines of text that don't overlap: no offscreen layer needed for the fade.
+                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                }
                 .testTag("cover-preview-caption"),
         ) { it ->
             Column(Modifier.widthIn(max = 380.dp)) {

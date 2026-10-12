@@ -424,8 +424,10 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
             }
             Box(Modifier.weight(if (wide) 1f else 0.58f).fillMaxHeight()) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalTitleSink provides sink) {
-                    // The list fades out at its bottom edge instead of being cut off there.
-                    Box(Modifier.fillMaxSize().fadeBottom(36.dp).trapFocus(active), content = content)
+                    // The list fades out at its bottom edge instead of being cut off there: into the page's own colour
+                    // there (the page is opaque), so no offscreen layer is needed.
+                    val fadeInto = remember(page) { androidx.compose.ui.graphics.lerp(page.first(), page.last(), 0.96f) }
+                    Box(Modifier.fillMaxSize().fadeBottom(36.dp, fadeInto).trapFocus(active), content = content)
                 }
             }
         }
@@ -472,16 +474,17 @@ internal fun SettingsHelp(words: String?) {
 private const val HELP_FADE_MS = 160
 private const val HELP_MAX_LINES = 4
 
-/** Fades content to transparent over its last [height] (an offscreen layer masked by a gradient). */
-fun Modifier.fadeBottom(height: androidx.compose.ui.unit.Dp): Modifier = this
-    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+/**
+ * Fades content out over its last [height] into the opaque colour [into] behind it: a gradient drawn over the content,
+ * not an offscreen layer masked with DstIn (which cost a full-page layer every frame on the stick).
+ */
+fun Modifier.fadeBottom(height: androidx.compose.ui.unit.Dp, into: androidx.compose.ui.graphics.Color): Modifier = this
     .drawWithContent {
         drawContent()
         val h = height.toPx()
         drawRect(
-            androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Black, androidx.compose.ui.graphics.Color.Transparent), startY = size.height - h, endY = size.height),
+            androidx.compose.ui.graphics.Brush.verticalGradient(listOf(into.copy(alpha = 0f), into), startY = size.height - h, endY = size.height),
             topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - h),
-            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
         )
     }
 
