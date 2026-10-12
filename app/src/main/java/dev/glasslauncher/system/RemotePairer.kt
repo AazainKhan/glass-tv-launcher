@@ -5,7 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.le.ScanCallback
+import android.app.PendingIntent
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -155,7 +155,7 @@ class RemotePairer(private val context: Context) {
             .setServiceUuid(ParcelUuid.fromString(HID_SERVICE_UUID))
             .build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build()
-        runCatching { scanner.startScan(listOf(filter), settings, callback); scanning = true; Log.i(TAG, "scan started") }
+        runCatching { scanner.startScan(listOf(filter), settings, scanIntent); scanning = true; Log.i(TAG, "scan started") }
             .onFailure { Log.w(TAG, "scan failed to start", it) }
         if (scanning) {
             scanStartedAt = System.currentTimeMillis()
@@ -170,7 +170,7 @@ class RemotePairer(private val context: Context) {
         override fun run() {
             if (!scanning) return
             val scanner = adapter?.bluetoothLeScanner
-            runCatching { scanner?.stopScan(callback) }
+            runCatching { scanner?.stopScan(scanIntent) }
             scanning = false
             val started = scanStartedAt
             startScan()
@@ -206,12 +206,7 @@ class RemotePairer(private val context: Context) {
         handler.removeCallbacks(rescan)
         if (!scanning) return
         scanning = false
-        runCatching { adapter?.bluetoothLeScanner?.stopScan(callback) }
-    }
-
-    private val callback = object : ScanCallback() {
-        override fun onScanResult(callbackType: Int, result: ScanResult) { handler.post { onAdvert(result) } }
-        override fun onScanFailed(errorCode: Int) { Log.w(TAG, "scan failed: $errorCode"); scanning = false }
+        runCatching { adapter?.bluetoothLeScanner?.stopScan(scanIntent) }
     }
 
     @SuppressLint("MissingPermission")
@@ -228,7 +223,10 @@ class RemotePairer(private val context: Context) {
             rssi = r.rssi,
             appearance = parsed?.appearance,
         )
-        if (ad.amazon && ad.hid) lastRemoteAdvert = System.currentTimeMillis()
+        if (ad.amazon && ad.hid) {
+            lastRemoteAdvert = System.currentTimeMillis()
+            runCatching { RemoteRegistry(app).record(ad.address, r.device.name, r.rssi, lastRemoteAdvert) }
+        }
         val now = System.currentTimeMillis()
         val bonded = runCatching { adapter?.bondedDevices.orEmpty().map { it.address }.toSet() }.getOrDefault(emptySet())
         val state = RemotePairPolicy.State(
@@ -301,7 +299,31 @@ class RemotePairer(private val context: Context) {
         }, 12_000)
     }
 
+    /** The scan's delivery: a broadcast to [RemoteScanReceiver], so it reaches Glass even when the process was killed. */
+    private val scanIntent: PendingIntent by lazy {
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
+        PendingIntent.getBroadcast(app, 0, Intent(app, RemoteScanReceiver::class.java).setAction(ACTION_SCAN), flags)
+    }
+
+    /** Results the system delivered for the registered scan (the receiver calls this, on the main thread). */
+    fun onResults(results: List<android.bluetooth.le.ScanResult>) {
+        handler.post {
+            for (r in results) onAdvert(r)
+        }
+    }
+
     companion object {
+        const val ACTION_SCAN = "dev.glasslauncher.action.REMOTE_SCAN"
+        @Volatile private var instance: RemotePairer? = null
+
+        /** The one pairer; a scan result that wakes a cold process starts it, if Glass's own pairing is on. */
+        @Synchronized
+        fun obtain(context: Context): RemotePairer {
+            instance?.let { return it }
+            return RemotePairer(context.applicationContext).also { instance = it; if (RootFeatures.ownRemotePairing(context)) it.start() }
+        }
+
         const val TAG = "GlassRemotePair"
         const val AMAZON_COMPANY_ID = 0x0171
         const val HID_SERVICE_UUID = "00001812-0000-1000-8000-00805f9b34fb"

@@ -116,3 +116,32 @@ class RemotePairPolicyTest {
         assertEquals("said it a minute ago", false, hint(since = 60_000))
     }
 }
+
+class RemoteStatusTest {
+    @Test fun signalWordsNotNumbers() {
+        assertEquals("Strong", RemoteStatus.signal(-50))
+        assertEquals("Good", RemoteStatus.signal(-70))
+        assertEquals("Weak", RemoteStatus.signal(-90))
+        assertEquals(null, RemoteStatus.signal(null))
+        assertEquals("a stored 0 is unknown", null, RemoteStatus.signal(0))
+    }
+
+    @Test fun agoIsCoarseAndNeverNegative() {
+        val now = 1_000_000_000L
+        assertEquals(null, RemoteStatus.ago(0, now))
+        assertEquals("just now", RemoteStatus.ago(now - 20_000, now))
+        assertEquals("3 min ago", RemoteStatus.ago(now - 190_000, now))
+        assertEquals("2 h ago", RemoteStatus.ago(now - 2 * 3_600_000L - 5_000, now))
+        assertEquals("4 d ago", RemoteStatus.ago(now - 4 * 86_400_000L, now))
+        assertEquals("a clock that went back", "just now", RemoteStatus.ago(now + 5_000, now))
+    }
+
+    @Test fun theLineSaysWhatIsKnown() {
+        val now = 10_000_000L
+        assertEquals("Connected · Signal Strong · Battery 80%", RemoteStatus.line(true, -50, now, 80, now))
+        assertEquals("Connected", RemoteStatus.line(true, null, 0, -1, now))
+        assertEquals("Last seen 3 min ago · Signal Good", RemoteStatus.line(false, -70, now - 190_000, -1, now))
+        assertEquals("Not seen yet", RemoteStatus.line(false, null, 0, -1, now))
+        assertEquals("a battery of 101 is not a percent", "Not seen yet", RemoteStatus.line(false, null, 0, 101, now))
+    }
+}

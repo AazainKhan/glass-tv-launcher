@@ -61,6 +61,8 @@ object RemoteWatch {
                 )
                 if (!remote) return
                 val now = System.currentTimeMillis()
+                // Connect and disconnect are sightings too (no signal strength: the stored one stays).
+                runCatching { RemoteRegistry(app).record(d.address, d.name, 0, now) }
                 when (i.action) {
                     BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                         if (lastDisconnect == 0L) lastDisconnect = now

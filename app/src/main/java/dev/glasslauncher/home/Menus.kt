@@ -139,6 +139,7 @@ fun OverlayContent(
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
+        Overlay.Remotes -> SettingsPage(active) { RemotesPanel(active) }
         Overlay.TvSettings -> SettingsPage(active) {
             val context = androidx.compose.ui.platform.LocalContext.current
             MenuList(active) { first ->
@@ -690,4 +691,25 @@ private fun Tip(@androidx.annotation.DrawableRes icon: Int, text: String) {
 @Composable
 private fun GlassBoxCard(modifier: Modifier, content: @Composable () -> Unit) {
     dev.glasslauncher.ui.GlassBox(modifier = modifier, shape = Shapes.panel) { content() }
+}
+
+/** Control Center's Remotes tile (P100): each paired remote with its state, then how to pair another. */
+@Composable
+private fun RemotesPanel(active: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(active) { while (active) { kotlinx.coroutines.delay(5_000); tick++ } }
+    val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context) }
+    MenuList(active) { first ->
+        PanelTitle("Remotes")
+        if (rows.isEmpty()) {
+            MenuRow("No remote paired", {}, Modifier.focusRequester(first))
+        } else rows.forEachIndexed { i, r ->
+            MenuRow(r.name, {}, if (i == 0) Modifier.focusRequester(first) else Modifier, value = r.line)
+        }
+        SectionLabel("Pair a remote")
+        MenuRow("Hold Home for 10 seconds", {}, if (rows.isEmpty()) Modifier else Modifier, value = "on the remote")
+        MenuRow("Fire TV remote settings", { runCatching { dev.glasslauncher.system.SystemControls.openGameControllers(context) } }, chevron = true)
+        Hint("Glass pairs a remote on its own while none is connected. If the remote still doesn't pair, hold Left + Menu + Back for 12 seconds, then hold Home for 10 seconds.")
+    }
 }

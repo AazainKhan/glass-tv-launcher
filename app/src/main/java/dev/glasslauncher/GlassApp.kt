@@ -51,7 +51,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         // Own remote pairing (Settings > Root, P75 B): only when it was turned on.
         if (dev.glasslauncher.system.RootFeatures.ownRemotePairing(this)) {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                runCatching { dev.glasslauncher.system.RemotePairer(this).start() }
+                runCatching { dev.glasslauncher.system.RemotePairer.obtain(this).start() }
                     .onFailure { android.util.Log.w("GlassApp", "remote pairing didn't start", it) }
             }
         }

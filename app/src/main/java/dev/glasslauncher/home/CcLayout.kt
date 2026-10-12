@@ -169,7 +169,7 @@ object CcControls {
         "restart" to ONE,
         "cleanup" to listOf(CcSize.S1x1, CcSize.S2x1),
         "now_playing" to listOf(CcSize.S2x2, CcSize.S2x1, CcSize.S1x1),
-        "controllers" to ONE, "appearance" to ONE, "screensaver" to ONE, "switcher" to ONE, "airplay" to ONE,
+        "controllers" to ONE, "remotes" to ONE, "appearance" to ONE, "screensaver" to ONE, "switcher" to ONE, "airplay" to ONE,
         "performance" to ONE, "memory" to ONE,
     )
 

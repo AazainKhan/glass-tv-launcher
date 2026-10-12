@@ -427,7 +427,7 @@ private val CC_DIM_COLOR = Color.Black.copy(alpha = CC_DIM_ALPHA)
 /** Control Center tiles that can be turned off in Settings › Control Center (id to label). */
 val CONTROL_CENTER_TILES = listOf(
     "alexa" to "Alexa Page", "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
-    "controllers" to "Game Controllers", "appearance" to "Theme", "screensaver" to "Screen Saver",
+    "controllers" to "Game Controllers", "remotes" to "Remotes", "appearance" to "Theme", "screensaver" to "Screen Saver",
     "switcher" to "App Switcher", "performance" to "Performance", "sleep_timer" to "Sleep Timer", "vpn" to "VPN",
     "cleanup" to "Clean Up", "restart" to "Restart",
 )
@@ -959,6 +959,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
                                 }
                             }
+                            "remotes" -> Round(R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.Remotes) }) { tap { closeAll(); open(Overlay.Remotes) }() }
                             "controllers" -> Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
                             "appearance" -> Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }) {

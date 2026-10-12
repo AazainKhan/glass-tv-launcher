@@ -66,6 +66,8 @@ sealed interface Overlay {
     data object AppSwitcher : Overlay
     /** Fire TV's own settings, as a top-level list (the stock home screen normally provides it). */
     data object TvSettings : Overlay
+    /** The paired remotes with their signal, battery and last seen, and how to pair one (P100). */
+    data object Remotes : Overlay
     /** tvOS's confirmation card: [confirm] first and focused (red when [destructive]), then Cancel. */
     data class Confirm(
         val title: String,

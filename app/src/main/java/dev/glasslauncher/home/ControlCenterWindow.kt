@@ -307,6 +307,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             Overlay.TvSettings -> MainActivity.ACTION_TV_SETTINGS
             Overlay.Settings -> MainActivity.ACTION_SETTINGS
             Overlay.AppSwitcher -> MainActivity.ACTION_APP_SWITCHER
+            Overlay.Remotes -> MainActivity.ACTION_REMOTES
             else -> return
         }
         hide()

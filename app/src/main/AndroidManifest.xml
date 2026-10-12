@@ -205,6 +205,10 @@
         <receiver
             android:name=".system.SleepTimer$Receiver"
             android:exported="false" />
+        <!-- Always-on remote scan (P100): the system delivers matching adverts here, even with Glass's process dead. -->
+        <receiver
+            android:name=".system.RemoteScanReceiver"
+            android:exported="false" />
         <receiver
             android:name=".system.InstallResultReceiver"
             android:exported="false" />

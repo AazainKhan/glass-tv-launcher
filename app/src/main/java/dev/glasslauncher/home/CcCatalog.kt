@@ -26,6 +26,7 @@ object CcCatalog {
         CcCatalogEntry("bluetooth", "Bluetooth", "Devices and their settings", R.drawable.ic_bluetooth),
         CcCatalogEntry("launcher", "Launcher Settings", "Glass's own settings", R.drawable.ic_tune),
         CcCatalogEntry("controllers", "Game Controllers", "Pair and manage controllers", R.drawable.ic_sports_esports),
+        CcCatalogEntry("remotes", "Remotes", "Battery, signal and pairing for your remotes", R.drawable.ic_settings_remote),
         CcCatalogEntry("appearance", "Theme", "Switch between Dark and Light", R.drawable.ic_dark_mode),
         CcCatalogEntry("screensaver", "Screen Saver", "Start the screen saver now", R.drawable.ic_landscape),
         CcCatalogEntry("switcher", "App Switcher", "Recent apps", R.drawable.ic_apps),

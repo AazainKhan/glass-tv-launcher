@@ -132,7 +132,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings }
+enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings, Remotes }
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
@@ -704,10 +704,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
                 // From remote buttons: pressing the same button again closes it.
                 HomeRequest.ControlCenter -> { closeAll(); openControlCenter() }
-                HomeRequest.AppSwitcher, HomeRequest.TvSettings, HomeRequest.Settings -> {
+                HomeRequest.AppSwitcher, HomeRequest.TvSettings, HomeRequest.Settings, HomeRequest.Remotes -> {
                     val target = when (request) {
                         HomeRequest.AppSwitcher -> Overlay.AppSwitcher
                         HomeRequest.Settings -> Overlay.Settings
+                        HomeRequest.Remotes -> Overlay.Remotes
                         else -> Overlay.TvSettings
                     }
                     val reopen = overlays.lastOrNull() != target
