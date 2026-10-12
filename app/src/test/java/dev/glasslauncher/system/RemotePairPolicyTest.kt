@@ -28,12 +28,11 @@ class RemotePairPolicyTest {
         assertEquals(Action.Rebond, RemotePairPolicy.decide(ad, s.copy(lastRebondMs = s.nowMs - RemotePairPolicy.REBOND_EVERY_MS)))
     }
 
-    @Test fun nothingHappensWhileTheScreenIsOffOrARemoteIsConnected() {
-        assertEquals(Action.Ignore, RemotePairPolicy.decide(ad, state.copy(screenOn = false)))
+    @Test fun theScreenDoesNotMatterButAConnectedRemoteStopsEverything() {
+        assertEquals("screen off still pairs: a stick with no remote idles to sleep", Action.Bond, RemotePairPolicy.decide(ad, state.copy(screenOn = false)))
         assertEquals(Action.Ignore, RemotePairPolicy.decide(ad, state.copy(remoteConnected = true)))
-        assertFalse(RemotePairPolicy.shouldScan(screenOn = false, remoteConnected = false))
-        assertFalse(RemotePairPolicy.shouldScan(screenOn = true, remoteConnected = true))
-        assertTrue(RemotePairPolicy.shouldScan(screenOn = true, remoteConnected = false))
+        assertTrue(RemotePairPolicy.shouldScan(remoteConnected = false))
+        assertFalse(RemotePairPolicy.shouldScan(remoteConnected = true))
     }
 
     @Test fun aSleepingRemoteReconnectAdvertisingIsNotPairingMode() {
@@ -72,14 +71,9 @@ class RemotePairPolicyTest {
         assertEquals(false, RemotePairPolicy.looksLikeRemote(null, null))
     }
 
-    // The Fire remote's advert as the btsnoop showed it, built from its fields: flags 0x05, HID 0x1812, appearance
-    // 0x0180, Amazon company 0x0171 with product 0x0427 (not a byte-for-byte capture).
-    private val remoteAdvert = byteArrayOf(
-        0x02, 0x01, 0x05,
-        0x03, 0x03, 0x12, 0x18,
-        0x03, 0x19, 0x80.toByte(), 0x01,
-        0x05, 0xFF.toByte(), 0x71, 0x01, 0x27, 0x04,
-    )
+    // The Fire remote's ADV_IND, byte for byte from the btsnoop (public address 18:0B:1B:51:D1:B8, name "AR"):
+    // flags 0x05, HID 0x1812, appearance 0x0180, complete name, manufacturer 0x0171 (product 0x0427).
+    private val remoteAdvert = "0201050303121803198001030941520aff71010427027d000000".chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
     @Test fun theRemotesAdvertParsesAndIsDiscoverableThroughTheLimitedFlag() {
         val p = AdvParser.parse(remoteAdvert)
@@ -87,6 +81,7 @@ class RemotePairPolicyTest {
         assertEquals(setOf(0x1812), p.uuids16)
         assertEquals(setOf(0x0171), p.companyIds)
         assertEquals(0x0180, p.appearance)
+        assertEquals(26, remoteAdvert.size)
         assertEquals("limited discoverable counts", true, AdvParser.discoverable(p.flags))
         assertEquals("general discoverable counts", true, AdvParser.discoverable(0x06))
         assertEquals("BR/EDR-not-supported alone is not discoverable", false, AdvParser.discoverable(0x04))
@@ -95,6 +90,7 @@ class RemotePairPolicyTest {
 
     @Test fun aTruncatedAdvertParsesWhatItCanAndNeverThrows() {
         assertEquals(0x05, AdvParser.parse(remoteAdvert.copyOf(5)).flags)
+        assertEquals(0x0180, AdvParser.parse(remoteAdvert.copyOf(11)).appearance)
         assertEquals(null, AdvParser.parse(byteArrayOf(0x09, 0x19, 0x00)).appearance)
         assertEquals(null, AdvParser.parse(ByteArray(0)).flags)
     }

@@ -76,7 +76,9 @@ object RemotePairPolicy {
     const val REBOND_EVERY_MS = 2 * 60_000L
 
     fun decide(ad: Advert, s: State): Action {
-        if (!s.screenOn || s.remoteConnected) return Action.Ignore
+        // The screen state doesn't matter: with no remote the stick idles to sleep (no input), and that is exactly
+        // when pairing is needed. A scan with a hardware filter at low power costs next to nothing.
+        if (s.remoteConnected) return Action.Ignore
         if (!ad.amazon || !ad.hid) return Action.Ignore
         // Never bond a random HID device: where an appearance is advertised it must be the remote's.
         if (ad.appearance != null && ad.appearance != REMOTE_APPEARANCE) return Action.Ignore
@@ -90,8 +92,14 @@ object RemotePairPolicy {
         return Action.Connect
     }
 
-    /** Whether to scan at all: the screen is on and no Amazon remote is connected. */
-    fun shouldScan(screenOn: Boolean, remoteConnected: Boolean) = screenOn && !remoteConnected
+    /** Whether to scan at all: no Amazon remote is connected (screen on or off). */
+    fun shouldScan(remoteConnected: Boolean) = !remoteConnected
+
+    /**
+     * The scan is registered again this often while it should run: Fire's BtLeManager logs "stop all scans" about
+     * every 27 s and Glass gets no callback when it does (stick finding, 02:23Z), so a silent scan can't be trusted.
+     */
+    const val RESCAN_EVERY_MS = 25_000L
 }
 
 /**

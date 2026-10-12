@@ -29,8 +29,9 @@ import kotlinx.coroutines.launch
  * false: it never starts, so nothing of Fire's can unpair the remote). Glass is a privileged system app (module
  * glass-system), so it may bond and connect on its own.
  *
- * It scans only while the screen is on and no Amazon remote is connected (hardware filter: company id 0x0171 +
- * the HID service 0x1812, low-power mode) and acts through [RemotePairPolicy]: an unbonded remote in pairing mode
+ * It scans while no Amazon remote is connected, screen on or off (a stick without a remote idles to sleep, which is
+ * when pairing is needed), re-registering the scan every 25 s because Fire's BtLeManager stops scans silently
+ * (hardware filter: company id 0x0171 + the HID service 0x1812, low-power mode) and acts through [RemotePairPolicy]: an unbonded remote in pairing mode
  * (LE General Discoverable) is bonded; a bonded one that isn't connected is only connected, never unbonded on
  * sight. Every step is logged under [TAG].
  *
@@ -58,7 +59,7 @@ class RemotePairer(private val context: Context) {
         override fun onReceive(c: Context, i: Intent) {
             when (i.action) {
                 Intent.ACTION_SCREEN_ON -> { Log.i(TAG, "screen on"); evaluate() }
-                Intent.ACTION_SCREEN_OFF -> { Log.i(TAG, "screen off: scan stops"); stopScan() }
+                Intent.ACTION_SCREEN_OFF -> { Log.i(TAG, "screen off: the scan keeps running while no remote is connected"); evaluate() }
                 BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> evaluate()
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED -> onBond(i)
                 BluetoothAdapter.ACTION_STATE_CHANGED -> onAdapterState(i.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR))
@@ -125,9 +126,8 @@ class RemotePairer(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun evaluate() {
         val remoteConnected = anyRemoteConnected()
-        val on = power?.isInteractive == true
-        if (RemotePairPolicy.shouldScan(on, remoteConnected)) startScan() else {
-            if (scanning) Log.i(TAG, "scan stops (screen ${if (on) "on" else "off"}, remote connected=$remoteConnected)")
+        if (RemotePairPolicy.shouldScan(remoteConnected)) startScan() else {
+            if (scanning) Log.i(TAG, "scan stops (remote connected)")
             stopScan()
         }
     }
@@ -157,7 +157,25 @@ class RemotePairer(private val context: Context) {
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build()
         runCatching { scanner.startScan(listOf(filter), settings, callback); scanning = true; Log.i(TAG, "scan started") }
             .onFailure { Log.w(TAG, "scan failed to start", it) }
-        if (scanning) { scanStartedAt = System.currentTimeMillis(); handler.postDelayed(batteryCheck, 20_000) }
+        if (scanning) {
+            scanStartedAt = System.currentTimeMillis()
+            handler.postDelayed(batteryCheck, 20_000)
+            handler.postDelayed(rescan, RemotePairPolicy.RESCAN_EVERY_MS)
+        }
+    }
+
+    /** Register the scan again: something else (Fire's BtLeManager) may have stopped it without telling us. */
+    private val rescan = object : Runnable {
+        @SuppressLint("MissingPermission")
+        override fun run() {
+            if (!scanning) return
+            val scanner = adapter?.bluetoothLeScanner
+            runCatching { scanner?.stopScan(callback) }
+            scanning = false
+            val started = scanStartedAt
+            startScan()
+            if (scanning) scanStartedAt = started
+        }
     }
 
     /** A bonded remote that never advertises while we scan: usually dead batteries (they masked this once). */
@@ -184,6 +202,7 @@ class RemotePairer(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun stopScan() {
         handler.removeCallbacks(batteryCheck)
+        handler.removeCallbacks(rescan)
         if (!scanning) return
         scanning = false
         runCatching { adapter?.bluetoothLeScanner?.stopScan(callback) }
