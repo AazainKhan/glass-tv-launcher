@@ -1399,9 +1399,11 @@ internal fun CcTile(
         wiggle = wiggle,
         onFocusChange = onFocusChange,
         shape = shape,
-        // A touch of lift only: at 1.06 the focused Settings tile spilled past the pills' grid.
-        focusedScale = 1.02f,
-        shadow = false,
+        // tvOS's focus is a clear lift with a shadow under it (F06). 1.10 stays inside the 9 dp gap of the smallest cell
+        // (5.6 dp each side on a pill); the first 1.06 spilled the Settings tile past the grid because the shadow was
+        // not baked, which it is now.
+        focusedScale = 1.10f,
+        shadow = true,
         // Grows out of its drop as Control Center opens ([CcEmerge]).
         modifier = modifier.size(width, height).ccEmerge(emerge),
     ) { focused ->
