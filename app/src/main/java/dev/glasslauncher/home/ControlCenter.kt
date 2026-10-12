@@ -539,6 +539,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var agentCard by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Restart's confirm is drawn here, over the grid (an overlay opened after Control Center closes was lost).
     var restartAsk by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // Remotes opens as a platter pushed over the grid, inside the panel (tvOS pushes modules; P111), not a full page.
+    var remotesPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Edit mode's hint (P101): a small glass toast at the bottom centre when edit mode opens, gone after a few seconds,
     // and back for a moment on the first key pressed in edit mode.
     var hintKick by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -602,9 +604,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
     // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
     // closing Control Center save too).
-    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk) {
-        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk) ({
+    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter) {
+        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter) ({
             when {
+                remotesPlatter -> { remotesPlatter = false; pendingFocus = "remotes" }
                 restartAsk -> { restartAsk = false; pendingFocus = "restart" }
                 // Back on the permission card is Deny.
                 agentCard -> { agents.waiting = 0; agents.result = "Denied"; agentCard = false; pendingFocus = "addon:claude/agents" }
@@ -776,8 +779,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             )
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
-            if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-            if (restartAsk) {
+            if (restartAsk || agentCard || remotesPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            if (remotesPlatter) CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
+            else if (restartAsk) {
                 val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
                 CcConfirmCard(
                     sz,
@@ -800,7 +804,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
             val scrollState = androidx.compose.foundation.rememberScrollState()
-            if (!restartAsk && !agentCard) Column(
+            if (!restartAsk && !agentCard && !remotesPlatter) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
                     .weight(1f, fill = false)
@@ -1027,7 +1031,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
                                 }
                             }
-                            "remotes" -> Round(R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.Remotes) }) { tap { closeAll(); open(Overlay.Remotes) }() }
+                            "remotes" -> Round(R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { remotesPlatter = true }) { tap { remotesPlatter = true }() }
                             "controllers" -> Round(R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
                             "appearance" -> Round(if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }) {
@@ -1512,6 +1516,38 @@ private fun CcEditHint(shown: Boolean, lifted: Boolean, modifier: Modifier = Mod
                 ) { Text(key, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White.copy(alpha = 0.85f), maxLines = 1, softWrap = false) }
                 Text(word, style = Type.caption, color = Color.White.copy(alpha = 0.62f), maxLines = 1, softWrap = false)
             }
+        }
+    }
+}
+
+/**
+ * The Remotes platter (P111): pushed over the grid inside the panel, as tvOS pushes a module, each remote a pill with its
+ * state, then Remote Settings and Back. Same width and pitch as the grid, so it replaces it without the panel resizing.
+ */
+@Composable
+private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> Unit) {
+    val context = LocalContext.current
+    var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
+    val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context) }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-remotes")) {
+        Text("Remotes", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        if (rows.isEmpty()) {
+            CcTile("No remote paired", "Hold Home for 10 s", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
+                PillContent(R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", fg, on = false, accent = fg)
+            }
+        } else rows.forEachIndexed { i, r ->
+            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier) { fg ->
+                PillContent(R.drawable.ic_settings_remote, r.name, r.line, fg, on = r.line.startsWith("Connected"), accent = Blue)
+            }
+        }
+        CcTile("Remote Settings", null, Shapes.pill, sz.column, sz.pill, onClick = onSettings) { fg ->
+            PillContent(R.drawable.ic_tune, "Remote Settings", null, fg, on = false, accent = fg)
+        }
+        CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->
+            PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
         }
     }
 }
