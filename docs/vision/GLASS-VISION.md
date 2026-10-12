@@ -37,7 +37,7 @@ The user's ranked report on 17 Fire TV demands (ads, launchers, storage, bloat, 
 - Spec: docs/superpowers/specs/2026-10-11-addons-design.md on branch docs/addons-spec (552f9f5).
 - Model: separate signed APKs that supply data only; Glass renders them. Extension points are a Top Shelf provider, a Control Center tile, a home row, a remote-button action, a settings page and a screensaver (theme packs later).
 - Catalog: our own curated repo, which Droid-ify reads (user decision).
-- Phases: (0) prove one Control Center tile add-on, with PhairPlay migrated; (1) all extension points, the SDK and the 10-minute guide; (2) the catalog; (3) launch add-ons. About 9 to 10 weeks.
+- Phases: (0) prove one Control Center tile add-on (PhairPlay is no longer the pilot: it becomes built in, see below); (1) all extension points, the SDK and the 10-minute guide; (2) the catalog; (3) launch add-ons. About 9 to 10 weeks.
 - Open questions: 7, at the end of the spec.
 
 ## 5. Customizable Control Center (P83)
@@ -121,3 +121,7 @@ Risks:
 - P85: the Spotify Cover Flow preview starts centred and auto-advances while focused.
 - P86: Spotify backdrop crossfades smoothly (no instant green or pop), the logo sits by the full-screen title, a "Listen Now" label appears in the preview, and Up/Down morph between the preview and the full Cover Flow.
 - P87: interruptible app launch. Back or Home always works, even while an app is loading (Apple's "never wait" rule). Spike per install way.
+
+## AirPlay built in (2026-10-12)
+
+PhairPlay (github.com/mazer666/PhairPlay, Apache-2.0, the same licence as Glass) folds into Glass as a module. The separate app goes away. Every PhairPlay in-app menu moves into Glass Settings › AirPlay and the Control Center tile. Its LICENSE/NOTICE stay with the code, and Glass's Credits page names the original project. Board item P117.
