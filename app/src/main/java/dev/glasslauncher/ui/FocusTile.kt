@@ -268,8 +268,8 @@ fun navigationSound(): Int = when {
 
 private const val TILT_DEG = 1.5f
 
-/** How much bigger a focused tile is drawn, unless it says otherwise. */
-const val FOCUSED_SCALE = 1.2f
+/** How much bigger a focused tile is drawn, unless it says otherwise: tvOS's measured ×1.224 (F11), matching the baked shadow (TileShadow.FOCUS_SCALE). */
+const val FOCUSED_SCALE = 1.224f
 
 /**
  * The tvOS 26.6 Home edit jiggle (HBAppGridView, REA's decode): rotation keyframes -0.02822, +0.02822, -0.02822 rad and a
