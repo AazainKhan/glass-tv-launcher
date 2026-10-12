@@ -238,12 +238,16 @@ private fun SettingsPageIcon(title: String) {
     val palette = dev.glasslauncher.ui.LocalPalette.current
     // Pages without their own (the main page, Fire TV's) get the gear, drawn the same muted way.
     val res = SETTINGS_ICONS[title] ?: dev.glasslauncher.R.drawable.ic_settings
-    Box(Modifier.testTag("settings-icon:${title.ifEmpty { "Settings" }}")) {
-        // Just the icon, muted: no tile or border behind it.
+    // A 140 dp tile (tvOS's Settings page: the page's icon on a rounded square in the left third, F07).
+    Box(
+        Modifier.size(140.dp).testTag("settings-icon:${title.ifEmpty { "Settings" }}")
+            .background(palette.primary.copy(alpha = 0.08f), androidx.compose.foundation.shape.RoundedCornerShape(32.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
         androidx.compose.foundation.Image(
             androidx.compose.ui.res.painterResource(res), null,
-            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary.copy(alpha = 0.35f)),
-            modifier = Modifier.size(120.dp),
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primary.copy(alpha = 0.5f)),
+            modifier = Modifier.size(76.dp),
         )
     }
 }

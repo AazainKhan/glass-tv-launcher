@@ -121,10 +121,12 @@ object Type {
     private val displayFamily: FontFamily get() = if (font == dev.glasslauncher.data.UiFont.Inter) InterDisplay else family
 
     // Sized to tvOS 27's measured type at 1080p (body ~28 px, secondary ~25 px): smaller than before.
-    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 34.sp, fontWeight = w(FontWeight.Bold), letterSpacing = (-0.6).sp, lineHeight = 38.sp)
-    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 24.5.sp, fontWeight = w(FontWeight.Bold), letterSpacing = (-0.4).sp)
-    val heading get() = TextStyle(fontFamily = family, fontSize = 17.5.sp, fontWeight = w(FontWeight.SemiBold))
-    val body get() = TextStyle(fontFamily = family, fontSize = 14.sp, fontWeight = w(FontWeight.Medium))
+    // F08: tvOS's scale at 960x540 dp (Title1 76 px = 38 sp, Title3 48 = 24, Headline 38 = 19, Callout 29 = 14.5); the
+    // caption stays at the 13 sp floor (Caption1 would be 12.5).
+    val display get() = TextStyle(fontFamily = displayFamily, fontSize = 38.sp, fontWeight = w(FontWeight.Bold), letterSpacing = (-0.7).sp, lineHeight = 42.sp)
+    val title get() = TextStyle(fontFamily = displayFamily, fontSize = 24.sp, fontWeight = w(FontWeight.Bold), letterSpacing = (-0.4).sp)
+    val heading get() = TextStyle(fontFamily = family, fontSize = 19.sp, fontWeight = w(FontWeight.SemiBold))
+    val body get() = TextStyle(fontFamily = family, fontSize = 14.5.sp, fontWeight = w(FontWeight.Medium))
     val secondary get() = TextStyle(fontFamily = family, fontSize = 13.5.sp, fontWeight = w(FontWeight.Medium), lineHeight = 18.sp)
     // 13 sp is the floor: smaller text isn't readable from a sofa (audit 9.3).
     val caption get() = TextStyle(fontFamily = family, fontSize = 13.sp, fontWeight = w(FontWeight.Medium), lineHeight = 17.sp)
