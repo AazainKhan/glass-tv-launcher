@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -305,6 +306,7 @@ fun CoverPreview(
 ) {
     val density = LocalDensity.current
     val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+    val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     val shiftPx = with(density) { (restCentreY.toPx() - (screenH.dp.toPx() / 2f)) }
     val focus = remember { FocusRequester() }
     Box(modifier.fillMaxSize()) {
@@ -325,27 +327,32 @@ fun CoverPreview(
     if (caption && feed.items.isNotEmpty()) {
         val m = dev.glasslauncher.ui.LocalMetrics.current
         val item = feed.items[index.coerceIn(0, feed.items.lastIndex)]
-        // The album or playlist's name alone, one line, bottom left just above the tray and starting at its left edge
-        // (P123); the covers keep the whole shelf above it.
-        Crossfade(
-            item.title, animationSpec = tween(220), label = "cover-preview-caption",
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = m.trayMargin, bottom = screenH.dp - trayTop + 8.dp)
-                .widthIn(max = 380.dp)
-                .graphicsLayer {
-                    alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f)
-                    // One line of text: no offscreen layer needed for the fade.
-                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-                }
-                .testTag("cover-preview-caption"),
-        ) { title ->
-            androidx.compose.foundation.text.BasicText(
-                title,
-                style = Type.label.copy(color = Color.White.copy(alpha = 0.9f)),
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag("cover-preview-title"),
-            )
+        // The album or playlist's name alone, one line, large, in the open space between the covers' reflections and the
+        // tray, from the first tile's left edge (P123, the user's red box): centred in that gap, not tucked into the corner.
+        // The reflection ends at the covers' bottom (cover height with its reflection, about the box centre less the
+        // 24 dp lift) scaled by the preview's rest scale; the tray top is [trayTop].
+        val reflectionBottom = restCentreY + ((COVER_DP * (1f + CoverReflection.HEIGHT)) / 2f - 24f).dp * REST_SCALE
+        val gap = (trayTop - reflectionBottom).coerceAtLeast(24.dp)
+        Box(Modifier.offset(y = reflectionBottom).fillMaxWidth().height(gap), contentAlignment = Alignment.CenterStart) {
+            Crossfade(
+                item.title, animationSpec = tween(220), label = "cover-preview-caption",
+                modifier = Modifier
+                    .padding(start = m.inset)
+                    .widthIn(max = (screenW * 0.46f).dp)
+                    .graphicsLayer {
+                        alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f)
+                        // One line of text: no offscreen layer needed for the fade.
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                    }
+                    .testTag("cover-preview-caption"),
+            ) { title ->
+                androidx.compose.foundation.text.BasicText(
+                    title,
+                    style = Type.title.copy(color = Color.White.copy(alpha = 0.92f)),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("cover-preview-title"),
+                )
+            }
         }
     }
     }
