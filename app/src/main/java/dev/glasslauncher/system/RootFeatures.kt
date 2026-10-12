@@ -41,6 +41,21 @@ object RootFeatures {
         }
     }
 
+    /**
+     * default-permissions XML (P98): runtime permissions granted without a prompt. Location is needed for BLE scan
+     * results on Android 11, so Glass's own remote pairing (hold Home) sees the remote. Glass OS ships this file in
+     * /system/etc/default-permissions; the Pro module carries the same text and service.sh also runs `pm grant`.
+     */
+    internal fun defaultPermissionsXml(pkg: String): String = buildString {
+        appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+        appendLine("<exceptions>")
+        appendLine("    <exception package=\"$pkg\">")
+        appendLine("        <permission name=\"android.permission.ACCESS_FINE_LOCATION\" fixed=\"false\"/>")
+        appendLine("        <permission name=\"android.permission.ACCESS_COARSE_LOCATION\" fixed=\"false\"/>")
+        appendLine("    </exception>")
+        appendLine("</exceptions>")
+    }
+
     enum class SystemApp { Off, Pending, On, Removing }
 
     fun systemAppState(context: Context): SystemApp {
@@ -74,11 +89,14 @@ object RootFeatures {
         val script = """
             set -e
             M=$SYSTEM_MODULE
-            mkdir -p ${'$'}M/system/priv-app/GlassLauncher ${'$'}M/system/etc/permissions
+            mkdir -p ${'$'}M/system/priv-app/GlassLauncher ${'$'}M/system/etc/permissions ${'$'}M/system/etc/default-permissions
             cp '$apk' ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk
             cat > ${'$'}M/system/etc/permissions/privapp-permissions-${context.packageName}.xml <<'GLASSXML'
             ${xml.trimEnd()}
             GLASSXML
+            cat > ${'$'}M/system/etc/default-permissions/default-permissions-${context.packageName}.xml <<'GLASSDEF'
+            ${defaultPermissionsXml(context.packageName).trimEnd()}
+            GLASSDEF
             cat > ${'$'}M/service.sh <<'GLASSSVC'
             $service
             GLASSSVC
@@ -86,7 +104,7 @@ object RootFeatures {
             touch ${'$'}M/uninstall-updates
             printf 'id=glass-system\nname=Glass TV Launcher as a system app\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=Installs Glass TV Launcher as a privileged system app (Continue Watching from other apps, secure settings). Remove to revert.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/system/priv-app/GlassLauncher
-            chmod 644 ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk ${'$'}M/system/etc/permissions/*.xml
+            chmod 644 ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk ${'$'}M/system/etc/permissions/*.xml ${'$'}M/system/etc/default-permissions/*.xml
             rm -f ${'$'}M/remove ${'$'}M/disable
         """.trimIndent().lines().joinToString("\n") { it.trimStart() }
         val r = Root.action(context, "Install as system app (Magisk module glass-system)", script)

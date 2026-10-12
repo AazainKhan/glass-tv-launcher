@@ -20,6 +20,9 @@ import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import dev.glasslauncher.system.RemotePairPolicy.Action
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Glass's own remote pairing (P75 B), for when Fire's AutoPairService is off (`persist.sys.auto_pair_sys_service`
@@ -42,6 +45,7 @@ class RemotePairer(private val context: Context) {
     private var scanning = false
     private var started = false
     private var lastRebond = 0L
+    private var lastStaleNotice = 0L
     private val failures = HashMap<String, Int>()
     private val lastAction = HashMap<String, Long>()
     private val pendingConnect = HashSet<String>()
@@ -54,6 +58,7 @@ class RemotePairer(private val context: Context) {
                 Intent.ACTION_SCREEN_OFF -> { Log.i(TAG, "screen off: scan stops"); stopScan() }
                 BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> evaluate()
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED -> onBond(i)
+                BluetoothAdapter.ACTION_STATE_CHANGED -> onAdapterState(i.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR))
             }
         }
     }
@@ -65,7 +70,7 @@ class RemotePairer(private val context: Context) {
         val f = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED); addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
         }
         app.registerReceiver(screen, f)
         runCatching { adapter!!.getProfileProxy(app, object : BluetoothProfile.ServiceListener {
@@ -73,7 +78,36 @@ class RemotePairer(private val context: Context) {
             override fun onServiceDisconnected(profile: Int) { hidHost = null }
         }, HID_HOST) }.onFailure { Log.w(TAG, "no HID host proxy", it) }
         Log.i(TAG, "started (screen ${if (power?.isInteractive == true) "on" else "off"})")
+        ensureLocation()
         evaluate()
+    }
+
+    /** Bluetooth turned off and on (a remote re-pair, a Settings toggle) must not leave the pairer asleep with a dead scan. */
+    private fun onAdapterState(state: Int) {
+        Log.i(TAG, "bluetooth state $state")
+        when (state) {
+            BluetoothAdapter.STATE_ON -> { scanning = false; handler.postDelayed({ evaluate() }, 1_000) }
+            BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> { scanning = false }
+        }
+    }
+
+    private fun hasLocation() = app.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Android 11 drops every BLE scan result for an app without ACCESS_FINE_LOCATION, so hold-Home pairing never sees the
+     * remote. Pro/OS grant it at install (module service.sh, default-permissions); with su here it is granted now;
+     * otherwise this logs loudly and tells the user once.
+     */
+    private fun ensureLocation() {
+        if (hasLocation()) return
+        Log.e(TAG, "ACCESS_FINE_LOCATION not granted: Android 11 drops BLE scan results, so hold-Home pairing cannot work")
+        CoroutineScope(Dispatchers.IO).launch {
+            if (Root.known || Root.available()) {
+                Root.action(app, "Grant location for remote pairing", "pm grant ${app.packageName} android.permission.ACCESS_FINE_LOCATION")
+            }
+            if (hasLocation()) { Log.i(TAG, "ACCESS_FINE_LOCATION granted"); handler.post { evaluate() } }
+            else RemoteNotice.show(app, "Remote pairing needs the Location permission. Update Glass Pro, or allow Location in Glass's app settings.", 10_000)
+        }
     }
 
     fun stop() {
@@ -103,9 +137,7 @@ class RemotePairer(private val context: Context) {
     /** An input peripheral (class 0x0500) or one named like Fire's remote: only these matter to the policy. */
     @SuppressLint("MissingPermission")
     private fun isAmazonRemote(d: BluetoothDevice): Boolean {
-        val major = runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull()
-        val name = runCatching { d.name }.getOrNull().orEmpty()
-        return major == 0x0500 || name.contains("Remote", ignoreCase = true) || name == "AR"
+        return RemotePairPolicy.looksLikeRemote(runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull(), runCatching { d.name }.getOrNull())
     }
 
     private fun isConnected(d: BluetoothDevice): Boolean =
@@ -144,15 +176,26 @@ class RemotePairer(private val context: Context) {
             amazon = rec.manufacturerSpecificData?.get(AMAZON_COMPANY_ID) != null,
             hid = rec.serviceUuids?.any { it.uuid == ParcelUuid.fromString(HID_SERVICE_UUID).uuid } == true,
             discoverable = (rec.advertiseFlags and FLAG_LE_GENERAL_DISCOVERABLE) != 0,
+            rssi = r.rssi,
         )
         val now = System.currentTimeMillis()
         val bonded = runCatching { adapter?.bondedDevices.orEmpty().map { it.address }.toSet() }.getOrDefault(emptySet())
         val state = RemotePairPolicy.State(
             bonded = bonded, remoteConnected = anyRemoteConnected(), screenOn = power?.isInteractive == true,
             nowMs = now, lastRebondMs = lastRebond, connectFailures = failures[ad.address] ?: 0,
+            haveBondedRemote = runCatching { adapter?.bondedDevices.orEmpty().any { isAmazonRemote(it) } }.getOrDefault(false),
         )
         val action = RemotePairPolicy.decide(ad, state)
         if (action == Action.Ignore) return
+        if (action == Action.StaleBond) {
+            // Logged on every advert; the user is told at most every 5 minutes.
+            Log.w(TAG, "advert ${ad.address} (rssi ${r.rssi}) is a remote that kept a bond the stick lost: it must be reset first")
+            if (now - lastStaleNotice >= 5 * 60_000L) {
+                lastStaleNotice = now
+                RemoteNotice.show(app, RemoteNotice.STALE_BOND, 20_000)
+            }
+            return
+        }
         // One act per address per 8 s (a remote advertises many times a second).
         if (now - (lastAction[ad.address] ?: 0L) < 8_000L) return
         lastAction[ad.address] = now
@@ -166,7 +209,7 @@ class RemotePairer(private val context: Context) {
                 runCatching { BluetoothDevice::class.java.getMethod("removeBond").invoke(r.device) }.onFailure { Log.w(TAG, "removeBond failed", it) }
                 handler.postDelayed({ bond(r.device) }, 1_500)
             }
-            Action.Ignore -> Unit
+            Action.Ignore, Action.StaleBond -> Unit
         }
     }
 

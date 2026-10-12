@@ -57,4 +57,12 @@ class PrivappAllowlistTest {
         assertTrue("privapp-check installs the same script and sets the flag", "glass-system-service.sh" in check && "touch \$MOD/uninstall-updates" in check)
         assertTrue("privapp-check uses the SDK's tools, not PATH", "cmdline-tools" in check && "sdk.dir" in check)
     }
+
+    @Test fun locationIsGrantedAtInstallForBlePairing() {
+        val xml = RootFeatures.defaultPermissionsXml("dev.glasslauncher")
+        assertTrue("default-permissions grants fine location", "android.permission.ACCESS_FINE_LOCATION" in xml && "package=\"dev.glasslauncher\"" in xml)
+        val svc = File("src/main/assets/glass-system-service.sh").readText()
+        val grant = svc.indexOf("pm grant dev.glasslauncher android.permission.ACCESS_FINE_LOCATION")
+        assertTrue("service.sh grants location every boot, before the refresh-flag early exit", grant in 0 until svc.indexOf("[ -f \"\$FLAG\" ] || exit 0"))
+    }
 }

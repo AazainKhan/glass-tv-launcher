@@ -5,8 +5,11 @@
 # drop the /data update (app data is kept) and bring Glass home again.
 MOD=/data/adb/modules/glass-system
 FLAG="$MOD/uninstall-updates"
-[ -f "$FLAG" ] || exit 0
 until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 2; done
+# Every boot: Android 11 drops BLE scan results for an app without location, and Glass's own remote pairing needs them.
+# (A runtime permission is not a privileged one: the privapp allowlist doesn't grant it.)
+pm grant dev.glasslauncher android.permission.ACCESS_FINE_LOCATION 2>/dev/null
+[ -f "$FLAG" ] || exit 0
 sleep 20
 rm -f "$FLAG"
 # Only when it can't roll Glass back: the active copy is the /data update, and it is the module's APK byte for byte, or

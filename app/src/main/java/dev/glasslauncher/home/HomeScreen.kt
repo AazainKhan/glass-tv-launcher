@@ -743,6 +743,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         })
     }
+    // P98: APK mode, the remote has been gone for 30 s with the screen on: one card that opens Fire's remote settings.
+    val remoteCard by dev.glasslauncher.system.RemoteWatch.card.collectAsStateWithLifecycle()
+    LaunchedEffect(remoteCard, overlays.isEmpty()) {
+        if (!remoteCard || overlays.isNotEmpty()) return@LaunchedEffect
+        dev.glasslauncher.system.RemoteWatch.cardShown()
+        open(Overlay.Confirm(
+            "Remote not connected",
+            "Hold Home on the remote for 10 s to pair it. If that does nothing, open Fire's remote settings and choose Add New Remote.",
+            "Open Remote Settings",
+        ) { runCatching { dev.glasslauncher.system.SystemControls.openGameControllers(context) } })
+    }
     val keysCard by dev.glasslauncher.system.KeysService.card.collectAsStateWithLifecycle()
     LaunchedEffect(keysCard, overlays.isEmpty()) {
         if (!keysCard || overlays.isNotEmpty()) return@LaunchedEffect

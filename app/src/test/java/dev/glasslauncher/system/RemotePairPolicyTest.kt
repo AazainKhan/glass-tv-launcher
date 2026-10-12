@@ -47,4 +47,28 @@ class RemotePairPolicyTest {
         assertEquals(Action.Ignore, RemotePairPolicy.decide(ad.copy(amazon = false), state))
         assertEquals(Action.Ignore, RemotePairPolicy.decide(ad.copy(hid = false), state))
     }
+
+    @Test fun aNearUnbondedRemoteThatIsNotDiscoverableIsAStaleBond() {
+        val waking = ad.copy(discoverable = false, rssi = -50)
+        assertEquals(Action.StaleBond, RemotePairPolicy.decide(waking, state))
+        assertEquals("a far one is a neighbour's", Action.Ignore, RemotePairPolicy.decide(waking.copy(rssi = -80), state))
+        assertEquals("we hold a bond with another remote", Action.Ignore, RemotePairPolicy.decide(waking, state.copy(haveBondedRemote = true)))
+        assertEquals("a bonded one reconnecting is the system's job", Action.Ignore, RemotePairPolicy.decide(waking, state.copy(bonded = setOf(ad.address))))
+        assertEquals("a discoverable one is bonded as before", Action.Bond, RemotePairPolicy.decide(ad.copy(rssi = -50), state))
+    }
+
+    @Test fun theConnectedToastNeedsAGapOfThirtySeconds() {
+        assertEquals("never seen it go", false, RemotePairPolicy.reconnectToast(0L, 100_000L))
+        assertEquals("a blip", false, RemotePairPolicy.reconnectToast(100_000L, 110_000L))
+        assertEquals("just under", false, RemotePairPolicy.reconnectToast(100_000L, 129_999L))
+        assertEquals("30 s", true, RemotePairPolicy.reconnectToast(100_000L, 130_000L))
+    }
+
+    @Test fun anInputDeviceOrARemoteNameIsARemote() {
+        assertEquals(true, RemotePairPolicy.looksLikeRemote(0x0500, null))
+        assertEquals(true, RemotePairPolicy.looksLikeRemote(null, "Fire TV Remote"))
+        assertEquals(true, RemotePairPolicy.looksLikeRemote(null, "AR"))
+        assertEquals(false, RemotePairPolicy.looksLikeRemote(0x0200, "Phone"))
+        assertEquals(false, RemotePairPolicy.looksLikeRemote(null, null))
+    }
 }

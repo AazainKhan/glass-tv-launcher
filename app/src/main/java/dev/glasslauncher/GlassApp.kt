@@ -55,6 +55,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
                     .onFailure { android.util.Log.w("GlassApp", "remote pairing didn't start", it) }
             }
         }
+        dev.glasslauncher.system.RemoteWatch.start(this)
         // A store visit cut short (Glass restarted): put Glass back as Home.
         chore(Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(this@GlassApp, bringHome = false) }
     }
