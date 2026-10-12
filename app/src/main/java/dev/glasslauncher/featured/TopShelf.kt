@@ -424,10 +424,13 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             d.cast.forEach { p ->
                                 Column(Modifier.width(80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Box(Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))) {
+                                    Box(Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                        // Initials always sit under the photo: a face that never loads (offline, a missing
+                                        // URL, a slow stick) leaves a person, not an empty grey disc (P110 fail).
+                                        Text(initials(p.name), style = Type.title, color = Color.White.copy(alpha = 0.85f), maxLines = 1, softWrap = false)
                                         p.photo?.let {
                                             AsyncImage(
-                                                model = ImageRequest.Builder(context).data(it).crossfade(true).build(),
+                                                model = ImageRequest.Builder(context).data(it).size(128, 128).crossfade(true).build(),
                                                 contentDescription = p.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
                                             )
                                         }
@@ -446,6 +449,16 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** "Keanu Reeves" -> "KR": up to two letters, first and last word. */
+internal fun initials(name: String): String {
+    val words = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return when {
+        words.isEmpty() -> ""
+        words.size == 1 -> words[0].take(1).uppercase()
+        else -> (words.first().take(1) + words.last().take(1)).uppercase()
     }
 }
 

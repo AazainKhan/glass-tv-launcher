@@ -45,3 +45,12 @@ class ShelfDetailsTest {
         assertTrue(d.isEmpty)
     }
 }
+
+class InitialsTest {
+    @Test fun firstAndLastWordUpperCase() {
+        assertEquals("KR", initials("Keanu Reeves"))
+        assertEquals("JD", initials("jane  mary doe"))
+        assertEquals("M", initials("Madonna"))
+        assertEquals("", initials("   "))
+    }
+}
