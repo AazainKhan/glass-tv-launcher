@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +56,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.transformations
+import dev.glasslauncher.app
 import dev.glasslauncher.home.stopAtRowEnds
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalMetrics
@@ -376,15 +379,24 @@ private fun ShelfButton(
     }
 }
 
-/** More Info: the whole synopsis and details on a dark glass sheet over the dimmed shelf. Back closes it. */
+/**
+ * More Info (P110): what the shelf does not already show: the cast with their photos, the director and writers,
+ * country, seasons and awards, on a dark glass sheet over the dimmed shelf. The title, synopsis and the rating, year,
+ * runtime and genre line are on the shelf, so they are not repeated beyond the title. Back closes it.
+ */
 @Composable
 private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
     val focus = remember { FocusRequester() }
     androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val context = LocalContext.current
+    // null while it loads; a state with nothing in it when the title has no more to say.
+    val details by androidx.compose.runtime.produceState<ShelfDetails?>(null, item.id) {
+        value = runCatching { ShelfDetails.load(context.app.http, item) }.getOrNull() ?: ShelfDetails()
+    }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).testTag("shelf-info-sheet"), contentAlignment = Alignment.Center) {
         Column(
             Modifier
-                .width(560.dp)
+                .width(600.dp)
                 .background(Color(0xE61C1C1E), RoundedCornerShape(28.dp))
                 .padding(32.dp)
                 .focusRequester(focus)
@@ -396,11 +408,54 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                     close
                 }
                 .focusable(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(item.title, style = Type.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            item.metaLine()?.let { Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.72f), modifier = Modifier.padding(top = 8.dp)) }
-            item.description?.let { Text(it, style = Type.body, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 16.dp)) }
+            val d = details
+            when {
+                d == null -> Text("Loading details…", style = Type.secondary, color = Color.White.copy(alpha = 0.6f))
+                d.isEmpty -> {
+                    // Nothing more is known: the synopsis is the one thing the sheet can still say.
+                    item.description?.let { Text(it, style = Type.body, color = Color.White.copy(alpha = 0.9f)) }
+                }
+                else -> {
+                    if (d.cast.isNotEmpty()) {
+                        Text("Cast", style = Type.secondary.copy(fontWeight = FontWeight.SemiBold), color = Color.White.copy(alpha = 0.6f))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            d.cast.forEach { p ->
+                                Column(Modifier.width(80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))) {
+                                        p.photo?.let {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context).data(it).crossfade(true).build(),
+                                                contentDescription = p.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
+                                    }
+                                    Text(p.name, style = Type.caption, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
+                                    p.role?.let { Text(it, style = Type.caption, color = Color.White.copy(alpha = 0.55f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+                                }
+                            }
+                        }
+                    }
+                    InfoRow("Directed by", d.directors.joinToString(", "))
+                    InfoRow("Written by", d.writers.joinToString(", "))
+                    InfoRow("Country", d.country.orEmpty())
+                    InfoRow("Seasons", d.seasons?.toString().orEmpty())
+                    InfoRow("Awards", d.awards.orEmpty())
+                }
+            }
         }
+    }
+}
+
+/** One label and its value, left out when there is no value. */
+@Composable
+private fun InfoRow(label: String, value: String) {
+    if (value.isBlank()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(label, style = Type.secondary, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.width(120.dp))
+        Text(value, style = Type.secondary, color = Color.White, modifier = Modifier.weight(1f))
     }
 }
 

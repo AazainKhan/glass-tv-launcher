@@ -114,13 +114,18 @@ suspend fun FeaturedFeed.withCinemeta(http: OkHttpClient): FeaturedFeed = withCo
     copy(items = kotlinx.coroutines.coroutineScope { items.map { item -> async { enrich(item, imdb, http) } }.map { it.await() } })
 }
 
-private fun enrich(item: FeaturedItem, imdb: Regex, http: OkHttpClient): FeaturedItem {
-    val m = item.link?.let { imdb.find(it) } ?: return item
+/** The Cinemeta meta of [item] (cached by IMDb id), or null when its link has none. Blocking: call off the main thread. */
+internal fun cinemetaFor(item: FeaturedItem, http: OkHttpClient): JsonObject? {
+    val m = item.link?.let { Regex("(movie|series)/(tt\\d+)").find(it) } ?: return null
     // Stremio's rows sometimes label series as movies, so try the other type too.
     val types = listOf(m.groupValues[1], if (m.groupValues[1] == "movie") "series" else "movie")
-    val o = cinemetaCache[m.groupValues[2]] ?: types.firstNotNullOfOrNull { t ->
+    return cinemetaCache[m.groupValues[2]] ?: types.firstNotNullOfOrNull { t ->
         runCatching { http.getJson("https://v3-cinemeta.strem.io/meta/$t/${m.groupValues[2]}.json").jsonObject["meta"] as? JsonObject }.getOrNull()
-    }?.also { cinemetaCache[m.groupValues[2]] = it } ?: return item
+    }?.also { cinemetaCache[m.groupValues[2]] = it }
+}
+
+private fun enrich(item: FeaturedItem, imdb: Regex, http: OkHttpClient): FeaturedItem {
+    val o = cinemetaFor(item, http) ?: return item
     return runCatching {
         item.copy(
             image = o["background"].str() ?: item.image,
