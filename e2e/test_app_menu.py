@@ -44,10 +44,10 @@ def test_edit_home_screen_enters_and_leaves_move_mode(tv, home, menu):
     menu.focus_text("Edit Home Screen")
     menu.select()
     # The tree can't be read while tiles wiggle (uiautomator needs an idle screen), so look instead: the
-    # banner is a light glass pill in the bottom centre, where Home otherwise shows dark backdrop or tiles.
+    # banner's labels are near-white text in the bottom centre in both themes (its scrim is light or near-black),
+    # where Home otherwise shows only dim backdrop or tile edges (98th percentile ~0.14 there, 0.86+ with the banner).
     band = (0.3, 0.87, 0.7, 0.93)
-    before = 0.0
-    tv.wait_until(lambda: tv.region_brightness(*band) > 0.12, 4, "the rearranging banner")
+    tv.wait_until(lambda: tv.region_brightness(*band, percentile=0.98) > 0.5, 4, "the rearranging banner")
     tv.press("back")
     tv.wait_for(lambda t: t.focused() is not None and t.find(rid=f"app:{SAFE_APP}"), 6, "move mode to end (tree readable again)")
     assert not tv.tree().find(rid="move-banner"), "the banner is still up after Back"

@@ -249,9 +249,10 @@ class TV:
         px = list(img.crop((l, t, r, b)).getdata())
         return sum(px) / max(1, len(px)) / 255
 
-    def region_brightness(self, left: float, top: float, right: float, bottom: float) -> float:
-        """Mean brightness (0..1) of a region of the screen (fractions). For states the accessibility
-        tree can't report: uiautomator won't dump while something animates (move mode's wiggle)."""
+    def region_brightness(self, left: float, top: float, right: float, bottom: float, percentile: float | None = None) -> float:
+        """Mean brightness (0..1) of a region of the screen (fractions), or the given percentile (0..1) of its
+        pixels. For states the accessibility tree can't report: uiautomator won't dump while something animates
+        (move mode's wiggle)."""
         import io
         from PIL import Image
         png = subprocess.run(["adb", "-s", self.serial, "exec-out", "screencap", "-p"], capture_output=True, timeout=30).stdout
@@ -259,6 +260,8 @@ class TV:
         w, h = img.size
         crop = img.crop((int(left * w), int(top * h), int(right * w), int(bottom * h)))
         px = list(crop.getdata())
+        if percentile is not None:
+            return sorted(px)[min(len(px) - 1, int(len(px) * percentile))] / 255
         return sum(px) / len(px) / 255
 
     def frames_reset(self) -> None:

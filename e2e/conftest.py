@@ -98,8 +98,14 @@ def home(tv: TV) -> Home:
     yield h
     # A Control Center window still attached once Control Center is closed is invisible but takes every
     # Select (seen once on 2026-10-09: no tile, menu row or button responded until it was removed).
+    # Since P111 d the closed window stays parked (1x1, not focusable, not touchable), which takes no input: only a
+    # window that still takes input counts.
     def stale_cc() -> bool:
-        return "Glass Control Center" in tv.sh("dumpsys window windows | grep 'Window #'") and not tv.tree().find(rid="control-center")
+        block = tv.sh("dumpsys window windows | sed -n '/Glass Control Center}:/,/mFrame=/p'")
+        if not block.strip():
+            return False
+        parked = "NOT_FOCUSABLE" in block and "NOT_TOUCHABLE" in block
+        return not parked and not tv.tree().find(rid="control-center")
     if stale_cc():
         time.sleep(1.5)  # it may still be playing its close
         assert not stale_cc(), "a closed Control Center left its window attached (it swallows Select)"
