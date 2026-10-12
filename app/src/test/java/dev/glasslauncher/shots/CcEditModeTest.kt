@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
-/** P83 M2: Control Center's edit mode through the remote: enter from the Edit pill, lift, move, drop, Back saves. */
+/** P83 M2: Control Center's edit mode through the remote: open from Settings, lift, move, drop, Back saves. */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = TV)
 class CcEditModeTest {
@@ -28,15 +28,14 @@ class CcEditModeTest {
         TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             compose.waitForHome()
+            dev.glasslauncher.home.CcEditEntry.startInEdit = true
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
             compose.waitForTag("control-center")
             compose.settle()
             assertTrue("starts packed as today: Wi-Fi above Bluetooth", top("wifi") < top("bluetooth"))
-            // Down to the Edit pill, Select: edit mode, with its hints.
-            repeat(12) { if (compose.focused()?.startsWith("cc-edit") != true) compose.press(Button.Down) }
-            compose.press(Button.Select)
+            // Edit mode is only entered from Settings › Control Center (P101): Control Center opens already editing.
             compose.settle()
-            assertTrue("edit mode shows its hints", hints() == 1)
+            assertTrue("edit mode is on: the Add a Control cell is in the grid", exists("cc-add"))
             // Golden: every removable tile wears its legend, the hints sit under the grid (wobble is a transform only).
             compose.onRoot().captureRoboImage(shot("cc-edit-mode"))
             // Focus is on Settings; Right goes to Wi-Fi. Select lifts it; Down moves it into the row below; Select drops.
@@ -46,7 +45,7 @@ class CcEditModeTest {
             // Back leaves edit mode (and saves): Control Center is still open, hints gone.
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
-            assertTrue("edit mode is over", hints() == 0)
+            assertTrue("edit mode is over", !exists("cc-add"))
             assertTrue("Wi-Fi now sits below Bluetooth (top ${top("wifi")} vs ${top("bluetooth")})", top("wifi") > top("bluetooth"))
         }
     }
@@ -64,11 +63,11 @@ class CcEditModeTest {
         TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             compose.waitForHome()
+            dev.glasslauncher.home.CcEditEntry.startInEdit = true
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
             compose.waitForTag("control-center")
             compose.settle()
-            repeat(12) { if (compose.focused()?.startsWith("cc-edit") != true) compose.press(Button.Down) }
-            compose.press(Button.Select)
+            // Edit mode is only entered from Settings › Control Center (P101): Control Center opens already editing.
             compose.settle()
             // Right to Wi-Fi, Play/Pause removes it (no confirm: the gallery brings it back).
             focusWifi()
@@ -94,7 +93,7 @@ class CcEditModeTest {
             assertTrue("focus landed on it: ${compose.focused()}", compose.focused()?.startsWith("cc-tile:wifi") == true)
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
-            assertTrue("saved and left edit mode", !exists("cc-edit-hints") && exists("cc-tile:wifi"))
+            assertTrue("saved and left edit mode", !exists("cc-add") && exists("cc-tile:wifi"))
         }
     }
 
@@ -102,11 +101,11 @@ class CcEditModeTest {
         TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             compose.waitForHome()
+            dev.glasslauncher.home.CcEditEntry.startInEdit = true
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
             compose.waitForTag("control-center")
             compose.settle()
-            repeat(12) { if (compose.focused()?.startsWith("cc-edit") != true) compose.press(Button.Down) }
-            compose.press(Button.Select)
+            // Edit mode is only entered from Settings › Control Center (P101): Control Center opens already editing.
             compose.settle()
             // Menu resizes the focused tile (Settings has one size: nothing); move to Wi-Fi and resize: focus stays on it.
             focusWifi()
@@ -127,7 +126,7 @@ class CcEditModeTest {
             compose.settle()
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
-            assertTrue("edit mode over, Control Center still open", !exists("cc-edit-hints") && exists("control-center") && exists("cc-tile:wifi"))
+            assertTrue("edit mode over, Control Center still open", !exists("cc-add") && exists("control-center") && exists("cc-tile:wifi"))
         }
     }
 
@@ -138,6 +137,7 @@ class CcEditModeTest {
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
             compose.waitForTag("control-center")
             compose.settle()
+            assertTrue("no edit button in Control Center (edit is entered from Settings only)", !exists("cc-edit") && !exists("cc-add"))
             // Down to the round rows, then Right along them to Restart.
             // The default's third row is Sleep, Clean Up, Restart (AirPlay hides without PhairPlay): one Down, then Right.
             compose.press(Button.Down)

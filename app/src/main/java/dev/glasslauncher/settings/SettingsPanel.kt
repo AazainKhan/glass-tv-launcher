@@ -177,6 +177,7 @@ fun SettingsPanel(
         } else androidx.compose.runtime.CompositionLocalProvider(
             dev.glasslauncher.home.LocalPageKey provides page,
             dev.glasslauncher.home.LocalConfirm provides { c -> open(c) },
+            dev.glasslauncher.home.LocalOpenOverlay provides { o -> open(o) },
         ) { MenuList(pageActive) { first ->
             val f = Modifier.focusRequester(first)
             when (page) {
@@ -1289,13 +1290,20 @@ private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: M
 @Composable
 private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
     PanelTitle("Control Center")
-    Hint("Choose what appears in Control Center. Settings is always there.")
+    // The only way into edit mode (P101): Control Center opens on the right already editing; Done returns here.
+    val openOverlay = dev.glasslauncher.home.LocalOpenOverlay.current
+    MenuRow("Edit Layout", {
+        dev.glasslauncher.home.CcEditEntry.startInEdit = true
+        dev.glasslauncher.home.CcEditEntry.fromSettings = true
+        openOverlay(dev.glasslauncher.home.Overlay.ControlCenter)
+    }, f, chevron = true)
+    Hint("Move, resize, remove and add controls. Control Center opens on the right; Done returns here.")
     dev.glasslauncher.home.CONTROL_CENTER_TILES.forEachIndexed { i, (id, label) ->
         val layout = dev.glasslauncher.home.CcLayout.resolve(cfg.ccLayout, cfg.ccHidden)
         ToggleRow(label, layout.shown(id), { on ->
             // The old per-tile switches fold into the layout (ccHidden is read once, then cleared).
             model.edit { c -> c.copy(ccLayout = dev.glasslauncher.home.CcLayout.resolve(c.ccLayout, c.ccHidden).withShown(id, on).toJson(), ccHidden = emptySet()) }
-        }, if (i == 0) f else Modifier)
+        }, Modifier)
     }
 }
 

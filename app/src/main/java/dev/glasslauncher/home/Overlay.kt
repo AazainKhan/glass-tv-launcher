@@ -318,6 +318,9 @@ val LocalPageKey = androidx.compose.runtime.staticCompositionLocalOf<Any?> { nul
 
 /** Settings pages ask for a confirmation card (Restart, Restore…) through this. */
 val LocalConfirm = androidx.compose.runtime.staticCompositionLocalOf<(Overlay.Confirm) -> Unit> { {} }
+
+/** Opens any overlay from a settings page (Settings › Control Center › Edit Layout opens Control Center). */
+val LocalOpenOverlay = androidx.compose.runtime.staticCompositionLocalOf<(Overlay) -> Unit> { {} }
 val LocalTitleSink = androidx.compose.runtime.staticCompositionLocalOf<TitleSink?> { null }
 
 /**

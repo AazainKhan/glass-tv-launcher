@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -240,6 +241,22 @@ data class CcEmergeFrame(val scale: Float, val dx: Float, val dy: Float, val rou
 private val CC_BLEED = 16.dp
 
 /**
+ * How edit mode is entered (P101): only from Launcher Settings › Control Center › Edit Layout. That sets
+ * [startInEdit] (consumed when Control Center opens already in edit mode) and [fromSettings] (Done or Back then
+ * closes Control Center and returns to Settings). There is no edit button and no long-press in Control Center.
+ */
+internal object CcEditEntry {
+    @Volatile var startInEdit = false
+    @Volatile var fromSettings = false
+}
+
+/** tvOS's bottom inset for the panel (about 78 px at 1080p). */
+private val CC_BOTTOM_INSET = 39.dp
+
+/** Edit mode's Add a Control: a pseudo tile id, drawn as a 2x1 cell of the grid after the last tile. */
+private const val ADD_TILE = "__add"
+
+/**
  * Control Center's one material: a small bitmap of the scene behind the panel (the backdrop's clear texture,
  * blurred, with a faint tint and the wash's dim baked in), baked with the backdrop itself ([GlassMatch.ccSheet],
  * off the main thread), so an open only picks it up. Every tile, the page discs, the Now Playing card and the
@@ -441,7 +458,7 @@ val CONTROL_CENTER_TILES = listOf(
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
+fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit, closeTop: () -> Unit = closeAll) {
     // One look in either theme, like the pill and tray: white text and glyphs on clear glass over the
     // dimmed screen (tvOS 27 Control Center isn't themed light or dark).
     val outer = LocalPalette.current
@@ -452,7 +469,7 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
         LocalPalette provides palette,
         androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides remember(rowPx) { CcRowSnap(rowPx) },
     ) {
-        ControlCenterBody(edit, cfg, active, open, closeAll)
+        ControlCenterBody(edit, cfg, active, open, closeAll, closeTop)
     }
 }
 
@@ -470,7 +487,7 @@ private class CcRowSnap(private val row: Float) : androidx.compose.foundation.ge
 }
 
 @Composable
-private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit) {
+private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit, closeTop: () -> Unit) {
     val context = LocalContext.current
     val m = LocalMetrics.current
     val palette = LocalPalette.current
@@ -508,6 +525,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var agentCard by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Restart's confirm is drawn here, over the grid (an overlay opened after Control Center closes was lost).
     var restartAsk by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // Edit mode's hint (P101): a small glass toast at the bottom centre when edit mode opens, gone after a few seconds,
+    // and back for a moment on the first key pressed in edit mode.
+    var hintKick by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var hintShown by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(editing, hintKick) {
+        if (!editing) { hintShown = false; return@LaunchedEffect }
+        hintShown = true
+        kotlinx.coroutines.delay(if (hintKick == 0) 3_500L else 2_200L)
+        hintShown = false
+    }
     // A control that should take focus once it is on screen (a new tile, the one a card or confirm came from).
     var pendingFocus by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Page icons show with more than one page, or while editing (the + icon makes a page).
@@ -547,7 +574,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     LaunchedEffect(exiting) { if (exiting && draft != null) saveDraft() }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { saveDraft() } }
     var liftBase by remember(active) { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
-    fun commitDraft() { saveDraft(); lifted = null; liftBase = null }
+    fun commitDraft() {
+        saveDraft(); lifted = null; liftBase = null
+        // Opened from Settings › Control Center › Edit Layout: Done (or Back) returns there.
+        if (CcEditEntry.fromSettings) { CcEditEntry.fromSettings = false; closeTop() }
+    }
+    LaunchedEffect(active) {
+        if (active && CcEditEntry.startInEdit) {
+            CcEditEntry.startInEdit = false
+            if (draft == null) draft = storedLayout
+        }
+    }
     fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
     // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
     // closing Control Center save too).
@@ -655,9 +692,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     alpha = if (sheetRef.sheet == null) 0f else 1f
                 }
                 // Never over the dock: the panel ends where the tray begins, and its tiles scroll inside that.
-                .heightIn(max = m.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp))
+                // The panel is as tall as its content, up to the screen's bottom inset, like tvOS (P101): the default page
+                // fits with no scrolling, and it is no longer cut off at the dock's top.
+                .heightIn(max = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - CC_BOTTOM_INSET)
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
+                .onPreviewKeyEvent { e ->
+                    if (editing && hintKick == 0 && e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) hintKick = 1
+                    false
+                }
                 .testTag("control-center"),
         ) {
             // One band above the tiles (tvOS 27): the time with seconds, the date and the weather on the
@@ -668,7 +711,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             ) {
                 // The time, date and weather grow out of the pill's clock (tvOS slides the time out of the pill).
                 val headerEmerge = remember(motion) { CcEmerge(motion, CcRole.Header) }
-                Column(Modifier.weight(1f).ccEmerge(headerEmerge).graphicsLayer { alpha = if (motion.enabled) CcMorph.headerAlpha(motion.p) else 1f }) {
+                // In the gallery the time and the title sit over the bare cover art: they get the panel's glass behind them.
+                Column(
+                    Modifier.weight(1f).ccEmerge(headerEmerge).graphicsLayer { alpha = if (motion.enabled) CcMorph.headerAlpha(motion.p) else 1f }
+                        .then(if (gallery != null) Modifier.ccSurface(RoundedCornerShape(18.dp), LocalCcSheet.current).padding(horizontal = 10.dp, vertical = 6.dp) else Modifier),
+                ) {
                     Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
                     Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 6.dp).testTag("cc-date"))
                     // Equal air between the three lines as drawn: the clock's own leading already sits under it,
@@ -707,19 +754,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 }
             }
             val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
-            if (editing && gallery == null && !agentCard) Box(
-                Modifier.padding(bottom = 4.dp).width(sz.column).ccSurface(RoundedCornerShape(22.dp), LocalCcSheet.current)
-                    .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-edit-hints"),
-            ) {
-                Text(
-                    if (lifted != null) "Move · Select Drop\nBack Cancel" else "Select Move · ≡ Size · ⏯ Remove\nBack Done",
-                    style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2,
-                )
-            }
             if (gallery != null && !restartAsk && !agentCard) Text(
                 when (gallery) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
                 style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White,
-                modifier = Modifier.offset(x = -CC_BLEED).width(sz.column).padding(start = 4.dp, bottom = 6.dp),
+                modifier = Modifier.offset(x = -CC_BLEED).width(sz.column).padding(start = 4.dp, bottom = 6.dp)
+                    .ccSurface(RoundedCornerShape(14.dp), LocalCcSheet.current).padding(horizontal = 10.dp, vertical = 5.dp),
             )
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
@@ -746,6 +785,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
+            val scrollState = androidx.compose.foundation.rememberScrollState()
             if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
@@ -753,16 +793,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     // The viewport starts 14 dp below the header's bottom while the tiles keep their place (content
                     // starts 2 dp inside it), so a scrolled row is cut under the header, not over its text.
                     .padding(top = CC_BLEED - 2.dp)
-                    // Whole rows: the viewport ends at the last row that fits, never through one.
-                    .layout { measurable, c ->
-                        val pitch = (sz.round + sz.gap).roundToPx(); val gapPx = sz.gap.roundToPx()
-                        val top = 2.dp.roundToPx(); val tail = 0
-                        val rowsFit = ((c.maxHeight - top + gapPx - tail) / pitch).coerceAtLeast(1)
-                        val h = (top + rowsFit * pitch - gapPx + tail).coerceAtMost(c.maxHeight)
-                        val p = measurable.measure(c.copy(minHeight = 0, maxHeight = h))
-                        layout(p.width, p.height) { p.placeRelative(0, 0) }
-                    }
-                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    // No hard cut line (P101, tvOS): the viewport's top and bottom edges fade out while there is more to
+                    // scroll that way (one baked alpha gradient, applied only when the content overflows).
+                    .ccEdgeFade(scrollState)
+                    .verticalScroll(scrollState)
                     .padding(start = CC_BLEED, end = CC_BLEED, top = 2.dp, bottom = CC_BLEED)
                     .padding(bottom = m.chromeInset)
                     .width(sz.column),
@@ -777,7 +811,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val u = sz.round
             val pid = layout.page(shownPage)?.id ?: layout.pages.first().id
             val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance" -> rooted; "vpn" -> vpnApps.isNotEmpty(); else -> true } }
-            val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) }
+            // Edit mode (P101): Add a Control is a 2x1 cell of the grid itself, after the last tile (first fit, same pitch),
+            // not a pill floating under it. It is not part of the layout: only drawn and focusable.
+            val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) } +
+                (if (editing && lifted == null && gallery == null) listOf(CcTile(ADD_TILE, CcSize.S2x1)) else emptyList())
             val placed = remember(tilesNow) { CcPacking.pack(tilesNow) }
             val rows = placed.maxOfOrNull { it.row + it.tile.size.h } ?: 0
             var focusedId by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
@@ -823,7 +860,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             fun addControl(id: String) {
                 val d = draft ?: return
-                draft = d.add(pid, id)
+                // A page holds seven rows (no scrolling, P101): what doesn't fit goes to the next page, made if need be.
+                draft = d.addFitting(pid, id, CcControls.MAX_ROWS)
                 gallery = null
                 pendingFocus = id
             }
@@ -891,6 +929,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             // Menu: the next size the focused control allows; neighbours repack.
                             if (down) focusedId?.let { id -> draft = draft?.resize(pid, id); pendingFocus = id }
                             true
+                        } else if (k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN && focusedId != null && focusedId != ADD_TILE) {
+                            // The 2-wide Add cell may not sit under the tile Down is pressed on (a short last row): from a
+                            // tile in the row above it, Down still lands on it, as it did when it was a full-width pill.
+                            val me = placed.firstOrNull { it.tile.id == focusedId }
+                            val add = placed.firstOrNull { it.tile.id == ADD_TILE }
+                            if (me != null && add != null && me.row + me.tile.size.h == add.row) {
+                                if (down) runCatching { requesters[ADD_TILE]?.requestFocus() }
+                                true
+                            } else false
                         } else false
                     },
             ) {
@@ -901,7 +948,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     val pitchPx = with(androidx.compose.ui.platform.LocalDensity.current) { (u + sz.gap).roundToPx() }
                     val off by androidx.compose.animation.core.animateIntOffsetAsState(
                         androidx.compose.ui.unit.IntOffset(pitchPx * pl.col, pitchPx * pl.row),
-                        if (reduceMotion) androidx.compose.animation.core.tween(120) else androidx.compose.animation.core.tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
+                        // tvOS's overlay spring (about 90% in 130 ms, settled by 200 ms), not a timed tween.
+                        if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(0.9f, 700f, androidx.compose.ui.unit.IntOffset(1, 1)),
                         label = "cc-slot",
                     )
                     val isLifted = lifted == id
@@ -911,8 +959,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     )
                     val label: (String?) -> Unit = { roundLabel = it }
                     // Select acts, or in edit mode lifts and drops; hold Select enters edit mode; Play/Pause removes there.
-                    fun tap(go: () -> Unit): () -> Unit = { if (editing) liftToggle(id) else go() }
-                    val hold: (() -> Unit)? = if (editing) null else ({ enterEdit(); focusedId = id })
+                    fun tap(go: () -> Unit): () -> Unit = { if (editing && id != ADD_TILE) liftToggle(id) else go() }
+                    // No long-press to edit (P101): edit mode is only entered from Settings › Control Center.
+                    val hold: (() -> Unit)? = null
                     fun playOr(go: () -> Unit): () -> Unit = { if (editing) removeTile(id) else go() }
                     val requester = if (id == "fire_settings") first else remember(id) { requesters.getOrPut(id) { FocusRequester() } }
                     val focusMod = Modifier.focusRequester(requester).onFocusChanged { if (it.isFocused) focusedId = id }
@@ -924,12 +973,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             // No layer of its own at rest: only while editing, lifting or settling a lift.
                             .then(if (editing || liftScale != 1f) Modifier.graphicsLayer {
                                 scaleX = liftScale; scaleY = liftScale
-                                if (wobbling) rotationZ = 0.8f * kotlin.math.sin(((wobbleClock.value + pl.row * 0.13f + pl.col * 0.29f) * 2f * Math.PI).toFloat())
+                                if (wobbling && id != ADD_TILE) rotationZ = 0.8f * kotlin.math.sin(((wobbleClock.value + pl.row * 0.13f + pl.col * 0.29f) * 2f * Math.PI).toFloat())
                             } else Modifier)
-                            .testTag("cc-tile:$id"),
+                            .testTag(if (id == ADD_TILE) "cc-add" else "cc-tile:$id"),
                     ) {
                         val one = tile.size == CcSize.S1x1
                         when (id) {
+                            ADD_TILE -> CcTile("Add a Control", null, Shapes.pill, w, h, onClick = { gallery = "" }, modifier = focusMod) { fg ->
+                                PillContent(R.drawable.ic_add, "Add a Control", null, fg, on = false, accent = fg)
+                            }
                             "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), w, h, modifier = focusMod,
                                 onClick = tap { closeAll(); open(Overlay.TvSettings) }, onLongClick = hold, onPlay = playOr { closeAll(); open(Overlay.TvSettings) }, wiggle = wobbleOn) { fg ->
                                 BigIcon(R.drawable.ic_settings, "Settings", fg)
@@ -1038,7 +1090,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             id, tile.size, w, h, agents, { agentCard = true }, focusMod, hold, wobbleOn, ::tap, ::playOr, label,
                         )
                         // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.
-                        if (editing && CcControls.removable(id)) Box(
+                        if (editing && id != ADD_TILE && CcControls.removable(id)) Box(
                             Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp).size(18.dp)
                                 .background(Color(0xE61C1C1E), CircleShape),
                             contentAlignment = Alignment.Center,
@@ -1046,14 +1098,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     }
                 }
             }
-            if (editing && lifted == null) CcTile("Add a Control", null, Shapes.pill, sz.column, sz.pill, onClick = { gallery = "" }, modifier = Modifier.padding(top = sz.gap).testTag("cc-add")) { fg ->
-                PillContent(R.drawable.ic_add, "Add a Control", null, fg, on = false, accent = fg)
-            }
             if (!editing) {
-                // The Edit pill: discoverability for hold-Select.
-                CcTile("Edit", null, Shapes.pill, sz.pillWidth, sz.pill, onClick = { enterEdit(refocus = true) }, modifier = Modifier.testTag("cc-edit")) { fg ->
-                    PillContent(R.drawable.ic_edit_square, "Edit", null, fg, on = false, accent = fg)
-                }
                 // The focused round button's name. It takes its line (so the column doesn't jump as focus moves),
                 // except while music plays: then the music card follows the buttons on the grid's gap instead.
                 if (np == null) Text(
@@ -1075,6 +1120,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             }
         }
+        // Edit mode's hint (P101): one toast on the panel's own glass, at the bottom centre, never over the tiles.
+        CcEditHint(shown = hintShown, lifted = lifted != null, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp))
         // Home's pill itself on the first frame (same glass, clock and gear, at its spot), fading as the drops form
         // and back as they merge, so neither end cuts from the pill to Control Center (tvOS: the pill fades out by
         // about 30% of the open). Drawn over the panel, so the drops stay under it until it has gone. Only over
@@ -1358,7 +1405,7 @@ private fun ccPageIcon(page: CcPage): Int = when (page.icon) {
     "home" -> R.drawable.ic_home
     "alexa" -> R.drawable.ic_mic
     "more" -> R.drawable.ic_apps
-    "grid" -> R.drawable.ic_tune
+    "grid" -> R.drawable.ic_tv
     // A page of your own: its first control's glyph; a neutral one while it is empty (so it isn't mistaken for Controls).
     else -> page.tiles.firstNotNullOfOrNull { CcCatalog.entry(it.id)?.icon } ?: R.drawable.ic_widgets
 }
@@ -1389,4 +1436,63 @@ internal object CcFocusPhase {
 
     /** The contrast the content actually has at [alpha] with the flip at [FLIP]. */
     fun chosen(alpha: Float, glass: Float): Float = contrast(alpha, glass, dark = alpha >= FLIP)
+}
+
+/**
+ * Fades the viewport's top and bottom edges while there is more to scroll that way (tvOS: no hard cut line). The
+ * mask is one baked gradient drawn DstIn over the layer, and only when the content overflows (otherwise no layer).
+ */
+private fun Modifier.ccEdgeFade(state: androidx.compose.foundation.ScrollState, fade: androidx.compose.ui.unit.Dp = 24.dp): Modifier =
+    this.then(Modifier.graphicsLayer {
+        compositingStrategy = if (state.maxValue > 0) androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+            else androidx.compose.ui.graphics.CompositingStrategy.Auto
+    }).then(Modifier.drawWithContent {
+        drawContent()
+        if (state.maxValue <= 0) return@drawWithContent
+        val f = fade.toPx().coerceAtMost(size.height / 2f)
+        val top = (state.value > 0)
+        val bottom = (state.value < state.maxValue)
+        if (!top && !bottom) return@drawWithContent
+        val k = f / size.height
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to if (top) Color.Transparent else Color.Black,
+                k to Color.Black,
+                (1f - k) to Color.Black,
+                1f to if (bottom) Color.Transparent else Color.Black,
+            ),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+    })
+
+/**
+ * The edit-mode hint: each action its own key-cap and word, spaced apart ([Select] Move  [≡] Size  [⏯] Remove
+ * [Back] Done), on the same baked glass as the tiles. Muted: it is a hint, not a control.
+ */
+@Composable
+private fun CcEditHint(shown: Boolean, lifted: Boolean, modifier: Modifier = Modifier) {
+    val a by androidx.compose.animation.core.animateFloatAsState(
+        if (shown) 1f else 0f, androidx.compose.animation.core.spring(0.9f, 700f), label = "cc-hint",
+    )
+    if (!shown && a <= 0.01f) return
+    val items = if (lifted) listOf("Select" to "Drop", "Back" to "Cancel")
+        else listOf("Select" to "Move", "≡" to "Size", "⏯" to "Remove", "Back" to "Done")
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(22.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .graphicsLayer { alpha = a * 0.92f; translationY = (1f - a) * 10.dp.toPx() }
+            .ccSurface(RoundedCornerShape(26.dp), LocalCcSheet.current)
+            .padding(horizontal = 22.dp, vertical = 11.dp)
+            .testTag("cc-edit-hints"),
+    ) {
+        items.forEach { (key, word) ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+                ) { Text(key, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White.copy(alpha = 0.85f), maxLines = 1, softWrap = false) }
+                Text(word, style = Type.caption, color = Color.White.copy(alpha = 0.62f), maxLines = 1, softWrap = false)
+            }
+        }
+    }
 }

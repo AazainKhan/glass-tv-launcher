@@ -60,6 +60,27 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         return withPage(pageId) { it.copy(tiles = it.tiles + CcTile(id, s)) }
     }
 
+    /**
+     * The gallery's add, kept within [maxRows] packed rows per page: a control that would make [pageId] taller goes to
+     * the next page that has room (a new page is made after the last editable one when none does).
+     */
+    fun addFitting(pageId: String, id: String, maxRows: Int): CcLayout {
+        if (!CcControls.repeatable(id) && pages.any { p -> p.tiles.any { it.id == id } }) return this
+        fun rows(tiles: List<CcTile>): Int = CcPacking.pack(tiles).maxOfOrNull { it.row + it.tile.size.h } ?: 0
+        val size = CcControls.sizes(id).first()
+        val order = pages.map { it.id }.filter { it != "alexa" }
+        var at = order.indexOf(pageId).takeIf { it >= 0 } ?: 0
+        while (at < order.size) {
+            val page = page(order[at])!!
+            if (rows(page.tiles + CcTile(id, size)) <= maxRows) return withPage(page.id) { it.copy(tiles = it.tiles + CcTile(id, size)) }
+            at++
+        }
+        val fresh = "page${pages.size}-${System.nanoTime() % 100000}"
+        val newPage = CcPage(fresh, "auto", listOf(CcTile(id, size)))
+        val alexa = pages.indexOfFirst { it.id == "alexa" }
+        return copy(pages = if (alexa >= 0) pages.toMutableList().also { it.add(alexa, newPage) } else pages + newPage)
+    }
+
     /** A lifted tile dropped on another page: removed here, added at the end there. */
     fun moveToPage(fromPage: String, tileId: String, toPage: String): CcLayout {
         val tile = page(fromPage)?.tiles?.firstOrNull { it.id == tileId } ?: return this
@@ -202,6 +223,9 @@ object CcControls {
         "controllers" to ONE, "remotes" to ONE, "appearance" to ONE, "screensaver" to ONE, "switcher" to ONE, "airplay" to ONE,
         "performance" to ONE, "memory" to ONE,
     )
+
+    /** Rows a page holds without scrolling: tvOS's panel is about 867 px tall at 1080p and a row pitch is 112 px. */
+    const val MAX_ROWS = 7
 
     /** Built-ins given once to a layout saved before they existed, and what each goes after (the More page: Controls is a full 4x4). */
     val AUTO_ADD = listOf("remotes")

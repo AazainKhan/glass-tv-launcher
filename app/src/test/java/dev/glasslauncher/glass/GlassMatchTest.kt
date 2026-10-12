@@ -61,11 +61,12 @@ class GlassMatchTest {
         val backdrop = try { kotlinx.coroutines.runBlocking { loader.glassOnly(shot) } } finally { GlassMatch.keepPixels = false }
         val sheet = backdrop.ccSheet
         org.junit.Assert.assertNotNull("glassOnly made no Control Center sheet", sheet)
-        // The right half of the screen, full height, at ~6 dp cells: tens of KB, not a screen-sized copy.
+        // The right three quarters of the screen (edit mode's pop-up sits in the middle), full height, at ~6 dp cells: tens of KB, not a screen-sized copy.
         val px = sheet!!.pixels!!
-        assertTrue("sheet ${px.width}x${px.height}, ${px.pixels.size * 4} bytes", px.width == GlassMatch.CC_COLS && px.pixels.size * 4 <= 32 * 1024)
-        assertEquals(0.5f, sheet.left, 0f); assertEquals(1f, sheet.bottom, 0f)
-        // It is the scene on the right (red), not the dark left half.
-        assertTrue(android.graphics.Color.red(px.pixels[px.pixels.size / 2]) > 2 * android.graphics.Color.blue(px.pixels[px.pixels.size / 2]))
+        assertTrue("sheet ${px.width}x${px.height}, ${px.pixels.size * 4} bytes", px.width == GlassMatch.CC_COLS && px.pixels.size * 4 <= 48 * 1024)
+        assertEquals(GlassMatch.CC_LEFT, sheet.left, 0f); assertEquals(1f, sheet.bottom, 0f)
+        // It is the scene on the right (red), not the dark left half: the middle of the sheet is the red side.
+        val mid = px.pixels[(px.height / 2) * px.width + px.width / 2]
+        assertTrue(android.graphics.Color.red(mid) > 2 * android.graphics.Color.blue(mid))
     }
 }

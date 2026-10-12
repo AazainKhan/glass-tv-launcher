@@ -137,7 +137,7 @@ fun OverlayContent(
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
-        Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll)
+        Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll, close)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
         Overlay.Remotes -> SettingsPage(active) { RemotesPanel(active) }
         Overlay.TvSettings -> SettingsPage(active) {

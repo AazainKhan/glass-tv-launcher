@@ -156,3 +156,31 @@ class CcLayoutTest {
         assertEquals(1, CcLayout.default().withNewBuiltins().pages.sumOf { p -> p.tiles.count { it.id == "remotes" } })
     }
 }
+
+class CcAddFittingTest {
+    private fun full(): CcLayout {
+        // Seven rows of 1x1 circles, four across.
+        val tiles = (0 until 28).map { CcTile("c$it", CcSize.S1x1) }
+        return CcLayout(listOf(CcPage("controls", "grid", tiles), CcPage("alexa", "alexa", emptyList())))
+    }
+
+    @org.junit.Test fun aControlThatWouldMakeAPageTallerThanSevenRowsGoesToANewPage() {
+        val out = full().addFitting("controls", "wifi", CcControls.MAX_ROWS)
+        org.junit.Assert.assertEquals(28, out.page("controls")!!.tiles.size)
+        val added = out.pages.first { p -> p.tiles.any { it.id == "wifi" } }
+        org.junit.Assert.assertNotEquals("controls", added.id)
+        org.junit.Assert.assertEquals("the new page sits before Alexa", "alexa", out.pages.last().id)
+    }
+
+    @org.junit.Test fun aPageWithRoomTakesItAsBefore() {
+        val small = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("a", CcSize.S1x1)))))
+        val out = small.addFitting("controls", "wifi", CcControls.MAX_ROWS)
+        org.junit.Assert.assertEquals(listOf("a", "wifi"), out.page("controls")!!.tiles.map { it.id })
+    }
+
+    @org.junit.Test fun theNextPageWithRoomIsUsedBeforeANewOneIsMade() {
+        val l = full().let { it.copy(pages = it.pages.toMutableList().also { p -> p.add(1, CcPage("more", "more", listOf(CcTile("x", CcSize.S1x1)))) }) }
+        val out = l.addFitting("controls", "wifi", CcControls.MAX_ROWS)
+        org.junit.Assert.assertEquals(listOf("x", "wifi"), out.page("more")!!.tiles.map { it.id })
+    }
+}
