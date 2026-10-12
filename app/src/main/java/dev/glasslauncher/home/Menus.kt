@@ -425,7 +425,11 @@ private fun FolderView(
     // The home screen behind is shown blurred (a snapshot, Home not drawn), with a frosted panel and a
     // capsule name above it.
     val backdropEnter = rememberOverlayEnter()
-    SnapshotBackdrop({ backdropEnter.value }, LocalBackdrop.current.overlay, fallbackGlass = true)
+    // tvOS blurs the home screen in one frame when a folder opens (motion-spec, P105 #9): the snapshot is already
+    // captured and blurred before the overlay is added, so it is shown at full strength at once instead of fading in
+    // over 130 ms; leaving still fades it out with the panel.
+    val folderLeaving = LocalOverlayExiting.current
+    SnapshotBackdrop({ if (folderLeaving) backdropEnter.value else 1f }, LocalBackdrop.current.overlay, fallbackGlass = true)
     FullOverlay(active) {
         // tvOS: the panel grows out of the folder tile (about 170 ms of travel, settled by ~500 ms) and
         // shrinks back into it on close.

@@ -92,7 +92,7 @@ class CcMorphTest {
         assertEquals(1f, CcMorph.bubble(1.03f, closing = false), 0f)
     }
 
-    // User (P49): crisp, no bounce; open ~350-400 ms, close ~250 ms.
+    // No bounce; open about 200 ms like tvOS (user decision, P105 #1; P49's 350-400 ms is superseded), close ~250 ms.
     @Test fun springsAreCrispWithoutBounce() {
         fun path(spec: androidx.compose.animation.core.SpringSpec<Float>, from: Float, to: Float): List<Float> {
             val v = spec.vectorize(Float.VectorConverter)
@@ -104,7 +104,7 @@ class CcMorphTest {
         val open = path(CcMorph.openSpring, 0f, 1f)
         assertTrue("open overshoot ${open.max()}", open.max() < 1.005f)
         val openMs = open.indexOfFirst { it >= 0.99f } * 4
-        assertTrue("open visibly done at $openMs ms", openMs in 280..420)
+        assertTrue("open visibly done at $openMs ms", openMs in 150..250)
         val close = path(CcMorph.closeSpring, 1f, 0f)
         assertTrue("close undershoot ${close.min()}", close.min() > -0.005f)
         // The window and the in-launcher overlay are removed once the close has visibly landed (within 1% of the

@@ -131,8 +131,11 @@ private const val PILL_FOCUS_SCALE = 1.08f
  * asked for it, and it is built the way that reference allows, one baked fill per shape, no metaball shader.
  */
 object CcMorph {
-    /** Opening: crisp, no bounce (tvOS overlays are ζ ≈ 0.9), about 350–400 ms with the tiles' stagger. */
-    val openSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.9f, stiffness = 260f, visibilityThreshold = 0.001f)
+    /**
+     * Opening: tvOS's overlay spring (zeta 0.9, no bounce), visibly done in about 200 ms with the tiles' stagger (user
+     * decision, P105 #1; it was stiffness 260, 350-400 ms, P49). The stagger is a function of p, so it compresses with it.
+     */
+    val openSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.9f, stiffness = 700f, visibilityThreshold = 0.001f)
     /** Closing: critically damped and quicker, about 250 ms to the pill. */
     val closeSpring = androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 450f, visibilityThreshold = 0.001f)
     /**
