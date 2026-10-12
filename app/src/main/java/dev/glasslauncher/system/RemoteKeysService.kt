@@ -67,7 +67,11 @@ class RemoteKeysService : AccessibilityService() {
                 android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 android.graphics.PixelFormat.TRANSLUCENT,
-            ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.END; x = (44 * dp).toInt(); y = (44 * dp).toInt() }
+            ).apply {
+                // Right edge in line with Home's status pill (22 dp in, 22–54 dp down) and just under it, so on Home the
+                // two capsules stack instead of overlapping.
+                gravity = android.view.Gravity.TOP or android.view.Gravity.END; x = (22 * dp).toInt(); y = (60 * dp).toInt()
+            }
             runCatching {
                 (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params)
                 banner = view
