@@ -84,8 +84,13 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
      */
     private var warm = false
 
-    /** Whether to keep the window warm: the marker file `files/cc-warm` (Yin's A/B on the stick: touch or remove it). */
-    private fun warmWanted(): Boolean = java.io.File(service.filesDir, "cc-warm").exists()
+    /**
+     * Whether to keep the window warm: the marker file `files/cc-warm` (parked 1x1) or `files/cc-warm-full` (parked at
+     * full size, fully transparent: its composition is laid out at the real size, so an open only flips alpha and
+     * input; costs a full-screen surface, which the A/B must measure).
+     */
+    private fun warmWanted(): Boolean = warmFull() || java.io.File(service.filesDir, "cc-warm").exists()
+    private fun warmFull(): Boolean = java.io.File(service.filesDir, "cc-warm-full").exists()
 
     private fun fullParams() = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT,
@@ -108,9 +113,15 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     /** Parks the attached window (1x1, untouchable) instead of removing it. */
     private fun park(v: android.view.View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        lp.width = 1; lp.height = 1; lp.flags = parkedFlags()
+        applyParked(lp)
         runCatching { windows.updateViewLayout(v, lp) }
         warm = true
+    }
+
+    private fun applyParked(lp: WindowManager.LayoutParams) {
+        if (warmFull()) { lp.width = WindowManager.LayoutParams.MATCH_PARENT; lp.height = WindowManager.LayoutParams.MATCH_PARENT; lp.alpha = 0f }
+        else { lp.width = 1; lp.height = 1; lp.alpha = 1f }
+        lp.flags = parkedFlags()
     }
 
     /** Warms the window up when the flag is on: attaches it parked, once, so the first open is only a resize. */
@@ -118,7 +129,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         if (!warmWanted() || view != null || pending) return
         val v = composeView()
         exiting = true
-        val lp = fullParams().apply { width = 1; height = 1; flags = parkedFlags() }
+        val lp = fullParams().also { applyParked(it) }
         runCatching { windows.addView(v, lp) }.onFailure { android.util.Log.w("ControlCenterWindow", "warmUp: addView failed", it); exiting = false; return }
         view = v
         warm = true
@@ -215,7 +226,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             if (warm) {
                 // The parked window grows to the screen and takes input again: no new accessibility window.
                 val lp = v.layoutParams as? WindowManager.LayoutParams
-                if (lp != null) { lp.width = WindowManager.LayoutParams.MATCH_PARENT; lp.height = WindowManager.LayoutParams.MATCH_PARENT; lp.flags = params.flags }
+                if (lp != null) { lp.width = WindowManager.LayoutParams.MATCH_PARENT; lp.height = WindowManager.LayoutParams.MATCH_PARENT; lp.alpha = 1f; lp.flags = params.flags }
                 runCatching { windows.updateViewLayout(v, lp) }.onFailure { android.util.Log.w("ControlCenterWindow", "show: resize failed", it); return }
                 warm = false
                 exiting = false
