@@ -251,6 +251,7 @@ private val SETTINGS_ICONS = mapOf(
     "Font" to dev.glasslauncher.R.drawable.ic_format_size,
     "Text Size" to dev.glasslauncher.R.drawable.ic_format_size,
     "Control Center" to dev.glasslauncher.R.drawable.ic_tune,
+    "Remotes" to dev.glasslauncher.R.drawable.ic_settings_remote,
     "Top Shelf Content" to dev.glasslauncher.R.drawable.ic_tv,
     "Hidden Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
     "Hide Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,

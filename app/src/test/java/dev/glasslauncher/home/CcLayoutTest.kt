@@ -26,7 +26,7 @@ class CcLayoutTest {
 
     @Test fun theSecondDefaultPageIsMore() {
         val more = CcLayout.default().page("more")!!
-        assertEquals(listOf("controllers", "performance", "vpn"), more.tiles.map { it.id })
+        assertEquals(listOf("controllers", "remotes", "performance", "vpn"), more.tiles.map { it.id })
         assertEquals(CcSize.S2x1, more.tiles.last().size)
         assertEquals(listOf("controls", "more", "alexa"), CcLayout.default().pages.map { it.id })
     }
@@ -136,5 +136,23 @@ class CcLayoutTest {
         val p = CcPacking.pack(l.page("controls")!!.tiles.filter { it.id != "addon:gone/x" })
         assertEquals(0 to 1, at(p, "b"))
         assertEquals(listOf("a", "addon:gone/x", "b"), CcLayout.fromJson(l.toJson())!!.page("controls")!!.tiles.map { it.id })
+    }
+
+    @Test fun aNewBuiltinIsGivenOnceToASavedLayoutAndARemovalSticks() {
+        // A layout saved before "remotes" existed: no remotes tile, no autoAdded.
+        val old = CcLayout(listOf(
+            CcPage("controls", "grid", listOf(CcTile("wifi", CcSize.S2x1))),
+            CcPage("more", "more", listOf(CcTile("controllers", CcSize.S1x1), CcTile("vpn", CcSize.S2x1))),
+        ))
+        val migrated = old.withNewBuiltins()
+        assertEquals(listOf("controllers", "remotes", "vpn"), migrated.page("more")!!.tiles.map { it.id })
+        assertEquals(listOf("remotes"), migrated.autoAdded)
+        // Saved, loaded again, nothing more is added; and a user's removal sticks.
+        val reloaded = CcLayout.fromJson(migrated.toJson())!!.withNewBuiltins()
+        assertEquals(migrated.page("more")!!.tiles.map { it.id }, reloaded.page("more")!!.tiles.map { it.id })
+        val removed = reloaded.remove("more", "remotes")
+        assertEquals(false, CcLayout.fromJson(removed.toJson())!!.withNewBuiltins().shown("remotes"))
+        // A fresh default already has it, with no second copy.
+        assertEquals(1, CcLayout.default().withNewBuiltins().pages.sumOf { p -> p.tiles.count { it.id == "remotes" } })
     }
 }

@@ -18,8 +18,11 @@ data class CcTile(val id: String, val size: CcSize)
 
 data class CcPage(val id: String, val icon: String, val tiles: List<CcTile>)
 
-/** [parked]: ids of an uninstalled add-on's tiles, kept so a re-install brings them back (spec 9). */
-data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyList()) {
+/**
+ * [parked]: ids of an uninstalled add-on's tiles, kept so a re-install brings them back (spec 9).
+ * [autoAdded]: new built-ins this layout was given once (so one the user removes stays removed).
+ */
+data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyList(), val autoAdded: List<String> = emptyList()) {
     fun page(id: String): CcPage? = pages.firstOrNull { it.id == id }
 
     private fun withPage(id: String, change: (CcPage) -> CcPage) = copy(pages = pages.map { if (it.id == id) change(it) else it })
@@ -109,11 +112,36 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         v = VERSION,
         pages = pages.map { p -> PageDto(p.id, p.icon, p.tiles.map { TileDto(it.id, it.size.key) }) },
         parked = parked,
+        autoAdded = autoAdded,
     ))
 
     @Serializable private data class TileDto(val id: String, val size: String)
     @Serializable private data class PageDto(val id: String, val icon: String, val tiles: List<TileDto>)
-    @Serializable private data class Dto(val v: Int = 1, val pages: List<PageDto> = emptyList(), val parked: List<String> = emptyList())
+    @Serializable private data class Dto(
+        val v: Int = 1, val pages: List<PageDto> = emptyList(), val parked: List<String> = emptyList(),
+        val autoAdded: List<String> = emptyList(),
+    )
+
+    /**
+     * Built-ins that arrived after a layout was saved are put in once: each id in [CcControls.AUTO_ADD] that this layout
+     * has never been given and doesn't show. It goes after its neighbour ([CcControls.AUTO_ADD_AFTER]) or at the end of
+     * the last editable page; the id is then in [autoAdded], so a user's removal sticks.
+     */
+    fun withNewBuiltins(): CcLayout {
+        var out = this
+        for (id in CcControls.AUTO_ADD) {
+            if (id in out.autoAdded) continue
+            if (out.shown(id)) { out = out.copy(autoAdded = out.autoAdded + id); continue }
+            val after = CcControls.AUTO_ADD_AFTER[id]
+            val host = out.pages.firstOrNull { p -> p.tiles.any { it.id == after } }
+                ?: out.pages.lastOrNull { it.id != "alexa" } ?: out.pages.first()
+            out = out.withPage(host.id) { p ->
+                val at = p.tiles.indexOfFirst { it.id == after }.let { if (it < 0) p.tiles.size else it + 1 }
+                p.copy(tiles = p.tiles.toMutableList().also { it.add(at, CcTile(id, CcControls.sizes(id).first())) })
+            }.copy(autoAdded = out.autoAdded + id)
+        }
+        return out
+    }
 
     companion object {
         const val VERSION = 1
@@ -134,6 +162,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
                     })
                 },
                 parked = dto.parked,
+                autoAdded = dto.autoAdded,
             )
         }
 
@@ -148,11 +177,12 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
                 // Alexa is a page of its own today (a menu-bar icon); the spec's page model keeps it that way until the pages work lands.
                 if ("alexa" !in hidden) add(CcPage("alexa", "alexa", emptyList()))
             }
-            return CcLayout(pages)
+            // A fresh layout already has every built-in: nothing is added to it later.
+            return CcLayout(pages, autoAdded = CcControls.AUTO_ADD)
         }
 
         /** The stored layout, or the default carrying over the old per-tile switches (migration of ccHidden, once). */
-        fun resolve(stored: String?, hidden: Set<String>): CcLayout = fromJson(stored) ?: default(hidden)
+        fun resolve(stored: String?, hidden: Set<String>): CcLayout = (fromJson(stored) ?: default(hidden)).withNewBuiltins()
     }
 }
 
@@ -173,6 +203,10 @@ object CcControls {
         "performance" to ONE, "memory" to ONE,
     )
 
+    /** Built-ins given once to a layout saved before they existed, and what each goes after (the More page: Controls is a full 4x4). */
+    val AUTO_ADD = listOf("remotes")
+    val AUTO_ADD_AFTER = mapOf("remotes" to "controllers")
+
     /** Today's packed order of the Controls page (the spec's default grid, before the new built-ins arrive). */
     val DEFAULT_ORDER = listOf(
         "fire_settings", "wifi", "bluetooth", "sleep_timer", "cleanup", "restart", "airplay",
@@ -190,7 +224,7 @@ object CcControls {
     )
 
     /** The default second page. */
-    val DEFAULT_MORE = listOf(CcTile("controllers", CcSize.S1x1), CcTile("performance", CcSize.S1x1), CcTile("vpn", CcSize.S2x1))
+    val DEFAULT_MORE = listOf(CcTile("controllers", CcSize.S1x1), CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S1x1), CcTile("vpn", CcSize.S2x1))
 
     /** Ids that were renamed: Free Memory became Clean Up (it does both jobs, one tap). */
     fun canonical(id: String): String = if (id == "memory") "cleanup" else id

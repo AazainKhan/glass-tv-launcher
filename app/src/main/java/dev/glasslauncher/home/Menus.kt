@@ -708,7 +708,8 @@ private fun RemotesPanel(active: Boolean) {
             MenuRow(r.name, {}, if (i == 0) Modifier.focusRequester(first) else Modifier, value = r.line)
         }
         SectionLabel("Pair a remote")
-        MenuRow("Hold Home for 10 seconds", {}, if (rows.isEmpty()) Modifier else Modifier, value = "on the remote")
+        // Plain text, not a row: nothing here can be selected, so focus never lands on it.
+        Hint("To pair a remote: hold Home on it for 10 seconds.")
         MenuRow("Fire TV remote settings", { runCatching { dev.glasslauncher.system.SystemControls.openGameControllers(context) } }, chevron = true)
         Hint("Glass pairs a remote on its own while none is connected. If the remote still doesn't pair, hold Left + Menu + Back for 12 seconds, then hold Home for 10 seconds.")
     }

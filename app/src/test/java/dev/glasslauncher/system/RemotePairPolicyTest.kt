@@ -157,3 +157,13 @@ class WriteThrottleTest {
         assertEquals("a clock that went back is allowed", true, t.allow("a", 5_000))
     }
 }
+
+class AmazonRemoteNameTest {
+    @Test fun onlyFireRemotesNotGamepads() {
+        assertEquals(true, RemotePairPolicy.isAmazonRemoteName("AR"))
+        assertEquals(true, RemotePairPolicy.isAmazonRemoteName("Fire TV Remote"))
+        assertEquals(false, RemotePairPolicy.isAmazonRemoteName("Wireless Controller"))
+        assertEquals(false, RemotePairPolicy.isAmazonRemoteName("DualSense"))
+        assertEquals(false, RemotePairPolicy.isAmazonRemoteName(null))
+    }
+}

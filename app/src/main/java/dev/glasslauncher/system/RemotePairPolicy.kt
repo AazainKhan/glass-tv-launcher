@@ -69,6 +69,10 @@ object RemotePairPolicy {
     fun reconnectToast(lastDisconnectMs: Long, nowMs: Long): Boolean =
         lastDisconnectMs > 0 && nowMs - lastDisconnectMs >= RECONNECT_TOAST_AFTER_MS
 
+    /** Fire's own remote by name ("AR", "Fire TV Remote…"), not a gamepad that is also an input peripheral. */
+    fun isAmazonRemoteName(name: String?): Boolean =
+        name == "AR" || (name.orEmpty().contains("Remote", ignoreCase = true) && !name.orEmpty().contains("Controller", ignoreCase = true))
+
     /** An input peripheral (class 0x0500) or one named like Fire's remote. */
     fun looksLikeRemote(majorDeviceClass: Int?, name: String?): Boolean =
         majorDeviceClass == 0x0500 || name.orEmpty().contains("Remote", ignoreCase = true) || name == "AR"

@@ -91,9 +91,8 @@ object RemoteList {
         val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter ?: return emptyList()
         val seen = RemoteRegistry(context).all().associateBy { it.address }
         return runCatching {
-            adapter.bondedDevices.filter {
-                RemotePairPolicy.looksLikeRemote(runCatching { it.bluetoothClass?.majorDeviceClass }.getOrNull(), runCatching { it.name }.getOrNull())
-            }.map { d ->
+            // Amazon remotes only (the user hasn't asked for game controllers here): by name, not by device class.
+            adapter.bondedDevices.filter { RemotePairPolicy.isAmazonRemoteName(runCatching { it.name }.getOrNull()) }.map { d ->
                 val connected = runCatching { android.bluetooth.BluetoothDevice::class.java.getMethod("isConnected").invoke(d) as Boolean }.getOrDefault(false)
                 val battery = runCatching { android.bluetooth.BluetoothDevice::class.java.getMethod("getBatteryLevel").invoke(d) as Int }.getOrDefault(-1)
                 val s = seen[d.address]
