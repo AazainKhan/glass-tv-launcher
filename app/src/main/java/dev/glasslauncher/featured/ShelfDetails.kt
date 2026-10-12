@@ -1,6 +1,7 @@
 package dev.glasslauncher.featured
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -58,10 +59,56 @@ data class ShelfDetails(
             )
         }
 
-        /** The details of [item] from Cinemeta (cached by IMDb id), or null when it has no IMDb link or none arrive. */
+        /**
+         * The details of [item] from Cinemeta (cached by IMDb id), or null when it has no IMDb link or none arrive. The
+         * public Cinemeta meta has the cast as names only (no app_extras, checked), so the faces come from Wikipedia's
+         * page summaries (keyless), looked up in parallel and remembered; a person without one keeps their initials.
+         */
         suspend fun load(http: OkHttpClient, item: FeaturedItem): ShelfDetails? = withContext(Dispatchers.IO) {
             val meta = cinemetaFor(item, http) ?: return@withContext null
-            runCatching { parse(meta) }.getOrNull()?.takeIf { !it.isEmpty }
+            val base = runCatching { parse(meta) }.getOrNull()?.takeIf { !it.isEmpty } ?: return@withContext null
+            val cast = kotlinx.coroutines.coroutineScope {
+                base.cast.map { p -> async { if (p.photo != null) p else p.copy(photo = PersonPhotos.lookup(http, p.name)) } }.map { it.await() }
+            }
+            base.copy(cast = cast)
         }
+    }
+}
+
+/**
+ * A person's photo from Wikipedia's page summary (REST, no key): the thumbnail of the page named after them, accepted only
+ * when its short description says they work in film, TV or music, so a namesake page gives no wrong face. Pure parsing;
+ * the fetch is one small JSON GET, remembered in memory (a hit or a miss) for the process.
+ */
+internal object PersonPhotos {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private const val NONE = ""
+    private val CALLING = Regex("actor|actress|director|filmmaker|comedian|screenwriter|producer|singer|musician|presenter|voice", RegexOption.IGNORE_CASE)
+
+    /** The thumbnail URL in a summary JSON, or null when the page isn't a person of that calling or has no picture. */
+    fun photoFrom(summary: JsonObject): String? {
+        val description = (summary["description"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+        val type = (summary["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (type != null && type != "standard") return null
+        if (!CALLING.containsMatchIn(description)) return null
+        return ((summary["thumbnail"] as? JsonObject)?.get("source") as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.startsWith("https://") }
+    }
+
+    fun lookup(http: OkHttpClient, name: String): String? {
+        cache[name]?.let { return it.takeIf { u -> u != NONE } }
+        val title = java.net.URLEncoder.encode(name.trim().replace(' ', '_'), "UTF-8").replace("+", "%20")
+        val url = runCatching {
+            val req = okhttp3.Request.Builder()
+                .url("https://en.wikipedia.org/api/rest_v1/page/summary/$title")
+                // Wikimedia asks for a descriptive agent.
+                .header("User-Agent", "GlassLauncher/1.0 (https://github.com/AazainKhan/glass-tv-launcher)")
+                .build()
+            http.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) null
+                else photoFrom(kotlinx.serialization.json.Json.parseToJsonElement(r.body?.string().orEmpty()).jsonObject)
+            }
+        }.getOrNull()
+        cache[name] = url ?: NONE
+        return url
     }
 }

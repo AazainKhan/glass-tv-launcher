@@ -54,3 +54,22 @@ class InitialsTest {
         assertEquals("", initials("   "))
     }
 }
+
+class PersonPhotosTest {
+    private fun summary(json: String) = Json.parseToJsonElement(json).jsonObject
+
+    @Test fun anActorsThumbnailIsUsed() {
+        val s = summary("""{"type":"standard","description":"Canadian actor (born 1964)","thumbnail":{"source":"https://upload.wikimedia.org/x/320px-Keanu.jpg","width":320}}""")
+        assertEquals("https://upload.wikimedia.org/x/320px-Keanu.jpg", PersonPhotos.photoFrom(s))
+    }
+
+    @Test fun aNamesakePageOrADisambiguationGivesNoFace() {
+        assertNull(PersonPhotos.photoFrom(summary("""{"type":"standard","description":"River in Spain","thumbnail":{"source":"https://u/x.jpg"}}""")))
+        assertNull(PersonPhotos.photoFrom(summary("""{"type":"disambiguation","description":"actor, singer","thumbnail":{"source":"https://u/x.jpg"}}""")))
+    }
+
+    @Test fun noThumbnailOrANonHttpsOneIsNull() {
+        assertNull(PersonPhotos.photoFrom(summary("""{"type":"standard","description":"American actress"}""")))
+        assertNull(PersonPhotos.photoFrom(summary("""{"type":"standard","description":"American actress","thumbnail":{"source":"http://u/x.jpg"}}""")))
+    }
+}
