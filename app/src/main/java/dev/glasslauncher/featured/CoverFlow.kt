@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -291,8 +292,8 @@ internal object CoverArtCache {
 @Composable
 fun CoverPreview(
     feed: FeaturedFeed, index: Int, expand: () -> Float, restCentreY: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
-    /** A small caption above the covers ("Listen Now", tvOS Music style). */
-    heading: String? = null,
+    /** The focused cover's own title and subtitle above the covers, in small type (P106), the same text the full flow shows under it. */
+    caption: Boolean = false,
 ) {
     val density = LocalDensity.current
     val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
@@ -313,17 +314,34 @@ fun CoverPreview(
     ) {
         CoverFlow(items = feed.items, index = index, onIndex = {}, onOpen = {}, onExit = {}, label = "", focusRequester = focus, preview = true)
     }
-    if (heading != null) {
+    if (caption && feed.items.isNotEmpty()) {
         val inset = dev.glasslauncher.ui.LocalMetrics.current.inset
-        androidx.compose.foundation.text.BasicText(
-            heading,
-            style = Type.secondary.copy(color = Color.White.copy(alpha = 0.78f), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+        val item = feed.items[index.coerceIn(0, feed.items.lastIndex)]
+        Crossfade(
+            item, animationSpec = tween(220), label = "cover-preview-caption",
             modifier = Modifier
                 .padding(start = inset)
-                .offset(y = restCentreY - (COVER_DP * REST_SCALE / 2f).dp - 38.dp)
+                .offset(y = restCentreY - (COVER_DP * REST_SCALE / 2f).dp - 56.dp)
                 .graphicsLayer { alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f) }
-                .testTag("cover-preview-heading"),
-        )
+                .testTag("cover-preview-caption"),
+        ) { it ->
+            Column(Modifier.widthIn(max = 380.dp)) {
+                androidx.compose.foundation.text.BasicText(
+                    it.title,
+                    style = Type.label.copy(color = Color.White.copy(alpha = 0.9f)),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("cover-preview-title"),
+                )
+                it.subtitle?.let { sub ->
+                    androidx.compose.foundation.text.BasicText(
+                        sub,
+                        style = Type.caption.copy(color = Color.White.copy(alpha = 0.68f)),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp).testTag("cover-preview-subtitle"),
+                    )
+                }
+            }
+        }
     }
     }
 }

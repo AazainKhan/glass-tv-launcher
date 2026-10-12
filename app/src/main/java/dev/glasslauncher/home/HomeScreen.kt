@@ -907,7 +907,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 if (previewFeed != null && (previewOn || previewAlpha > 0.01f)) {
                     CoverPreview(
                         feed = previewFeed, index = heroIndex.coerceIn(0, previewFeed.items.lastIndex), expand = { expand.value },
-                        heading = "Listen Now",
+                        caption = true,
                         restCentreY = metrics.trayTop(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) * 0.55f,
                         modifier = Modifier.testTag("cover-preview-host").graphicsLayer {
                             alpha = previewAlpha * idle.chromeAlpha * (1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f))
