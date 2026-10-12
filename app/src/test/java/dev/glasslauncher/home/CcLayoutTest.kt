@@ -184,4 +184,46 @@ class CcAddFittingTest {
         val out = l.addFitting("controls", "wifi", CcControls.MAX_ROWS)
         org.junit.Assert.assertEquals(listOf("x", "wifi"), out.page("more")!!.tiles.map { it.id })
     }
+
+    @Test fun aResizeThatWouldPushThePastTheRowLimitIsSkipped() {
+        // Seven rows of four circles fill the page; a 2x1 anywhere adds a cell and an eighth row.
+        val full = CcLayout(listOf(CcPage("controls", "grid", (1..28).map { CcTile("x$it", S1x1) } + listOf(CcTile("airplay", S1x1)))))
+        assertEquals("a 29th circle already makes 8 rows; nothing fits", full, full.resize("controls", "airplay"))
+        val roomy = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("airplay", S1x1), CcTile("a", S1x1)))))
+        assertEquals(S2x1, roomy.resize("controls", "airplay").page("controls")!!.tiles.first().size)
+    }
+
+    @Test fun anOldLayoutGetsThePillDefaultsOnceAndOnlyWhileTheyAreCircles() {
+        // The pre-F01 default first page: all 1x1 where they were, sixteen cells in four rows.
+        val old = CcLayout(listOf(
+            CcPage("controls", "grid", listOf(
+                CcTile("fire_settings", S2x2), CcTile("wifi", S2x1), CcTile("bluetooth", S2x1),
+                CcTile("sleep_timer", S1x1), CcTile("cleanup", S1x1), CcTile("restart", S1x1), CcTile("airplay", S1x1),
+                CcTile("appearance", S1x1), CcTile("screensaver", S1x1), CcTile("switcher", S1x1), CcTile("launcher", S1x1),
+            )),
+            CcPage("more", "more", listOf(CcTile("controllers", S1x1))),
+        )).toJson().replace("\"v\":2", "\"v\":1")
+        val migrated = CcLayout.fromJson(old)!!
+        val controls = migrated.page("controls")!!.tiles
+        assertEquals(listOf(S2x1, S2x1, S2x1), listOf("sleep_timer", "cleanup", "restart").map { id -> controls.first { it.id == id }.size })
+        assertEquals("page 1 stays four rows", 4, CcPacking.rows(controls))
+        assertTrue("what fell off moves to the front of More, in order",
+            migrated.page("more")!!.tiles.map { it.id }.take(3) == listOf("screensaver", "switcher", "launcher"))
+        // Stored again it is v2: loading it does not touch a size the user then chose.
+        val chosen = migrated.resize("controls", "cleanup").toJson()
+        assertEquals("a choice sticks after the migration", S1x1, CcLayout.fromJson(chosen)!!.page("controls")!!.tiles.first { it.id == "cleanup" }.size)
+    }
+
+    @Test fun aSizeTheUserPickedBeforeTheMigrationIsLeftAlone() {
+        val picked = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("cleanup", S2x1), CcTile("restart", S1x1))))).toJson().replace("\"v\":2", "\"v\":1")
+        val tiles = CcLayout.fromJson(picked)!!.page("controls")!!.tiles
+        assertEquals(S2x1, tiles.first { it.id == "cleanup" }.size)
+        assertEquals(S2x1, tiles.first { it.id == "restart" }.size)
+    }
+
+    @Test fun aTileWithoutASizeDoesNotDropTheLayout() {
+        val json = """{"v":2,"pages":[{"id":"controls","icon":"grid","tiles":[{"id":"wifi"},{"id":"bluetooth","size":"2x1"}]}]}"""
+        val l = CcLayout.fromJson(json)
+        assertTrue(l != null && l.page("controls")!!.tiles.size == 2)
+    }
 }

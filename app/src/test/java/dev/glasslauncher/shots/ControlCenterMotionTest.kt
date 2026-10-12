@@ -135,16 +135,21 @@ class ControlCenterMotionTest {
             compose.settle()
             val opening = compose.frames(Button.Select, frames = 72, stepMs = 16)
             compose.settle()
+            val root = compose.onRoot().fetchSemanticsNode().size
+            val box = tileBounds().entries.first { it.key.startsWith("Bluetooth") }.value
             val closing = compose.frames({ scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } }, frames = 24, stepMs = 16)
-            // The Wi-Fi and Bluetooth pills (not the focused Settings tile, whose white fill fades in by design).
+            // The Bluetooth pill (not the focused Settings tile, whose white fill fades in by design): its middle value over
+            // its settled box, a median so the pill's own text (F03 moved the grid up under it) does not count.
             fun level(b: android.graphics.Bitmap): Float {
-                var sum = 0L; var n = 0
-                for (y in (b.height * 0.17f).toInt() until (b.height * 0.33f).toInt() step 2)
-                    for (x in (b.width * 0.86f).toInt() until (b.width * 0.95f).toInt() step 2) {
-                        val c = b.getPixel(x, y)
-                        sum += ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10; n++
-                    }
-                return sum.toFloat() / n
+                val v = ArrayList<Int>()
+                val x0 = (b.width * box.left / root.width).toInt(); val x1 = (b.width * box.right / root.width).toInt()
+                val y0 = (b.height * box.top / root.height).toInt(); val y1 = (b.height * box.bottom / root.height).toInt()
+                for (y in y0 until y1 step 2) for (x in x0 until x1 step 2) {
+                    val c = b.getPixel(x.coerceIn(0, b.width - 1), y.coerceIn(0, b.height - 1))
+                    v += ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10
+                }
+                v.sort()
+                return if (v.isEmpty()) 0f else v[v.size / 2].toFloat()
             }
             val open = opening.map(::level)
             val settled = open.last()

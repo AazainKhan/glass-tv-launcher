@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -97,7 +98,8 @@ internal class CcSizes(k: Float) {
      * Circles are 1×1, pills 2×1 (as tall as a circle), the big tile 2×2 and square, wide rows 4×1, and the
      * panel 4u + 3·gap. Everything below derives from these two.
      */
-    // 56 dp: the smallest cell whose pills fit "Bluetooth" and "Connected" at the 13 sp floor (JVM test).
+    // 56 dp: the smallest cell whose pills fit "Bluetooth" and "Connected" at the 13 sp floor (JVM test). tvOS's own cell
+    // is 48 dp with 11.5 sp pill text (F04): the cell and the gap stay (the pills' labels must fit at the text floor), the circle glyph follows tvOS.
     val u = (56 * k).dp
     val gap = (9 * k).dp
     val round = u
@@ -108,13 +110,45 @@ internal class CcSizes(k: Float) {
     val column = u * 4 + gap * 3
     val disc = u * 0.5f
     val discGlyph = u * 0.33f
-    val roundGlyph = u * 0.44f
+    // 21 dp at 1x: tvOS's circle glyph (F04).
+    val roundGlyph = (21 * k).dp
     val bigGlyph = u * 0.8f
 }
 
 private val LocalCcPageIconSize = androidx.compose.runtime.staticCompositionLocalOf { 40.dp }
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
+
+/** Whether the tile whose content is being drawn has focus (a pill's long text scrolls only then, F05). */
+private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { false }
+
+/**
+ * A pill's one line of text (F05): never an ellipsis. Text that fits is as it was; text that does not fades out at its
+ * right edge, and scrolls (a marquee) only while its tile has focus, as tvOS's labels do.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, modifier: Modifier = Modifier) {
+    var overflows by remember(text) { androidx.compose.runtime.mutableStateOf(false) }
+    val focused = LocalCcTileFocused.current
+    Text(
+        text, style = style, color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+        onTextLayout = { overflows = it.hasVisualOverflow },
+        modifier = modifier
+            .then(if (overflows && focused) Modifier.basicMarquee(iterations = 3, initialDelayMillis = 500, velocity = 30.dp) else Modifier)
+            .then(
+                if (overflows && !focused) Modifier
+                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(0.78f to Color.Black, 1f to Color.Transparent),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                        )
+                    } else Modifier,
+            ),
+    )
+}
 
 /** The close's progress below which the capsule is the pill again and Home's own pill is shown under it. */
 private const val PILL_BACK_AT = 0.02f
@@ -1085,13 +1119,13 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 }
                                 else if (one) Round(R.drawable.ic_do_not_disturb_on, "Sleep Timer, $value", on = on, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
                                 // "Sleep Timer" doesn't fit a 2x1 pill at the 13 sp floor: the pill says "Sleep", the tile's description keeps the full name.
-                                else PillOrBig(tile.size, w, h, "Sleep", value, R.drawable.ic_do_not_disturb_on, on, Blue, go, focusMod, hold, playOr { go() }, wobbleOn, name = "Sleep Timer")
+                                else PillOrBig(tile.size, w, h, "Sleep", value, R.drawable.ic_do_not_disturb_on, on, Blue, go, focusMod, hold, playOr { go() }, wobbleOn, name = "Sleep Timer", fillOn = on)
                             }
                             "vpn" -> {
                                 val value = if (vpnConnected) "Connected" else "Off"
                                 val go = tap { vpnApps.firstOrNull()?.let { (pkg, _) -> system { dev.glasslauncher.system.VpnControl.open(context, pkg) } } }
                                 if (one) Round(R.drawable.ic_vpn, "VPN, $value", on = vpnConnected, onLabel = label, modifier = focusMod, onLongClick = hold, onPlay = playOr { go() }, wiggle = wobbleOn, onClick = go)
-                                else PillOrBig(tile.size, w, h, "VPN", value, R.drawable.ic_vpn, vpnConnected, Blue, go, focusMod, hold, playOr { go() }, wobbleOn)
+                                else PillOrBig(tile.size, w, h, "VPN", value, R.drawable.ic_vpn, vpnConnected, Blue, go, focusMod, hold, playOr { go() }, wobbleOn, fillOn = vpnConnected)
                             }
                             "restart" -> {
                                 val ask = { restartAsk = true; pendingFocus = null }
@@ -1276,11 +1310,9 @@ internal fun PillContent(
                 // On is a bare blue glyph on the tinted pill (tvOS 27), not iOS 18's white blob; off keeps a faint well (P105 #15).
                 .then(if (disc) Modifier.background(if (on) Color.Transparent else fg.copy(alpha = 0.16f), CircleShape) else Modifier),
         ) { Glyph(icon, if (on) accent else fg, Modifier.size(sz.discGlyph)) }
-        Column(Modifier.padding(start = 7.dp)) {
-            Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            value?.let {
-                Text(it, style = Type.caption.copy(lineHeight = 15.sp), color = fg.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+        Column(Modifier.weight(1f).padding(start = 7.dp)) {
+            PillText(title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
+            value?.let { PillText(it, Type.caption.copy(lineHeight = 15.sp), fg.copy(alpha = 0.7f)) }
         }
     }
 }
@@ -1329,10 +1361,12 @@ internal fun PillOrBig(
     size: CcSize, w: Dp, h: Dp, title: String, value: String?, @DrawableRes icon: Int, on: Boolean, accent: Color,
     onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onPlay: (() -> Unit)? = null, wiggle: Boolean = false,
     name: String = title,
+    /** The tile's white "on" fill (Sleep Timer and VPN had it); the others show "on" as #15's bare accent glyph only. */
+    fillOn: Boolean = false,
 ) {
     val big = size == CcSize.S2x2
     CcTile(name, value, if (big) RoundedCornerShape(26.dp) else Shapes.pill, w, h, onClick = onClick, modifier = modifier, onLongClick = onLongClick,
-        onPlay = onPlay ?: onClick, wiggle = wiggle, on = on) { fg ->
+        onPlay = onPlay ?: onClick, wiggle = wiggle, on = fillOn) { fg ->
         if (big) BigIcon(icon, title, fg, value, on, accent) else PillContent(icon, title, value, fg, on = on, accent = accent)
     }
 }
@@ -1403,7 +1437,7 @@ internal fun CcTile(
                     }
                 },
             contentAlignment = Alignment.Center,
-        ) { content(fg) }
+        ) { androidx.compose.runtime.CompositionLocalProvider(LocalCcTileFocused provides litByFocus) { content(fg) } }
     }
     }
 }

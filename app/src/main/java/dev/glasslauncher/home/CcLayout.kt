@@ -35,14 +35,23 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         p.copy(tiles = list)
     }
 
-    /** Menu in edit mode: the next of the control's allowed sizes, wrapping. A one-size control is unchanged. */
+    /**
+     * Menu in edit mode: the next of the control's allowed sizes, wrapping, and the first of them that keeps the page
+     * within [CcControls.MAX_ROWS] packed rows (a size that would push the page past it is skipped, as the gallery's add
+     * does). A one-size control, or one with no size that fits, is unchanged.
+     */
     fun resize(pageId: String, tileId: String): CcLayout = withPage(pageId) { p ->
-        p.copy(tiles = p.tiles.map { t ->
-            if (t.id != tileId) t else {
-                val sizes = CcControls.sizes(t.id)
-                if (sizes.size < 2) t else t.copy(size = sizes[(sizes.indexOf(t.size).coerceAtLeast(-1) + 1) % sizes.size])
-            }
-        })
+        val t = p.tiles.firstOrNull { it.id == tileId } ?: return@withPage p
+        val sizes = CcControls.sizes(t.id)
+        if (sizes.size < 2) return@withPage p
+        val from = sizes.indexOf(t.size).coerceAtLeast(-1)
+        for (step in 1 until sizes.size + 1) {
+            val next = sizes[(from + step) % sizes.size]
+            if (next == t.size) break
+            val tiles = p.tiles.map { if (it.id == tileId) it.copy(size = next) else it }
+            if (CcPacking.rows(tiles) <= CcControls.MAX_ROWS) return@withPage p.copy(tiles = tiles)
+        }
+        p
     }
 
     fun resizeTo(pageId: String, tileId: String, size: CcSize): CcLayout = withPage(pageId) { p ->
@@ -129,6 +138,36 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         }
     }
 
+    /**
+     * One-time (the stored version): Sleep Timer, Clean Up and Restart that are still the old default 1x1 circles on the
+     * first page become 2x1 pills, as the new default has them. A size the user chose is never touched (a 2x1 or 2x2 is
+     * not a circle). The first page stays [CcControls.PAGE_ROWS] rows with no scroll: the circles that would fall past
+     * it move, in order, to the front of the next page (More), as in the new default; if one of the three or a wide
+     * tile would have to move, nothing changes.
+     */
+    internal fun withPillDefaults(): CcLayout {
+        val first = pages.firstOrNull { it.id != "alexa" } ?: return this
+        val pills = listOf("sleep_timer", "cleanup", "restart")
+        var tiles = first.tiles.map { if (it.id in pills && it.size == CcSize.S1x1) it.copy(size = CcSize.S2x1) else it }
+        if (tiles == first.tiles) return this
+        val spill = ArrayList<CcTile>()
+        while (CcPacking.rows(tiles) > CcControls.PAGE_ROWS) {
+            val last = tiles.lastOrNull() ?: return this
+            if (last.id in pills || last.id == "fire_settings" || last.size != CcSize.S1x1) return this
+            spill.add(0, last)
+            tiles = tiles.dropLast(1)
+        }
+        val next = pages.firstOrNull { it.id != first.id && it.id != "alexa" }
+        if (spill.isNotEmpty() && next == null) return this
+        return copy(pages = pages.map { p ->
+            when (p.id) {
+                first.id -> p.copy(tiles = tiles)
+                next?.id -> p.copy(tiles = spill + p.tiles)
+                else -> p
+            }
+        })
+    }
+
     fun toJson(): String = JSON.encodeToString(Dto.serializer(), Dto(
         v = VERSION,
         pages = pages.map { p -> PageDto(p.id, p.icon, p.tiles.map { TileDto(it.id, it.size.key) }) },
@@ -136,7 +175,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         autoAdded = autoAdded,
     ))
 
-    @Serializable private data class TileDto(val id: String, val size: String)
+    @Serializable private data class TileDto(val id: String, val size: String? = null)
     @Serializable private data class PageDto(val id: String, val icon: String, val tiles: List<TileDto>)
     @Serializable private data class Dto(
         val v: Int = 1, val pages: List<PageDto> = emptyList(), val parked: List<String> = emptyList(),
@@ -165,7 +204,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
     }
 
     companion object {
-        const val VERSION = 1
+        const val VERSION = 2
         private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
         /** What a stored value says; null for none or an unreadable one (the caller then uses [default]). */
@@ -173,7 +212,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
             if (text.isNullOrBlank()) return null
             val dto = runCatching { JSON.decodeFromString(Dto.serializer(), text) }.getOrNull() ?: return null
             if (dto.pages.isEmpty()) return null
-            return CcLayout(
+            val read = CcLayout(
                 pages = dto.pages.map { p ->
                     CcPage(p.id, p.icon, p.tiles.mapNotNull { t ->
                         // An unknown size is the control's default one; an unknown id is kept (its add-on may return).
@@ -185,6 +224,8 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
                 parked = dto.parked,
                 autoAdded = dto.autoAdded,
             )
+            // A layout saved before sizes were free (v1) gets the new pill defaults once (F01); never again after.
+            return if (dto.v < 2) read.withPillDefaults() else read
         }
 
         /** Today's Control Center (the ids of CONTROL_CENTER_TILES), minus what the user had turned off ([hidden], the old ccHidden). */
@@ -231,6 +272,8 @@ object CcControls {
 
     /** Rows a page holds without scrolling: tvOS's panel is about 867 px tall at 1080p and a row pitch is 112 px. */
     const val MAX_ROWS = 7
+    /** The rows the first page shows with no scroll (the panel's viewport: four rows). */
+    const val PAGE_ROWS = 4
 
     /** Built-ins given once to a layout saved before they existed, and what each goes after (the More page: Controls is a full 4x4). */
     val AUTO_ADD = listOf("remotes")
@@ -282,6 +325,9 @@ data class CcPlaced(val tile: CcTile, val row: Int, val col: Int)
 
 object CcPacking {
     const val COLUMNS = 4
+
+    /** How many rows [tiles] pack into. */
+    fun rows(tiles: List<CcTile>): Int = pack(tiles).maxOfOrNull { it.row + it.tile.size.h } ?: 0
 
     fun pack(tiles: List<CcTile>, columns: Int = COLUMNS): List<CcPlaced> {
         val occupied = HashSet<Long>()
