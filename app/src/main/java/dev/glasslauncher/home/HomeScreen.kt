@@ -136,6 +136,8 @@ enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings,
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
+/** The longest the shelf's title waits for its art before it shows anyway. */
+private const val SCENE_TITLE_WAIT_MS = 1_500L
 /** The next slide's bake starts once input has been quiet this long (never during a scroll). */
 private const val BAKE_AHEAD_QUIET_MS = 1_500L
 /** Focus rests this long on a top-row app before the shelf switches to its content. */
@@ -327,6 +329,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Apps whose hero is full-screen art (no logo plate drawn over it).
     val artApps = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val sceneUrl = if (cfg.background == BackgroundMode.Featured && !appHeroShown) hero?.image else null
+    // The scene (art) the backdrop has installed for the shelf's current item: the title and logo wait for it, so they
+    // and their art come in together instead of the title showing alone over the previous scene (P107). A scene that
+    // never arrives (offline, art that fails) lets the title in after 1.5 s.
+    var sceneShownFor by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(sceneUrl) { if (sceneUrl != null) { delay(SCENE_TITLE_WAIT_MS); sceneShownFor = sceneUrl } }
+    val titleReady = sceneUrl == null || sceneShownFor == sceneUrl
+    val titleGate by androidx.compose.animation.core.animateFloatAsState(
+        if (titleReady) 1f else 0f,
+        if (titleReady && !prefs.reduceMotion) androidx.compose.animation.core.tween(Motion.OVERLAY_MS) else androidx.compose.animation.core.snap(),
+        label = "title-gate",
+    )
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
     val takeoverArt = takeover?.art
@@ -392,6 +405,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement. (The same scene again, as
         // when the network returns with the cover already showing, is left as it is.)
         if (next !== backdrop.backdrop) backdrop.swap(next, animate = backdrop.backdrop != null)
+        // The shelf's title and logo may come in now: the art they sit on is on screen (P107).
+        sceneShownFor = sceneUrl
         // The preview's covers may show now: their scene is the backdrop (P92).
         if (coverBackdrop) coverSceneFor = feed?.items?.firstOrNull()?.id
         // Cover Flow: bake the covers either side while this one rests, so the next step needn't wait.
@@ -925,7 +940,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                             .graphicsLayer {
                                 val atRest = 1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f)
                                 // Gone within the first third of the expand, before the large title fades in.
-                                alpha = idle.chromeAlpha * atRest * (1f - expand.value * 3f).coerceIn(0f, 1f)
+                                alpha = idle.chromeAlpha * atRest * (1f - expand.value * 3f).coerceIn(0f, 1f) * titleGate
                                 translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
