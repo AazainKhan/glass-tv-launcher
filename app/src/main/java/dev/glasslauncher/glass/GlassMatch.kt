@@ -68,8 +68,19 @@ object GlassMatch {
     /** Light appearance's lift: its tiles must stay clearly brighter than the dark ones (ControlCenterMotionTest). */
     const val CC_LIFT_LIGHT = 0.26f
 
-    /** How much Control Center mutes the screen behind it; its sheet is the scene muted by the same amount. */
+    /**
+     * How much Control Center mutes the screen behind it (the scrim). The controls do NOT sample the dimmed scene: their
+     * sheet is the undimmed art (iOS 27's Regular material), so they stay lighter than what is behind them (F02).
+     */
     const val CC_DIM = 0.42f
+    /** What the sheet itself is dimmed by: nothing (the tint and lift keep labels legible). */
+    const val CC_SHEET_DIM = 0f
+    /**
+     * Light appearance carries white labels on a light material, and ControlCenterMotionTest holds them at 4.5:1: 0.2 and
+     * 0.31 both fell short (4.29:1 at 0.31), so it keeps the scene's whole dim baked in. The undimmed sheet is dark only
+     * until the labels go dark on light glass (as tvOS's light appearance does).
+     */
+    const val CC_SHEET_DIM_LIGHT = 0.38f
     /** Light appearance mutes less (tvOS: x0.69 light, x0.57 dark; P105 #14). 0.31 is tvOS but left white text on light tiles at 4.29:1, under the 4.5:1 test, so 0.38. */
     const val CC_DIM_LIGHT = 0.38f
     /**
@@ -90,7 +101,7 @@ object GlassMatch {
     fun ccSheet(clear: Bitmap, light: Boolean = false): PanelSheet? {
         val t0 = android.os.SystemClock.elapsedRealtime()
         val w = clear.width.toFloat(); val h = clear.height.toFloat()
-        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, if (light) CC_DIM_LIGHT else CC_DIM, CC_COLS,
+        val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, if (light) CC_SHEET_DIM_LIGHT else CC_SHEET_DIM, CC_COLS,
             blurPasses = CC_BLUR_PASSES, saturation = CC_SATURATION, lift = if (light) CC_LIFT_LIGHT else CC_LIFT) ?: return null
         val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
         val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft

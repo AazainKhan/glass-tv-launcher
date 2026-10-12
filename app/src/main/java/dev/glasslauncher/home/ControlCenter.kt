@@ -452,7 +452,7 @@ internal val LocalCcPhase = androidx.compose.runtime.staticCompositionLocalOf { 
 /** How much Control Center mutes the screen behind it (tvOS 27 dims rather than blurs); its sheet is baked muted by the same amount. */
 internal const val CC_DIM_ALPHA = GlassMatch.CC_DIM
 /** The time, date and weather share one opacity, slightly muted, as tvOS's header. */
-private const val HEADER_ALPHA = 0.85f
+private const val HEADER_ALPHA = 0.6f
 private val CC_DIM_COLOR = Color.Black.copy(alpha = CC_DIM_ALPHA)
 private val CC_DIM_COLOR_LIGHT = Color.Black.copy(alpha = GlassMatch.CC_DIM_LIGHT)
 
@@ -513,11 +513,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val network by produceState("", active) { value = withContext(Dispatchers.IO) { SystemControls.network(context) } }
     val wifiOn = remember(active) { SystemControls.wifiConnected(context) }
     val bluetooth = remember(active) { SystemControls.bluetoothOn() }
-    val clock = rememberClock(cfg.clock24h, seconds = true)
+    val clock = rememberClock(cfg.clock24h)
     // The time sits on the dark wash, so it's white whatever is behind (no shadow: tvOS text is flat).
     val headerOnLight = false
     val headerColor = Color.White
-    val headerStyle = Type.heading.copy(fontWeight = FontWeight.Medium)
+    val headerStyle = Type.caption
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     // The layout (P83): the stored one, or while edit mode is on the draft being changed (saved when it ends).
@@ -734,11 +734,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     Modifier.weight(1f).ccEmerge(headerEmerge).graphicsLayer { alpha = if (motion.enabled) CcMorph.headerAlpha(motion.p) else 1f }
                         .then(if (gallery != null) Modifier.ccSurface(RoundedCornerShape(18.dp), LocalCcSheet.current).padding(horizontal = 10.dp, vertical = 6.dp) else Modifier),
                 ) {
-                    Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
-                    Text(dev.glasslauncher.widgets.rememberDate(), style = Type.secondary, color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 6.dp).testTag("cc-date"))
-                    // Equal air between the three lines as drawn: the clock's own leading already sits under it,
-                    // so the weather line gets the matching gap above (e2e measures the ink).
-                    cfg.weather?.let { Box(Modifier.padding(top = 11.dp)) { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = HEADER_ALPHA), Type.secondary) } }
+                    // One line, small and muted, as tvOS 27's header: the time without seconds, then the weather when there is
+                    // one. No date line (F03).
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
+                        cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = HEADER_ALPHA), Type.caption) }
+                    }
                 }
                 // The page icons are the two drops the pill splits into; their glyphs come in as they land.
                 // Three or more icons (a page of your own, or the + while editing) are a little smaller so the time keeps its room.
