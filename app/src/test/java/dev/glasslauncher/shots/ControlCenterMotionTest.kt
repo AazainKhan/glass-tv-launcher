@@ -18,6 +18,12 @@ import org.robolectric.annotation.Config
 internal const val BAND0 = 0.15f
 internal const val BAND1 = 0.22f
 
+/** Where across a tile its ink-free band sits: the middle of a circle or square; a pill's gap between its glyph column and its text (P138). */
+internal fun bandY0(w: Float, h: Float) = if (w > h * 1.5f) 0.40f else BAND0
+internal fun bandY1(w: Float, h: Float) = if (w > h * 1.5f) 0.60f else BAND1
+internal fun bandLo(w: Float, h: Float) = if (w > h * 1.5f) 0.31f else 0.35f
+internal fun bandHi(w: Float, h: Float) = if (w > h * 1.5f) 0.37f else 0.65f
+
 /** Mean colour of the baked sheet's cells under the window-pixel rectangle: what a tile showing the sheet should average to. */
 internal fun sheetMean(sheet: dev.glasslauncher.home.CcSheet, x0: Float, y0: Float, x1: Float, y1: Float): FloatArray {
     val px = sheet.pixels ?: error("no baked sheet (the flat fallback was used)")
@@ -34,8 +40,8 @@ internal fun sheetMean(sheet: dev.glasslauncher.home.CcSheet, x0: Float, y0: Flo
 /** Mean colour (r, g, b) of the tile's ink-free top band: the material, without its glyph or label. */
 internal fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF): FloatArray {
     val k = b.width / rootW.toFloat()
-    val x0 = ((r.left + r.width() * 0.35f) * k).toInt(); val x1 = ((r.left + r.width() * 0.65f) * k).toInt().coerceAtLeast(x0 + 1)
-    val y0 = ((r.top + r.height() * BAND0) * k).toInt(); val y1 = ((r.top + r.height() * BAND1) * k).toInt().coerceAtLeast(y0 + 1)
+    val x0 = ((r.left + r.width() * bandLo(r.width(), r.height())) * k).toInt(); val x1 = ((r.left + r.width() * bandHi(r.width(), r.height())) * k).toInt().coerceAtLeast(x0 + 1)
+    val y0 = ((r.top + r.height() * bandY0(r.width(), r.height())) * k).toInt(); val y1 = ((r.top + r.height() * bandY1(r.width(), r.height())) * k).toInt().coerceAtLeast(y0 + 1)
     val sum = FloatArray(3); var n = 0
     for (y in y0 until y1) for (x in x0 until x1) {
         val c = b.getPixel(x.coerceIn(0, b.width - 1), y.coerceIn(0, b.height - 1))
@@ -49,8 +55,8 @@ internal fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphic
 internal fun greyFraction(f: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF, lo: Float, hi: Float): Float {
     val k = f.width / rootW.toFloat(); val range = hi - lo
     var grey = 0; var n = 0
-    for (y in ((r.top + r.height() * BAND0) * k).toInt()..((r.top + r.height() * BAND1) * k).toInt())
-        for (x in ((r.left + r.width() * 0.35f) * k).toInt()..((r.left + r.width() * 0.65f) * k).toInt()) {
+    for (y in ((r.top + r.height() * bandY0(r.width(), r.height())) * k).toInt()..((r.top + r.height() * bandY1(r.width(), r.height())) * k).toInt())
+        for (x in ((r.left + r.width() * bandLo(r.width(), r.height())) * k).toInt()..((r.left + r.width() * bandHi(r.width(), r.height())) * k).toInt()) {
             val c = f.getPixel(x.coerceIn(0, f.width - 1), y.coerceIn(0, f.height - 1))
             val v = ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10f
             if (v > lo + 0.25f * range && v < hi - 0.1f * range) grey++
@@ -207,11 +213,12 @@ class ControlCenterMotionTest {
                 val worst = seq.zipWithNext { a, b -> (0..2).maxOf { kotlin.math.abs(a[it] - b[it]) } }.maxOrNull() ?: 0f
                 assertTrue("$name changed colour by ${"%.1f".format(worst)}/255 between frames after landing", worst <= 3f)
             }
+            // (Not the Sleep pill: the focused Settings tile above it casts its focus shadow, 15 dp down, onto it, P138.)
             // One material: each unfocused tile shows its own part of the one baked sheet (the sheet's cells
             // under its band, already tinted and dimmed), within 4/255, on landing and when settled.
             val sheet = dev.glasslauncher.home.CcMaterial.last ?: error("Control Center made no sheet")
-            for (at in listOf(landed, frames.lastIndex)) for ((name, r) in tiles.filterKeys { it != "Settings, Fire TV" }) {
-                val want = sheetMean(sheet, r.left + r.width() * 0.35f, r.top + r.height() * BAND0, r.left + r.width() * 0.65f, r.top + r.height() * BAND1)
+            for (at in listOf(landed, frames.lastIndex)) for ((name, r) in tiles.filterKeys { it != "Settings, Fire TV" && !it.startsWith("Sleep") }) {
+                val want = sheetMean(sheet, r.left + r.width() * bandLo(r.width(), r.height()), r.top + r.height() * bandY0(r.width(), r.height()), r.left + r.width() * bandHi(r.width(), r.height()), r.top + r.height() * bandY1(r.width(), r.height()))
                 val got = material(frames[at], rootW, r)
                 for (c in 0..2) assertTrue("$name is not the sheet's colour in frame $at (channel $c: ${"%.1f".format(got[c])} vs ${"%.1f".format(want[c])})", kotlin.math.abs(got[c] - want[c]) <= 4f)
             }

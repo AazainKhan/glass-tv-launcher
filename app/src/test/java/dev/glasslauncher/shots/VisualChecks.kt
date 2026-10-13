@@ -228,8 +228,9 @@ class VisualChecks {
         val rootW = landed.last().bitmap.width
         for (t in tiles) {
             val got = mean(landed.last().bitmap, band(t))
+            if (t.name.startsWith("Sleep")) continue // under the focused Settings tile's shadow (P138)
             if (luminance(got) >= LIT_MIN) continue // lit (on / focused): a white or solid fill by design, not glass
-            val want = sheetMean(sheet, t.l + (t.r - t.l) * 0.35f, t.t + (t.b - t.t) * BAND0, t.l + (t.r - t.l) * 0.65f, t.t + (t.b - t.t) * BAND1)
+            val want = sheetMean(sheet, t.l + (t.r - t.l) * bandLo((t.r - t.l).toFloat(), (t.b - t.t).toFloat()), t.t + (t.b - t.t) * bandY0((t.r - t.l).toFloat(), (t.b - t.t).toFloat()), t.l + (t.r - t.l) * bandHi((t.r - t.l).toFloat(), (t.b - t.t).toFloat()), t.t + (t.b - t.t) * bandY1((t.r - t.l).toFloat(), (t.b - t.t).toFloat()))
             val off = (0..2).maxOf { abs(got[it] - want[it]) }
             if (off > SHEET_DELTA) problems += "${t.name} is ${"%.0f".format(off)} levels off the sheet at its position (got ${got.joinToString { "%.0f".format(it) }}, sheet ${want.joinToString { "%.0f".format(it) }})"
         }
@@ -421,7 +422,7 @@ class VisualChecks {
     /** A band near the top of a tile, clear of its icon, its label and the bevel: the material itself (as the Control Center motion tests' band). */
     private fun band(b: Box): Box {
         val w = b.r - b.l; val h = b.b - b.t
-        return Box(b.name, b.l + w * 35 / 100, b.t + h * 15 / 100, b.r - w * 35 / 100, b.t + h * 22 / 100)
+        return Box(b.name, b.l + (w * bandLo(w.toFloat(), h.toFloat())).toInt(), b.t + (h * bandY0(w.toFloat(), h.toFloat())).toInt(), b.l + (w * bandHi(w.toFloat(), h.toFloat())).toInt(), b.t + (h * bandY1(w.toFloat(), h.toFloat())).toInt())
     }
 
     /** The middle of a tile, inset from its rounded corners. */
