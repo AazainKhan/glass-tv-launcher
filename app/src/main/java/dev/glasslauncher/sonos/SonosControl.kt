@@ -2,10 +2,10 @@ package dev.glasslauncher.sonos
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+
+internal fun warn(what: String, host: String?, e: Exception) {
+    try { android.util.Log.w("GlassSonos", "$what failed for $host: ${e.javaClass.simpleName}") } catch (_: RuntimeException) {}
+}
 
 class SonosException(message: String, val upnpCode: Int? = null) : Exception(message)
 
@@ -13,11 +13,12 @@ data class TransportInfo(val state: String, val status: String)
 
 /**
  * UPnP SOAP control of one Sonos speaker on port 1400.
- * [baseUrl] is `http://host:1400`; tests point it at MockWebServer.
+ * [baseUrl] is `http://host:1400`; tests point it at MockWebServer with a permissive [LanHttp].
+ * Goes through [LanHttp], so only private IPv4 hosts on port 1400 are ever called.
  */
 class SonosControl(
     private val baseUrl: String,
-    private val client: OkHttpClient = OkHttpClient(),
+    private val http: LanHttp = LanHttp(),
 ) {
     suspend fun setAvTransportUri(uri: String, metadata: String = radioDidl("Glass")) {
         call(AVT, "SetAVTransportURI", "<InstanceID>0</InstanceID><CurrentURI>${SafeXml.escape(uri)}</CurrentURI>" +
@@ -46,17 +47,17 @@ class SonosControl(
     }
 
     private suspend fun call(svc: Service, action: String, args: String) = withContext(Dispatchers.IO) {
-        val req = Request.Builder()
-            .url("$baseUrl/MediaRenderer/${svc.path}/Control")
-            .header("SOAPACTION", "\"${svc.urn}#$action\"")
-            .post(envelope(svc, action, args).toRequestBody("text/xml; charset=\"utf-8\"".toMediaType()))
-            .build()
-        client.newCall(req).execute().use { r ->
-            val src = r.body.source()
-            src.request(SafeXml.MAX_BYTES + 1L)
-            if (src.buffer.size > SafeXml.MAX_BYTES) throw SonosException("response over cap")
-            parseResponse(r.code, src.buffer.readUtf8())
+        val u = java.net.URI(baseUrl)
+        val r = try {
+            http.request(
+                "POST", u.host, if (u.port > 0) u.port else 80, "${u.path.orEmpty()}/MediaRenderer/${svc.path}/Control",
+                mapOf("SOAPACTION" to "\"${svc.urn}#$action\"", "Content-Type" to "text/xml; charset=\"utf-8\""),
+                envelope(svc, action, args).toByteArray(Charsets.UTF_8),
+            )
+        } catch (e: Exception) {
+            warn("SOAP $action", u.host, e); throw e
         }
+        parseResponse(r.code, r.body)
     }
 
     class Service(val path: String, val urn: String)

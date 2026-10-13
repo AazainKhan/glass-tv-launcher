@@ -4,8 +4,6 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -16,7 +14,7 @@ data class SonosSpeaker(val host: String, val roomName: String, val modelName: S
 /** SSDP discovery of Sonos ZonePlayers. Needs CHANGE_WIFI_MULTICAST_STATE. */
 class SonosDiscovery(
     private val context: Context,
-    private val client: OkHttpClient = OkHttpClient(),
+    private val http: LanHttp = LanHttp(),
 ) {
     /** Searches for [timeoutMs] and returns the speakers found, deduplicated by host. */
     suspend fun discover(timeoutMs: Int = 3000): List<SonosSpeaker> = withContext(Dispatchers.IO) {
@@ -54,13 +52,9 @@ class SonosDiscovery(
     }
 
     private fun describe(host: String, location: String): SonosSpeaker? = try {
-        val req = Request.Builder().url("http://$host:1400/xml/device_description.xml").build()
-        client.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) return null
-            val body = r.body.source().apply { request(SafeXml.MAX_BYTES + 1L) }.buffer.readUtf8()
-            parseDescription(host, body)
-        }
-    } catch (_: Exception) { null }
+        val r = http.request("GET", host, 1400, "/xml/device_description.xml")
+        if (r.code in 200..299) parseDescription(host, r.body) else null
+    } catch (e: Exception) { warn("describe", host, e); null }
 
     companion object {
         const val SSDP_ADDR = "239.255.255.250"

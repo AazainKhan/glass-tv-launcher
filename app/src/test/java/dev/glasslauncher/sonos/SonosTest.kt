@@ -22,7 +22,7 @@ class SonosTest {
         MockWebServer().use { srv ->
             srv.enqueue(MockResponse().setBody(resp("<u:SetAVTransportURIResponse/>")))
             srv.start()
-            SonosControl(srv.url("/").toString().trimEnd('/')).setAvTransportUri("http://1.2.3.4:5/a.wav?x=1&y=2")
+            SonosControl(srv.url("/").toString().trimEnd('/'), LanHttp { _, _ -> true }).setAvTransportUri("http://1.2.3.4:5/a.wav?x=1&y=2")
             val r = srv.takeRequest()
             assertEquals("/MediaRenderer/AVTransport/Control", r.path)
             assertEquals("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"", r.getHeader("SOAPACTION"))
@@ -39,7 +39,7 @@ class SonosTest {
             srv.enqueue(MockResponse().setBody(resp("<u:GetVolumeResponse><CurrentVolume>37</CurrentVolume></u:GetVolumeResponse>")))
             srv.enqueue(MockResponse().setBody(resp("<u:GetTransportInfoResponse><CurrentTransportState>PLAYING</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus></u:GetTransportInfoResponse>")))
             srv.start()
-            val c = SonosControl(srv.url("/").toString().trimEnd('/'))
+            val c = SonosControl(srv.url("/").toString().trimEnd('/'), LanHttp { _, _ -> true })
             assertEquals(37, c.getVolume())
             assertEquals(TransportInfo("PLAYING", "OK"), c.getTransportInfo())
             assertEquals("/MediaRenderer/RenderingControl/Control", srv.takeRequest().path)
@@ -52,7 +52,7 @@ class SonosTest {
                 "<s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail><UPnPError><errorCode>701</errorCode><errorDescription>Transition not available</errorDescription></UPnPError></detail></s:Fault>")))
             srv.start()
             try {
-                SonosControl(srv.url("/").toString().trimEnd('/')).play()
+                SonosControl(srv.url("/").toString().trimEnd('/'), LanHttp { _, _ -> true }).play()
                 fail()
             } catch (e: SonosException) {
                 assertEquals(701, e.upnpCode)
