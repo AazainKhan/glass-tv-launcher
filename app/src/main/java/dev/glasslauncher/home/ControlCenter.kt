@@ -713,6 +713,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val inkAnim = remember { androidx.compose.animation.core.Animatable(inkTarget.floatValue) }
     val inkPalette = remember(palette, inkAnim.value) { palette.copy(ink = inkAnim.value) }
     val headerColor = inkPalette.primary
+    // The time sits on the dim scrim, not the sheet: over a light scene the scrim leaves ~Y 0.3, where dark ink needs full
+    // opacity for 4.5:1 (5.7:1), so the muted alpha fades to 1 with the ink.
+    val headerAlpha = HEADER_ALPHA + (1f - HEADER_ALPHA) * inkAnim.value
     fun takeSheet() {
         val root = glassState.rootSize
         sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root, glassState.backdrop?.isLight == true)
@@ -818,8 +821,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     // One line, small and muted, as tvOS 27's header: the time without seconds, then the weather when there is
                     // one. No date line (F03).
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = HEADER_ALPHA), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
-                        cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = HEADER_ALPHA), Type.caption) }
+                        Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = headerAlpha), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
+                        cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = headerAlpha), Type.caption) }
                     }
                 }
                 // The page icons are the two drops the pill splits into; their glyphs come in as they land.
