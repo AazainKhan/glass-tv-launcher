@@ -1,5 +1,5 @@
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index bf97c78..e9609e5 100644
+index bf97c78..0652d5f 100644
 --- a/app/src/main/AndroidManifest.xml
 +++ b/app/src/main/AndroidManifest.xml
 @@ -41,6 +41,22 @@
@@ -25,7 +25,21 @@ index bf97c78..e9609e5 100644
      <!-- Foreground service notification (Android 13+ requires runtime grant) -->
      <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
  
-@@ -120,6 +136,17 @@
+@@ -94,11 +110,8 @@
+             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+             android:theme="@style/Theme.PhairPlay.Fullscreen">
+ 
+-            <!-- Makes the app launchable from the TV home screen -->
+-            <intent-filter>
+-                <action android:name="android.intent.action.MAIN" />
+-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+-            </intent-filter>
++            <!-- No LAUNCHER / LEANBACK_LAUNCHER filter: the launcher (Glass) drives this app and the
++                 service starts the activity by component. Never pm-hide it, that stops the receiver. -->
+         </activity>
+ 
+         <!--
+@@ -120,6 +133,19 @@
              if the "Start on boot" setting is enabled.
              exported="false" because it is only triggered by the system broadcast.
          -->
@@ -37,6 +51,8 @@ index bf97c78..e9609e5 100644
 +                <action android:name="com.phairplay.action.ENABLE" />
 +                <action android:name="com.phairplay.action.DISABLE" />
 +                <action android:name="com.phairplay.action.QUERY" />
++                <action android:name="com.phairplay.action.SET" />
++                <action android:name="com.phairplay.action.TRANSPORT" />
 +            </intent-filter>
 +        </receiver>
 +
@@ -44,10 +60,10 @@ index bf97c78..e9609e5 100644
              android:name=".service.BootReceiver"
              android:exported="false">
 diff --git a/app/src/main/kotlin/com/phairplay/MainActivity.kt b/app/src/main/kotlin/com/phairplay/MainActivity.kt
-index ab86f6a..3040dd3 100644
+index ab86f6a..d466e96 100644
 --- a/app/src/main/kotlin/com/phairplay/MainActivity.kt
 +++ b/app/src/main/kotlin/com/phairplay/MainActivity.kt
-@@ -115,8 +115,23 @@ class MainActivity : AppCompatActivity() {
+@@ -115,8 +115,32 @@ class MainActivity : AppCompatActivity() {
          requestNotificationPermission()
      }
  
@@ -62,16 +78,25 @@ index ab86f6a..3040dd3 100644
 +    override fun onNewIntent(intent: Intent) {
 +        super.onNewIntent(intent)
 +        if (intent.getBooleanExtra(EXTRA_SESSION, false)) forSession = true
++        applyChrome(intent)
++    }
++
++    private fun applyChrome(intent: Intent?) {
++        if (intent?.getStringExtra(EXTRA_CHROME) != "none") return
++        findViewById<View>(R.id.nav_panel).visibility = View.GONE
++        findViewById<View>(R.id.nav_divider).visibility = View.GONE
++        contentContainer.visibility = View.GONE
 +    }
 +
      override fun onStart() {
          super.onStart()
 +        visible = true
++        applyChrome(intent)
 +        if (intent?.getBooleanExtra(EXTRA_SESSION, false) == true) { forSession = true; intent.removeExtra(EXTRA_SESSION) }
          // Bind so we can observe StateFlows and supply the video Surface
          val intent = Intent(this, PhairPlayService::class.java)
          bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-@@ -124,6 +139,9 @@ class MainActivity : AppCompatActivity() {
+@@ -124,6 +148,9 @@ class MainActivity : AppCompatActivity() {
  
      override fun onStop() {
          super.onStop()
@@ -81,7 +106,7 @@ index ab86f6a..3040dd3 100644
          // Clear surface reference before unbinding to avoid holding a dead Surface
          service?.setVideoSurfaceProvider { null }
          if (isBound) {
-@@ -330,9 +348,6 @@ class MainActivity : AppCompatActivity() {
+@@ -330,9 +357,6 @@ class MainActivity : AppCompatActivity() {
          }
      }
  
@@ -91,7 +116,7 @@ index ab86f6a..3040dd3 100644
  
      // ─── Streaming overlay ────────────────────────────────────────────────────
  
-@@ -383,8 +398,17 @@ class MainActivity : AppCompatActivity() {
+@@ -383,8 +407,17 @@ class MainActivity : AppCompatActivity() {
              nowPlaying != null -> showNowPlayingScreen(nowPlaying)
              currentAirPlayState == ProtocolState.CONNECTED -> showStreamingScreen()
              photoFrame != null -> showPhotoScreen(photoFrame)
@@ -110,7 +135,7 @@ index ab86f6a..3040dd3 100644
      }
  
      /** Shows the AirPlay pairing PIN over the full screen during SRP pair-setup. */
-@@ -397,4 +421,13 @@ class MainActivity : AppCompatActivity() {
+@@ -397,4 +430,16 @@ class MainActivity : AppCompatActivity() {
          streamingContainer.visibility = View.VISIBLE
          streamingContainer.bringToFront()
      }
@@ -119,35 +144,92 @@ index ab86f6a..3040dd3 100644
 +        private const val PERMISSION_REQUEST_NOTIFICATIONS = 1001
 +        const val EXTRA_SESSION = "com.phairplay.extra.SESSION"
 +
++        /** "none": draw only the video (no nav panel); the launcher draws everything else. */
++        const val EXTRA_CHROME = "com.phairplay.extra.CHROME"
++
 +        /** Whether the player is on screen (read by the service before bringing it forward). */
 +        @Volatile var visible = false
 +            private set
 +    }
  }
+diff --git a/app/src/main/kotlin/com/phairplay/airplay/AirPlayReceiver.kt b/app/src/main/kotlin/com/phairplay/airplay/AirPlayReceiver.kt
+index 37e73f0..b028aec 100644
+--- a/app/src/main/kotlin/com/phairplay/airplay/AirPlayReceiver.kt
++++ b/app/src/main/kotlin/com/phairplay/airplay/AirPlayReceiver.kt
+@@ -91,7 +91,9 @@ class AirPlayReceiver(
+      */
+     private val onNowPlayingChanged: (NowPlayingInfo?) -> Unit = {},
+     /** Pairing PIN to show ([pin]) or hide (null) on the TV during SRP pair-setup. */
+-    private val onPinChanged: (pin: String?) -> Unit = {}
++    private val onPinChanged: (pin: String?) -> Unit = {},
++    /** What the sender is doing ("mirror" or "video"), reported when that stream starts. */
++    private val onSessionKind: (kind: String) -> Unit = {}
+ ) {
+ 
+     // Persistent store of paired controllers (for PIN access control / pair-verify).
+@@ -450,6 +452,7 @@ class AirPlayReceiver(
+      * @return the data server's TCP port (macOS connects here to send H.264).
+      */
+     private fun startMirrorStream(streamConnectionId: Long): Int {
++        onSessionKind("mirror")
+         val aesKey = mirrorAesKey ?: run { Logger.e("mirror stream start before keys set"); return 0 }
+         val ecdhSecret = mirrorEcdhSecret ?: return 0
+         return MirrorStreamServer(aesKey, ecdhSecret, streamConnectionId, videoSurfaceProvider, mirrorWidth, mirrorHeight)
+@@ -496,6 +499,7 @@ class AirPlayReceiver(
+      */
+     private fun startUrlVideo(url: String, startFraction: Double) {
+         onSenderNameChanged("AirPlay")
++        onSessionKind("video")
+         emitState(ProtocolState.CONNECTED)   // shows StreamingScreen → Surface becomes available
+         val player = urlVideoPlayer ?: AirPlayVideoPlayer(
+             surfaceProvider = videoSurfaceProvider,
+diff --git a/app/src/main/kotlin/com/phairplay/airplay/DacpClient.kt b/app/src/main/kotlin/com/phairplay/airplay/DacpClient.kt
+index 16b6eac..8f84af1 100644
+--- a/app/src/main/kotlin/com/phairplay/airplay/DacpClient.kt
++++ b/app/src/main/kotlin/com/phairplay/airplay/DacpClient.kt
+@@ -124,6 +124,9 @@ class DacpClient(context: Context) {
+ 
+         // DACP control commands used by the TV remote.
+         const val CMD_PLAY_PAUSE = "playpause"
++        const val CMD_PLAY = "playresume"
++        const val CMD_PAUSE = "pause"
++        const val CMD_STOP = "stop"
+         const val CMD_NEXT = "nextitem"
+         const val CMD_PREV = "previtem"
+         const val CMD_FF = "beginff"
 diff --git a/app/src/main/kotlin/com/phairplay/service/ControlReceiver.kt b/app/src/main/kotlin/com/phairplay/service/ControlReceiver.kt
 new file mode 100644
-index 0000000..74aff98
+index 0000000..e10dd2b
 --- /dev/null
 +++ b/app/src/main/kotlin/com/phairplay/service/ControlReceiver.kt
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,284 @@
 +package com.phairplay.service
 +
 +import android.content.BroadcastReceiver
 +import android.content.Context
 +import android.content.Intent
++import android.os.SystemClock
++import com.phairplay.airplay.DacpClient
++import com.phairplay.settings.AppSettings
 +import com.phairplay.settings.SettingsRepository
 +import kotlinx.coroutines.CoroutineScope
 +import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.channels.Channel
++import kotlinx.coroutines.flow.first
 +import kotlinx.coroutines.launch
 +import timber.log.Timber
 +
 +/**
-+ * ControlReceiver — lets a trusted app (a launcher's AirPlay toggle) turn the receiver on and off
-+ * and ask whether it's running, without opening PhairPlay.
++ * ControlReceiver — control protocol v2 for a trusted app (the Glass launcher): turn the receiver
++ * on and off, change settings, send transport commands, and read state, without opening PhairPlay.
++ *
++ * Commands in: ENABLE, DISABLE, QUERY, SET (extras `key` + one of `bool` / `int` / `string`),
++ * TRANSPORT (extra `command`: play / pause / stop).
++ * Events out: STATE (`protocol`, `running`, `sender`, every setting by its key), SESSION, PAIRING_CODE,
++ * NOW_PLAYING, ERROR (`code`, `action`, and `key` or `command`).
 + *
 + * Exported, but guarded by [PERMISSION_CONTROL] (signature level): only apps signed with the same
-+ * key can send to it. Replies and state changes go out as [ACTION_STATE] broadcasts that need the
-+ * same permission to receive.
++ * key can send to it, and every event is sent with the same permission so only they can read it.
 + *
 + * Turning the receiver on also turns "Start on boot" on, so the toggle survives a restart; turning
 + * it off turns that off again.
@@ -166,7 +248,65 @@ index 0000000..74aff98
 +                rememberOnBoot(app, false)
 +                broadcastState(app, running = false, sender = null)
 +            }
-+            ACTION_QUERY -> broadcastState(app, PhairPlayService.running, PhairPlayService.senderName)
++            ACTION_QUERY -> {
++                broadcastState(app, PhairPlayService.running, PhairPlayService.senderName)
++                replay(app)
++            }
++            ACTION_SET -> handleSet(app, intent)
++            ACTION_TRANSPORT -> handleTransport(app, intent)
++        }
++    }
++
++    private fun handleSet(app: Context, intent: Intent) {
++        val key = intent.getStringExtra(EXTRA_KEY)
++        val setting = settings.firstOrNull { it.key == key }
++        if (setting == null) {
++            broadcastError(app, ACTION_SET, ERR_UNKNOWN_KEY, EXTRA_KEY, key)
++            return
++        }
++        val update = setting.read(intent)
++        if (update == null) {
++            broadcastError(app, ACTION_SET, ERR_BAD_VALUE, EXTRA_KEY, key)
++            return
++        }
++        val pending = goAsync()
++        CoroutineScope(Dispatchers.IO).launch {
++            try {
++                val repo = SettingsRepository(app)
++                val before = repo.settingsFlow.first()
++                // An unchanged value must not restart the receiver, which would end a live session.
++                if (update(before) != before) {
++                    repo.update(update)
++                    // Receivers read settings once at start, so a running one restarts to apply them.
++                    if (setting.needsRestart && PhairPlayService.running) ServiceController.restart(app)
++                }
++                broadcastState(app, PhairPlayService.running, PhairPlayService.senderName)
++            } catch (e: Exception) {
++                Timber.e(e, "ControlReceiver: couldn't save $key")
++            } finally {
++                pending.finish()
++            }
++        }
++    }
++
++    private fun handleTransport(app: Context, intent: Intent) {
++        val command = intent.getStringExtra(EXTRA_COMMAND)
++        val dacp = when (command) {
++            "play" -> DacpClient.CMD_PLAY
++            "pause" -> DacpClient.CMD_PAUSE
++            "stop" -> DacpClient.CMD_STOP
++            else -> null
++        }
++        if (dacp == null) {
++            broadcastError(app, ACTION_TRANSPORT, ERR_BAD_COMMAND, EXTRA_COMMAND, command)
++            return
++        }
++        // The DACP call may touch the network, so it stays off the main thread; a failure must not kill the app.
++        val pending = goAsync()
++        CoroutineScope(Dispatchers.IO).launch {
++            try { PhairPlayService.transport(dacp) } catch (e: Exception) {
++                Timber.e(e, "ControlReceiver: transport $command failed")
++            } finally { pending.finish() }
 +        }
 +    }
 +
@@ -183,39 +323,193 @@ index 0000000..74aff98
 +        }
 +    }
 +
++    /** One settable PhairPlay setting: its wire key, how to read it from a SET intent, and its effect. */
++    private class Setting(
++        val key: String,
++        val needsRestart: Boolean,
++        val read: (Intent) -> ((AppSettings) -> AppSettings)?,
++        val value: (AppSettings) -> Any,
++    )
++
 +    companion object {
 +        const val PERMISSION_CONTROL = "com.phairplay.permission.CONTROL"
++        const val PROTOCOL_VERSION = 2
++        const val PAIRING_TTL_MS = 120_000L
++
 +        const val ACTION_ENABLE = "com.phairplay.action.ENABLE"
 +        const val ACTION_DISABLE = "com.phairplay.action.DISABLE"
 +        const val ACTION_QUERY = "com.phairplay.action.QUERY"
++        const val ACTION_SET = "com.phairplay.action.SET"
++        const val ACTION_TRANSPORT = "com.phairplay.action.TRANSPORT"
 +        const val ACTION_STATE = "com.phairplay.action.STATE"
++        const val ACTION_SESSION = "com.phairplay.action.SESSION"
++        const val ACTION_PAIRING_CODE = "com.phairplay.action.PAIRING_CODE"
++        const val ACTION_NOW_PLAYING = "com.phairplay.action.NOW_PLAYING"
++        const val ACTION_ERROR = "com.phairplay.action.ERROR"
++
 +        const val EXTRA_RUNNING = "running"
 +        const val EXTRA_SENDER = "sender"
++        const val EXTRA_PROTOCOL = "protocol"
++        const val EXTRA_KEY = "key"
++        const val EXTRA_BOOL = "bool"
++        const val EXTRA_INT = "int"
++        const val EXTRA_STRING = "string"
++        const val EXTRA_COMMAND = "command"
 +
++        const val ERR_UNKNOWN_KEY = "unknown_key"
++        const val ERR_BAD_VALUE = "bad_value"
++        const val ERR_BAD_COMMAND = "bad_command"
++
++        private fun bool(key: String, restart: Boolean, get: (AppSettings) -> Boolean, set: (AppSettings, Boolean) -> AppSettings) =
++            Setting(
++                key, restart,
++                read = { i ->
++                    val b = i.getBooleanExtra(EXTRA_BOOL, false)
++                    val update: (AppSettings) -> AppSettings = { v -> set(v, b) }
++                    update.takeIf { i.hasExtra(EXTRA_BOOL) }
++                },
++                value = get,
++            )
++
++        private val settings = listOf(
++            Setting(
++                "display_name", true,
++                read = { i ->
++                    val name = i.getStringExtra(EXTRA_STRING)?.trim().orEmpty()
++                    val update: (AppSettings) -> AppSettings = { v -> v.copy(displayName = name) }
++                    update.takeIf { i.hasExtra(EXTRA_STRING) && name.length <= AppSettings.DISPLAY_NAME_MAX_LENGTH }
++                },
++                value = { it.displayName },
++            ),
++            bool("airplay_enabled", true, { it.airPlayEnabled }) { s, b -> s.copy(airPlayEnabled = b) },
++            bool("miracast_enabled", true, { it.miracastEnabled }) { s, b -> s.copy(miracastEnabled = b) },
++            bool("cast_enabled", true, { it.castEnabled }) { s, b -> s.copy(castEnabled = b) },
++            bool("pin_auth", true, { it.airPlayPinAuthEnabled }) { s, b -> s.copy(airPlayPinAuthEnabled = b) },
++            bool("start_on_boot", false, { it.startOnBoot }) { s, b -> s.copy(startOnBoot = b) },
++            bool("debug_overlay", true, { it.showDebugOverlay }) { s, b -> s.copy(showDebugOverlay = b) },
++            bool("high_resolution", true, { it.forceHighResolution }) { s, b -> s.copy(forceHighResolution = b) },
++            bool("mirror_audio", true, { it.mirrorAudioEnabled }) { s, b -> s.copy(mirrorAudioEnabled = b) },
++        )
++
++        // One consumer runs queued jobs strictly in order, even ones that suspend (STATE reads settings),
++        // so no event can overtake another.
++        private val queue = Channel<suspend () -> Unit>(Channel.UNLIMITED)
++        private val events = CoroutineScope(Dispatchers.IO).also { scope ->
++            scope.launch { for (job in queue) runCatching { job() }.onFailure { Timber.e(it, "ControlReceiver: event failed") } }
++        }
++
++        // Every event goes through the one `events` queue so none can overtake another.
++        private fun send(context: Context, intent: Intent) {
++            val app = context.applicationContext
++            queue.trySend { sendNow(app, intent) }
++        }
++
++        private fun sendNow(context: Context, intent: Intent) {
++            context.sendBroadcast(intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND), PERMISSION_CONTROL)
++        }
++
++        // Last session, pairing code and now-playing, replayed on QUERY so a launcher that restarted
++        // mid-pairing gets the code back. Cleared when the matching "ended"/"dismissed" goes out.
++        private val replayLock = Any()
++        private var lastSession: Intent? = null
++        private var lastPairing: Intent? = null
++        private var pairingExpiresAt = 0L
++        private var lastNowPlaying: Intent? = null
++
++        /** The receiver stopped: nothing is in progress any more, so nothing is replayed. */
++        fun clearReplay() = synchronized(replayLock) { lastSession = null; lastPairing = null; lastNowPlaying = null }
++
++        private fun replay(context: Context) {
++            val (session, pairing, np) = synchronized(replayLock) {
++                val left = pairingExpiresAt - SystemClock.elapsedRealtime()
++                Triple(lastSession, lastPairing?.takeIf { left > 0 }?.let { Intent(it).putExtra("ttl_ms", left) }, lastNowPlaying)
++            }
++            listOfNotNull(session, pairing, np).forEach { send(context, Intent(it)) }
++        }
++
++        /** Sends STATE with the protocol version and every setting's current value. */
 +        fun broadcastState(context: Context, running: Boolean, sender: String?) {
-+            context.sendBroadcast(
-+                Intent(ACTION_STATE)
++            val app = context.applicationContext
++            queue.trySend {
++                val s = runCatching { SettingsRepository(app).settingsFlow.first() }.getOrDefault(AppSettings.DEFAULT)
++                val intent = Intent(ACTION_STATE)
++                    .putExtra(EXTRA_PROTOCOL, PROTOCOL_VERSION)
 +                    .putExtra(EXTRA_RUNNING, running)
 +                    .putExtra(EXTRA_SENDER, sender)
-+                    .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
-+                PERMISSION_CONTROL,
-+            )
++                    .putExtra("display_name_max", AppSettings.DISPLAY_NAME_MAX_LENGTH)
++                for (setting in settings) when (val v = setting.value(s)) {
++                    is Boolean -> intent.putExtra(setting.key, v)
++                    is String -> intent.putExtra(setting.key, v)
++                }
++                sendNow(app, intent)
++            }
 +        }
++
++        /** [kind] is mirror, video, audio, photo or unknown; a later `started` refines the kind. */
++        fun broadcastSession(context: Context, started: Boolean, sender: String?, kind: String) {
++            val i = Intent(ACTION_SESSION)
++                .putExtra("state", if (started) "started" else "ended")
++                .putExtra(EXTRA_SENDER, sender)
++                .putExtra("kind", kind)
++            synchronized(replayLock) { lastSession = if (started) Intent(i) else null }
++            send(context, i)
++        }
++
++        /** [code] null means dismissed; `ttl_ms` lets the launcher drop a card whose close event is lost. */
++        fun broadcastPairingCode(context: Context, code: String?) {
++            val i = Intent(ACTION_PAIRING_CODE).putExtra("shown", code != null).putExtra("code", code).putExtra("ttl_ms", PAIRING_TTL_MS)
++            synchronized(replayLock) {
++                lastPairing = if (code != null) Intent(i) else null
++                pairingExpiresAt = SystemClock.elapsedRealtime() + PAIRING_TTL_MS
++            }
++            send(context, i)
++        }
++
++        /** Position, duration and artwork are not known to the receiver: -1 and false. */
++        fun broadcastNowPlaying(context: Context, title: String?, artist: String?, album: String?, hasArtwork: Boolean, active: Boolean) {
++            val i = Intent(ACTION_NOW_PLAYING)
++                .putExtra("active", active)
++                .putExtra("playing", active)
++                .putExtra("title", title)
++                .putExtra("artist", artist)
++                .putExtra("album", album)
++                .putExtra("has_artwork", hasArtwork)
++                .putExtra("position_ms", -1L)
++                .putExtra("duration_ms", -1L)
++            synchronized(replayLock) { lastNowPlaying = if (active) Intent(i) else null }
++            send(context, i)
++        }
++
++        private fun broadcastError(context: Context, action: String, code: String, extraName: String, extra: String?) =
++            send(context, Intent(ACTION_ERROR)
++                .putExtra("action", action)
++                .putExtra("code", code)
++                .putExtra(extraName, extra))
 +    }
 +}
 diff --git a/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt b/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt
-index da0852a..192c4d3 100644
+index da0852a..0f69b06 100644
 --- a/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt
 +++ b/app/src/main/kotlin/com/phairplay/service/PhairPlayService.kt
-@@ -163,6 +163,7 @@ class PhairPlayService : Service() {
+@@ -102,6 +102,7 @@ class PhairPlayService : Service() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        current = this
+         Logger.i("PhairPlayService created")
+         settingsRepository = SettingsRepository(applicationContext)
+         createNotificationChannel()
+@@ -163,6 +164,9 @@ class PhairPlayService : Service() {
  
      override fun onDestroy() {
          Logger.i("PhairPlayService destroying")
++        sessionEnded()
++        if (current === this) current = null
 +        publishState(false, null)
          stopAllReceiversInternal()
          serviceJob.cancel()
          super.onDestroy()
-@@ -182,6 +183,7 @@ class PhairPlayService : Service() {
+@@ -182,6 +186,7 @@ class PhairPlayService : Service() {
  
          _serviceState.value = ServiceState.Running
          updateNotification(isRunning = true)
@@ -223,7 +517,7 @@ index da0852a..192c4d3 100644
  
          if (settings.airPlayEnabled)   startAirPlay(settings)
          if (settings.miracastEnabled)  startMiracast()
-@@ -198,6 +200,7 @@ class PhairPlayService : Service() {
+@@ -198,6 +203,7 @@ class PhairPlayService : Service() {
          _serviceState.value = ServiceState.Stopped
          _activeConnection.value = null
          updateNotification(isRunning = false)
@@ -231,43 +525,54 @@ index da0852a..192c4d3 100644
      }
  
      /**
-@@ -263,15 +266,18 @@ class PhairPlayService : Service() {
+@@ -263,16 +269,27 @@ class PhairPlayService : Service() {
                      mimeType = imageType.mimeType
                  )
                  updateNotification(isRunning = true)
 +                bringPlayerForward()
++                sessionStarted("photo")
              },
              onPhotoCleared = {
                  _photoFrame.value = null
++                sessionEnded(onlyKind = "photo")
              },
              onNowPlayingChanged = { info ->
                  _nowPlaying.value = info
 +                if (info != null) bringPlayerForward()
++                if (info != null) sessionStarted("audio")
++                ControlReceiver.broadcastNowPlaying(
++                    applicationContext, info?.title, info?.artist, info?.album, info?.artwork != null, info != null,
++                )
              },
              onPinChanged = { pin ->
                  _pairingPin.value = pin
 +                if (pin != null) bringPlayerForward()
++                ControlReceiver.broadcastPairingCode(applicationContext, pin)
              },
++            onSessionKind = { kind -> sessionStarted(kind) },
              onStateChanged = { state ->
                  _airPlayState.value = state
-@@ -281,6 +287,8 @@ class PhairPlayService : Service() {
+                 when (state) {
+@@ -281,13 +298,18 @@ class PhairPlayService : Service() {
                          _activeConnection.value =
                              ActiveConnection(pendingSenderName, Protocol.AIRPLAY)
                          updateNotification(isRunning = true, streamingSenderName = pendingSenderName)
 +                        publishState(true, pendingSenderName)
 +                        bringPlayerForward()
++                        sessionStarted("unknown")
                      }
                      ProtocolState.ADVERTISING,
                      ProtocolState.DISABLED,
-@@ -288,6 +296,7 @@ class PhairPlayService : Service() {
+                     ProtocolState.ERROR       -> {
                          _activeConnection.value = null
++                        sessionEnded()
                          updateNotification(isRunning = state != ProtocolState.DISABLED &&
                                                         state != ProtocolState.ERROR)
 +                        if (state == ProtocolState.ADVERTISING) publishState(true, null)
                      }
                  }
              }
-@@ -422,6 +431,35 @@ class PhairPlayService : Service() {
+@@ -422,6 +444,72 @@ class PhairPlayService : Service() {
          const val ACTION_START    = "com.phairplay.action.START"
          const val ACTION_STOP     = "com.phairplay.action.STOP"
          const val ACTION_RESTART  = "com.phairplay.action.RESTART"
@@ -277,6 +582,41 @@ index da0852a..192c4d3 100644
 +            private set
 +        @Volatile var senderName: String? = null
 +            private set
++        @Volatile private var current: PhairPlayService? = null
++
++        /** Sends a DACP command to the sender (from [ControlReceiver], same process). */
++        fun transport(command: String) { current?.sendAirPlayRemoteCommand(command) }
++    }
++
++    private val sessionLock = Any()
++    // Kinds in progress and the one last reported (the highest priority wins).
++    private val kinds = LinkedHashSet<String>()
++    private var reportedKind: String? = null
++    private val kindPriority = listOf("mirror", "video", "audio", "photo", "unknown")
++
++    private fun topKind() = kindPriority.firstOrNull { it in kinds }
++
++    /** Tells trusted apps a session began; the reported kind is the highest-priority one running. */
++    private fun sessionStarted(kind: String) {
++        val report = synchronized(sessionLock) {
++            if (kind != "unknown" || kinds.isEmpty()) kinds.add(kind)
++            if (kind != "unknown") kinds.remove("unknown")
++            topKind()?.takeIf { it != reportedKind }?.also { reportedKind = it }
++        } ?: return
++        ControlReceiver.broadcastSession(applicationContext, true, senderName ?: "AirPlay Sender", report)
++    }
++
++    /** Ends [onlyKind] (clearing a photo must not end a mirror), or everything when null. */
++    private fun sessionEnded(onlyKind: String? = null) {
++        var ended: String? = null
++        var report: String? = null
++        synchronized(sessionLock) {
++            if (onlyKind == null) kinds.clear() else if (!kinds.remove(onlyKind)) return
++            val top = topKind()
++            if (top == null) { ended = reportedKind; reportedKind = null } else if (top != reportedKind) { report = top; reportedKind = top }
++        }
++        ended?.let { ControlReceiver.broadcastSession(applicationContext, false, senderName, it) }
++        report?.let { ControlReceiver.broadcastSession(applicationContext, true, senderName ?: "AirPlay Sender", it) }
 +    }
 +
 +    /** Publishes the receiver state to trusted apps (a launcher's AirPlay toggle). */
@@ -284,6 +624,7 @@ index da0852a..192c4d3 100644
 +        if (running == isRunning && senderName == sender) return
 +        running = isRunning
 +        senderName = sender
++        if (!isRunning) ControlReceiver.clearReplay()
 +        ControlReceiver.broadcastState(applicationContext, isRunning, sender)
 +    }
 +
@@ -298,6 +639,7 @@ index da0852a..192c4d3 100644
 +                Intent(this, MainActivity::class.java)
 +                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 +                    .putExtra(MainActivity.EXTRA_SESSION, true)
++                    .putExtra(MainActivity.EXTRA_CHROME, "none")
 +            )
 +        }.onFailure { Logger.e("Couldn't bring the player forward", it) }
      }

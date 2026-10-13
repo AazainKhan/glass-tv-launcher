@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # AirPlay for Glass: builds PhairPlay (github.com/mazer666/PhairPlay, Apache-2.0), an open-source AirPlay 2
-# receiver, with tools/phairplay/glass-control.patch applied, and installs it. The patch adds a
-# signature-guarded control receiver so Control Center's AirPlay toggle can turn it on and off, and
-# brings PhairPlay's player forward when a Mac or iPhone starts mirroring (then steps back to Home when
-# it stops). Signed with the same debug key as Glass, which is what lets the two talk.
+# receiver, with tools/phairplay/glass-control.patch applied, and installs it. The patch adds control
+# protocol v2 (signature-guarded: ENABLE/DISABLE/QUERY/SET/TRANSPORT in; STATE, SESSION, PAIRING_CODE,
+# NOW_PLAYING, ERROR out), removes the launcher icon, and brings PhairPlay's player forward when a Mac
+# or iPhone starts mirroring (then steps back to Home when it stops). Signed with the same debug key as
+# Glass, which is what lets the two talk.
 #   scripts/phairplay install     clone (or update) at the pinned commit, patch, build, install
 #   scripts/phairplay status      installed version and whether the receiver is running
 #   scripts/phairplay uninstall

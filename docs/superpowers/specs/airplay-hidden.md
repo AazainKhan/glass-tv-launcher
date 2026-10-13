@@ -116,6 +116,9 @@ the settings migration, and the `playfair` licence work. `airplay-builtin.md` st
 1. **Signing key.** The control permission is `signature` level, so PhairPlay must be signed with the same key as Glass.
    A release Glass is signed with the Glass release key; only the holder of that key can produce a matching PhairPlay.
    Debug Glass pairs with debug PhairPlay. Section 5 states this per mode.
+   Permission squat: whoever installs first and declares `com.phairplay.permission.CONTROL` owns it, so a hostile app
+   could declare it before PhairPlay does. Glass therefore also requires PhairPlay to carry Glass's own signing cert
+   (`checkSignatures`) before it sends or trusts anything, which a squatter cannot satisfy.
 2. **APK users can't build it.** AirPlay is therefore an optional feature. Without PhairPlay, the AirPlay tile, the
    Settings page and the Control Center platter show a clear "not set up" state and nothing else changes.
 3. **`playfair` tables.** They are reverse-engineered FairPlay key data with no licence we can rely on. Glass does not host
