@@ -65,10 +65,29 @@ data class LauncherConfig(
     val topShelfTitles: Boolean = true,
     /** Start the screensaver while Now Playing fills Home (off: the album art is the screensaver). */
     val screensaverDuringMusic: Boolean = false,
+    /** Settings › Downloads. */
+    val downloads: DownloadsConfig = DownloadsConfig(),
 ) {
     /** Minutes of idle Home before Aerials start (when Aerials is the screensaver); 0 stored means the default. */
     val aerialsIdleMinutes: Int get() = aerialsOnIdleMinutes.takeIf { it > 0 } ?: 5
 }
+
+@Serializable
+data class DownloadsConfig(
+    val concurrent: Int = 2,
+    val segments: Int = 4,
+    /** Off: an APK is deleted once installed. */
+    val keepInstalledApks: Boolean = false,
+    /** What was typed into the URL entry, newest first, at most 20. */
+    val history: List<String> = emptyList(),
+    /** Hosts the user already accepted for a download that started from a code. */
+    val acceptedHosts: Set<String> = emptySet(),
+    val codes: List<MyCode> = emptyList(),
+)
+
+/** A personal shortcut: [code] stands for [url]. */
+@Serializable
+data class MyCode(val code: String, val url: String, val name: String = "")
 
 @Serializable
 enum class BackgroundMode { Featured, Wallpaper, Motion }
