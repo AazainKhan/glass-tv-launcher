@@ -2,13 +2,22 @@
 
 Glass captures what other apps play (AudioPlaybackCapture: USAGE_MEDIA, USAGE_GAME, USAGE_UNKNOWN) and streams it to one Sonos speaker.
 
-## Consent: the same in APK, Glass Pro and Glass OS
+## Consent per install mode (P135, decided 2026-10-13)
 
-- RECORD_AUDIO (runtime permission) and the MediaProjection dialog are asked **every session**.
-- No appops pre-grant, no silent grant, not even with root or as a system app. `CaptureConsentActivity` is the only path.
+| Mode | RECORD_AUDIO | MediaProjection dialog | How |
+|---|---|---|---|
+| Plain APK | asked at runtime | **shown every session** | `CaptureConsentActivity`, unchanged. Optional: the user may run the two adb lines in the README. |
+| Glass Pro (root) | pre-granted | skipped | Before the consent screen, `ProjectionPregrant` runs through `Root.action`: `appops set dev.glasslauncher PROJECT_MEDIA allow` and `pm grant dev.glasslauncher android.permission.RECORD_AUDIO` (only if `appops get` doesn't say allow yet; never on Main). The glass-system module's `service.sh` also runs both every boot, after `sys.boot_completed`, next to the location grant. |
+| Glass OS | pre-granted | skipped | Image item (rom repo, not this one): ship the same two as a default appops entry or a first-boot line. |
+
+- With both set, the system's MediaProjectionPermissionActivity approves by itself and no dialog shows (verified on the stick).
+- `CaptureConsentActivity` still runs in every mode; with the grants it just passes through.
 - Manifest: RECORD_AUDIO and FOREGROUND_SERVICE_MEDIA_PROJECTION, both normal/runtime. No privileged permission.
+- `SonosConsentPolicyTest` allows these grants only in `ProjectionPregrant.kt` and `glass-system-service.sh`; any other location granting RECORD_AUDIO or PROJECT_MEDIA fails the build.
 
 ## Opt-outs are never bypassed
+
+- Skipping the dialog changes nothing here: the grants are about consent, not about what an app allows.
 
 - An app with `allowAudioPlaybackCapture=false` is silent to the capture. Glass reads the flag where the platform exposes it and otherwise detects 5 s of silence while a media session plays.
 - Then the platter says "<App> doesn't allow playing on other speakers" and the TV keeps the sound (the TV mute is released).

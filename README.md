@@ -52,6 +52,9 @@ adb shell pm grant dev.glasslauncher android.permission.WRITE_SECURE_SETTINGS
 adb shell appops set dev.glasslauncher GET_USAGE_STATS allow
 # Show the Wi-Fi network name in Control Center
 adb shell pm grant dev.glasslauncher android.permission.ACCESS_FINE_LOCATION
+# Optional: skip the screen-capture dialog when playing on a Sonos speaker (the system approves it without asking)
+adb shell appops set dev.glasslauncher PROJECT_MEDIA allow
+adb shell pm grant dev.glasslauncher android.permission.RECORD_AUDIO
 ```
 
 Two more switches live in the system settings: *Notification access* (Now Playing) and the optional accessibility services (*Home Button Takeover*, *Remote Buttons* for Control Center over apps and remapped remote buttons).

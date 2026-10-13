@@ -9,6 +9,9 @@ until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 2; done
 # Every boot: Android 11 drops BLE scan results for an app without location, and Glass's own remote pairing needs them.
 # (A runtime permission is not a privileged one: the privapp allowlist doesn't grant it.)
 pm grant dev.glasslauncher android.permission.ACCESS_FINE_LOCATION 2>/dev/null
+# Every boot (P135): Sonos capture skips the MediaProjection dialog; the system approves it with these two.
+appops set dev.glasslauncher PROJECT_MEDIA allow 2>/dev/null
+pm grant dev.glasslauncher android.permission.RECORD_AUDIO 2>/dev/null
 [ -f "$FLAG" ] || exit 0
 sleep 20
 rm -f "$FLAG"

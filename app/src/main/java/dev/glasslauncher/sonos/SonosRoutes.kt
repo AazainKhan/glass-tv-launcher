@@ -60,7 +60,11 @@ object SonosRoutes {
     /** Asks for consent (RECORD_AUDIO, then the projection dialog); everything else follows from the result. */
     fun start(context: Context, speaker: AudioOutputConfig, muteTvWhilePlaying: Boolean) {
         if (!runner(context).begin(speaker, muteTvWhilePlaying)) return
-        context.startActivity(consentIntent(context))
+        // Pro (su): pre-grant first so the system skips the projection dialog (P135). The plain APK has no su and keeps it.
+        scope.launch {
+            runCatching { ProjectionPregrant.ensure(context.applicationContext) }
+            Handler(Looper.getMainLooper()).post { context.startActivity(consentIntent(context)) }
+        }
     }
 
     /** Applies the mute toggle to a route that is already running. */

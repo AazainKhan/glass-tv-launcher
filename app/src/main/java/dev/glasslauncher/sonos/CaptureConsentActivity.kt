@@ -7,9 +7,9 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 
 /**
- * The consent step of a Sonos route: RECORD_AUDIO, then the MediaProjection dialog. Asked every session in every
- * install mode; nothing here pre-grants or skips either, with or without root (SonosConsentPolicyTest checks that
- * no script, module or source grants RECORD_AUDIO). It runs in its own task (taskAffinity "", see the manifest) and
+ * The consent step of a Sonos route: RECORD_AUDIO, then the MediaProjection dialog. The plain APK asks both every
+ * session. Glass Pro and Glass OS pre-grant them (P135, [ProjectionPregrant], glass-system-service.sh), so the system
+ * approves without a dialog; this activity is unchanged. SonosConsentPolicyTest limits where that grant may live. It runs in its own task (taskAffinity "", see the manifest) and
  * ends with finishAndRemoveTask(), so the app that was in front returns instead of Glass Home.
  */
 class CaptureConsentActivity : Activity() {
