@@ -1250,7 +1250,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 // A menu pill, not a toggle (P129): Select opens the platter (receiver on/off, status),
                                 // like tvOS's Audio pill. The pill shows the connection, not an on/off disc.
                                 val value = when { state.sender != null -> "Connected to ${state.sender}"; state.running -> "On"; else -> "Off" }
-                                SizedRound(tile.size, w, h, "AirPlay", null, R.drawable.ic_airplay, "AirPlay, $value", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "airplay"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "airplay"; airplayPlatter = true }) { tap { platterSource.id = "airplay"; airplayPlatter = true }() }
+                                // P141: while audio goes to a Sonos speaker the control wears its glyph (solid blue) and room name, as tvOS's Audio pill does.
+                                val route by remember { dev.glasslauncher.sonos.SonosRoutes.state(context) }.collectAsStateWithLifecycle()
+                                val pill = dev.glasslauncher.sonos.AirPlayPill.of(route, cfg.audioOutput?.room)
+                                androidx.compose.runtime.CompositionLocalProvider(LocalRouteInk provides inkAccent(Blue)) {
+                                    SizedRound(tile.size, w, h, pill.title, null, if (pill.speaker) R.drawable.ic_speaker else R.drawable.ic_airplay, if (pill.speaker) pill.title else "AirPlay, $value", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "airplay"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "airplay"; airplayPlatter = true }) { tap { platterSource.id = "airplay"; airplayPlatter = true }() }
+                                }
                             }
                             "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "On" else "Off", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { }) {
@@ -1383,8 +1388,20 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
 
 @Composable
 private fun Glyph(@DrawableRes icon: Int, tint: Color, modifier: Modifier = Modifier) {
-    Image(painterResource(icon), contentDescription = null, colorFilter = ColorFilter.tint(tint), modifier = modifier)
+    val routeInk = LocalRouteInk.current
+    if (routeInk == null) {
+        Image(painterResource(icon), contentDescription = null, colorFilter = ColorFilter.tint(tint), modifier = modifier)
+    } else {
+        // P141: the AirPlay control's glyph crossfades (0.25 s) between the Audio glyph and the routed speaker's, which is solid blue.
+        val focused = LocalCcTileFocused.current
+        androidx.compose.animation.Crossfade(icon, animationSpec = androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "route-glyph") { id ->
+            Image(painterResource(id), contentDescription = null, colorFilter = ColorFilter.tint(if (id == R.drawable.ic_speaker && !focused) routeInk else tint), modifier = modifier)
+        }
+    }
 }
+
+/** Set around the AirPlay control only: its glyph crossfades and tints [Color] for a routed speaker (P141). */
+private val LocalRouteInk = androidx.compose.runtime.compositionLocalOf<Color?> { null }
 
 @Composable
 private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color, value: String? = null, on: Boolean = false, accent: Color = fg) {

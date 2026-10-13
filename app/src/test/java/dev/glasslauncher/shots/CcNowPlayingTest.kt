@@ -85,4 +85,27 @@ class CcNowPlayingTest {
             check(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("cc-airplay")).fetchSemanticsNodes().isEmpty()) { "platter still up after Back" }
         }
     }
+
+    /** P141: audio routed to a Sonos speaker; the AirPlay control wears the speaker glyph (blue) and, as a pill, the room name. */
+    @Test fun airPlayControlWhileRoutedToASpeaker() {
+        hubField().set(null, dev.glasslauncher.system.AirPlayHub(Link(), background = { it.run() }, main = { it.run() }))
+        TvHarness.setUp(config = { it.copy(audioOutput = dev.glasslauncher.data.AudioOutputConfig("10.0.0.5", "Roam 2")) })
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val runner = dev.glasslauncher.sonos.SonosRoutes::class.java.getDeclaredField("runner").apply { isAccessible = true }
+        dev.glasslauncher.sonos.SonosRoutes.state(ctx) // creates the runner
+        @Suppress("UNCHECKED_CAST")
+        val flow = runner.get(dev.glasslauncher.sonos.SonosRoutes).let { r ->
+            r.javaClass.getDeclaredField("_state").apply { isAccessible = true }.get(r) as MutableStateFlow<dev.glasslauncher.sonos.RouteState>
+        }
+        flow.value = dev.glasslauncher.sonos.RouteState.Playing
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome()
+                compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+                compose.waitForTag("control-center")
+                compose.settle()
+                compose.onRoot().captureRoboImage(shot("cc-airplay-routed"))
+            }
+        } finally { flow.value = dev.glasslauncher.sonos.RouteState.Idle }
+    }
 }

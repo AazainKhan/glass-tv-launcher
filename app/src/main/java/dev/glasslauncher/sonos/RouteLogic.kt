@@ -153,3 +153,15 @@ object ConsentGate {
     /** True for a window change that is not a launchable app while consent is pending. */
     fun ignores(now: Long, launchableApp: Boolean): Boolean = !launchableApp && now < until
 }
+
+/** P141: how Control Center's AirPlay control reads while audio goes to a Sonos speaker (tvOS's Audio pill, REA). */
+data class AirPlayPill(val speaker: Boolean, val title: String) {
+    companion object {
+        const val AUDIO = "Audio"
+
+        /** Anything but Idle and Failed is routed to [room]; otherwise the pill is the plain Audio pill on This TV. */
+        fun of(route: RouteState, room: String?): AirPlayPill =
+            if (route == RouteState.Idle || route is RouteState.Failed) AirPlayPill(false, AUDIO)
+            else AirPlayPill(true, room?.takeIf { it.isNotBlank() } ?: "Sonos")
+    }
+}
