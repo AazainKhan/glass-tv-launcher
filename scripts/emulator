@@ -55,7 +55,7 @@ case "${1:-}" in
     # own server port and HOME so the default adb server, and any session on the stick, never sees it.
     EHOME="$HOME/.cache/glass-tv/emulator-home"; mkdir -p "$EHOME"
     AVDDIR="$HOME/.android/avd"; HOME="$EHOME" ANDROID_AVD_HOME="$AVDDIR" ANDROID_SDK_ROOT="$SDK" ANDROID_ADB_SERVER_PORT=$SERVER \
-      nohup "$SDK/emulator/emulator" -avd "$AVD" -ports "$CONSOLE,$ADBPORT" "${window[@]}" \
+      nohup "$SDK/emulator/emulator" -avd "$AVD" -ports "$CONSOLE,$ADBPORT" ${window[@]+"${window[@]}"} \
       -no-snapshot-save -no-boot-anim -gpu host -memory $MEM >"$ROOT/build/emulator-$CONSOLE.log" 2>&1 &
     for _ in $(seq 1 120); do
       foreign_check
