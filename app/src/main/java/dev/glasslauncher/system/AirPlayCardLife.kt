@@ -14,6 +14,9 @@ class AirPlayCardLife {
         expiresAt = now + e.ttlMs
     }
 
+    /** Back on the card: gone here, whatever PhairPlay still thinks. */
+    fun dismiss() { code = null }
+
     /** True while the card should be on screen at [now]. */
     fun visible(now: Long): Boolean = code != null && now < expiresAt
 

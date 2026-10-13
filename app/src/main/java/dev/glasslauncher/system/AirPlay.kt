@@ -9,10 +9,11 @@ import android.content.pm.PackageManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import dev.glasslauncher.system.AirPlayProtocol.Event
@@ -94,38 +95,113 @@ object AirPlay {
         return { runCatching { context.unregisterReceiver(listener) } }
     }
 
-    /** The pairing-code card's lifetime and the current session, fed by [rememberState]'s receiver. */
-    val pairing = AirPlayCardLife()
-    val session = AirPlaySessionLife()
+    @Volatile private var hubInstance: AirPlayHub? = null
 
-    /**
-     * PhairPlay's receiver state while the caller is on screen, or null when PhairPlay isn't
-     * installed. Listens to every PhairPlay event, and asks for the state again on each resume so
-     * a missed event is repaired.
-     */
+    /** The one hub for the process: it listens to PhairPlay from [start] on, whichever screen is up. */
+    fun hub(context: Context): AirPlayHub =
+        hubInstance ?: synchronized(this) { hubInstance ?: AirPlayHub(context.applicationContext).also { hubInstance = it } }
+
+    /** The hub and its latest cleaned state, for a screen. It asks PhairPlay again each time [active] resumes, so a missed event is repaired. */
     @Composable
-    fun rememberState(active: Boolean): Pair<State, (Boolean) -> Unit>? {
+    fun rememberAirPlay(active: Boolean): Pair<AirPlayUi, AirPlayHub> {
         val context = LocalContext.current
-        val target = remember(active) { receiver(context) } ?: return null
-        var state by remember { mutableStateOf(State(on = false)) }
+        val hub = remember { hub(context) }
+        val ui by hub.ui.collectAsState()
         val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-        DisposableEffect(target, active, lifecycle) {
+        DisposableEffect(hub, active, lifecycle) {
             if (!active) return@DisposableEffect onDispose { }
-            val unregister = register(context) { event ->
-                val now = android.os.SystemClock.elapsedRealtime()
-                when (event) {
-                    is Event.State -> { pairing.onState(event); session.onState(event); stateOf(event)?.let { state = it } }
-                    is Event.PairingCode -> pairing.onEvent(event, now)
-                    is Event.Session -> session.onEvent(event)
-                    else -> Unit
-                }
-            }
-            val observer = androidx.lifecycle.LifecycleEventObserver { _, e ->
-                if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) pairing.resync(context, target)
-            }
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) hub.resume() }
             lifecycle.addObserver(observer)
-            onDispose { lifecycle.removeObserver(observer); unregister() }
+            hub.resume()
+            onDispose { lifecycle.removeObserver(observer) }
         }
-        return state to { on -> state = state.copy(on = on); set(context, target, on) }
+        return ui to hub
     }
+}
+
+/** How the hub reaches PhairPlay: look it up, send it an intent, hear its events. A fake in tests. */
+interface AirPlayLink {
+    fun target(): ComponentName?
+    fun send(intent: Intent): Boolean
+    fun listen(onEvent: (Event) -> Unit)
+}
+
+private class ContextLink(private val app: Context) : AirPlayLink {
+    override fun target() = AirPlay.receiver(app)
+    override fun send(intent: Intent) = runCatching { app.sendBroadcast(intent, AirPlayProtocol.PERMISSION) }.isSuccess
+    override fun listen(onEvent: (Event) -> Unit) { AirPlay.register(app, onEvent = onEvent) }
+}
+
+/**
+ * The process-wide AirPlay link: listens to PhairPlay (registered with the signature permission, so only PhairPlay
+ * can deliver), folds events through [AirPlayReducer] and publishes the result. Screens read [ui]; none keeps its own copy.
+ */
+class AirPlayHub(private val link: AirPlayLink, clock: () -> Long = android.os.SystemClock::elapsedRealtime) {
+    constructor(app: Context) : this(ContextLink(app))
+
+    private val reducer = AirPlayReducer(clock)
+    private val handler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    private val _ui = MutableStateFlow(AirPlayUi())
+    val ui: StateFlow<AirPlayUi> = _ui
+    private var target: ComponentName? = null
+    private var started = false
+
+    /** Process start: listen for good and ask for the state. */
+    fun start() {
+        if (started) return
+        started = true
+        link.listen { publish(reducer.onEvent(it)) }
+        resume()
+    }
+
+    /** A screen resumed (or the link may have come back): find PhairPlay again and ask for its state, so a missed event is repaired. */
+    fun resume() {
+        if (!started) { start(); return }
+        target = link.target()
+        publish(reducer.setInstalled(target != null))
+        target?.let { link.send(AirPlayProtocol.encodeQuery(it)) }
+    }
+
+    fun setOn(on: Boolean) { target?.let { link.send(AirPlayProtocol.encodeToggle(it, on)) } }
+
+    /** Sends one setting. Nothing changes here until PhairPlay answers with its STATE. */
+    fun setSetting(key: AirPlayProtocol.SettingKey, value: Any): Boolean {
+        val t = target ?: return false
+        val ui = _ui.value
+        if (ui.availability != AirPlayAvailability.Ready) return false
+        val intent = runCatching {
+            when (value) {
+                is Boolean -> AirPlayProtocol.encodeSet(t, key, value)
+                is Int -> AirPlayProtocol.encodeSet(t, key, value)
+                is String -> AirPlayProtocol.encodeSet(t, key, value, ui.settings?.displayNameMax ?: AirPlayProtocol.DISPLAY_NAME_MAX)
+                else -> null
+            }
+        }.getOrNull() ?: return false
+        return link.send(intent)
+    }
+
+    fun playPause() {
+        val t = target ?: return
+        val ui = _ui.value
+        val playing = ui.track?.playing ?: return
+        if (ui.availability != AirPlayAvailability.Ready) return
+        val cmd = if (playing) AirPlayProtocol.Transport.Pause else AirPlayProtocol.Transport.Play
+        if (link.send(AirPlayProtocol.encodeTransport(t, cmd))) publish(reducer.onTransport(!playing))
+    }
+
+    /** Back on the pairing card for [code]: a newer code that replaced it stays up. */
+    fun dismissPairing(code: String) { if (_ui.value.pairingCode == code) publish(reducer.dismissPairing()) }
+
+    /** Drops an expired pairing card; runs by itself when the TTL ends. */
+    fun tick() = publish(reducer.tick())
+
+    private fun publish(ui: AirPlayUi) {
+        _ui.value = ui
+        runCatching {
+            handler.removeCallbacks(expire)
+            reducer.pairingRemaining()?.let { handler.postDelayed(expire, it + 10) }
+        }
+    }
+
+    private val expire = Runnable { tick() }
 }

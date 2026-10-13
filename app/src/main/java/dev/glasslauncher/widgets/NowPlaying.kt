@@ -40,17 +40,32 @@ data class NowPlaying(
     val positionAt: Long,
     val speed: Float,
     val playing: Boolean,
-    val controller: MediaController,
+    val controller: Controls,
 ) {
+    /** What play/pause and skip do: a media session's controls, or AirPlay's transport. */
+    interface Controls {
+        fun play()
+        fun pause()
+        fun next()
+        fun previous()
+    }
+
     fun positionNow(now: Long = SystemClock.elapsedRealtime()): Long =
         if (!playing) positionMs else (positionMs + ((now - positionAt) * speed).toLong()).coerceIn(0, durationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
 
-    fun playPause() = if (playing) controller.transportControls.pause() else controller.transportControls.play()
-    fun next() = controller.transportControls.skipToNext()
-    fun previous() = controller.transportControls.skipToPrevious()
+    fun playPause() = if (playing) controller.pause() else controller.play()
+    fun next() = controller.next()
+    fun previous() = controller.previous()
 
     /** Identity of the track and its state, for animations and backdrop keys (not the per-update position). */
     val key: String get() = "$packageName|$title|$artist|$album"
+}
+
+private class SessionControls(private val t: MediaController.TransportControls) : NowPlaying.Controls {
+    override fun play() = t.play()
+    override fun pause() = t.pause()
+    override fun next() = t.skipToNext()
+    override fun previous() = t.skipToPrevious()
 }
 
 object NowPlayingSource {
@@ -98,7 +113,7 @@ object NowPlayingSource {
                         positionAt = state?.lastPositionUpdateTime?.takeIf { it > 0 } ?: SystemClock.elapsedRealtime(),
                         speed = state?.playbackSpeed?.takeIf { it > 0f } ?: 1f,
                         playing = state?.state == PlaybackState.STATE_PLAYING,
-                        controller = c,
+                        controller = SessionControls(c.transportControls),
                     ),
                 )
             }
@@ -159,8 +174,36 @@ fun backdropArt(art: Bitmap): Bitmap {
     return out
 }
 
-/** One shared session watcher for Home and Control Center (started while anything shows it). */
+/**
+ * An AirPlay audio session as a Now Playing item (title and artist when the sender gave them). Position and
+ * duration are 0 when unknown, which the views already draw as no progress; there is no art (a broadcast
+ * can't carry it). Skip does nothing: PhairPlay's transport is play, pause and stop.
+ */
+fun airPlayNowPlaying(track: dev.glasslauncher.system.AirPlayTrack, sender: String?, now: Long, onPlayPause: (Boolean) -> Unit): NowPlaying = NowPlaying(
+    title = track.title ?: sender?.let { "AirPlay from $it" } ?: "AirPlay",
+    artist = track.artist,
+    album = track.album,
+    packageName = "airplay",
+    art = null,
+    durationMs = track.durationMs ?: 0,
+    positionMs = track.positionMs ?: 0,
+    positionAt = now,
+    speed = 1f,
+    playing = track.playing,
+    controller = object : NowPlaying.Controls {
+        override fun play() = onPlayPause(true)
+        override fun pause() = onPlayPause(false)
+        override fun next() = Unit
+        override fun previous() = Unit
+    },
+)
+
+/** One shared session watcher for Home and Control Center (started while anything shows it). An AirPlay audio session takes over while it lasts. */
 class NowPlayingRepository(context: Context, scope: CoroutineScope) {
-    val state: StateFlow<NowPlaying?> = NowPlayingSource.flow(context.applicationContext)
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+    private val hub = dev.glasslauncher.system.AirPlay.hub(context)
+    val state: StateFlow<NowPlaying?> = kotlinx.coroutines.flow.combine(NowPlayingSource.flow(context.applicationContext), hub.ui) { media, air ->
+        air.track?.let { airPlayNowPlaying(it, air.sender, SystemClock.elapsedRealtime()) { _ -> hub.playPause() } } ?: media
+    }.distinctUntilChanged { a, b ->
+        a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 }

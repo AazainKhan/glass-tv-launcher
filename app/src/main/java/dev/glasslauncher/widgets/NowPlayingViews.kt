@@ -56,6 +56,7 @@ import androidx.compose.ui.focus.FocusRequester
 /** The playing app's name ("Spotify"), for the "Now Playing" line. */
 @Composable
 private fun appName(pkg: String): String {
+    if (pkg == "airplay") return "AirPlay"
     val pm = LocalContext.current.packageManager
     return remember(pkg) { runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault("") }
 }

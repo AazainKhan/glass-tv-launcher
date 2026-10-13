@@ -42,6 +42,9 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         dev.glasslauncher.ui.NetworkEpoch.register(this)
         // A previous run that crashed while Glass held the TV muted for Sonos left it muted: undo that.
         chore(Dispatchers.Default) { dev.glasslauncher.sonos.SonosRoutes.recoverMute(this) }
+        // Listen for PhairPlay from the start, so a pairing code or Now Playing that arrives before any screen opens is not lost.
+        // Off the cold-start path: the hub resolves PhairPlay on its own thread.
+        chore(Dispatchers.Default) { dev.glasslauncher.system.AirPlay.hub(this@GlassApp).start() }
         // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
         // not on the first bake's critical path.
         chore(Dispatchers.Default) { wallpapers.prewarm() }
