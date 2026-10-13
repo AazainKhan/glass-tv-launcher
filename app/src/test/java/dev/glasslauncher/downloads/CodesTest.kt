@@ -1,10 +1,12 @@
 package dev.glasslauncher.downloads
 
 import dev.glasslauncher.data.MyCode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -88,5 +90,39 @@ class CodesTest {
         now += CodeIndex.DAY_MS * 3
         assertEquals(1, idx.load().size)
         assertTrue(CodeIndex(tmp.newFolder().resolve("none.json"), { error("offline") }, { now }).load().isEmpty())
+    }
+
+    @Test fun anApkNeedsAChecksumToBeListed() {
+        val list = Codes.parseIndex(
+            """[{"code":"a","url":"https://example.com/a.apk"},
+                {"code":"b","url":"https://example.com/get?f=b.apk","name":"b.apk","sha256":"${sha}"},
+                {"code":"c","url":"https://example.com/c.APK?x=1","sha256":"bad"},
+                {"code":"d","url":"https://example.com/d.zip"}]""",
+        )
+        assertEquals(listOf("b", "d"), list.map { it.code })
+        assertNull(Codes.parseIndexOrNull("<html>sign in to the wifi</html>"))
+    }
+
+    @Test fun aBadAnswerNeverReplacesTheCachedIndex() = runBlocking {
+        var now = 1_000_000_000L
+        var body = """[{"code":"a","url":"https://example.com/a"}]"""
+        val cache = tmp.newFolder().resolve("codes.json")
+        val idx = CodeIndex(cache, { body }, { now })
+        assertEquals(1, idx.load().size)
+        for (bad in listOf("<html>captive portal</html>", "[{\"code\":", "x".repeat(CodeIndex.MAX_BYTES + 1))) {
+            now += CodeIndex.DAY_MS + 1
+            body = bad
+            assertEquals("a", idx.load().single().code)
+        }
+        assertTrue(cache.readText().contains("example.com/a"))
+    }
+
+    @Test fun cancellationIsNotSwallowedByTheFetch() = runBlocking {
+        val idx = CodeIndex(tmp.newFolder().resolve("codes.json"), { throw CancellationException("stop") })
+        try { idx.load(); fail("cancellation was swallowed") } catch (e: CancellationException) { /* expected */ }
+    }
+
+    @Test fun theIndexComesFromTheMasterBranch() {
+        assertEquals("https://raw.githubusercontent.com/o/r/master/downloads/codes.json", CodeIndex.url("o/r"))
     }
 }

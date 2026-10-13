@@ -10,6 +10,7 @@ Glass fetches it from GitHub once a day. Nothing else is ever called: no third-p
 ```
 
 - `code` and `url` are required; `name` and `sha256` are optional. `sha256` is checked after the download, so use it.
+  An entry for an `.apk` **must** have a `sha256`; Glass ignores it otherwise.
 - The URL must be https.
 - Add an entry in a pull request. **Entries must be your own files or files their owners allow anyone to redistribute.**
   Nothing that points to pirated or paid-for content is accepted, and entries that do are removed.
