@@ -48,6 +48,7 @@ object AirPlayProtocol {
     /** Fallback for upstream's AppSettings.DISPLAY_NAME_MAX_LENGTH; STATE reports the real one (`display_name_max`). */
     const val DISPLAY_NAME_MAX = 63
     const val DEFAULT_PAIRING_TTL_MS = 120_000L
+    const val MAX_PAIRING_TTL_MS = 120_000L
 
     /** PhairPlay's settings as it reports them; defaults match its `AppSettings`. */
     data class Settings(
@@ -97,7 +98,10 @@ object AirPlayProtocol {
         data class Session(val started: Boolean, val sender: String?, val kind: SessionKind) : Event
 
         /** [code] is null when dismissed; [ttlMs] is how long a shown code may stay up without a close event. */
-        data class PairingCode(val code: String?, val ttlMs: Long = DEFAULT_PAIRING_TTL_MS) : Event
+        data class PairingCode(val code: String?, val ttlMs: Long = DEFAULT_PAIRING_TTL_MS) : Event {
+            /** The TTL as it is trusted: 1 ms to [MAX_PAIRING_TTL_MS], so a hostile or broken value can't pin a code on screen. */
+            val safeTtlMs get() = ttlMs.coerceIn(1, MAX_PAIRING_TTL_MS)
+        }
 
         data class NowPlaying(
             val active: Boolean,
@@ -157,7 +161,8 @@ object AirPlayProtocol {
         )
         ACTION_PAIRING_CODE -> Event.PairingCode(
             intent.getStringExtra("code")?.takeIf { intent.getBooleanExtra("shown", true) && it.isNotEmpty() },
-            intent.getLongExtra("ttl_ms", DEFAULT_PAIRING_TTL_MS).takeIf { it > 0 } ?: DEFAULT_PAIRING_TTL_MS,
+            // Missing or not a long: the default. Zero, negative or huge: clamped (safeTtlMs).
+            intent.getLongExtra("ttl_ms", Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }?.coerceIn(1, MAX_PAIRING_TTL_MS) ?: DEFAULT_PAIRING_TTL_MS,
         )
         ACTION_NOW_PLAYING -> Event.NowPlaying(
             active = intent.getBooleanExtra("active", false),

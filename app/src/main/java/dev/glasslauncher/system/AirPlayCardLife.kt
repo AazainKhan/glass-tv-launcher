@@ -10,8 +10,8 @@ class AirPlayCardLife {
     private var expiresAt = 0L
 
     fun onEvent(e: AirPlayProtocol.Event.PairingCode, now: Long) {
-        code = e.code
-        expiresAt = now + e.ttlMs
+        code = e.code?.takeIf(AirPlayText::isCode)
+        expiresAt = now + e.safeTtlMs
     }
 
     /** Back on the card: gone here, whatever PhairPlay still thinks. */

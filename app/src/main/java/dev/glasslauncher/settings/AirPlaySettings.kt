@@ -33,8 +33,9 @@ internal fun airPlayRowValue(ui: AirPlayUi): String = when (AirPlayPageModel.of(
 internal fun ColumnScope.AirPlaySettingsPage(ui: AirPlayUi, hub: dev.glasslauncher.system.AirPlayHub, f: Modifier, open: (Overlay) -> Unit, about: () -> Unit) {
     val context = LocalContext.current
     val page = AirPlayPageModel.of(ui)
-    // PhairPlay refused a SET (an unknown key, a bad value): say so once per answer.
-    LaunchedEffect(ui.errors) { if (ui.errors > 0) RemoteNotice.show(context, "AirPlay couldn't change that setting", 3_000) }
+    // PhairPlay refused a SET (an unknown key, a bad value): say so once per new answer, not for one that came before this page opened.
+    val errorsAtEntry = androidx.compose.runtime.remember { ui.errors }
+    LaunchedEffect(ui.errors) { if (AirPlayPageModel.newError(errorsAtEntry, ui.errors)) RemoteNotice.show(context, "AirPlay couldn't change that setting", 3_000) }
     PanelTitle("AirPlay")
     when (page.kind) {
         Kind.NotSetUp -> {

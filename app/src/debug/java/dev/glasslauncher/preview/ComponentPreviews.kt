@@ -271,13 +271,13 @@ fun FilesLightPreview() = PreviewStage(light = true) { FilesPage(light = true) }
 private object NoLink : dev.glasslauncher.system.AirPlayLink {
     override fun target(): android.content.ComponentName? = null
     override fun send(intent: android.content.Intent) = false
-    override fun listen(onEvent: (dev.glasslauncher.system.AirPlayProtocol.Event) -> Unit) = Unit
+    override fun listen(onEvent: (dev.glasslauncher.system.AirPlayProtocol.Event) -> Unit, onPackages: () -> Unit) = Unit
 }
 
 /** Settings › AirPlay as PhairPlay's STATE would fill it (protocol 2, a Mac connected, a code required). */
 @Composable
 private fun AirPlaySettingsPreview() {
-    val hub = remember { dev.glasslauncher.system.AirPlayHub(NoLink) }
+    val hub = remember { dev.glasslauncher.system.AirPlayHub(NoLink, { 0L }, { it.run() }, { it.run() }) }
     val ui = remember {
         dev.glasslauncher.system.AirPlayUi(
             availability = dev.glasslauncher.system.AirPlayAvailability.Ready, running = true, sender = "Studio Mac",

@@ -15,6 +15,8 @@ import dev.glasslauncher.glass.WallpaperLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -45,6 +47,20 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         // Listen for PhairPlay from the start, so a pairing code or Now Playing that arrives before any screen opens is not lost.
         // Off the cold-start path: the hub resolves PhairPlay on its own thread.
         chore(Dispatchers.Default) { dev.glasslauncher.system.AirPlay.hub(this@GlassApp).start() }
+        // A pairing code while another app is in front: a banner over it (Remote Buttons service), for as long as the code lives.
+        // With the service off Glass's card is all there is (it waits in Home).
+        scope.launch {
+            val hub = dev.glasslauncher.system.AirPlay.hub(this@GlassApp)
+            hub.ui.map { it.pairingCode }.distinctUntilChanged().collect { code ->
+                val where = dev.glasslauncher.system.AirPlayCodePlacement.decide(
+                    code, glassInFront = dev.glasslauncher.system.RemoteWatch.homeInFront, textInputUp = false,
+                    bannerService = dev.glasslauncher.system.RemoteKeysService.instance != null,
+                )
+                if (code != null && where == dev.glasslauncher.system.AirPlayCodePlacement.Where.Banner) {
+                    dev.glasslauncher.system.RemoteNotice.show(this@GlassApp, dev.glasslauncher.system.AirPlayCodePlacement.bannerText(code), (hub.pairingRemainingMs() ?: 4_000L).coerceIn(4_000L, 60_000L))
+                }
+            }
+        }
         // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
         // not on the first bake's critical path.
         chore(Dispatchers.Default) { wallpapers.prewarm() }

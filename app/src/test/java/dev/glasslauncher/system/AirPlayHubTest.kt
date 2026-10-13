@@ -27,9 +27,11 @@ private class FakeLink : AirPlayLink {
     var target: ComponentName? = ComponentName("com.phairplay.firetv", "com.phairplay.service.ControlReceiver")
     val sent = mutableListOf<Intent>()
     private var listener: ((Event) -> Unit)? = null
-    override fun target() = target
     override fun send(intent: Intent): Boolean { sent += intent; return true }
-    override fun listen(onEvent: (Event) -> Unit) { listener = onEvent }
+    var targetCalls = 0
+    var listens = 0
+    override fun target(): ComponentName? { targetCalls++; return target }
+    override fun listen(onEvent: (Event) -> Unit, onPackages: () -> Unit) { listens++; listener = onEvent }
     fun deliver(intent: Intent) { AirPlayProtocol.decode(intent)?.let { listener!!(it) } }
     fun actions() = sent.map { it.action }
 }
@@ -39,7 +41,8 @@ private class FakeLink : AirPlayLink {
 class AirPlayHubTest {
     private var now = 1_000L
     private val link = FakeLink()
-    private val hub = AirPlayHub(link) { now }
+    private val direct = java.util.concurrent.Executor { it.run() }
+    private val hub = AirPlayHub(link, { now }, direct, { it.run() })
 
     private fun state(protocol: Int? = 2, running: Boolean = true, name: String = "Den", pin: Boolean = false, high: Boolean = false, audio: Boolean = true, sender: String? = null) =
         Intent(ACTION_STATE).putExtra("running", running).putExtra("sender", sender).apply {
@@ -149,6 +152,7 @@ class AirPlayHubTest {
 
     @Test fun backOnAnOldCardDoesNotDismissANewerCode() {
         hub.start()
+        link.deliver(state())
         link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "1111"))
         link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "2222"))
         hub.dismissPairing("1111")
@@ -182,6 +186,7 @@ class AirPlayHubTest {
     @Test fun nowPlayingTakesTitleAndArtistAndLeavesUnknownsNull() {
         hub.start()
         link.deliver(state())
+        audioSession()
         link.deliver(
             Intent(ACTION_NOW_PLAYING).putExtra("active", true).putExtra("playing", true).putExtra("title", "Song").putExtra("artist", "Band")
                 .putExtra("position_ms", -1L).putExtra("duration_ms", -1L).putExtra("has_artwork", true),
@@ -194,6 +199,7 @@ class AirPlayHubTest {
     @Test fun playPauseSendsTransportAndFlipsTheIconUntilTheTrackChanges() {
         hub.start()
         link.deliver(state())
+        audioSession()
         link.deliver(Intent(ACTION_NOW_PLAYING).putExtra("active", true).putExtra("playing", true).putExtra("title", "A"))
         hub.playPause()
         assertEquals("pause", link.sent.last().getStringExtra("command"))
@@ -209,6 +215,7 @@ class AirPlayHubTest {
     @Test fun playPauseIsNothingToAnOldPhairPlay() {
         hub.start()
         link.deliver(state(protocol = null))
+        audioSession()
         link.deliver(Intent(ACTION_NOW_PLAYING).putExtra("active", true).putExtra("title", "A"))
         hub.playPause()
         assertEquals(listOf(ACTION_QUERY), link.actions())
@@ -221,7 +228,134 @@ class AirPlayHubTest {
         assertEquals("Evegnp.exe Mac", ui.sender)
         assertEquals("AB C", ui.settings!!.displayName)
         link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "12‮34 <b>5"))
-        assertEquals("12345", hub.ui.value.pairingCode)
+        assertNull("a code with anything but digits in it is no code", hub.ui.value.pairingCode)
+    }
+
+    private fun audioSession() {
+        link.deliver(Intent(ACTION_SESSION).putExtra("state", "started").putExtra("kind", "audio").putExtra("sender", "iPhone"))
+    }
+
+    private fun np(title: String = "Song", playing: Boolean = true) =
+        Intent(ACTION_NOW_PLAYING).putExtra("active", true).putExtra("playing", playing).putExtra("title", title)
+
+    @Test fun ttlIsClampedAndTolerant() {
+        fun ttl(i: Intent) = (AirPlayProtocol.decode(i) as Event.PairingCode).ttlMs
+        val base = { Intent(ACTION_PAIRING_CODE).putExtra("code", "1") }
+        assertEquals(120_000L, ttl(base().putExtra("ttl_ms", Long.MAX_VALUE)))
+        assertEquals(1L, ttl(base().putExtra("ttl_ms", -5L)))
+        assertEquals(1L, ttl(base().putExtra("ttl_ms", 0L)))
+        assertEquals(120_000L, ttl(base()))
+        assertEquals("not a long: the default", 120_000L, ttl(base().putExtra("ttl_ms", "9")))
+        assertEquals(120_000L, Event.PairingCode("1", Long.MAX_VALUE).safeTtlMs)
+        hub.start(); link.deliver(state())
+        link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "1").putExtra("ttl_ms", Long.MAX_VALUE))
+        now += 120_001
+        hub.tick()
+        assertNull("even a huge TTL ends at the cap", hub.ui.value.pairingCode)
+    }
+
+    @Test fun errorsBeforeThePageOpenedDoNotSpeak() {
+        assertFalse(AirPlayPageModel.newError(atEntry = 2, now = 2))
+        assertTrue(AirPlayPageModel.newError(atEntry = 2, now = 3))
+    }
+
+    @Test fun onlyExactlyOneToEightAsciiDigitsIsACode() {
+        hub.start(); link.deliver(state())
+        for (bad in listOf("12a4", "123456789", "１２３", "", " 12", "12\n", "-1", "١٢٣")) {
+            link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", bad))
+            assertNull("[$bad]", hub.ui.value.pairingCode)
+        }
+        link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "12345678"))
+        assertEquals("12345678", hub.ui.value.pairingCode)
+    }
+
+    @Test fun aCodeShowsOnlyWhilePhairPlayIsInstalledAndRunning() {
+        hub.start()
+        link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "1234"))
+        assertNull("no STATE yet", hub.ui.value.pairingCode)
+        link.deliver(state(running = false))
+        assertNull(hub.ui.value.pairingCode)
+        link.deliver(state(running = true))
+        link.deliver(Intent(ACTION_PAIRING_CODE).putExtra("code", "1234"))
+        assertEquals("1234", hub.ui.value.pairingCode)
+        link.target = null
+        hub.resume()
+        assertNull("PhairPlay was removed", hub.ui.value.pairingCode)
+    }
+
+    @Test fun aTrackNeedsALiveAudioSession() {
+        hub.start(); link.deliver(state())
+        link.deliver(np())
+        assertNull("no session: nothing to show", hub.ui.value.track)
+        link.deliver(Intent(ACTION_SESSION).putExtra("state", "started").putExtra("kind", "mirror"))
+        assertNull("a mirror is not audio", hub.ui.value.track)
+        link.deliver(Intent(ACTION_SESSION).putExtra("state", "ended").putExtra("kind", "mirror"))
+        audioSession()
+        link.deliver(np())
+        assertEquals("Song", hub.ui.value.track!!.title)
+        link.deliver(Intent(ACTION_SESSION).putExtra("state", "ended").putExtra("kind", "audio"))
+        assertNull(hub.ui.value.track)
+    }
+
+    @Test fun aStaleTrackExpiresAndTheHeartbeatRenewsIt() {
+        hub.start(); link.deliver(state()); audioSession(); link.deliver(np())
+        now += TRACK_TTL_MS - 1
+        hub.tick()
+        assertEquals("Song", hub.ui.value.track!!.title)
+        hub.heartbeat()
+        assertEquals("the heartbeat asks again", ACTION_QUERY, link.sent.last().action)
+        link.deliver(np())
+        now += TRACK_TTL_MS - 1
+        hub.tick()
+        assertEquals("PhairPlay's replay renewed it", "Song", hub.ui.value.track!!.title)
+        now += 2
+        hub.tick()
+        assertNull("silence lets it go", hub.ui.value.track)
+    }
+
+    @Test fun pressedPlayPauseIsForgottenAfterATimeoutOrARealChange() {
+        hub.start(); link.deliver(state()); audioSession(); link.deliver(np())
+        hub.playPause()
+        assertFalse(hub.ui.value.track!!.playing)
+        now += LOCAL_PLAYING_MS + 1
+        hub.tick()
+        assertTrue("timed out: back to what the sender says", hub.ui.value.track!!.playing)
+        hub.playPause()
+        assertFalse(hub.ui.value.track!!.playing)
+        link.deliver(np(playing = false))
+        assertFalse("the sender said paused", hub.ui.value.track!!.playing)
+        link.deliver(np(playing = true))
+        assertTrue("and then playing: its word wins", hub.ui.value.track!!.playing)
+    }
+
+    @Test fun combiningMarksAreCappedPerBaseCharacter() {
+        val zalgo = "a" + "́".repeat(6) + "b̀"
+        assertEquals("á́b̀", AirPlayText.clean(zalgo, 20))
+        assertNull(AirPlayText.clean("́́", 5))
+        assertEquals("capped by code points, not UTF-16 units", 3, AirPlayText.clean("😀".repeat(10), 3)!!.codePointCount(0, 6))
+    }
+
+    @Test fun startIsIdempotentUnderConcurrentCalls() {
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+        val go = java.util.concurrent.CountDownLatch(1)
+        repeat(8) { pool.execute { go.await(); hub.start() } }
+        go.countDown()
+        pool.shutdown(); pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertEquals(1, link.listens)
+        assertEquals(1, link.actions().count { it == ACTION_QUERY })
+    }
+
+    @Test fun resumeLooksUpPhairPlayOffTheCallingThread() {
+        val queue = ArrayDeque<Runnable>()
+        val slow = AirPlayHub(link, { now }, { queue.add(it) }, { it.run() })
+        slow.start()
+        assertEquals("nothing resolved on the caller", 0, link.targetCalls)
+        queue.removeFirst().run()
+        assertEquals(1, link.targetCalls)
+        slow.resume()
+        assertEquals(1, link.targetCalls)
+        queue.removeFirst().run()
+        assertEquals(2, link.targetCalls)
     }
 
     @Test fun cleaningCapsLengthAndDropsEmpties() {
@@ -231,6 +365,7 @@ class AirPlayHubTest {
         assertEquals("a b", AirPlayText.clean("  a \t\n b  ", 10))
         assertEquals("😀😀", AirPlayText.clean("😀😀😀", 2))
         assertNull(AirPlayText.code("abc"))
-        assertEquals("12345678", AirPlayText.code("1234567890"))
+        assertNull("not cut to length", AirPlayText.code("1234567890"))
+        assertEquals("12345678", AirPlayText.code("12345678"))
     }
 }

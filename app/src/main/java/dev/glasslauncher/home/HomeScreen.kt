@@ -580,11 +580,18 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // AirPlay's pairing code: a card of Glass's own while PhairPlay says a code is up (it ends with the close event, the TTL or Back).
     val airPlayHub = remember { dev.glasslauncher.system.AirPlay.hub(context) }
     val airPlayCode = airPlayHub.ui.collectAsStateWithLifecycle().value.pairingCode
-    LaunchedEffect(airPlayCode) {
+    // A text field open keeps the card waiting behind it (it would take the keyboard's focus); another app in front gets the banner instead.
+    val textUp = overlays.any { it is Overlay.TextInput || it is Overlay.PhoneSetup }
+    LaunchedEffect(airPlayCode, textUp) {
+        val where = dev.glasslauncher.system.AirPlayCodePlacement.decide(
+            airPlayCode, glassInFront = dev.glasslauncher.system.RemoteWatch.homeInFront, textInputUp = textUp,
+            bannerService = dev.glasslauncher.system.RemoteKeysService.instance != null,
+        )
         val up = overlays.lastOrNull { it is Overlay.AirPlayCode } as? Overlay.AirPlayCode
+        if (where == dev.glasslauncher.system.AirPlayCodePlacement.Where.Queued) return@LaunchedEffect
         if (up != null && up.code == airPlayCode) return@LaunchedEffect
         up?.let { overlays.remove(it); dismiss(it) }
-        if (airPlayCode != null) open(Overlay.AirPlayCode(airPlayCode) { airPlayHub.dismissPairing(airPlayCode) })
+        if (airPlayCode != null && where == dev.glasslauncher.system.AirPlayCodePlacement.Where.GlassCard) open(Overlay.AirPlayCode(airPlayCode) { airPlayHub.dismissPairing(airPlayCode) })
     }
     /** Control Center: the overlay window when Remote Buttons (accessibility) is on, else in Glass. */
     fun openControlCenter() {
