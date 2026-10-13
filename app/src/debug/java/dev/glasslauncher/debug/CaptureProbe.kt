@@ -146,6 +146,8 @@ object CaptureProbe {
     private fun activePlayers(am: AudioManager): String =
         am.activePlaybackConfigurations.joinToString("; ") {
             val a = it.audioAttributes
+            // getAllowedCapturePolicy is API 29; the stick is API 30, the project's minSdk is 28.
+            if (Build.VERSION.SDK_INT < 29) return@joinToString ProbeLogic.usageName(a.usage) + " capturePolicy=unknown (API < 29)"
             "${ProbeLogic.usageName(a.usage)} capturePolicy=${a.allowedCapturePolicy}" +
                 " (${when (a.allowedCapturePolicy) { AudioAttributes.ALLOW_CAPTURE_BY_ALL -> "ALL"; AudioAttributes.ALLOW_CAPTURE_BY_SYSTEM -> "SYSTEM"; else -> "NONE" }})"
         }.ifEmpty { "none" }
