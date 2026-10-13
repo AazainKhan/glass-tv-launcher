@@ -46,4 +46,26 @@ class LanHttpTest {
         try { read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${Integer.toHexString(big.length)}\r\n$big\r\n0\r\n\r\n"); fail() } catch (_: LanHttpException) {}
         assertEquals(SafeXml.MAX_BYTES, read("HTTP/1.1 200 OK\r\n\r\n${"a".repeat(SafeXml.MAX_BYTES)}").body.length)
     }
+
+    @Test fun rejectsLeadingZeroOctets() {
+        assertFalse(isSonosLanEndpoint("010.0.0.1", 1400))
+        assertFalse(isSonosLanEndpoint("192.168.01.5", 1400))
+        assertTrue(isSonosLanEndpoint("10.0.0.0", 1400))
+    }
+
+    @Test fun rejectsNegativeChunkAndTooManyChunks() {
+        try { read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n-5\r\nabcde\r\n0\r\n\r\n"); fail() } catch (_: LanHttpException) {}
+        val many = "1\r\na\r\n".repeat(LanHttp.MAX_CHUNKS + 1)
+        try { read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${many}0\r\n\r\n"); fail() } catch (e: LanHttpException) { assertEquals("too many chunks", e.message) }
+    }
+
+    @Test fun truncatedAndGarbageResponsesFail() {
+        try { read("HTTP/1.1 200 OK\r\nContent-Le"); fail() } catch (_: LanHttpException) {}
+        try { read("nonsense\r\n\r\n"); fail() } catch (_: LanHttpException) {}
+        try { read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nab"); fail() } catch (_: LanHttpException) {}
+    }
+
+    @Test fun headerOverCapFails() {
+        try { read("HTTP/1.1 200 OK\r\nX: " + "a".repeat(20_000) + "\r\n\r\n"); fail() } catch (_: LanHttpException) {}
+    }
 }

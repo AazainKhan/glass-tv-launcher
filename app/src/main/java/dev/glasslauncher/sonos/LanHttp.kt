@@ -25,13 +25,27 @@ class LanHttp(private val allow: (host: String, port: Int) -> Boolean = ::isSono
             s.soTimeout = READ_TIMEOUT_MS
             s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
             s.getOutputStream().apply { write(head.toByteArray(Charsets.US_ASCII)); if (body != null) write(body); flush() }
-            return readResponse(s.getInputStream())
+            val deadline = System.nanoTime() + TOTAL_TIMEOUT_MS * 1_000_000L
+            val raw = s.getInputStream()
+            val limited = object : InputStream() {
+                // Each read may wait no longer than what is left of the overall deadline.
+                private fun arm() {
+                    val left = (deadline - System.nanoTime()) / 1_000_000L
+                    if (left <= 0) throw LanHttpException("deadline")
+                    s.soTimeout = minOf(left, READ_TIMEOUT_MS.toLong()).toInt()
+                }
+                override fun read(): Int { arm(); return raw.read() }
+                override fun read(b: ByteArray, off: Int, len: Int): Int { arm(); return raw.read(b, off, len) }
+            }
+            return readResponse(java.io.BufferedInputStream(limited, 8192))
         }
     }
 
     companion object {
         const val CONNECT_TIMEOUT_MS = 2_000
         const val READ_TIMEOUT_MS = 3_000
+        const val TOTAL_TIMEOUT_MS = 5_000
+        const val MAX_CHUNKS = 2_048
         private const val MAX_HEAD = 16 * 1024
 
         fun formatRequest(method: String, host: String, port: Int, path: String, headers: Map<String, String>, length: Int?): String {
@@ -72,9 +86,12 @@ class LanHttp(private val allow: (host: String, port: Int) -> Boolean = ::isSono
                 return r
             }
             if (h["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true) {
+                var chunks = 0
                 while (true) {
                     val size = readLine(input).substringBefore(';').trim().toIntOrNull(16) ?: throw LanHttpException("bad chunk size")
+                    if (size < 0) throw LanHttpException("negative chunk size")
                     if (size == 0) break
+                    if (++chunks > MAX_CHUNKS) throw LanHttpException("too many chunks")
                     var left = size
                     if (out.size() + size > SafeXml.MAX_BYTES) throw LanHttpException("response over cap")
                     while (left > 0) { val r = take(left); if (r < 0) throw LanHttpException("closed mid-chunk"); left -= r }
@@ -107,7 +124,10 @@ fun isSonosLanEndpoint(host: String, port: Int): Boolean {
     if (port != 1400) return false
     val parts = host.split('.')
     if (parts.size != 4) return false
-    val o = parts.map { p -> if (p.isEmpty() || p.length > 3 || !p.all { it in '0'..'9' }) return false else p.toInt() }
+    val o = parts.map { p ->
+        // Plain decimal only: no empty, no leading zero ("010" is octal in some parsers), no signs.
+        if (p.isEmpty() || p.length > 3 || !p.all { it in '0'..'9' } || (p.length > 1 && p[0] == '0')) return false else p.toInt()
+    }
     if (o.any { it > 255 }) return false
     return o[0] == 10 || (o[0] == 172 && o[1] in 16..31) || (o[0] == 192 && o[1] == 168) || (o[0] == 169 && o[1] == 254)
 }

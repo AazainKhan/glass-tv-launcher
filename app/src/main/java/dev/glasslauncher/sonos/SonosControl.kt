@@ -3,7 +3,7 @@ package dev.glasslauncher.sonos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal fun warn(what: String, host: String?, e: Exception) {
+internal fun warn(what: String, host: String?, e: Throwable) {
     try { android.util.Log.w("GlassSonos", "$what failed for $host: ${e.javaClass.simpleName}") } catch (_: RuntimeException) {}
 }
 

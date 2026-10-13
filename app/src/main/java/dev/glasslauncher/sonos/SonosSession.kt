@@ -14,17 +14,17 @@ class SonosSession(
     private val speakerHost: String,
     private val stickIp: InetAddress,
     private val control: SonosControl = SonosControl("http://$speakerHost:1400"),
-) {
+) : SpeakerSession {
     private var server: PcmHttpServer? = null
-    val ring: PcmRingBuffer? get() = server?.ring
+    override val ring: PcmRingBuffer? get() = server?.ring
 
-    suspend fun start() {
+    override suspend fun start() {
         check(server == null) { "already started" }
         val s = PcmHttpServer(stickIp, InetAddress.getByName(speakerHost))
         val port = s.start()
         server = s
         try {
-            val url = "http://${stickIp.hostAddress}:$port/glass.wav"
+            val url = "http://${stickIp.hostAddress}:$port${s.path}"
             control.setAvTransportUri(url) // http + radio DIDL; SonosControl.radioUri() is the x-rincon-mp3radio alternative
             control.play()
         } catch (e: Exception) {
@@ -33,9 +33,14 @@ class SonosSession(
         }
     }
 
-    suspend fun stop() {
+    override suspend fun stop() {
         try { control.stop() } finally { server?.stop(); server = null }
     }
 
     suspend fun setVolume(v: Int) = control.setVolume(v)
+
+    /** True while the speaker is playing or about to; false when it stopped, errored or can't be reached. */
+    override suspend fun isPlaying(): Boolean = try {
+        control.getTransportInfo().state in setOf("PLAYING", "TRANSITIONING")
+    } catch (_: Exception) { false }
 }

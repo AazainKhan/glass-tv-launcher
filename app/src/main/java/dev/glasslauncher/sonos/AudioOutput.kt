@@ -1,8 +1,6 @@
 package dev.glasslauncher.sonos
 
 import dev.glasslauncher.data.AudioOutputConfig
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -31,9 +29,6 @@ object AudioOutputs {
 
     /** The choice a row stores: null for "This TV". Nothing here touches the speaker, least of all its volume. */
     fun choice(row: AudioOutputRow): AudioOutputConfig? = row.speaker
-
-    fun notice(row: AudioOutputRow): String? =
-        if (row.speaker != null) "Sonos output selected. Audio routing comes in the next update." else null
 }
 
 /** Runs [scan] at most once per [minIntervalMs]; in between, callers get the cached result. */
@@ -67,33 +62,4 @@ object SonosScan {
     @Synchronized
     fun get(context: android.content.Context): ThrottledScan<List<SonosSpeaker>> =
         scanner ?: ThrottledScan(10_000L, emptyList()) { SonosDiscovery(context.applicationContext).discover() }.also { scanner = it }
-}
-
-/** Where Glass's audio goes. [SonosRoutes] drives the capture route; this interface is the seam for other sources. */
-interface AudioRoute {
-    /** Starts routing [source], 48 kHz 16-bit stereo little-endian PCM, to the output. */
-    suspend fun start(source: AudioSource)
-    suspend fun stop()
-}
-
-/** Where PCM comes from; the implementation is the next part of P121. */
-fun interface AudioSource {
-    /** Fills [buf] with PCM and returns the byte count, or -1 at the end. */
-    fun read(buf: ByteArray): Int
-}
-
-/** Routes [source] to one Sonos speaker through [SonosSession]: starts the session, then pumps PCM into its ring. Never sets the volume. */
-class SonosAudioRoute(private val session: SonosSession) : AudioRoute {
-    private var pump: kotlinx.coroutines.Job? = null
-
-    override suspend fun start(source: AudioSource) {
-        session.start()
-        val ring = session.ring ?: return
-        pump = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            val buf = ByteArray(3840)
-            while (isActive) { val n = source.read(buf); if (n < 0) break; if (n > 0) ring.write(buf, 0, n) }
-        }
-    }
-
-    override suspend fun stop() { pump?.cancel(); pump = null; session.stop() }
 }

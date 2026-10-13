@@ -1713,14 +1713,13 @@ private fun CcAirPlayPlatter(
         for (row in rows) {
             val sub = row.subtitle
             CcTile(row.title, sub, Shapes.pill, sz.column, sz.pill, onClick = {
-                // Stores the choice only: no SetVolume, no playback (TODO(P121): the audio source starts an AudioRoute).
+                // Stores the choice only: no SetVolume, no playback ("Play on" below starts it, after consent).
                 edit { it.copy(audioOutput = dev.glasslauncher.sonos.AudioOutputs.choice(row)) }
-                dev.glasslauncher.sonos.AudioOutputs.notice(row)?.let { dev.glasslauncher.system.RemoteNotice.show(context, it, 4_000) }
             }, modifier = Modifier.testTag("cc-audio-" + row.key), on = row.selected) { fg ->
                 PillContent(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, if (row.selected) row.title + " \u2713" else row.title, sub, fg, on = row.selected, accent = Blue)
             }
         }
-        val route by dev.glasslauncher.sonos.SonosRoutes.state.collectAsStateWithLifecycle()
+        val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
         if (audioOutput != null) {
             val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
             val line = dev.glasslauncher.sonos.RouteLifecycle.label(route)

@@ -29,5 +29,10 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onDestroy() {
+        SonosRoutes.onServiceGone(this)
+        super.onDestroy()
+    }
+
     private companion object { const val CHANNEL = "sonos-capture" }
 }

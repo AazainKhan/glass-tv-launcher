@@ -40,10 +40,8 @@ class AudioOutputTest {
         val row = AudioOutputs.rows(listOf(kitchen), null)[1]
         val cfg = LauncherConfig().copy(audioOutput = AudioOutputs.choice(row))
         assertEquals(AudioOutputConfig("10.0.0.5", "Kitchen"), cfg.audioOutput)
-        assertEquals("Sonos output selected. Audio routing comes in the next update.", AudioOutputs.notice(row))
         val tv = AudioOutputs.rows(listOf(kitchen), cfg.audioOutput)[0]
         assertNull(cfg.copy(audioOutput = AudioOutputs.choice(tv)).audioOutput)
-        assertNull(AudioOutputs.notice(tv))
     }
 
     @Test fun scanIsThrottledAndFailureKeepsCache() = runBlocking<Unit> {

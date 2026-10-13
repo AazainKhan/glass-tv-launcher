@@ -58,32 +58,40 @@ object RouteLifecycle {
 }
 
 /**
- * Opt-outs are never bypassed. An app that declared allowAudioPlaybackCapture=false ([appAllows] false) is blocked at
- * once; an app we cannot read ([appAllows] null) is judged by silence: a session that plays but yields no PCM for
- * [silenceLimitMs]. Both keep the sound on the TV.
+ * Opt-outs are never bypassed. A playing app that declared allowAudioPlaybackCapture=false ([appAllows] false) is
+ * blocked at once. Otherwise silence decides, and only for a session that plays: [SILENCE_LIMIT_MS] of silence after
+ * real PCM was heard, or [NEVER_HEARD_LIMIT_MS] when none ever came (an opted-out app we cannot read). No session
+ * playing means nothing to judge, so a pause or a gap between tracks never counts. Blocked keeps the sound on the TV.
  */
 object CapturePolicy {
-    const val SILENCE_LIMIT_MS = 5_000L
+    const val SILENCE_LIMIT_MS = 10_000L
+    const val NEVER_HEARD_LIMIT_MS = 15_000L
 
-    fun blocked(appAllows: Boolean?, sessionPlaying: Boolean, silentMs: Long, silenceLimitMs: Long = SILENCE_LIMIT_MS): Boolean {
+    fun blocked(appAllows: Boolean?, sessionPlaying: Boolean, heardPcm: Boolean, silentMs: Long): Boolean {
         if (!sessionPlaying) return false
-        return appAllows == false || silentMs >= silenceLimitMs
+        if (appAllows == false) return true
+        return silentMs >= if (heardPcm) SILENCE_LIMIT_MS else NEVER_HEARD_LIMIT_MS
     }
 }
 
 /** Counts how long the captured PCM has been all zeros. */
 class SilenceDetector(private val clock: () -> Long) {
-    private var since: Long? = null
+    private var since: Long? = clock()
+    /** True once any non-zero PCM has arrived. */
+    var heard = false
+        private set
 
-    fun onPcm(buf: ByteArray, len: Int) {
+    /** Returns true when this buffer holds sound. */
+    fun onPcm(buf: ByteArray, len: Int): Boolean {
         var loud = false
         var i = 0
         while (i < len) { if (buf[i].toInt() != 0) { loud = true; break }; i++ }
-        if (loud) since = null else if (since == null) since = clock()
+        if (loud) { since = null; heard = true } else if (since == null) since = clock()
+        return loud
     }
 
+    /** How long the PCM has been silent, counted from the start of capture until the first sound. */
     fun silentMs(): Long = since?.let { clock() - it } ?: 0L
-    fun reset() { since = null }
 }
 
 /** The local TV mute ("Mute TV while playing on Sonos"). The speaker's volume is never involved. */
@@ -92,16 +100,30 @@ interface StreamMuter {
     fun setMuted(muted: Boolean)
 }
 
-/** Mutes on [engage] when enabled and restores on [release] only what it changed; releasing twice is harmless. */
-class TvMuteGuard(private val muter: StreamMuter) {
+/** Survives a crash or process death: set while Glass is the one holding the TV muted. */
+interface MuteFlag {
+    var heldByGlass: Boolean
+}
+
+/**
+ * Mutes on [engage] when enabled and restores on [release] only what it changed; releasing twice is harmless.
+ * The "Glass muted the TV" flag is persisted, so [recover] at the next app start unmutes after a crash.
+ */
+class TvMuteGuard(private val muter: StreamMuter, private val flag: MuteFlag) {
     private var changed = false
 
-    fun engage(enabled: Boolean) {
+    @Synchronized fun engage(enabled: Boolean) {
         if (!enabled || changed) return
-        if (!muter.isMuted()) { muter.setMuted(true); changed = true }
+        if (!muter.isMuted()) { flag.heldByGlass = true; muter.setMuted(true); changed = true }
     }
 
-    fun release() {
+    @Synchronized fun release() {
         if (changed) { muter.setMuted(false); changed = false }
+        flag.heldByGlass = false
+    }
+
+    /** App start: if a previous run left the TV muted by us, unmute it and clear the flag. */
+    @Synchronized fun recover() {
+        if (flag.heldByGlass) { muter.setMuted(false); flag.heldByGlass = false }
     }
 }

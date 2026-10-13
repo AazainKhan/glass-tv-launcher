@@ -8,7 +8,8 @@ import android.os.Bundle
 
 /**
  * The consent step of a Sonos route: RECORD_AUDIO, then the MediaProjection dialog. Asked every session in every
- * install mode; nothing here pre-grants or skips either, with or without root.
+ * install mode; nothing here pre-grants or skips either, with or without root (SonosConsentPolicyTest checks that
+ * no script, module or source grants RECORD_AUDIO).
  */
 class CaptureConsentActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,7 +23,7 @@ class CaptureConsentActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode == REQ_MIC && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) askProjection()
-        else { SonosRoutes.onDenied(); finish() }
+        else { SonosRoutes.onDenied(this); finish() }
     }
 
     @Deprecated("Deprecated in Java")

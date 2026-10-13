@@ -45,16 +45,21 @@ class PcmRingBuffer(private val capacity: Int) {
 }
 
 /**
- * Minimal local HTTP server streaming 48 kHz/16-bit stereo WAV at `/glass.wav`.
- * Binds to [bindAddress] (the Wi-Fi IP) on a random port and serves only [allowedClient].
+ * Minimal local HTTP server streaming 48 kHz/16-bit stereo WAV at an unguessable path ([path], 128 random bits).
+ * Binds to [bindAddress] (the Wi-Fi IP) on a random port, serves only [allowedClient], and serves one client at a
+ * time: a new valid request closes the previous stream. Any other path gets a 404.
  */
 class PcmHttpServer(
     private val bindAddress: InetAddress,
     private val allowedClient: InetAddress,
     val ring: PcmRingBuffer = PcmRingBuffer(SAMPLE_RATE * FRAME_BYTES), // 1 s
+    token: String = randomToken(),
 ) {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
+    private val clients = HashSet<Socket>()
+    private var current: Socket? = null
+    val path: String = "/$token.wav"
     val port: Int get() = server?.localPort ?: -1
 
     fun start(): Int {
@@ -66,38 +71,55 @@ class PcmHttpServer(
         return s.localPort
     }
 
+    /** Stops accepting and closes every open client. */
     fun stop() {
         running = false
         try { server?.close() } catch (_: Exception) {}
         server = null
+        synchronized(clients) { clients.forEach { runCatching { it.close() } }; clients.clear(); current = null }
     }
 
     private fun acceptLoop(s: ServerSocket) {
         while (running) {
             val c = try { s.accept() } catch (_: Exception) { return }
             if (c.inetAddress != allowedClient) { c.close(); continue }
+            synchronized(clients) { clients += c }
             Thread({ serve(c) }, "glass-pcm-client").apply { isDaemon = true }.start()
         }
     }
 
-    private fun serve(c: Socket) = c.use {
+    private fun serve(c: Socket) {
         try {
-            // Read and discard the request head (cap at 8 KB).
+            c.soTimeout = HEAD_TIMEOUT_MS
             val inp = c.getInputStream()
+            val head = StringBuilder()
             var tail = 0
             var n = 0
             while (n++ < 8192) {
                 val b = inp.read()
                 if (b < 0) return
+                head.append(b.toChar())
                 tail = (tail shl 8) or b
                 if (tail == 0x0D0A0D0A) break
             }
+            c.soTimeout = 0
             val out = c.getOutputStream()
+            val line = head.lineSequence().firstOrNull().orEmpty().split(' ')
+            if (line.size < 2 || line[0] != "GET" || line[1] != path) {
+                out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                return
+            }
+            // One client at a time: the newest valid request wins.
+            synchronized(clients) { val old = current; current = c; if (old != null && old !== c) runCatching { old.close() } }
             out.write(("HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nConnection: close\r\n" +
                 "Cache-Control: no-cache\r\n\r\n").toByteArray(Charsets.US_ASCII))
             out.write(wavHeader())
             stream(out)
-        } catch (_: Exception) { }
+        } catch (_: Exception) {
+        } finally {
+            synchronized(clients) { clients -= c; if (current === c) current = null }
+            runCatching { c.close() }
+        }
     }
 
     private fun stream(out: OutputStream) {
@@ -118,8 +140,11 @@ class PcmHttpServer(
         const val SAMPLE_RATE = 48000
         const val CHANNELS = 2
         const val FRAME_BYTES = 4
+        const val HEAD_TIMEOUT_MS = 5_000
         const val CHUNK_MS = 20
         const val CHUNK_BYTES = SAMPLE_RATE * FRAME_BYTES * CHUNK_MS / 1000
+
+        fun randomToken(): String = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
 
         /** 44-byte WAV header with maximal data length, for an endless live stream. */
         fun wavHeader(): ByteArray {

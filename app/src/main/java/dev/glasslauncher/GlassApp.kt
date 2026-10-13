@@ -40,6 +40,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         dev.glasslauncher.ui.NetworkEpoch.register(this)
+        // A previous run that crashed while Glass held the TV muted for Sonos left it muted: undo that.
+        chore(Dispatchers.Default) { dev.glasslauncher.sonos.SonosRoutes.recoverMute(this) }
         // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
         // not on the first bake's critical path.
         chore(Dispatchers.Default) { wallpapers.prewarm() }

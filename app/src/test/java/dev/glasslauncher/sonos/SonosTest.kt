@@ -124,7 +124,7 @@ class SonosTest {
         try {
             Socket(lo, port).use { c ->
                 c.soTimeout = 3000
-                c.getOutputStream().write("GET /glass.wav HTTP/1.1\r\n\r\n".toByteArray())
+                c.getOutputStream().write("GET ${s.path} HTTP/1.1\r\n\r\n".toByteArray())
                 val buf = ByteArray(400)
                 var n = 0
                 while (n < buf.size) { val k = c.getInputStream().read(buf, n, buf.size - n); if (k < 0) break; n += k }
@@ -143,13 +143,13 @@ class SonosTest {
             // Probe: send request, read a little, drop abruptly.
             Socket(lo, port).use { c ->
                 c.soTimeout = 3000
-                c.getOutputStream().write("GET /glass.wav HTTP/1.1\r\n\r\n".toByteArray())
+                c.getOutputStream().write("GET ${s.path} HTTP/1.1\r\n\r\n".toByteArray())
                 c.getInputStream().read(ByteArray(10))
             }
             s.ring.write(ByteArray(PcmHttpServer.CHUNK_BYTES * 3) { 7 })
             Socket(lo, port).use { c ->
                 c.soTimeout = 3000
-                c.getOutputStream().write("GET /glass.wav HTTP/1.1\r\n\r\n".toByteArray())
+                c.getOutputStream().write("GET ${s.path} HTTP/1.1\r\n\r\n".toByteArray())
                 val buf = ByteArray(300)
                 var n = 0
                 while (n < buf.size) { val k = c.getInputStream().read(buf, n, buf.size - n); if (k < 0) break; n += k }
