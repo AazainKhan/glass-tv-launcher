@@ -40,6 +40,8 @@ data class DownloadRequest(
     val allowedHosts: Set<String> = emptySet(),
     /** Stop if the server turns out to send an executable type, which the caller did not expect. */
     val guardExec: Boolean = false,
+    /** With [guardExec]: the one executable extension (or type) the user already allowed; any other still stops. */
+    val execOk: String = "",
 )
 
 data class Progress(val downloaded: Long, val size: Long, val bytesPerSecond: Long, val restarted: Boolean)
@@ -89,6 +91,7 @@ data class DownloadItem(
     val blockedHost: String? = null,
     /** Checked again after the probe: stop if the server sends an executable type the user was not asked about. */
     val guardExec: Boolean = false,
+    val execOk: String = "",
     /** Set when the download stopped because it turned out to be an executable file (its name), so the manager can ask. */
     val blockedExec: String? = null,
     /** The server could not continue a partial file, so it started over. */

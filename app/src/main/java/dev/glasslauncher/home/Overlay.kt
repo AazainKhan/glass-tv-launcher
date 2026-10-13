@@ -65,6 +65,8 @@ sealed interface Overlay {
         val paste: (() -> String?)? = null,
         /** Typed text is hidden (dots), never trimmed, and is not offered to the phone over the LAN, which is plain http. */
         val isPassword: Boolean = false,
+        /** False: no "Type on Your Phone" row (that form is plain http on the LAN). Passwords never get it. */
+        val offerPhone: Boolean = true,
         /** Runs when the panel goes away for any reason: Done, Cancel or Back. */
         val onClosed: (() -> Unit)? = null,
         val onDone: (String) -> Unit,

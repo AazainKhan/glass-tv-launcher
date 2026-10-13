@@ -14,6 +14,17 @@ object ExecutableTypes {
 
     fun mime(raw: String?): String = raw?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
 
+    /**
+     * Whether a file named [names] with content type [mime] runs code beyond what the user allowed. [allowed] is the one
+     * extension (or type) approved; "" allows nothing.
+     */
+    fun offends(names: List<String>, mime: String?, allowed: String): Boolean {
+        if (names.any { isExecutable(it, null) && extension(it) != allowed }) return true
+        val type = mime(mime)
+        if (type !in MIME) return false
+        return !(type == allowed || names.any { extension(it) == allowed && allowed in EXT })
+    }
+
     fun isExecutable(name: String?, mime: String?): Boolean =
         (name != null && extension(name) in EXT) || mime(mime) in MIME
 }

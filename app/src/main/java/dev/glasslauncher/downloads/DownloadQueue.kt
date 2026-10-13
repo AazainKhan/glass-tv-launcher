@@ -71,11 +71,11 @@ class DownloadQueue(
     fun startPending() = pump()
 
     @Synchronized
-    fun add(url: String, name: String? = null, sha256: String? = null, paused: Boolean = false, guardExec: Boolean = false): String {
+    fun add(url: String, name: String? = null, sha256: String? = null, paused: Boolean = false, guardExec: Boolean = false, execOk: String = ""): String {
         val parsed = url.toHttpUrlOrNull()
         require(parsed != null && (parsed.isHttps || allowCleartext)) { "Downloads need an https link" }
         val item = DownloadItem(
-            UUID.randomUUID().toString(), url, name, sha256, guardExec = guardExec,
+            UUID.randomUUID().toString(), url, name, sha256, guardExec = guardExec, execOk = execOk,
             state = if (paused) DownloadState.Paused else DownloadState.Queued,
         )
         _items.update { it + item }
@@ -193,7 +193,7 @@ class DownloadQueue(
             previous?.join() // a paused run may still be writing its sidecar
             if (state(item.id) != DownloadState.Active) return@launch // the old run finished it, or it was paused again
             try {
-                val done = engine.download(DownloadRequest(item.id, item.url, dir, item.name, item.expectedSha256, segments, item.allowedHosts, item.guardExec), onFinished = { finish(item.id, it) }) { p ->
+                val done = engine.download(DownloadRequest(item.id, item.url, dir, item.name, item.expectedSha256, segments, item.allowedHosts, item.guardExec, item.execOk), onFinished = { finish(item.id, it) }) { p ->
                     patch(item.id) { it.copy(downloaded = p.downloaded, size = p.size, bytesPerSecond = p.bytesPerSecond, restarted = it.restarted || p.restarted) }
                 }
                 finish(item.id, done)

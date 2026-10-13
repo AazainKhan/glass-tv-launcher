@@ -233,6 +233,18 @@ object BrowserRules {
     fun openable(url: String?): String? = url?.takeIf { host(it) != null }
 }
 
+/** Where a keyboard answer from Glass goes. */
+object TextRouting {
+    enum class Route { Deliver, DropStale, Ignore }
+
+    /** [pendingId]/[pendingNonce]: the request being waited on (nonce is null for the address bar); [currentNonce]: the page now showing. */
+    fun route(pendingId: Long?, pendingNonce: String?, answerId: Long, currentNonce: String): Route = when {
+        pendingId == null || pendingId != answerId -> Route.Ignore
+        pendingNonce != null && pendingNonce != currentNonce -> Route.DropStale
+        else -> Route.Deliver
+    }
+}
+
 /** Pointer-mode speed: pixels per key event, ramping while a D-pad key is held. */
 object PointerSpeed {
     fun step(repeat: Int): Int = min(10 + repeat * 3, 60)

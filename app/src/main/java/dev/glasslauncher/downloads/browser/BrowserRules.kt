@@ -7,10 +7,10 @@ import dev.glasslauncher.downloads.ExecutableTypes
 
 /** What Glass does with a download the browser asked for. The browser is not trusted: every field is checked again here. */
 sealed interface BrowserDownload {
-    /** [guard]: the engine re-checks the type after its probe, because the server may send something else than the browser saw. */
-    data class Queue(val url: String, val name: String?, val guard: Boolean = true) : BrowserDownload
+    /** [execOk]: the engine re-checks the type after its probe (the server may send something else than the browser saw), allowing only this. */
+    data class Queue(val url: String, val name: String?, val execOk: String = "") : BrowserDownload
     /** An executable type not yet allowed from this host: show the confirm card first; [key] is what a yes is stored under. */
-    data class Ask(val url: String, val name: String?, val host: String, val referrer: String, val key: String) : BrowserDownload
+    data class Ask(val url: String, val name: String?, val host: String, val referrer: String, val key: String, val allow: String) : BrowserDownload
     data class Refuse(val reason: String) : BrowserDownload
 
     companion object {
@@ -24,14 +24,16 @@ sealed interface BrowserDownload {
             val ext = extension(name, d.url)
             val type = ExecutableTypes.mime(d.mimeType)
             if (!ExecutableTypes.isExecutable("x.$ext", type)) return Queue(d.url, name)
-            val key = "$host|${ext.ifEmpty { type }}"
-            return if (key in approved) Queue(d.url, name, guard = false) else Ask(d.url, name, host, Link.labelHost(d.referrerHost).orEmpty(), key)
+            val allow = ext.ifEmpty { type }
+            val key = "$host|$allow"
+            // An approval covers exactly this extension on this host; the engine still stops any other executable type.
+            return if (key in approved) Queue(d.url, name, execOk = allow) else Ask(d.url, name, host, Link.labelHost(d.referrerHost).orEmpty(), key, allow)
         }
     }
 }
 
 /** What the on-screen keyboard shows for a text request: its own wording, plus the page's host. Never page-supplied text. */
-data class TextPrompt(val title: String, val hint: String, val initial: String, val password: Boolean) {
+data class TextPrompt(val title: String, val hint: String, val initial: String, val password: Boolean, val phoneOk: Boolean = true) {
     companion object {
         private val WORDS = mapOf(
             "text" to "Enter text", "password" to "Enter password", "search" to "Search", "email" to "Enter email",
@@ -50,7 +52,8 @@ data class TextPrompt(val title: String, val hint: String, val initial: String, 
             if (r.fieldHint == "address") return if (r.hostLabel.isEmpty()) TextPrompt("Browser: $word", "A web address, or words to search for.", "https://", false) else null
             val password = r.isPassword || r.fieldHint == "password"
             val hint = if (password) "This is a password field." else "Typed on this screen for the page."
-            return TextPrompt("${siteLabel(r.hostLabel)}: $word", hint, "", password)
+            // The phone form is plain http on the LAN: not for secrets or personal details.
+            return TextPrompt("${siteLabel(r.hostLabel)}: $word", hint, "", password, phoneOk = !password && r.fieldHint != "email" && r.fieldHint != "tel")
         }
     }
 }

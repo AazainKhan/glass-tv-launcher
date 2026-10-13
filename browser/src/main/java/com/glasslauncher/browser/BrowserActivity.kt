@@ -43,11 +43,13 @@ import java.security.SecureRandom
  * writes no files; downloads and the on-screen keyboard are requests to Glass over [GlassLink].
  */
 class BrowserActivity : Activity() {
+    private companion object { const val HANDOFF_MS = 300_000L }
+
     private enum class Mode { Links, Pointer }
     /** What a Glass keyboard answer is for. */
     private enum class Target { Page, Address }
     /** [nonce] ties a page answer to the load it was asked on. */
-    private class PendingText(val id: Long, val target: Target, val nonce: String)
+    private class PendingText(val id: Long, val target: Target, val nonce: String?)
 
     private val main = Handler(Looper.getMainLooper())
     private lateinit var link: GlassLink
@@ -330,20 +332,23 @@ class BrowserActivity : Activity() {
         // The committed page's host (web.url), not the last load that merely started: a navigation that never commits must not lend its host.
         val host = if (target == Target.Address) "" else BrowserRules.host(web?.url.orEmpty()).orEmpty()
         if (!link.send(Msg.TextRequest(id, host, kind, kind == "password"))) { toast("Glass isn't listening; open the browser from Glass Downloads"); return }
-        pending = PendingText(id, target, script.nonce)
+        pending = PendingText(id, target, if (target == Target.Page) script.nonce else null)
         main.removeCallbacks(dropPending); main.postDelayed(dropPending, 120_000)
     }
 
     private fun onGlass(msg: Msg) {
         when (msg) {
-            Msg.ShowGlass -> startActivity(
+            Msg.ShowGlass -> { handoffAt = SystemClock.elapsedRealtime(); startActivity(
                 Intent(Link.ACTION_SHOW_GLASS).setComponent(ComponentName(Link.GLASS_PACKAGE, Link.GLASS_ACTIVITY)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
+            ) }
             is Msg.TextResult -> {
-                val p = pending?.takeIf { it.id == msg.id } ?: return
+                val p = pending
+                val route = TextRouting.route(p?.id, p?.nonce, msg.id, script.nonce)
+                if (route == TextRouting.Route.Ignore || p == null) return
                 pending = null
+                if (route == TextRouting.Route.DropStale) { toast("The page changed, so the text wasn't entered"); return }
                 when (p.target) {
-                    Target.Page -> if (p.nonce == script.nonce) js(script.setText(msg.text))
+                    Target.Page -> js(script.setText(msg.text))
                     Target.Address -> when (val a = BrowserRules.address(msg.text)) {
                         is Address.Go -> web?.loadUrl(a.url)
                         is Address.Refused -> toast(a.message)
@@ -371,13 +376,16 @@ class BrowserActivity : Activity() {
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     /** Hidden for a while, or the system wants memory: give the WebView (and its renderer) back, and rebuild it on return. */
-    private val release = Runnable { releaseWeb() }
+    private val release: Runnable = Runnable { if (mayRelease()) releaseWeb() else main.postDelayed(release, 60_000) }
+    private var handoffAt = -HANDOFF_MS
+
+    /** Never while Glass holds a request of ours (a typed answer, a download card): the page, form and back stack must survive it. */
+    private fun mayRelease() = pending == null && SystemClock.elapsedRealtime() - handoffAt > HANDOFF_MS
     private var releasedUrl: String? = null
 
     private fun releaseWeb() {
         val w = web ?: return
         releasedUrl = url.takeIf { it.isNotEmpty() }
-        pending = null
         w.stopLoading(); stage.removeView(w); w.destroy()
         web = null
     }
@@ -395,7 +403,8 @@ class BrowserActivity : Activity() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_UI_HIDDEN && !hasWindowFocus()) releaseWeb()
+        // UI_HIDDEN fires on every hand-off to Glass; only a real background trim (or the stop timer) gives the page up.
+        if (level >= TRIM_MEMORY_BACKGROUND && !hasWindowFocus() && mayRelease()) releaseWeb()
     }
 
     override fun onResume() {

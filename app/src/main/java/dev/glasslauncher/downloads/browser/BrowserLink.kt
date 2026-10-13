@@ -17,9 +17,11 @@ import dev.glasslauncher.downloads.DownloadPlanner
 import dev.glasslauncher.downloads.Downloads
 import dev.glasslauncher.downloads.Plan
 import dev.glasslauncher.home.Overlay
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 
 /**
  * Glass's end of the Glass Browser (a separate, unprivileged APK, scripts/browser). Glass opens it by component and
@@ -100,28 +102,24 @@ object BrowserLink {
         return ok
     }
 
+    /** Plans (the manager's link rules) and starts one browser download with the user's settings; tells the browser how it went. */
+    private suspend fun startPlanned(context: Context, cfg: DownloadsConfig, to: Messenger?, url: String, name: String?, execOk: String) {
+        val plan = DownloadPlanner.plan(url, emptyList(), cfg.acceptedUrls) { emptyList() }
+        if (plan !is Plan.Start) { reply(to, Msg.Notice((plan as Plan.Refuse).message)); return }
+        runCatching { Downloads.start(context, cfg, plan.url, name, guardExec = true, execOk = execOk) }
+            .onSuccess { reply(to, Msg.Notice("Downloading ${name ?: "the file"}")) }
+            .onFailure { reply(to, Msg.Notice(it.message ?: "Couldn't start that download")) }
+    }
+
     private fun download(c: Context, d: Msg.Download, to: Messenger?) {
-        // Like a download from the manager: the planner's link rules, then the user's settings (Downloads.start).
-        suspend fun queue(context: Context, cfg: DownloadsConfig, url: String, name: String?, guard: Boolean) {
-            val plan = DownloadPlanner.plan(url, emptyList(), cfg.acceptedUrls) { emptyList() }
-            if (plan !is Plan.Start) { reply(to, Msg.Notice((plan as Plan.Refuse).message)); return }
-            runCatching { Downloads.start(context, cfg, plan.url, name, guardExec = guard) }
-                .onSuccess { reply(to, Msg.Notice("Downloading ${name ?: "the file"}")) }
-                .onFailure { reply(to, Msg.Notice(it.message ?: "Couldn't start that download")) }
-        }
         when (val r = BrowserDownload.decide(d, approved)) {
-            is BrowserDownload.Queue -> if (!post({ ctx, cfg, _ -> queue(ctx, cfg, r.url, r.name, r.guard) }, to, showGlass = false)) {
-                runCatching { Downloads.start(c, DownloadsConfig(), r.url, r.name, guardExec = r.guard) }
-            }
-            is BrowserDownload.Ask -> post({ ctx, cfg, open ->
+            // No Home to take it: refuse, never download around the planner and the user's settings.
+            is BrowserDownload.Queue -> post({ ctx, cfg, _ -> startPlanned(ctx, cfg, to, r.url, r.name, r.execOk) }, to, showGlass = false)
+            is BrowserDownload.Ask -> post({ _, cfg, open ->
                 val from = if (r.referrer.isNotEmpty() && r.referrer != r.host) " (from a page on ${r.referrer})" else ""
                 open(Overlay.Confirm("Download an app file?", "${r.host} is offering ${r.name ?: "a file"}$from. Only keep files from sites you trust.", "Download") {
                     approved += r.key
-                    handler.post {
-                        runCatching { Downloads.start(ctx, cfg, r.url, r.name) }
-                            .onFailure { reply(to, Msg.Notice(it.message ?: "Couldn't start that download")) }
-                        backToBrowser(c)
-                    }
+                    MainScope().launch { startPlanned(c, cfg, to, r.url, r.name, r.allow); backToBrowser(c) }
                 })
             }, to, showGlass = true)
             is BrowserDownload.Refuse -> reply(to, Msg.Notice(r.reason))
@@ -134,7 +132,7 @@ object BrowserLink {
         if (!gate.tryBegin(r.id, SystemClock.elapsedRealtime())) { reply(to, Msg.Notice("Glass is waiting for the last keyboard")); return }
         val shown = post({ _, _, open ->
             open(Overlay.TextInput(
-                prompt.title, prompt.initial, prompt.hint, isPassword = prompt.password,
+                prompt.title, prompt.initial, prompt.hint, isPassword = prompt.password, offerPhone = prompt.phoneOk,
                 // Closing for any reason, a cancel included, frees the next request.
                 onClosed = { gate.end(r.id) },
             ) { typed ->

@@ -141,4 +141,14 @@ class WebTest {
         assertTrue(PointerSpeed.step(5) > PointerSpeed.step(1))
         assertEquals(60, PointerSpeed.step(500))
     }
+
+    @Test fun aKeyboardAnswerIsDeliveredOnlyToTheLoadItWasAskedOn() {
+        val r = TextRouting.Route.values()
+        assertEquals(TextRouting.Route.Deliver, TextRouting.route(5, "n1", 5, "n1"))
+        assertEquals(TextRouting.Route.DropStale, TextRouting.route(5, "n1", 5, "n2"))
+        assertEquals(TextRouting.Route.Deliver, TextRouting.route(5, null, 5, "n2"))     // the address bar is not tied to a page
+        assertEquals(TextRouting.Route.Ignore, TextRouting.route(5, "n1", 6, "n1"))
+        assertEquals(TextRouting.Route.Ignore, TextRouting.route(null, null, 5, "n1"))
+        assertEquals(3, r.size)
+    }
 }

@@ -57,7 +57,11 @@ class DownloadEngineTest {
             engine().download(request(s).copy(name = "photo.apk", guardExec = true)) {}
             fail("an app file must stop the guarded download")
         } catch (e: DownloadFailure.Executable) { assertEquals("photo.apk", e.name) }
-        assertEquals("photo.apk", engine().download(request(s, id = "b").copy(name = "photo.apk", guardExec = false)) {}.file.name)
+        assertEquals("photo.apk", engine().download(request(s, id = "b").copy(name = "photo.apk", guardExec = true, execOk = "apk")) {}.file.name)
+        try {
+            engine().download(request(s, id = "d").copy(name = "photo.exe", guardExec = true, execOk = "apk")) {}
+            fail("only the approved extension may pass")
+        } catch (e: DownloadFailure.Executable) { assertEquals("photo.exe", e.name) }
         assertEquals("file.bin", engine().download(request(s, id = "c").copy(guardExec = true)) {}.file.name)
     }
 

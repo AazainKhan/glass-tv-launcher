@@ -28,7 +28,7 @@ class BrowserRulesTest {
         assertEquals("files.example.com", ask.host)
         assertEquals("files.example.com|apk", ask.key)
         assertEquals("example.com", ask.referrer)
-        assertEquals(BrowserDownload.Queue("https://files.example.com/app.apk", "app.apk", guard = false), BrowserDownload.decide(dl("https://files.example.com/app.apk", "app.apk"), setOf("files.example.com|apk")))
+        assertEquals(BrowserDownload.Queue("https://files.example.com/app.apk", "app.apk", execOk = "apk"), BrowserDownload.decide(dl("https://files.example.com/app.apk", "app.apk"), setOf("files.example.com|apk")))
         // another extension on an approved host still asks
         assertTrue(BrowserDownload.decide(dl("https://files.example.com/setup.exe", "setup.exe"), setOf("files.example.com|apk")) is BrowserDownload.Ask)
         // the type counts even with a harmless name or none at all
@@ -74,9 +74,26 @@ class BrowserRulesTest {
         assertNull(TextPrompt.of(Msg.TextRequest(1, "example.com", "<b>", false)))
     }
 
-    @Test fun queuedDownloadsAreRecheckedByTheEngineUnlessTheUserApprovedThem() {
-        assertTrue((BrowserDownload.decide(dl("https://e.com/a.zip", "a.zip"), emptySet()) as BrowserDownload.Queue).guard)
-        assertTrue(!(BrowserDownload.decide(dl("https://e.com/a.apk", "a.apk"), setOf("e.com|apk")) as BrowserDownload.Queue).guard)
+    @Test fun anApprovalCoversOnlyItsOwnExtension() {
+        assertEquals("", (BrowserDownload.decide(dl("https://e.com/a.zip", "a.zip"), emptySet()) as BrowserDownload.Queue).execOk)
+        assertEquals("apk", (BrowserDownload.decide(dl("https://e.com/a.apk", "a.apk"), setOf("e.com|apk")) as BrowserDownload.Queue).execOk)
+        assertEquals("apk", (BrowserDownload.decide(dl("https://e.com/a.apk", "a.apk"), emptySet()) as BrowserDownload.Ask).allow)
+    }
+
+    @Test fun theEngineRecheckAllowsOnlyTheApprovedExtension() {
+        val x = dev.glasslauncher.downloads.ExecutableTypes
+        assertTrue(!x.offends(listOf("a.apk"), "application/vnd.android.package-archive", "apk"))
+        assertTrue(!x.offends(listOf("a.zip"), "application/zip", ""))
+        assertTrue(x.offends(listOf("a.apk"), null, ""))
+        assertTrue(x.offends(listOf("a.apk", "b.exe"), null, "apk"))      // a different type behind the approved one
+        assertTrue(x.offends(listOf("a.zip"), "application/vnd.android.package-archive", "apk"))   // an app disguised by name
+        assertTrue(!x.offends(listOf("dl"), "application/vnd.android.package-archive", "application/vnd.android.package-archive"))
+    }
+
+    @Test fun phoneFormIsOfferedOnlyForPlainFields() {
+        fun phone(kind: String, pw: Boolean = false) = TextPrompt.of(Msg.TextRequest(1, "example.com", kind, pw))!!.phoneOk
+        assertTrue(phone("text")); assertTrue(phone("search")); assertTrue(phone("url"))
+        assertTrue(!phone("password", true)); assertTrue(!phone("email")); assertTrue(!phone("tel")); assertTrue(!phone("text", true))
     }
 
     @Test fun oneKeyboardRequestAtATimeAndACancelFreesIt() {

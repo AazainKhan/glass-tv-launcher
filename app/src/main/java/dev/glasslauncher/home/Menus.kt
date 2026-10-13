@@ -385,7 +385,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
             }, modifier = Modifier.testTag("text-paste"))
         }
         Spacer(Modifier.height(8.dp))
-        if (!overlay.isPassword) MenuRow("Type on Your Phone", {
+        if (!overlay.isPassword && overlay.offerPhone) MenuRow("Type on Your Phone", {
             open(Overlay.PhoneSetup(overlay.title, listOf(PhoneField("value", overlay.title, text, overlay.hint))) { values ->
                 values["value"]?.takeIf { it.isNotBlank() }?.let { text = it; submit() }
             })
@@ -614,6 +614,9 @@ internal object FolderGeometry {
     fun tileOffset(index: Int): Pair<Dp, Dp> = Pair(padX + colPitch * (index % COLUMNS), padY + rowPitch * (index / COLUMNS))
 }
 
+/** How long the phone form stays open before the panel closes itself. */
+internal const val PHONE_SETUP_MAX_MS = 120_000L
+
 @Composable
 private fun PhoneSetupBody(overlay: Overlay.PhoneSetup, active: Boolean, close: () -> Unit) {
     val palette = LocalPalette.current
@@ -629,6 +632,8 @@ private fun PhoneSetupBody(overlay: Overlay.PhoneSetup, active: Boolean, close: 
             close()
         }
     }
+    // The form is open on the LAN only briefly.
+    LaunchedEffect(server) { kotlinx.coroutines.delay(PHONE_SETUP_MAX_MS); close() }
     DisposableEffect(server) {
         scope.launch {
             val u = server.start(scope)

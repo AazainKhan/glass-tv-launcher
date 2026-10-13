@@ -79,8 +79,7 @@ class DownloadEngine(
         if (req.guardExec) {
             // The server can change its answer after the caller looked: judge the file it really sends.
             val name = req.name?.let(::safeName) ?: probe.fileName?.let(::safeName) ?: nameFromUrl(probe.finalUrl)
-            if (ExecutableTypes.isExecutable(name, probe.mime) || ExecutableTypes.isExecutable(probe.fileName, null) || ExecutableTypes.isExecutable(nameFromUrl(probe.finalUrl), null))
-                throw DownloadFailure.Executable(name)
+            if (ExecutableTypes.offends(listOfNotNull(req.name, name, probe.fileName, nameFromUrl(probe.finalUrl)), probe.mime, req.execOk)) throw DownloadFailure.Executable(name)
         }
         var fresh = false
         while (true) {
