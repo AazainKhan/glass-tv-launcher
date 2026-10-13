@@ -113,6 +113,8 @@ internal class CcSizes(k: Float) {
     val big = u * 2 + gap
     val bigWidth = big
     val column = u * 4 + gap * 3
+    /** Half the column, less half a gutter: the Settings and Back action pair of a device platter sits on one row at the grid's own gap (P146). */
+    val half = (column - gap) / 2
     // An off toggle's glyph sits in a disc: F27 measures the disc at 21 dp (0.44 u) and the moon in it at about 10 dp (KIT: 15 pt in 41 pt).
     val disc = u * 0.44f
     val discGlyph = u * 0.24f
@@ -650,6 +652,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // AirPlay is a menu pill, like tvOS's Audio pill: it opens a platter (receiver on/off + status) instead of
     // toggling in place (P129, REA: AirPlay has no on-state of its own in Control Center).
     var airplayPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // Game Controllers is a platter like Remotes (P146): the connected controllers, then Controller Settings and Back.
+    var controllersPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     val platterSource = remember { PlatterSource() }
     // Edit mode's hint (P101): a small glass toast at the bottom centre when edit mode opens, gone after a few seconds,
     // and back for a moment on the first key pressed in edit mode.
@@ -715,11 +719,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
     // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
     // closing Control Center save too).
-    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter) {
-        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter || airplayPlatter) ({
+    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter, controllersPlatter) {
+        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter || airplayPlatter || controllersPlatter) ({
             when {
                 airplayPlatter -> { airplayPlatter = false; pendingFocus = "airplay" }
                 remotesPlatter -> { remotesPlatter = false; pendingFocus = "remotes" }
+                controllersPlatter -> { controllersPlatter = false; pendingFocus = "controllers" }
                 restartAsk -> { restartAsk = false; pendingFocus = "restart" }
                 // Back on the permission card is Deny.
                 agentCard -> { agents.waiting = 0; agents.result = "Denied"; agentCard = false; pendingFocus = "addon:claude/agents" }
@@ -928,7 +933,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     sz,
                     title = if (canReboot) "Restart Fire TV?" else "Restart from Settings",
                     body = if (canReboot) "Apps that are open will close." else "Fire TV can restart from Settings › My Fire TV.",
-                    confirm = if (canReboot) "Restart" else "Open Fire Settings",
+                    confirm = if (canReboot) "Restart" else "Settings",
                     destructive = canReboot,
                     onCancel = { restartAsk = false; pendingFocus = "restart" },
                 ) {
@@ -949,8 +954,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // pill it came from and zooms back into it on pop. Spring mass 1, stiffness 150, damping 20 (ratio 0.8165), rows
             // and fades 0.25 s. Reduce Motion: a plain cross-fade, nothing scales. Never a cut either way.
             androidx.compose.animation.AnimatedContent(
-                targetState = remotesPlatter || airplayPlatter,
-                modifier = Modifier.weight(1f, fill = remotesPlatter || airplayPlatter).onGloballyPositioned {
+                targetState = remotesPlatter || airplayPlatter || controllersPlatter,
+                modifier = Modifier.weight(1f, fill = remotesPlatter || airplayPlatter || controllersPlatter).onGloballyPositioned {
                     platterSource.box = it.boundsInWindow()
                     contentBottom[0] = it.boundsInWindow().bottom
                     syncMotionPanel()
@@ -986,6 +991,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         else airPlay.second.setSetting(dev.glasslauncher.system.AirPlayProtocol.SettingKey.DisplayName, name)
                     })
                 })
+            } else if (showPlatter && controllersPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+                CcControllersPlatter(sz, onBack = { controllersPlatter = false; pendingFocus = "controllers" }, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
                 CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (!restartAsk && !agentCard) Column(
@@ -1233,7 +1240,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 }
                             }
                             "remotes" -> SizedRound(tile.size, w, h, "Remotes", null, R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "remotes"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "remotes"; remotesPlatter = true }) { tap { platterSource.id = "remotes"; remotesPlatter = true }() }
-                            "controllers" -> SizedRound(tile.size, w, h, "Gamepad", null, R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
+                            "controllers" -> SizedRound(tile.size, w, h, "Gamepad", null, R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "controllers"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "controllers"; controllersPlatter = true }) { tap { platterSource.id = "controllers"; controllersPlatter = true }() }
                             "appearance" -> SizedRound(tile.size, w, h, "Theme", if (dark) "Dark" else "Light", if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }) {
                                 tap { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }()
@@ -1809,36 +1816,60 @@ private fun CcEditHint(shown: Boolean, lifted: Boolean, modifier: Modifier = Mod
     }
 }
 
+/** One device in a device platter: its name, one line of state, and whether it is connected (an accent glyph). */
+internal data class CcDeviceRow(val name: String, val line: String, val connected: Boolean)
+
 /**
- * The Remotes platter (P111): pushed over the grid inside the panel, as tvOS pushes a module, each remote a pill with its
- * state, then Remote Settings and Back. Same width and pitch as the grid, so it replaces it without the panel resizing.
+ * A device platter (Remotes, Game Controllers; P111, P146): pushed over the grid inside the panel, as tvOS pushes a module.
+ * The layout rule for every sub-panel: a DEVICE or INFO pill is the full column wide, ACTION buttons (Settings, Back) are a pair of
+ * half-width pills on one row, [CcSizes.gap] apart. Same width and pitch as the grid, so it replaces it without the panel resizing.
  */
+@Composable
+internal fun CcDevicePlatter(
+    sz: CcSizes, title: String, tag: String, rows: List<CcDeviceRow>, deviceIcon: Int,
+    emptyTitle: String, emptyValue: String?, settingsLabel: String, onSettings: () -> Unit, onBack: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag(tag)) {
+        Text(title, style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        if (rows.isEmpty()) {
+            CcTile(emptyTitle, emptyValue, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = Modifier.focusRequester(first).testTag("cc-device-empty")) { fg ->
+                PillContent(deviceIcon, emptyTitle, emptyValue, fg, on = false, accent = fg)
+            }
+        } else rows.forEachIndexed { i, r ->
+            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("cc-device-$i")) { fg ->
+                PillContent(deviceIcon, r.name, r.line, fg, on = r.connected, accent = Blue)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
+            CcTile(settingsLabel, null, Shapes.pill, sz.half, sz.pill, onClick = onSettings, modifier = Modifier.testTag("cc-action-settings")) { fg ->
+                PillContent(R.drawable.ic_tune, settingsLabel, null, fg, on = false, accent = fg)
+            }
+            CcTile("Back", null, Shapes.pill, sz.half, sz.pill, onClick = onBack, modifier = Modifier.testTag("cc-action-back")) { fg ->
+                PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
+            }
+        }
+    }
+}
+
 @Composable
 private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> Unit) {
     val context = LocalContext.current
     var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
-    val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context) }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
-    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-remotes")) {
-        Text("Remotes", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
-        if (rows.isEmpty()) {
-            CcTile("No remote paired", "Hold Home for 10 s", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
-                PillContent(R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", fg, on = false, accent = fg)
-            }
-        } else rows.forEachIndexed { i, r ->
-            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier) { fg ->
-                PillContent(R.drawable.ic_settings_remote, r.name, r.line, fg, on = r.line.startsWith("Connected"), accent = Blue)
-            }
-        }
-        CcTile("Remote Settings", null, Shapes.pill, sz.column, sz.pill, onClick = onSettings) { fg ->
-            PillContent(R.drawable.ic_tune, "Remote Settings", null, fg, on = false, accent = fg)
-        }
-        CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->
-            PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
-        }
-    }
+    val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context).map { CcDeviceRow(it.name, it.line, it.line.startsWith("Connected")) } }
+    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", "Remote Settings", onSettings, onBack)
+}
+
+/** The Game Controllers platter (P146): the connected controllers, then Controller Settings (Fire's own page, as the tile opened before) and Back. */
+@Composable
+private fun CcControllersPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> Unit) {
+    val context = LocalContext.current
+    var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
+    val rows = remember(tick) { dev.glasslauncher.system.ControllerList.read(context).map { CcDeviceRow(it.name, it.line, true) } }
+    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "No controllers connected", null, "Controller Settings", onSettings, onBack)
 }
 
 /**

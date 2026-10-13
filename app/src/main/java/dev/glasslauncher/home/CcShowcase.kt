@@ -155,11 +155,15 @@ internal fun CcAgentCard(sz: CcSizes, decide: (allowed: Boolean) -> Unit) {
         }
         BasicText(CcShowcase.REQUEST_WHERE, style = Type.caption.copy(color = Color.White.copy(alpha = 0.75f)))
         // Deny first, in the focused (white) capsule; Allow once needs a deliberate Down and Select.
-        CcTile("Deny", null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = { decide(false) }, modifier = Modifier.focusRequester(first).testTag("cc-agent-deny")) { fg ->
-            BasicText("Deny", style = Type.body.copy(color = fg))
-        }
-        CcTile("Allow once", null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = { decide(true) }) { fg ->
-            BasicText("Allow once", style = Type.body.copy(color = fg))
+        // The two actions are a pair of half-width pills on one row (P146), Deny on the left.
+        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(sz.gap)) {
+            val half = (sz.column - 28.dp - sz.gap) / 2
+            CcTile("Deny", null, Shapes.pill, half, CARD_BUTTON, onClick = { decide(false) }, modifier = Modifier.focusRequester(first).testTag("cc-agent-deny")) { fg ->
+                BasicText("Deny", style = Type.body.copy(color = fg))
+            }
+            CcTile("Allow once", null, Shapes.pill, half, CARD_BUTTON, onClick = { decide(true) }, modifier = Modifier.testTag("cc-agent-allow")) { fg ->
+                BasicText("Allow once", style = Type.body.copy(color = fg), maxLines = 1)
+            }
         }
         BasicText("Expires in 9:42 · then asks on Mac", style = Type.caption.copy(color = Color.White.copy(alpha = 0.7f)))
     }
@@ -224,13 +228,17 @@ internal fun CcConfirmCard(sz: CcSizes, title: String, body: String, confirm: St
         BasicText(title, style = Type.heading.copy(color = Color.White))
         BasicText(body, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f)))
         val cancelFirst = destructive
-        CcTile(confirm, null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = onConfirm,
-            modifier = (if (cancelFirst) Modifier else Modifier.focusRequester(first)).testTag("cc-confirm-yes")) { fg ->
-            BasicText(confirm, style = Type.body.copy(color = fg))
-        }
-        CcTile("Cancel", null, Shapes.pill, sz.column - 28.dp, CARD_BUTTON, onClick = onCancel,
-            modifier = (if (cancelFirst) Modifier.focusRequester(first) else Modifier).testTag("cc-confirm-cancel")) { fg ->
-            BasicText("Cancel", style = Type.body.copy(color = fg))
+        // Cancel and the confirm are a pair of half-width pills on one row (P146), Cancel on the left.
+        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(sz.gap)) {
+            val half = (sz.column - 28.dp - sz.gap) / 2
+            CcTile("Cancel", null, Shapes.pill, half, CARD_BUTTON, onClick = onCancel,
+                modifier = (if (cancelFirst) Modifier.focusRequester(first) else Modifier).testTag("cc-confirm-cancel")) { fg ->
+                BasicText("Cancel", style = Type.body.copy(color = fg), maxLines = 1)
+            }
+            CcTile(confirm, null, Shapes.pill, half, CARD_BUTTON, onClick = onConfirm,
+                modifier = (if (cancelFirst) Modifier else Modifier.focusRequester(first)).testTag("cc-confirm-yes")) { fg ->
+                BasicText(confirm, style = Type.body.copy(color = fg), maxLines = 1)
+            }
         }
     }
 }

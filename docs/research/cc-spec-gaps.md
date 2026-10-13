@@ -131,3 +131,24 @@ Glass tokens: caption 13 sp (the legibility floor, `ui/Theme.kt` caption). Contr
 1. "Panel takes the full screen height": no source shows a full-height **slab**; the 27 frames show the grid at content height with no background, and the firmware's platter is 860 pt. P1 gives the column the full height on every page (as the user asked), so pushed platters fill it, but the grid page's controls stay at the top of it. If the user means a visible full-height panel (a drawn background), that is a materials decision.
 2. Pill title weight, 2x2 title style and symbol weight (C3, C10, C18): no decoded constant for 27; measured by eye on a compressed frame.
 3. Whether tvOS 27's menu pills (Audio, Sleep Timer) are discless in the product (F27 says yes; KIT says every 2x1 has a disc).
+
+
+## P146: sub-panel layout consistency
+
+Rule: **DEVICE / INFO pills are the full column wide; ACTION buttons (Settings and Back style pairs) are two half-width pills on one row, one grid gap (8 dp) apart** (half = (216 - 8) / 2 = 104 dp, `CcSizes.half`). Source: the user's photo of the Remotes sub-panel (three stacked full-width pills) and tvOS's own platter rows (`defaultRowSpacing`, FW). All three cells below are Glass decisions where tvOS has no equivalent (it pops with Menu and has no Back row).
+
+| # | Sub-panel | Finding | Status |
+|---|---|---|---|
+| L1 | Remotes | device pill full width, then Remote Settings and Back as two more full-width pills | **FIX** one `CcDevicePlatter`: device pill full width, Remote Settings + Back as a half-width pair |
+| L2 | Game Controllers | the tile opened Fire's controller settings directly; no list | **FIX** new platter with the same layout: controller pills (name, "Connected" + battery where the Bluetooth stack reports one), then Controller Settings (Fire's page, as before) + Back; empty state "No controllers connected" as a full-width info pill; zoom-pushed from the tile, Back/Menu pops (same transition as Remotes) |
+| L3 | Restart confirm card | Cancel and Restart stacked full width | **FIX** a half-width pair, Cancel left (focused first when destructive) |
+| L4 | Agent permission card | Deny and Allow once stacked | **FIX** a half-width pair, Deny left and focused first (Allow needs a deliberate Right now, not Down) |
+| L5 | AirPlay / Audio platter | all rows are device or info pills, full width; the volume row is 27 dp tall; no Back row (Menu pops, as tvOS) | consistent; no action pair to change |
+| L6 | Add a Control gallery | group and control pills are full-width info rows | consistent |
+| L7 | Now Playing card | one card, its own transport buttons (round) | consistent (not a pill list) |
+| L8 | Downloads | not a platter: the tile opens the Downloads page overlay | **DEFER** (a full page, its own layout) |
+| L9 | Sonos | rows live in the AirPlay platter (L5) | consistent |
+| L10 | Remotes / Controllers: Back row | tvOS has no Back row; Glass keeps it as the user asked, AirPlay has none | **DEFER** (decide whether all platters get one) |
+| L11 | App-switcher glyph | done in P138 (two overlapping rectangles, `rectangle.on.rectangle`-like, `ic_app_switcher`); confirmed on the twin's More page | done |
+
+Tests: `CcDevicePlatterTest` asserts, for Remotes-style and Controllers-style content and for the empty state, that the device pill is the full column wide and the two actions are side by side on one row, equal halves, one gap apart, spanning the column, with the label whole.
