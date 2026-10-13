@@ -1,7 +1,23 @@
 package dev.glasslauncher.widgets
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import kotlinx.coroutines.Job
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -76,8 +92,15 @@ private fun rememberPosition(item: NowPlaying): Long {
 private fun clock(ms: Long) = NowPlayingTime.format(ms)
 
 @Composable
-private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifier: Modifier = Modifier, inlineTimes: Boolean = false) {
-    val pos = rememberPosition(item)
+private fun Progress(
+    item: NowPlaying, color: Color, showTimes: Boolean, modifier: Modifier = Modifier, inlineTimes: Boolean = false,
+    /** Where the user is seeking to, until the session reports it. */
+    seeking: Long? = null,
+    /** 0..1 while the scrubber has focus (read when drawing, so the animation never recomposes). */
+    emphasis: () -> Float = { 0f },
+) {
+    val ticked = rememberPosition(item)
+    val pos = seeking ?: ticked
     val f = if (item.durationMs > 0) (pos.toFloat() / item.durationMs).coerceIn(0f, 1f) else 0f
     if (inlineTimes && item.durationMs > 0) {
         // Control Center's card: elapsed, the bar, remaining on one line under the track. Never wraps: the digits are
@@ -89,22 +112,14 @@ private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifie
             val fit = NowPlayingTime.fit(maxWidth.value, clock(pos), remaining, fontDp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
-                Canvas(Modifier.weight(1f).padding(horizontal = 6.dp).height(5.dp)) {
-                    val r = CornerRadius(size.height / 2)
-                    drawRoundRect(color.copy(alpha = 0.28f), cornerRadius = r)
-                    drawRoundRect(color, size = Size(size.width * f, size.height), cornerRadius = r)
-                }
+                Canvas(Modifier.weight(1f).padding(horizontal = 6.dp).height(5.dp)) { drawBar(color, f, emphasis()) }
                 if (fit == NowPlayingTime.Fit.Both) Text(remaining, style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
             }
         }
         return
     }
     Column(modifier) {
-        Canvas(Modifier.fillMaxWidth().height(5.dp)) {
-            val r = CornerRadius(size.height / 2)
-            drawRoundRect(color.copy(alpha = 0.28f), cornerRadius = r)
-            drawRoundRect(color, size = Size(size.width * f, size.height), cornerRadius = r)
-        }
+        Canvas(Modifier.fillMaxWidth().height(5.dp)) { drawBar(color, f, emphasis()) }
         // Kept out of accessibility: they change every second, which would chatter in a screen reader and
         // keeps uiautomator from ever seeing the screen idle.
         if (showTimes && item.durationMs > 0) Row(Modifier.fillMaxWidth().padding(top = 6.dp).clearAndSetSemantics { testTag = "np-times" }) {
@@ -114,6 +129,85 @@ private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifie
             Box(Modifier.weight(1f))
             Text(NowPlayingTime.remaining(item.durationMs, pos), style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
         }
+    }
+}
+
+/**
+ * The bar: 5 dp, filled to [f]. With [emphasis] > 0 (the scrubber has focus) it thickens around its centre line, to 9 dp,
+ * and a knob rides the end: drawing outside the 5 dp slot, so focusing it never moves the layout.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBar(color: Color, f: Float, emphasis: Float) {
+    val thick = size.height + 4.dp.toPx() * emphasis
+    val top = (size.height - thick) / 2
+    val r = CornerRadius(thick / 2)
+    drawRoundRect(color.copy(alpha = 0.28f + 0.1f * emphasis), topLeft = androidx.compose.ui.geometry.Offset(0f, top), size = Size(size.width, thick), cornerRadius = r)
+    drawRoundRect(color, topLeft = androidx.compose.ui.geometry.Offset(0f, top), size = Size(size.width * f, thick), cornerRadius = r)
+    if (emphasis > 0f) drawCircle(color.copy(alpha = emphasis), radius = 7.dp.toPx() * emphasis, center = androidx.compose.ui.geometry.Offset((size.width * f).coerceIn(0f, size.width), size.height / 2))
+}
+
+private const val SEEK_STEP_MS = 10_000L
+
+/** Test seam: the clock the seek coalescer reads (tests step it by hand; the app always uses the real one). */
+object NowPlayingClock {
+    @Volatile var now: () -> Long = { SystemClock.elapsedRealtime() }
+}
+
+/**
+ * The progress bar as a scrubber when the session can seek (and the item has a length): focusable, Left/Right = -/+10 s
+ * (held keys repeat, but at most ~5 seeks a second reach the app), Up/Down pass through to normal focus movement. Without
+ * seek support it is the plain bar. Sessions that change while it is focused drop any pending seek.
+ */
+@Composable
+private fun SeekableProgress(
+    item: NowPlaying, color: Color, modifier: Modifier, inlineTimes: Boolean, requester: FocusRequester,
+    onFocus: (Boolean) -> Unit = {},
+) {
+    val seekable = item.canSeek && item.durationMs > 0
+    // [modifier] carries the focus rescue: if the scrubber goes away while focused, focus moves on, never nowhere.
+    if (!seekable) { Progress(item, color, showTimes = true, modifier = modifier, inlineTimes = inlineTimes); return }
+    val latest by rememberUpdatedState(item)
+    val coalescer = remember(item.key) { SeekCoalescer() }
+    var seeking by remember(coalescer) { mutableStateOf<Long?>(null) }
+    val scope = rememberCoroutineScope()
+    val pending = remember(coalescer) { arrayOfNulls<Job>(1) }
+    DisposableEffect(coalescer) { onDispose { pending[0]?.cancel() } }
+    LaunchedEffect(seeking) { if (seeking != null) { delay(1_600); seeking = null } }
+    val focusT = remember { androidx.compose.animation.core.Animatable(0f) }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(focused) { focusT.animateTo(if (focused) 1f else 0f, tween(180)) }
+
+    fun sendNow(target: Long, key: String) {
+        if (latest.key != key) return
+        latest.controller.seekTo(target)
+        seeking = coalescer.shown(NowPlayingClock.now())
+    }
+    Box(
+        modifier
+            .focusRequester(requester)
+            .onKeyEvent { ev ->
+                val dir = when (ev.key) { Key.DirectionLeft -> -1; Key.DirectionRight -> 1; else -> return@onKeyEvent false }
+                if (ev.type != KeyEventType.KeyDown) return@onKeyEvent true
+                val it = latest
+                val now = NowPlayingClock.now()
+                val sent = coalescer.press(it.key, it.positionNow(), it.durationMs, dir * SEEK_STEP_MS, now)
+                if (sent != null) sendNow(sent, it.key)
+                else coalescer.delayMs(now)?.let { wait ->
+                    pending[0]?.cancel()
+                    pending[0] = scope.launch {
+                        delay(wait)
+                        coalescer.flush(it.key, NowPlayingClock.now())?.let { t -> sendNow(t, it.key) }
+                    }
+                }
+                true
+            }
+            .onFocusChanged {
+                focused = it.isFocused
+                onFocus(it.isFocused)
+            }
+            .focusable()
+            .testTag("np-scrubber"),
+    ) {
+        Progress(item, color, showTimes = true, inlineTimes = inlineTimes, seeking = seeking, emphasis = { focusT.value })
     }
 }
 
@@ -135,8 +229,20 @@ private fun Artwork(item: NowPlaying, size: Dp, radius: Dp) {
  * shadow, tvOS 27): white over dark art, dark over light art, secondary lines at reduced opacity.
  */
 @Composable
-fun NowPlayingHero(item: NowPlaying, onLight: Boolean, playFocus: FocusRequester, up: FocusRequester, modifier: Modifier = Modifier) {
+fun NowPlayingHero(
+    item: NowPlaying, onLight: Boolean, playFocus: FocusRequester, up: FocusRequester, modifier: Modifier = Modifier,
+    /** Whether the scrubber holds focus (Home sends Down from it to the buttons, not to the tray). */
+    onScrubFocus: (Boolean) -> Unit = {},
+) {
     val fg = if (onLight) Color(0xFF0E1015) else Color.White
+    val scrub = remember { FocusRequester() }
+    val scrubbing = item.canSeek && item.durationMs > 0
+    // Up from the buttons: the scrubber when there is one, else the status pill.
+    val above = if (scrubbing) scrub else up
+    val likeShown = item.like != Like.None
+    val likeRescue = rememberFocusRescue(likeShown, playFocus)
+    val scrubRescue = rememberFocusRescue(scrubbing, playFocus)
+    LaunchedEffect(scrubbing) { if (!scrubbing) onScrubFocus(false) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.testTag("now-playing-hero")) {
         Artwork(item, 200.dp, 16.dp)
         Column(Modifier.padding(start = 36.dp).width(470.dp)) {
@@ -148,14 +254,23 @@ fun NowPlayingHero(item: NowPlaying, onLight: Boolean, playFocus: FocusRequester
             item.artist?.let {
                 Text(it, style = Type.body, color = fg.copy(alpha = 0.82f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             }
-            Progress(item, fg, showTimes = true, modifier = Modifier.padding(top = 16.dp).fillMaxWidth())
+            SeekableProgress(
+                item, fg, Modifier.padding(top = 16.dp).fillMaxWidth().then(scrubRescue).focusProperties { this.up = up; this.down = playFocus }, inlineTimes = false,
+                requester = scrub, onFocus = onScrubFocus,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 10.dp)) {
-                HeroButton(R.drawable.ic_skip_previous, "Previous Track", onLight, Modifier.focusProperties { this.up = up }) { item.previous() }
+                HeroButton(R.drawable.ic_skip_previous, "Previous Track", onLight, Modifier.focusProperties { this.up = above }) { item.previous() }
                 HeroButton(
                     if (item.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow, if (item.playing) "Pause" else "Play", onLight,
-                    Modifier.focusRequester(playFocus).focusProperties { this.up = up },
+                    Modifier.focusRequester(playFocus).focusProperties { this.up = above },
                 ) { item.playPause() }
-                HeroButton(R.drawable.ic_skip_next, "Next Track", onLight, Modifier.focusProperties { this.up = up }) { item.next() }
+                HeroButton(R.drawable.ic_skip_next, "Next Track", onLight, Modifier.focusProperties { this.up = above }) { item.next() }
+                // Last, so a session without a like control leaves the three above exactly where they were.
+                val liked = item.like.liked
+                if (liked != null) HeroButton(
+                    if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite, if (liked) "Unlike" else "Like", onLight,
+                    Modifier.then(likeRescue).focusProperties { this.up = above }, restTint = if (liked) likeAccent(onLight) else null, restDisc = liked != true,
+                ) { item.toggleLike() }
             }
         }
     }
@@ -163,12 +278,19 @@ fun NowPlayingHero(item: NowPlaying, onLight: Boolean, playFocus: FocusRequester
 
 /** A round control on the art: a faint disc at rest, solid (white, or dark over light art) when focused. */
 @Composable
-private fun HeroButton(@DrawableRes icon: Int, label: String, onLight: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun HeroButton(
+    @DrawableRes icon: Int, label: String, onLight: Boolean, modifier: Modifier,
+    /** The glyph colour at rest when it is not the plain one (a liked heart: the accent). */
+    restTint: Color? = null,
+    /** The faint disc at rest; a toggle that is on drops it (tvOS: on is the accent glyph alone). */
+    restDisc: Boolean = true,
+    onClick: () -> Unit,
+) {
     val fg = if (onLight) Color(0xFF0E1015) else Color.White
     val bg = if (onLight) Color.White else Color(0xFF0E1015)
     FocusTile(label = label, onClick = onClick, shape = CircleShape, focusedScale = 1.12f, shadow = false, modifier = modifier.size(50.dp)) { focused ->
-        Box(Modifier.size(50.dp).background(if (focused) fg else fg.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
-            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) bg else fg), modifier = Modifier.size(28.dp))
+        Box(Modifier.size(50.dp).background(if (focused) fg else if (restDisc) fg.copy(alpha = 0.16f) else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
+            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) bg else restTint ?: fg), modifier = Modifier.size(28.dp))
         }
     }
 }
@@ -187,6 +309,10 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
             .ccSurface(shape, dev.glasslauncher.home.LocalCcSheet.current).testTag("now-playing-card").padding((12 * scale).dp),
     ) {
+        val playReq = remember { FocusRequester() }
+        val liked = item.like.liked
+        val likeRescue = rememberFocusRescue(liked != null, playReq)
+        val scrubRescue = rememberFocusRescue(item.canSeek && item.durationMs > 0, playReq)
         // Art, track and the controls on one row; the progress under it, the card's full width (the times never wrap).
         Row(verticalAlignment = Alignment.CenterVertically) {
             Artwork(item, (46 * scale).dp, (9 * scale).dp)
@@ -196,25 +322,50 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             }
             Row(modifier = Modifier.padding(start = 6.dp)) {
                 Transport(R.drawable.ic_skip_previous, "Previous Track", scale, 34) { item.previous() }
-                Transport(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow, if (item.playing) "Pause" else "Play", scale, 34) { item.playPause() }
+                Transport(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow, if (item.playing) "Pause" else "Play", scale, 34, Modifier.focusRequester(playReq)) { item.playPause() }
                 Transport(R.drawable.ic_skip_next, "Next Track", scale, 34) { item.next() }
+                // Last: a session without a like control leaves the three above where they were.
+                if (liked != null) Transport(
+                    if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite, if (liked) "Unlike" else "Like", scale, 34,
+                    likeRescue, restTint = if (liked) palette.accent else null,
+                ) { item.toggleLike() }
             }
         }
-        Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 4.dp), inlineTimes = true)
+        SeekableProgress(item, palette.primary, Modifier.padding(top = 4.dp).then(scrubRescue), inlineTimes = true, requester = remember { FocusRequester() })
     }
 }
 
 @Composable
-private fun Transport(@DrawableRes icon: Int, label: String, scale: Float, size: Int = 40, onClick: () -> Unit) {
+private fun Transport(
+    @DrawableRes icon: Int, label: String, scale: Float, size: Int = 40, modifier: Modifier = Modifier,
+    /** The glyph colour at rest when it is not the plain one (a liked heart: the accent). Focus wins over it. */
+    restTint: Color? = null,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
-    FocusTile(label = label, onClick = onClick, shape = CircleShape, focusedScale = 1.1f, shadow = false, modifier = Modifier.size((size * scale).dp)) { focused ->
+    FocusTile(label = label, onClick = onClick, shape = CircleShape, focusedScale = 1.1f, shadow = false, modifier = modifier.size((size * scale).dp)) { focused ->
         Box(
             Modifier.size((size * scale).dp).background(if (focused) palette.focusFill else Color.Transparent, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) palette.onFocusFill else palette.primary), modifier = Modifier.size((size * 0.58f * scale).dp))
+            Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) palette.onFocusFill else restTint ?: palette.primary), modifier = Modifier.size((size * 0.58f * scale).dp))
         }
     }
+}
+
+/** The liked heart: the system accent, deeper over light art so it keeps contrast (tvOS: an "on" toggle is its accent glyph). */
+private fun likeAccent(onLight: Boolean) = if (onLight) Color(0xFF0A72B8) else Color(0xFF0091FF)
+
+/**
+ * A modifier for a control that may disappear while it holds focus: when [present] turns false having had focus, focus
+ * goes to [fallback] instead of nowhere (a remote with no focus does nothing).
+ */
+@Composable
+private fun rememberFocusRescue(present: Boolean, fallback: FocusRequester): Modifier {
+    val had = remember { booleanArrayOf(false) }
+    val visible by rememberUpdatedState(present)
+    LaunchedEffect(present) { if (!present && had[0]) { had[0] = false; runCatching { fallback.requestFocus() } } }
+    return Modifier.onFocusChanged { if (it.hasFocus) had[0] = true else if (visible) had[0] = false }
 }
 
 /** The Now Playing times: one line each, tabular digits, hours when the item is an hour or longer. */

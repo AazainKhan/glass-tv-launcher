@@ -308,6 +308,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Now Playing: Up from the tray reaches its controls, Up again the status pill (Control Center).
     val heroPlay = remember { FocusRequester() }
     var heroFocused by remember { mutableStateOf(false) }
+    // The Now Playing scrubber (above the buttons) has focus: Down goes to the buttons, not on to the tray.
+    var heroScrubFocused by remember { mutableStateOf(false) }
     val pillRequester = remember { FocusRequester() }
     val idle = rememberIdleState(cfg.idleFadeMinutes)
 
@@ -983,6 +985,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && cfg.topShelfTitles && takeover == null -> { setExpanded(true); true }
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && takeover != null && !pillFocused && !heroFocused ->
                             runCatching { heroPlay.requestFocus() }.isSuccess
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && heroScrubFocused && takeover != null && !expanded ->
+                            runCatching { heroPlay.requestFocus() }.isSuccess
                         // From the status pill, Down goes back to the Now Playing controls.
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && pillFocused && takeover != null && !expanded ->
                             runCatching { heroPlay.requestFocus() }.isSuccess
@@ -1145,7 +1149,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         val live = nowPlaying?.takeIf { it.key == shown.key } ?: shown
                         val onLight = backdrop.backdrop?.artLight(0.12f, 0.15f, 0.88f, 0.65f) == true
                         Box(Modifier.fillMaxWidth().padding(top = metrics.chromeInset + 70.dp).onFocusChanged { heroFocused = it.hasFocus }, contentAlignment = Alignment.TopCenter) {
-                            dev.glasslauncher.widgets.NowPlayingHero(live, onLight, heroPlay, pillRequester)
+                            dev.glasslauncher.widgets.NowPlayingHero(live, onLight, heroPlay, pillRequester, onScrubFocus = { heroScrubFocused = it })
                         }
                     }
                 }
