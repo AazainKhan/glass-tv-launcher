@@ -34,4 +34,13 @@ class SonosConsentPolicyTest {
         val line = m.lines().first { it.contains("android.permission.RECORD_AUDIO") }
         assertTrue(!line.contains("maxSdkVersion") && !line.contains("protectionLevel"))
     }
+
+    @Test fun consentRunsInItsOwnTransientTask() {
+        val m = File("src/main/AndroidManifest.xml").readText()
+        val a = m.substringAfter(".sonos.CaptureConsentActivity").substringBefore("/>")
+        assertTrue(a.contains("android:taskAffinity=\"\"") && a.contains("android:excludeFromRecents=\"true\"") && a.contains("Translucent"))
+        val f = SonosRoutes.CONSENT_FLAGS
+        for (flag in listOf(android.content.Intent.FLAG_ACTIVITY_NEW_TASK, android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK, android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION)) assertTrue(f and flag == flag)
+        assertTrue(File("src/main/java/dev/glasslauncher/sonos/CaptureConsentActivity.kt").readText().contains("finishAndRemoveTask()"))
+    }
 }

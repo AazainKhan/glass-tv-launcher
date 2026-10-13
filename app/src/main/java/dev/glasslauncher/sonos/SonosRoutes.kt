@@ -60,8 +60,16 @@ object SonosRoutes {
     /** Asks for consent (RECORD_AUDIO, then the projection dialog); everything else follows from the result. */
     fun start(context: Context, speaker: AudioOutputConfig, muteTvWhilePlaying: Boolean) {
         if (!runner(context).begin(speaker, muteTvWhilePlaying)) return
-        context.startActivity(Intent(context, CaptureConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(consentIntent(context))
     }
+
+    /** Applies the mute toggle to a route that is already running. */
+    fun setMuteTv(context: Context, enabled: Boolean) = runner(context).setMuteTv(enabled)
+
+    /** Consent runs in its own transient task, so Glass Home never comes forward over the app being captured. */
+    fun consentIntent(context: Context) = Intent(context, CaptureConsentActivity::class.java).addFlags(CONSENT_FLAGS)
+
+    const val CONSENT_FLAGS = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
 
     fun onConsent(context: Context, resultCode: Int, data: Intent?) {
         val r = runner(context)

@@ -1729,7 +1729,7 @@ private fun CcAirPlayPlatter(
             }, modifier = Modifier.testTag("cc-audio-route"), on = busy) { fg ->
                 PillContent(R.drawable.ic_airplay, if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, fg, on = busy, accent = Blue)
             }
-            CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) } },
+            CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
                 modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
                 PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
             }

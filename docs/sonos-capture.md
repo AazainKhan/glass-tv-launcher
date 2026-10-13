@@ -30,3 +30,5 @@ Glass captures what other apps play (AudioPlaybackCapture: USAGE_MEDIA, USAGE_GA
 ## Needs a stick check
 
 - Whether the STREAM_MUSIC mute applies before the capture tap. If it does, muting the TV would silence the capture too (the PCM would go to zeros and trip the silence rule). Unverified here: no device was used.
+
+Live results 2026-10-13: YouTube (TizenTube) capture was audible on a Roam 2. The Spotify TV app opts out, so it is silent, as designed. Whether the mute applies before the capture tap is still unverified.

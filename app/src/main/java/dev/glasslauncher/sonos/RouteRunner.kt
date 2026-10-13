@@ -56,7 +56,8 @@ class RouteRunner(
     private val guard = TvMuteGuard(muter, flag)
     private var job: Job? = null
     private var target: AudioOutputConfig? = null
-    private var muteTv = false
+    @Volatile private var muteTv = false
+    @Volatile private var pcmVerified = false // real (non-silent) PCM is flowing
     private var capture: PcmCapture? = null
     private var session: SpeakerSession? = null
 
@@ -73,6 +74,13 @@ class RouteRunner(
         target = speaker; muteTv = muteTvWhilePlaying
         dispatch(RouteEvent.Start)
         return true
+    }
+
+    /** The toggle changed mid-route: ON engages the mute if PCM is already verified, OFF releases it. */
+    fun setMuteTv(enabled: Boolean) {
+        muteTv = enabled
+        if (enabled) { if (pcmVerified && _state.value == RouteState.Playing) guard.engage(true) }
+        else guard.release()
     }
 
     fun consentGranted() = dispatch(RouteEvent.ConsentGranted)
@@ -128,6 +136,7 @@ class RouteRunner(
                 ring.write(buf, 0, n)
                 // The TV stays loud until real PCM has arrived; then it is muted (if the user asked for that).
                 if (silence.onPcm(buf, n)) {
+                    pcmVerified = true
                     if (_state.value is RouteState.Blocked) dispatch(RouteEvent.AudioResumed)
                     if (_state.value == RouteState.Playing) guard.engage(muteTv)
                 }
@@ -140,6 +149,7 @@ class RouteRunner(
                 val blocked = app != null && CapturePolicy.blocked(app.allowsCapture, app.playing, silence.heard, silence.silentMs())
                 if (blocked) {
                     dispatch(RouteEvent.OptedOut(app!!.label))
+                    pcmVerified = false
                     guard.release() // the TV keeps the sound
                 }
             }
@@ -163,6 +173,7 @@ class RouteRunner(
         val c: PcmCapture?
         synchronized(this) { s = session; session = null; c = capture; capture = null }
         runCatching { s?.stop() }.onFailure { warn("session stop", target?.host, it) }
+        pcmVerified = false
         guard.release()
         runCatching { c?.release() }
         synchronized(this) { job = null }

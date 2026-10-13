@@ -247,6 +247,8 @@
         <activity
             android:name=".sonos.CaptureConsentActivity"
             android:exported="false"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <service
             android:name=".downloads.DownloadService"

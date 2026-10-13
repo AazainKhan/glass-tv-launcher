@@ -75,6 +75,31 @@ class RouteRunnerTest {
         assertFalse(f.heldByGlass); assertEquals(RouteState.Idle, r.state.value)
     }
 
+    @Test fun muteToggledOnWhilePlayingEngagesLiveAndOffReleases() {
+        val m = Muter(); val f = Flag(); val spk = Spk()
+        val r = runner(m, f, spk)
+        r.go(Cap(), mute = false)
+        r.await { it == RouteState.Playing }
+        Thread.sleep(150) // PCM verified, still loud
+        assertFalse(m.state); assertFalse(f.heldByGlass)
+        r.setMuteTv(true)
+        assertTrue(m.state); assertTrue(f.heldByGlass)
+        r.setMuteTv(false)
+        assertFalse(m.state); assertFalse(f.heldByGlass)
+        r.stop()
+    }
+
+    @Test fun muteToggledOnBeforePcmIsVerifiedWaitsForPcm() {
+        val m = Muter(); val spk = Spk()
+        val r = runner(m, Flag(), spk)
+        r.go(Cap(pcm = null), mute = false) // silence only
+        r.await { it == RouteState.Playing }
+        r.setMuteTv(true)
+        Thread.sleep(100)
+        assertFalse(m.state)
+        r.stop()
+    }
+
     @Test fun silentCaptureNeverMutesTheTv() {
         val m = Muter(); val spk = Spk()
         val r = runner(m, Flag(), spk)
