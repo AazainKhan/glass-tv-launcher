@@ -16,6 +16,17 @@ object AddonApi {
     const val META_TITLE = "dev.glasslauncher.addon.title"
     const val META_ICON = "dev.glasslauncher.addon.icon"
     const val META_NEEDS_ROOT = "dev.glasslauncher.addon.needs_root"
+    /** Authority of the add-on's ContentProvider (Top Shelf, Home row, Settings page); it must require [PERMISSION] too. */
+    const val META_PROVIDER = "dev.glasslauncher.addon.provider"
+    /** Comma list of the points the add-on supplies: any of [AddonPoint.ALL]; missing = tiles only. */
+    const val META_POINTS = "dev.glasslauncher.addon.points"
+
+    /** ContentProvider.call methods; the argument is a [ProviderRequest] JSON, the reply Bundle holds the reply JSON under [KEY_JSON]. */
+    const val METHOD_FEED = "getFeed"
+    const val METHOD_HOME_ROW = "getHomeRow"
+    const val METHOD_SETTINGS_FORM = "getSettingsForm"
+    const val METHOD_SETTINGS_ACTION = "onSettingsAction"
+    const val KEY_JSON = "json"
 
     /** Binder transaction codes; every call carries one JSON string and returns one. */
     const val GET_TILES = 1
@@ -26,6 +37,15 @@ object AddonApi {
     /** Can Glass at [glassLevel] talk to an add-on built for [api] that needs at least [minGlassApi]? */
     fun compatible(api: Int, minGlassApi: Int, glassLevel: Int = LEVEL): Boolean =
         api >= 1 && minGlassApi <= glassLevel && api >= glassLevel - 1
+}
+
+/** The extension points an add-on can declare in [AddonApi.META_POINTS]. */
+object AddonPoint {
+    const val TILES = "tiles"
+    const val TOPSHELF = "topshelf"
+    const val HOME_ROW = "homerow"
+    const val SETTINGS = "settings"
+    val ALL = setOf(TILES, TOPSHELF, HOME_ROW, SETTINGS)
 }
 
 /** One Control Center tile. Glass draws it; [icon] is a glyph key from Glass's own set (unknown = a default). */
@@ -56,6 +76,17 @@ object AddonCodec {
     fun decodeRequest(s: String?): AddonRequest? = decode(s, AddonRequest.serializer())
     fun decodeTiles(s: String?): TilesReply? = decode(s, TilesReply.serializer())
     fun decodeState(s: String?): StateReply? = decode(s, StateReply.serializer())
+
+    fun encodeProviderRequest(r: ProviderRequest) = json.encodeToString(ProviderRequest.serializer(), r)
+    fun decodeProviderRequest(s: String?): ProviderRequest? = decode(s, ProviderRequest.serializer())
+    fun encodeFeed(r: FeedReply) = json.encodeToString(FeedReply.serializer(), r)
+    fun decodeFeed(s: String?): FeedReply? = decode(s, FeedReply.serializer())
+    fun encodeHomeRow(r: HomeRowReply) = json.encodeToString(HomeRowReply.serializer(), r)
+    fun decodeHomeRow(s: String?): HomeRowReply? = decode(s, HomeRowReply.serializer())
+    fun encodeForm(r: FormReply) = json.encodeToString(FormReply.serializer(), r)
+    fun decodeForm(s: String?): FormReply? = decode(s, FormReply.serializer())
+    fun encodeAction(r: ActionReply) = json.encodeToString(ActionReply.serializer(), r)
+    fun decodeAction(s: String?): ActionReply? = decode(s, ActionReply.serializer())
 
     private fun <T> decode(s: String?, ser: kotlinx.serialization.KSerializer<T>): T? =
         if (s == null) null else try { json.decodeFromString(ser, s) } catch (_: SerializationException) { null } catch (_: IllegalArgumentException) { null }

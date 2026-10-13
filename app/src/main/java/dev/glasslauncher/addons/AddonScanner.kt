@@ -25,9 +25,16 @@ internal object AddonScanner {
                 s.packageName, s.name, s.exported, s.permission,
                 meta?.keySet()?.associateWith { meta.get(it)?.toString() } ?: emptyMap(),
                 certs.getOrPut(s.packageName) { cert(pm, s.packageName) ?: return@mapNotNull null },
+                meta?.getString(AddonApi.META_PROVIDER)?.let { provider(pm, it) },
             )
         })
     }
+
+    /** Whether [pkg] is on the device at all (a failed scan is not an uninstall). */
+    fun isInstalled(context: Context, pkg: String): Boolean = try { context.packageManager.getPackageInfo(pkg, 0); true } catch (_: PackageManager.NameNotFoundException) { false }
+
+    private fun provider(pm: PackageManager, authority: String): ProviderCandidate? =
+        pm.resolveContentProvider(authority, 0)?.let { ProviderCandidate(it.packageName, it.exported, it.readPermission, it.writePermission) }
 
     @Suppress("DEPRECATION")
     private fun cert(pm: PackageManager, pkg: String): String? = try {

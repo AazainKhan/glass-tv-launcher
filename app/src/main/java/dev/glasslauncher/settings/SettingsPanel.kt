@@ -128,6 +128,7 @@ private sealed interface Page {
     data object Font : Page
     data object ControlCenterTiles : Page
     data object Addons : Page
+    data class AddonForm(val pkg: String) : Page
     data object Freezer : Page
     data object RootLog : Page
     data class ButtonAction(val id: String) : Page
@@ -213,7 +214,8 @@ fun SettingsPanel(
                 Page.TextSize -> TextSizePage(model, cfg, f)
                 Page.Font -> FontPage(model, cfg, f)
                 Page.ControlCenterTiles -> ControlCenterTilesPage(model, cfg, f)
-                Page.Addons -> AddonsPage(model, cfg, f)
+                Page.Addons -> AddonsPage(model, cfg, f, ::push)
+                is Page.AddonForm -> AddonFormPage(model, cfg, page.pkg, f, open)
                 Page.Freezer -> FreezerPage(f)
                 Page.RootLog -> RootLogPage(f)
                 is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
@@ -297,6 +299,7 @@ private fun sourceName(id: FeaturedSourceId) = when (id) {
     FeaturedSourceId.ContinueWatching -> "Continue Watching"
     FeaturedSourceId.TvApp -> "App's Own Row"
     FeaturedSourceId.JustWatch -> "JustWatch"
+    FeaturedSourceId.Addon -> "Add-on"
 }
 
 @Composable
@@ -404,8 +407,15 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     if (off) return
     SectionLabel("Default Source")
     val tvRows = dev.glasslauncher.featured.TvRows.available(LocalContext.current)
-    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && it != FeaturedSourceId.JustWatch && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
+    FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && it != FeaturedSourceId.JustWatch && it != FeaturedSourceId.Addon && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
         MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, value = if (fc.source == id) "✓" else null)
+    }
+    // Add-ons that supply a Top Shelf feed (switched on in Settings > Add-ons).
+    val feedAddons by androidx.compose.runtime.produceState(emptyList<dev.glasslauncher.addons.AddonInfo>(), cfg.addonsEnabled) {
+        value = dev.glasslauncher.addons.AddonHost.installed(graph).filter { dev.glasslauncher.addon.AddonPoint.TOPSHELF in it.points && dev.glasslauncher.addons.AddonTrust.isEnabled(cfg.addonsEnabled, it.pkg, it.cert) }
+    }
+    feedAddons.forEach { a ->
+        MenuRow("${a.title} (add-on)", { setFeatured { it.copy(source = FeaturedSourceId.Addon, addonPackage = a.pkg) } }, value = if (fc.source == FeaturedSourceId.Addon && fc.addonPackage == a.pkg) "✓" else null)
     }
     if (fc.mode == FeaturedMode.FocusedApp) {
         // Every service an app can use, whichever is the default.
@@ -467,8 +477,9 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         }
         FeaturedSourceId.ContinueWatching -> Hint("What you were watching, from the rows apps publish to the TV.")
         FeaturedSourceId.Off, FeaturedSourceId.TvApp, FeaturedSourceId.JustWatch -> Unit
+        FeaturedSourceId.Addon -> Hint("Titles from an add-on you switched on. Its art is fetched by Glass.")
     }
-    MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
+    MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true, addons = dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) } })
 }
 
 private fun channelsSummary(text: String) = YouTube.channelIds(text).size.let { if (it == 0) "Not set" else "$it" }
@@ -1330,7 +1341,7 @@ private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherCo
 
 
 @Composable
-private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
     val context = LocalContext.current
     val ask = dev.glasslauncher.home.LocalConfirm.current
     PanelTitle("Add-ons")
@@ -1356,7 +1367,57 @@ private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Mod
                 !a.compatible -> "Needs a newer or older Glass (API ${a.api})."
                 paused -> "Paused · stopped responding. Switch off and on to resume."
                 changed -> "Switched off: its signing certificate changed."
-                else -> "Control Center tile${if (a.needsRoot) " · needs root" else ""} · not from the Glass repo"
+                else -> "${a.points.joinToString(", ") { pointName(it) }}${if (a.needsRoot) " · needs root" else ""} · not from the Glass repo"
             })
+        if (on && dev.glasslauncher.addon.AddonPoint.SETTINGS in a.points) MenuRow("${a.title} Settings", { push(Page.AddonForm(a.pkg)) }, chevron = true)
     }
+}
+
+private fun pointName(p: String) = when (p) {
+    dev.glasslauncher.addon.AddonPoint.TOPSHELF -> "Top Shelf"
+    dev.glasslauncher.addon.AddonPoint.HOME_ROW -> "Home row"
+    dev.glasslauncher.addon.AddonPoint.SETTINGS -> "Settings page"
+    else -> "Control Center tile"
+}
+
+/** An add-on's settings page: Glass asks the add-on for the form, draws it in its own style and stores the values (the add-on gets them back with every call). */
+@Composable
+private fun ColumnScope.AddonFormPage(model: HomeModel, cfg: LauncherConfig, pkg: String, f: Modifier, open: (Overlay) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snap = dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)
+    // The form is read once when the page opens (not on every value change); a failure shows as such.
+    val form by androidx.compose.runtime.produceState<Pair<dev.glasslauncher.addons.SafeForm?, Boolean>>(null to false, pkg) {
+        value = dev.glasslauncher.addons.AddonSurfaces.form(context, snap, pkg) to true
+    }
+    PanelTitle(form.first?.title ?: "Add-on")
+    val shown = form.first
+    // Values for fields the add-on no longer declares are dropped.
+    androidx.compose.runtime.LaunchedEffect(shown) {
+        if (shown != null) dev.glasslauncher.addons.AddonPurge.undeclared(cfg.addonSettings, pkg, shown.fields.map { it.id }.toSet()).takeIf { it.isNotEmpty() }
+            ?.let { stale -> model.edit { c -> c.copy(addonSettings = c.addonSettings - stale) } }
+    }
+    if (shown == null) { Hint(if (form.second) "Couldn't reach the add-on." else "Loading…"); Box(Modifier.size(1.dp)); return }
+    Hint("From an add-on. Glass keeps these values and sends them to the add-on.")
+    fun valueOf(fl: dev.glasslauncher.addon.FormField) = cfg.addonSettings["$pkg/${fl.id}"] ?: fl.default ?: if (fl.type == "toggle") "false" else ""
+    fun set(id: String, v: String) = model.edit { c -> c.copy(addonSettings = c.addonSettings + ("$pkg/$id" to dev.glasslauncher.addons.AddonContent.value(v))) }
+    shown.fields.forEachIndexed { i, fl ->
+        val mod = if (i == 0) f else Modifier
+        val v = valueOf(fl)
+        when (fl.type) {
+            "toggle" -> ToggleRow(fl.label, v == "true", { on -> set(fl.id, on.toString()) }, mod, help = fl.help)
+            "choice" -> MenuRow(fl.label, {
+                val next = fl.choices[(fl.choices.indexOfFirst { it.value == v } + 1) % fl.choices.size]
+                set(fl.id, next.value)
+            }, mod, value = fl.choices.firstOrNull { it.value == v }?.label ?: fl.choices.first().label, help = fl.help)
+            "text" -> MenuRow(fl.label, { open(Overlay.TextInput(fl.label, v, fl.help ?: "") { t -> set(fl.id, t) }) }, mod, value = v.ifEmpty { "Not set" }, help = fl.help)
+            else -> MenuRow(fl.label, {
+                scope.launch {
+                    val msg = dev.glasslauncher.addons.AddonSurfaces.action(context, snap, pkg, fl.id)
+                    dev.glasslauncher.system.RemoteNotice.show(context, msg?.ifEmpty { "Done" } ?: "The add-on didn't answer", 3_000)
+                }
+            }, mod, help = fl.help)
+        }
+    }
+    Box(Modifier.size(1.dp))
 }

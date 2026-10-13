@@ -1,6 +1,7 @@
 package dev.glasslauncher.addons
 
 import android.content.ComponentName
+import android.content.ContentProviderClient
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -20,28 +21,35 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Pure core of a call: at most one call in flight per add-on [key], a bounded wait, and every failure (connect error,
- * dead object, exception, timeout) is a null. The transaction runs on [scope], outside the caller, because a call
- * stuck inside the add-on cannot be interrupted; it keeps the add-on "in flight" until it really returns.
+ * dead object, exception, timeout) is a null. Connecting AND the transaction run on [scope], outside the caller, because
+ * neither can be interrupted (acquiring a provider is a blocking call too); the wait is what [timeoutMs] bounds. The
+ * add-on stays "in flight" until it really returns, and [release] always runs (a provider client is always closed).
  */
 internal class AddonCall(private val timeoutMs: Long, private val scope: CoroutineScope) {
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
-    suspend fun <B> run(key: String, connect: suspend () -> B, transact: (B) -> String?): String? {
+    suspend fun <B> run(key: String, connect: suspend () -> B, transact: (B) -> String?, release: (B) -> Unit = {}): String? {
         if (!inFlight.add(key)) return null
-        var handedOff = false
-        try {
-            return withTimeoutOrNull(timeoutMs) {
-                val binder = connect()
-                val job = scope.async { try { transact(binder) } catch (_: Exception) { null } finally { inFlight.remove(key) } }
-                handedOff = true
-                job.await()
+        val job = try {
+            scope.async {
+                var b: B? = null
+                var connected = false
+                try {
+                    b = connect(); connected = true
+                    transact(b)
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { null } finally {
+                    @Suppress("UNCHECKED_CAST") if (connected) try { release(b as B) } catch (_: Exception) {}
+                    inFlight.remove(key)
+                }
             }
+        } catch (e: Exception) { inFlight.remove(key); return null }
+        return try {
+            withTimeoutOrNull(timeoutMs) { job.await() }
         } catch (e: CancellationException) {
-            throw e // our caller was cancelled: not an add-on failure, never swallowed
+            job.cancel() // the caller gave up (not a timeout): stop connecting too; never swallowed, not an add-on failure
+            throw e
         } catch (_: Exception) {
-            return null
-        } finally {
-            if (!handedOff) inFlight.remove(key)
+            null
         }
     }
 }
@@ -69,7 +77,19 @@ internal object AddonClient {
             }, transact = { transact(it, code, request) })
         } finally {
             try { context.unbindService(conn) } catch (_: IllegalArgumentException) {}
+            connected.cancel() // a connect still waiting must not keep the add-on "in flight"
         }
+    }
+
+    /** One ContentProvider.call to the add-on's provider (Top Shelf, Home row, Settings). Same budget as a bind: 2 s, one call in flight per add-on. */
+    suspend fun provider(context: Context, info: AddonInfo, method: String, request: String): String? = withContext(Dispatchers.IO) {
+        val authority = info.authority ?: return@withContext null
+        core.run(info.pkg, connect = {
+            // The authority must still belong to the add-on's own package, checked right before the acquire.
+            check(context.packageManager.resolveContentProvider(authority, 0)?.packageName == info.pkg) { "provider is not the add-on's" }
+            // Unstable: if the add-on's process dies mid-call, Glass is not taken down with it.
+            context.contentResolver.acquireUnstableContentProviderClient(authority) ?: error("no provider")
+        }, transact = { c -> c.call(method, request, null)?.getString(AddonApi.KEY_JSON) }, release = { it.close() })
     }
 
     private fun transact(binder: IBinder, code: Int, request: String): String? {

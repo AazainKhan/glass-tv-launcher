@@ -97,7 +97,11 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         ImageLoader.Builder(context)
             // Images get tighter timeouts than the API calls: a stalled fetch must fail (and be retried) in seconds,
             // not hold a card empty for the 30 s a feed or tarball may need.
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { imageHttp })) }
+            .components {
+                // An add-on's art goes through its own strict client first (dev.glasslauncher.addons.AddonArt).
+                add(dev.glasslauncher.addons.AddonArtInterceptor(context))
+                add(OkHttpNetworkFetcherFactory(callFactory = { imageHttp }))
+            }
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.06).build() }
             .crossfade(true)
             .build()

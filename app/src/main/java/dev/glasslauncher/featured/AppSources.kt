@@ -27,6 +27,7 @@ object AppSources {
         FeaturedSourceId.YouTube -> cfg.youtubeKey.isNotBlank() || YouTube.channelIds(cfg.youtubeChannels).isNotEmpty()
         FeaturedSourceId.Plex -> cfg.plexToken.isNotBlank()
         FeaturedSourceId.ContinueWatching, FeaturedSourceId.TvApp, FeaturedSourceId.JustWatch -> true
+        FeaturedSourceId.Addon -> cfg.addonPackage.isNotBlank()
     }
 
     /** True when [pkg] has a source of its own that's set up. */

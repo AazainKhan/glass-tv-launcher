@@ -2,6 +2,7 @@ package dev.glasslauncher.addons
 
 import dev.glasslauncher.addon.AddonApi
 import dev.glasslauncher.addon.AddonCodec
+import dev.glasslauncher.addon.AddonPoint
 import dev.glasslauncher.addon.TileState
 
 /** A service the system says handles [AddonApi.ACTION], reduced to what discovery needs (so it tests without a PackageManager). */
@@ -13,7 +14,11 @@ data class AddonCandidate(
     val meta: Map<String, String?>,
     /** SHA-256 of the signing certificate(s), hex. */
     val cert: String,
+    /** The provider named by [AddonApi.META_PROVIDER], as the system reports it (null if there is none). */
+    val provider: ProviderCandidate? = null,
 )
+
+data class ProviderCandidate(val pkg: String, val exported: Boolean, val readPermission: String?, val writePermission: String?)
 
 data class AddonInfo(
     val pkg: String,
@@ -24,6 +29,10 @@ data class AddonInfo(
     val needsRoot: Boolean,
     val cert: String,
     val compatible: Boolean,
+    /** The add-on's provider authority, set only when the provider is its own, exported and guarded by BIND_ADDON. */
+    val authority: String? = null,
+    /** The points it supplies; the provider points are dropped when [authority] is missing. */
+    val points: Set<String> = setOf(AddonPoint.TILES),
 )
 
 object AddonDiscovery {
@@ -35,11 +44,19 @@ object AddonDiscovery {
         if (!c.exported || c.permission != AddonApi.PERMISSION) return@mapNotNull null
         val api = c.meta[AddonApi.META_API]?.toIntOrNull() ?: return@mapNotNull null
         val min = c.meta[AddonApi.META_MIN_GLASS_API]?.toIntOrNull() ?: 1
+        val authority = c.meta[AddonApi.META_PROVIDER]?.takeIf { providerOk(c) }
+        val declared = c.meta[AddonApi.META_POINTS]?.split(',')?.map { it.trim() }?.filter { it in AddonPoint.ALL }?.toSet()?.takeIf { it.isNotEmpty() } ?: setOf(AddonPoint.TILES)
         AddonInfo(
             c.pkg, c.service, AddonText.clean(c.meta[AddonApi.META_TITLE], 32).ifEmpty { c.pkg }, api, min,
             c.meta[AddonApi.META_NEEDS_ROOT].toBoolean(), c.cert, AddonApi.compatible(api, min, glassLevel),
+            authority, if (authority == null) declared.filter { it == AddonPoint.TILES }.toSet() else declared,
         )
     }.distinctBy { it.pkg }
+
+    /** The provider must belong to the add-on's own package, be exported, and require BIND_ADDON to read and write. */
+    fun providerOk(c: AddonCandidate): Boolean = c.provider?.let {
+        it.pkg == c.pkg && it.exported && it.readPermission == AddonApi.PERMISSION && it.writePermission == AddonApi.PERMISSION
+    } == true
 }
 
 /** Sideloaded add-ons start off; the user enables one per package and signing certificate (config: package -> cert). */

@@ -2,6 +2,9 @@ package dev.glasslauncher.featured
 
 import android.content.Context
 import android.os.SystemClock
+import dev.glasslauncher.addons.AddonRefresh
+import dev.glasslauncher.addons.AddonSnapshot
+import dev.glasslauncher.addons.AddonSurfaces
 import dev.glasslauncher.data.FeaturedConfig
 import dev.glasslauncher.data.FeaturedSourceId
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +48,32 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<FeaturedFeed, Long>>) = size > 8
     }
 
-    suspend fun refresh(cfg: FeaturedConfig, force: Boolean = false) = mutex.withLock {
+    /** An add-on's feed is never cached on disk or in memory (it would outlive the add-on being switched off): it is asked for again after its own interval. */
+    private var addonVersion: Any? = null
+    private var addonUntil = 0L
+
+    private suspend fun refreshAddon(cfg: FeaturedConfig, force: Boolean, addons: AddonSnapshot) {
+        val key = cacheKey(cfg)
+        // A setting the user changed, or the add-on switched on, is asked again at once; otherwise the add-on's interval (15 min or more) holds. Refresh Now (force) is the user's too.
+        val version = AddonSurfaces.version(addons, cfg.addonPackage)
+        val now = SystemClock.elapsedRealtime()
+        if (!force && loadedKey == key && version == addonVersion && now < addonUntil) return
+        _state.value = _state.value.copy(settledKey = null)
+        val result = AddonSurfaces.feed(app, addons, cfg.addonPackage)
+        loadedKey = key
+        addonVersion = version
+        if (result != null) {
+            _state.value = FeaturedState(result.first, key = key, settledKey = key)
+            addonUntil = SystemClock.elapsedRealtime() + AddonRefresh.minutes(result.second) * 60_000L
+        } else {
+            // Stale content goes: the shelf falls back to the app's hero, and the next try is a full interval away.
+            _state.value = FeaturedState(null, "The add-on's content isn't available", key = key, settledKey = key)
+            addonUntil = SystemClock.elapsedRealtime() + AddonRefresh.MIN * 60_000L
+        }
+    }
+
+    suspend fun refresh(cfg: FeaturedConfig, force: Boolean = false, addons: AddonSnapshot = AddonSnapshot.NONE) = mutex.withLock {
+        if (cfg.source == FeaturedSourceId.Addon) return@withLock refreshAddon(cfg, force, addons)
         val key = cacheKey(cfg)
         val now = SystemClock.elapsedRealtime()
         memory[key]?.let { (feed, at) ->

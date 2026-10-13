@@ -9,12 +9,15 @@ import dev.glasslauncher.R
 import dev.glasslauncher.addon.AddonApi
 import dev.glasslauncher.addon.AddonCodec
 import dev.glasslauncher.addon.AddonRequest
+import dev.glasslauncher.addon.ProviderRequest
 import dev.glasslauncher.home.CcCatalogEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
@@ -32,6 +35,9 @@ internal object AddonHost {
     private val policy = AddonPolicy(clock)
     private val gate = RefreshGate(clock)
     private val infos = HashMap<String, AddonInfo>()
+    /** Calls to one add-on, tiles and provider points alike, run one after another. */
+    private val locks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private fun lock(pkg: String) = locks.getOrPut(pkg) { Mutex() }
 
     fun tileId(pkg: String, tile: String) = addonTileId(pkg, tile)
     fun isMuted(pkg: String) = policy.isMuted(pkg)
@@ -80,15 +86,33 @@ internal object AddonHost {
     }
 
     /** One verified call: the package and its signing certificate must still match what the user enabled. A reply that does not parse is a failure. */
-    private suspend fun <T> invoke(context: Context, info: AddonInfo, code: Int, tile: String?, parse: (String?) -> T?): T? {
+    private suspend fun <T> invoke(context: Context, info: AddonInfo, code: Int, tile: String?, parse: (String?) -> T?): T? = lock(info.pkg).withLock {
         val now = AddonScanner.scan(context, info.pkg).firstOrNull { it.service == info.service }
-        if (now == null || !now.compatible || !AddonTrust.isEnabled(enabled, now.pkg, now.cert)) return null
+        if (now == null || !now.compatible || !AddonTrust.isEnabled(enabled, now.pkg, now.cert)) return@withLock null
         val t0 = SystemClock.elapsedRealtime()
         val out = parse(AddonClient.call(context, now, code, AddonCodec.encodeRequest(AddonRequest(tile = tile))))
         // Cold start (process launch plus bind) must stay well inside the 2 s budget.
         Log.i(TAG, "${info.pkg} call=$code ${SystemClock.elapsedRealtime() - t0} ms ok=${out != null}")
         if (policy.report(info.pkg, out != null)) shown.failPkg(info.pkg, true)
-        return out
+        out
+    }
+
+    /**
+     * One provider call for a Top Shelf, Home row or Settings point: the add-on must be installed, compatible, switched on
+     * with its current certificate, and declare [point]; then the shared budget applies (rate limit, mute, 2 s, one call at a
+     * time). A reply that does not parse is a failure. Null = no content (and, if it was a failure, counted).
+     */
+    suspend fun <T> provider(context: Context, snap: AddonSnapshot, pkg: String, point: String, method: String, request: ProviderRequest, parse: (String?) -> T?): T? = withContext(Dispatchers.IO) {
+        val info = AddonScanner.scan(context, pkg).firstOrNull() ?: return@withContext null
+        if (!info.compatible || !AddonTrust.isEnabled(snap.enabled, info.pkg, info.cert) || point !in info.points || info.authority == null) return@withContext null
+        if (!policy.tryAcquire(pkg, method)) return@withContext null
+        lock(pkg).withLock {
+            val t0 = SystemClock.elapsedRealtime()
+            val out = parse(AddonClient.provider(context, info, method, AddonCodec.encodeProviderRequest(request)))
+            Log.i(TAG, "$pkg $method ${SystemClock.elapsedRealtime() - t0} ms ok=${out != null}")
+            if (policy.report(pkg, out != null)) shown.failPkg(pkg, true)
+            out
+        }
     }
 
     /** Glass's own template glyphs an add-on can name; anything else gets the puzzle piece. */

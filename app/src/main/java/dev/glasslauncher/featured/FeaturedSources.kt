@@ -81,6 +81,7 @@ object Sources {
         FeaturedSourceId.Plex -> Plex
         FeaturedSourceId.JustWatch -> JustWatch
         FeaturedSourceId.ContinueWatching, FeaturedSourceId.TvApp -> null // TvRows, which needs a Context
+        FeaturedSourceId.Addon -> null // the add-on's provider, through the repository
     }
 
     val stremioCatalogs = listOf(

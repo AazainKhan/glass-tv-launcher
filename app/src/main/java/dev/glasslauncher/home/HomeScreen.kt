@@ -232,7 +232,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val featuredCfg = remember(cfg.featured, shelfApp, appsWithRows, cfg.topShelfTitles) {
         if (!cfg.topShelfTitles) null else dev.glasslauncher.featured.AppSources.effective(cfg.featured, shelfApp, appsWithRows)
     }
-    LaunchedEffect(featuredCfg) { featuredCfg?.let { graph.featured.refresh(it) } }
+    LaunchedEffect(featuredCfg, cfg.addonsEnabled, cfg.addonSettings) {
+        featuredCfg?.let { graph.featured.refresh(it, addons = dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) }
+    }
+    // Add-ons' Home rows: read when Home opens and when an add-on or its settings change (then at most every declared interval, 15 min or more).
+    LaunchedEffect(cfg.addonsEnabled, cfg.addonSettings) { dev.glasslauncher.addons.AddonSurfaces.refreshRows(context, dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) { stale -> model.edit { c -> c.copy(addonSettings = c.addonSettings - stale) } } }
     val featuredState by graph.featured.state.collectAsStateWithLifecycle()
     // The previous app's feed stands while this app's load is under way (the cached path: its feed lands in a frame or
     // two and the art crossfades straight in), but not once that load has settled without a feed of its own (offline):
@@ -1507,6 +1511,10 @@ private fun HomeList(
                 }
                 repeat(m.columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
+        }
+        // Add-ons' rows come after the apps, so nothing above them moves; they count as grid rows for focus.
+        dev.glasslauncher.addons.AddonSurfaces.homeRows.values.sortedBy { it.pkg }.forEachIndexed { k, shown ->
+            item(key = "addon-row-${shown.pkg}") { AddonRow(shown) { onRowFocused(rows.size + 2 + k) } }
         }
     }
     }

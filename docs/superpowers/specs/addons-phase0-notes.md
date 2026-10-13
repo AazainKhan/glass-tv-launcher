@@ -29,3 +29,17 @@
 - No catalog, repo, install flow, Root badge UI, revocation, signed-key pinning beyond the per-user cert match; no other extension points; PhairPlay not migrated; no SDK artifact or template.
 - Settings > Add-ons is minimal (switch per add-on); the D2 add-on page is later.
 - Add-on-driven refresh while Control Center is open (tiles are read on open and after a tap).
+
+## Phase 1: provider points (Top Shelf, Home row, Settings page)
+- Declared on the add-on's service: metadata `dev.glasslauncher.addon.provider` (authority) and `...points` (`tiles,topshelf,homerow,settings`). The provider must be the add-on's own, exported, with `android:permission=BIND_ADDON`; otherwise Glass drops the provider points.
+- Wire: `ContentResolver.call` (unstable client, 2 s, one call in flight per add-on, same mute rules as tiles). Methods `getFeed`, `getHomeRow`, `getSettingsForm`, `onSettingsAction`; the argument is a `ProviderRequest` carrying the user's current settings, which is how an add-on reads them back. Replies may carry `error`.
+- Base class `GlassAddonProvider` (permission re-check, exceptions become error replies); pure `AddonProviderServer`.
+- Glass cleans everything (printable text, caps, 30 items, 12 fields), keeps only https art and https/market links, fetches art itself at the shown size (the 1280 px long side is a guideline for authors; decode size is Glass's), and builds every Intent itself: a validated link, an activity of the add-on's own package, or its launcher entry. Never Glass, never another package, no URI grants.
+- Top Shelf: Settings > Top Shelf Content > "<add-on> (add-on)" (`FeaturedSourceId.Addon`); never cached to disk or memory, so switching the add-on off clears it; heading ends "· via <add-on>". Home row: after the app grid, same mark and "via". Both are asked for again after the add-on's `refreshMinutes` (15 min minimum, 30 default) or when its settings or approval change.
+- Settings page: Settings > Add-ons > "<add-on> Settings": toggle, choice, text (TV keyboard), action; Glass stores values in `addonSettings` (`pkg/field`).
+- Not done: remote-button action, SDK publishing, template, 10-minute guide; refresh on every Home focus; dynamic forms (the form is read when the page opens); Top Shelf cover-flow square art rules; PhairPlay migration.
+
+### Phase 1 hardening
+- Art: add-on image URLs go through `AddonArt`, a dedicated OkHttp client wired in as a Coil interceptor (the general client is never a fallback for them): https on every hop, no https-to-http redirects, max 3 hops, public names only (no localhost, local-network suffixes or IP literals; DNS answers that are private, loopback, link-local, CGNAT or unique-local are refused on every lookup), 2 MB cap enforced while reading, static JPEG/PNG/WebP only (GIF, APNG and animated WebP refused), at most 1280 px on the long side, both read from the header before decoding. Market links: only `market://details?id=<package>`.
+- The 15-minute floor holds for everything an add-on or its re-signing could cause. Exceptions, all explicit user actions: changing one of that add-on's settings, switching it on, and Settings > Top Shelf > Refresh Now. A failed Home-row read keeps the last row up to 30 min and retries after 90 s; at most 3 add-on rows.
+- Stored settings are purged when the add-on is uninstalled and for fields it stops declaring. The provider is re-checked to be the add-on's own right before it is acquired; acquiring is inside the 2 s budget and the client is always closed.

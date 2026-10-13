@@ -21,6 +21,15 @@
             <meta-data android:name="dev.glasslauncher.addon.title" android:value="Sample Add-on" />
             <meta-data android:name="dev.glasslauncher.addon.icon" android:resource="@drawable/ic_addon" />
             <meta-data android:name="dev.glasslauncher.addon.needs_root" android:value="false" />
+            <meta-data android:name="dev.glasslauncher.addon.provider" android:value="dev.glasslauncher.addon.sample.provider" />
+            <meta-data android:name="dev.glasslauncher.addon.points" android:value="tiles,topshelf,homerow,settings" />
         </service>
+
+        <!-- Top Shelf, Home row and Settings page. Guarded like the service: only Glass holds BIND_ADDON. -->
+        <provider
+            android:name=".SampleAddonProvider"
+            android:authorities="dev.glasslauncher.addon.sample.provider"
+            android:exported="true"
+            android:permission="dev.glasslauncher.permission.BIND_ADDON" />
     </application>
 </manifest>

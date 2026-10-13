@@ -46,6 +46,8 @@ data class LauncherConfig(
     val ccDemoTiles: Boolean = false,
     /** Add-ons the user has switched on: package -> SHA-256 of its signing certificate. A changed certificate leaves it off again. */
     val addonsEnabled: Map<String, String> = emptyMap(),
+    /** Add-on settings the user set on an add-on's page: `package/field` -> value. Glass stores them and sends them with every call. */
+    val addonSettings: Map<String, String> = emptyMap(),
     /** Back or Home while an app Glass just started is still loading returns Home at once (P87). */
     val instantBack: Boolean = true,
     /** Which one-time "hide by default" additions have been applied to this install. */
@@ -112,7 +114,7 @@ data class Folder(val id: String, val name: String, val apps: List<String>)
 
 @Serializable
 /** ContinueWatching and TvApp read other apps' TV rows (system-app Glass only); TvApp is internal to Focused App. */
-enum class FeaturedSourceId { Off, Stremio, Tmdb, YouTube, Plex, ContinueWatching, TvApp, JustWatch }
+enum class FeaturedSourceId { Off, Stremio, Tmdb, YouTube, Plex, ContinueWatching, TvApp, JustWatch, Addon }
 
 /** Featured Row: follow the focused top-row app (tvOS), always one source, or off. */
 enum class FeaturedMode { FocusedApp, OneSource, Off }
@@ -124,6 +126,8 @@ data class FeaturedConfig(
     val mode: FeaturedMode = FeaturedMode.OneSource,
     /** For [FeaturedSourceId.TvApp]: whose rows. */
     val appPackage: String = "",
+    /** For [FeaturedSourceId.Addon]: the add-on whose feed it is. */
+    val addonPackage: String = "",
     /** For [FeaturedSourceId.JustWatch]: the service's JustWatch short name (nfx, amp, dnp…). */
     val justWatchPackage: String = "",
     val stremioCatalog: String = "movie/top",
