@@ -150,6 +150,7 @@ Work cheapest-first. Most UI work never needs the device.
 - **Debug-build hooks:** `app/src/debug/.../DebugEventActivity.kt` handles `glassdev://event?name=…&payload=…`. Events: `config` (merge JSON into `LauncherConfig`) and `home`. Use `scripts/tv trigger-app-event <name> '<json>'`. Release builds don't contain it.
 
 - **Emulator for parallel work:** `scripts/emulator start` boots an Android TV (API 31) emulator on its own adb server, invisible to everything using the stick; `eval "$(scripts/emulator env)"` points `scripts/key`, `shot`, `tv` etc. at it, and `scripts/emulator install debug` puts the current build on it. Use it for functional and focus checks while someone else has the stick. It doesn't match the stick's GPU, Fire OS or speed, so judge looks and performance on the stick only.
+- **Fire twin:** `scripts/emulator start --twin` boots GlassFire_API30 (API 30, 1080p @320dpi, like the stick; ports 5610/5611, `env --twin`), `scripts/emulator mirror` copies the stick's user apps and Glass prefs onto it (read-only on the stick: `GLASS_STICK=1` + lock), `scripts/emulator deploy-stick [--stick]` builds and installs (twin by default). What it can and cannot prove: `docs/emulator-twin.md`; test the stick-facing paths with `scripts/emulator-test-shim`.
 
 **agent-device** (`scripts/tv`, also registered as an MCP server in `.mcp.json`; defaults live in `agent-device.json`):
 
