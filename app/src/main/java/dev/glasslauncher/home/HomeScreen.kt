@@ -314,8 +314,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Now Playing takes over the top shelf while music plays: the artwork becomes the backdrop (baked
     // like any slide) and the track replaces the shelf title. A pause or gap shorter than 3 s doesn't
     // flip Home back and forth.
-    val nowPlaying by graph.nowPlaying.state.collectAsStateWithLifecycle()
-    var takeover by remember { mutableStateOf<dev.glasslauncher.widgets.NowPlaying?>(null) }
+    val nowPlaying by (dev.glasslauncher.widgets.NowPlayingFixture.state ?: graph.nowPlaying.state).collectAsStateWithLifecycle()
+    // Playing now is decided in this very composition (not a LaunchedEffect hop later), so Home opening with music up
+    // draws Now Playing on its first frame, not the Cover Flow for a frame and then a swap (P142). `held` only carries
+    // the pause/gap linger.
+    var held by remember { mutableStateOf(nowPlaying?.takeIf { cfg.showNowPlaying && it.playing }) }
+    val takeover = nowPlaying?.takeIf { cfg.showNowPlaying && it.playing } ?: held
     LaunchedEffect(heroApp, cfg.featured.mode, cfg.topShelfTitles, takeover != null) {
         if (cfg.featured.mode != dev.glasslauncher.data.FeaturedMode.FocusedApp || !cfg.topShelfTitles) return@LaunchedEffect
         // While Now Playing has the shelf, moving along the tray doesn't fetch each app's titles (perf: 19%
@@ -325,16 +329,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     LaunchedEffect(nowPlaying, cfg.showNowPlaying) {
         val np = nowPlaying
-        val current = takeover
+        val current = held
         when {
-            cfg.showNowPlaying && np != null && np.playing -> takeover = np
+            cfg.showNowPlaying && np != null && np.playing -> held = np
             // Paused from the hero (or anywhere): the same track keeps Home for a while, controls and all.
             cfg.showNowPlaying && np != null && current != null && np.key == current.key -> {
-                takeover = np
+                held = np
                 delay(NOW_PLAYING_PAUSED_MS)
-                takeover = null
+                held = null
             }
-            current != null -> { delay(NOW_PLAYING_LINGER_MS); takeover = null }
+            current != null -> { delay(NOW_PLAYING_LINGER_MS); held = null }
         }
     }
     // The app's own hero shows until its titles are due: after a dwell, with titles on, and some to show.

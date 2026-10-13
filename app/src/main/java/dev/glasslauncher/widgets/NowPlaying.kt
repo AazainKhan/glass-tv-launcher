@@ -205,7 +205,8 @@ class NowPlayingRepository(context: Context, scope: CoroutineScope) {
         air.track?.let { airPlayNowPlaying(it, air.sender, SystemClock.elapsedRealtime()) { _ -> hub.playPause() } } ?: media
     }.distinctUntilChanged { a, b ->
         a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs
-    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+    // Stays warm for ten minutes behind an app, so a Home press already knows what is playing on its first frame (P142).
+    }.stateIn(scope, SharingStarted.WhileSubscribed(10 * 60_000), null)
 }
 
 /** Test seam: screenshot tests put a fixed now-playing state here; null (always, in the app) uses the real repository. */
