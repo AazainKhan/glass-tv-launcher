@@ -32,6 +32,9 @@ object AddonApi {
     const val GET_TILES = 1
     const val GET_TILE_STATE = 2
     const val ON_TAP = 3
+    /** Remote-button actions: the named actions the add-on offers, and running one. */
+    const val GET_ACTIONS = 5
+    const val ON_ACTION = 6
     // 4 was onLongPress: dropped (hold-Select is Control Center edit mode); never reuse the code.
 
     /** Can Glass at [glassLevel] talk to an add-on built for [api] that needs at least [minGlassApi]? */
@@ -45,7 +48,9 @@ object AddonPoint {
     const val TOPSHELF = "topshelf"
     const val HOME_ROW = "homerow"
     const val SETTINGS = "settings"
-    val ALL = setOf(TILES, TOPSHELF, HOME_ROW, SETTINGS)
+    /** Named actions Glass lists in the remote-button picker (served by the service, like tiles). */
+    const val ACTIONS = "actions"
+    val ALL = setOf(TILES, TOPSHELF, HOME_ROW, SETTINGS, ACTIONS)
 }
 
 /** One Control Center tile. Glass draws it; [icon] is a glyph key from Glass's own set (unknown = a default). */
@@ -60,7 +65,13 @@ data class TileState(
     val enabled: Boolean = true,
 )
 
-@Serializable data class AddonRequest(val api: Int = AddonApi.LEVEL, val tile: String? = null)
+/** A remote-button action the add-on offers: [id] is stable (it is stored in the user's button mapping), [label] is what the picker shows. */
+@Serializable data class ActionInfo(val id: String, val label: String)
+@Serializable data class ActionsReply(val api: Int = AddonApi.LEVEL, val actions: List<ActionInfo> = emptyList(), val error: String? = null)
+/** Reply to onAction: an optional short [notice] Glass shows briefly. */
+@Serializable data class ActionResult(val notice: String? = null, val error: String? = null)
+
+@Serializable data class AddonRequest(val api: Int = AddonApi.LEVEL, val tile: String? = null, val action: String? = null)
 @Serializable data class TilesReply(val api: Int = AddonApi.LEVEL, val tiles: List<TileState> = emptyList(), val error: String? = null)
 /** Reply to getTileState and onTap: the tile's new state (null = unknown tile). [error] set = the add-on failed. */
 @Serializable data class StateReply(val tile: TileState? = null, val error: String? = null)
@@ -76,6 +87,11 @@ object AddonCodec {
     fun decodeRequest(s: String?): AddonRequest? = decode(s, AddonRequest.serializer())
     fun decodeTiles(s: String?): TilesReply? = decode(s, TilesReply.serializer())
     fun decodeState(s: String?): StateReply? = decode(s, StateReply.serializer())
+
+    fun encodeActions(r: ActionsReply) = json.encodeToString(ActionsReply.serializer(), r)
+    fun decodeActions(s: String?): ActionsReply? = decode(s, ActionsReply.serializer())
+    fun encodeActionResult(r: ActionResult) = json.encodeToString(ActionResult.serializer(), r)
+    fun decodeActionResult(s: String?): ActionResult? = decode(s, ActionResult.serializer())
 
     fun encodeProviderRequest(r: ProviderRequest) = json.encodeToString(ProviderRequest.serializer(), r)
     fun decodeProviderRequest(s: String?): ProviderRequest? = decode(s, ProviderRequest.serializer())

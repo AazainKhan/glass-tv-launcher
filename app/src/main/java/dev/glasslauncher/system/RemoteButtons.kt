@@ -12,9 +12,14 @@ sealed interface RemoteAction {
     data object AppSwitcher : RemoteAction { override val key = "glass:switcher" }
     data object TvSettings : RemoteAction { override val key = "glass:tv_settings" }
     data class OpenApp(val pkg: String) : RemoteAction { override val key = "app:$pkg" }
+    /** An action an add-on offers; the user's selecting it is the consent. See [dev.glasslauncher.addons.AddonActionRef]. */
+    data class AddonAction(val pkg: String, val service: String, val id: String) : RemoteAction {
+        override val key = dev.glasslauncher.addons.AddonActionRef(pkg, service, id).key
+    }
 
     companion object {
         fun parse(key: String): RemoteAction = when {
+            key.startsWith("addon:") -> dev.glasslauncher.addons.AddonActionId.decode(key)?.let { AddonAction(it.pkg, it.service, it.id) } ?: Default
             key.startsWith("app:") -> OpenApp(key.removePrefix("app:"))
             key == Nothing.key -> Nothing
             key == Home.key -> Home

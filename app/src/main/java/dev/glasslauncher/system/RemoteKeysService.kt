@@ -184,7 +184,17 @@ class RemoteKeysService : AccessibilityService() {
             RemoteAction.AppSwitcher -> home(MainActivity.ACTION_APP_SWITCHER)
             RemoteAction.TvSettings -> home(MainActivity.ACTION_TV_SETTINGS)
             RemoteAction.Home -> performGlobalAction(GLOBAL_ACTION_HOME)
+            is RemoteAction.AddonAction -> runAddonAction(action)
             RemoteAction.Nothing, RemoteAction.Default -> Unit
+        }
+    }
+
+    /** Binds the add-on off the main thread, with the add-on call budget; a notice it returns is shown, an absent add-on does nothing. */
+    private fun runAddonAction(a: RemoteAction.AddonAction) {
+        val snap = app.config.config.value.let { dev.glasslauncher.addons.AddonSnapshot(it.addonsEnabled, it.addonSettings) }
+        app.scope.launch {
+            val notice = dev.glasslauncher.addons.AddonHost.runAction(applicationContext, snap, dev.glasslauncher.addons.AddonActionRef(a.pkg, a.service, a.id))
+            if (!notice.isNullOrEmpty()) RemoteNotice.show(applicationContext, notice, 3_000)
         }
     }
 

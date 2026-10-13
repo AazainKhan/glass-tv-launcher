@@ -1,6 +1,7 @@
 package dev.glasslauncher.addons
 
 import dev.glasslauncher.addon.AddonApi
+import dev.glasslauncher.addon.ActionInfo
 import dev.glasslauncher.addon.AddonCodec
 import dev.glasslauncher.addon.AddonPoint
 import dev.glasslauncher.addon.TileState
@@ -142,6 +143,16 @@ object AddonLimits {
 /** A reply is good only if it decodes, carries no error and (for tiles) survives the limits; anything else counts as a failure. */
 object AddonReplies {
     fun tiles(json: String?): List<TileState>? = AddonCodec.decodeTiles(json)?.takeIf { it.error == null }?.let { AddonLimits.sanitize(it.tiles) }
+    /** The add-on's actions, bounded and cleaned; null for junk or an error reply. */
+    fun actions(json: String?): List<ActionInfo>? {
+        val r = AddonCodec.decodeActions(json)?.takeIf { it.error == null } ?: return null
+        val id = Regex("[A-Za-z0-9_.-]{1,40}")
+        return r.actions.filter { id.matches(it.id) }.distinctBy { it.id }.take(12).map { it.copy(label = AddonText.clean(it.label, 30).ifEmpty { it.id }) }
+    }
+
+    /** The notice after an action ran: "" if none, the cleaned text otherwise; null for junk or an error reply. */
+    fun actionNotice(json: String?): String? = AddonCodec.decodeActionResult(json)?.takeIf { it.error == null }?.let { AddonText.clean(it.notice, 60) }
+
     fun state(json: String?, id: String): TileState? =
         AddonCodec.decodeState(json)?.takeIf { it.error == null }?.tile?.takeIf { it.id == id }?.let(AddonLimits::sanitize)
 }

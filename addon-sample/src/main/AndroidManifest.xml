@@ -22,7 +22,7 @@
             <meta-data android:name="dev.glasslauncher.addon.icon" android:resource="@drawable/ic_addon" />
             <meta-data android:name="dev.glasslauncher.addon.needs_root" android:value="false" />
             <meta-data android:name="dev.glasslauncher.addon.provider" android:value="dev.glasslauncher.addon.sample.provider" />
-            <meta-data android:name="dev.glasslauncher.addon.points" android:value="tiles,topshelf,homerow,settings" />
+            <meta-data android:name="dev.glasslauncher.addon.points" android:value="tiles,topshelf,homerow,settings,actions" />
         </service>
 
         <!-- Top Shelf, Home row and Settings page. Guarded like the service: only Glass holds BIND_ADDON. -->

@@ -1063,6 +1063,8 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     val active = remember { RemoteButtons.takeoverActive() }
     val apps = remember { context.packageManager }
     val palette = LocalPalette.current
+    // The names of mapped add-on actions come from the add-on; read once when the page opens.
+    androidx.compose.runtime.LaunchedEffect(Unit) { dev.glasslauncher.addons.AddonHost.loadActions(context, dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) }
     PanelTitle("Remote Buttons")
     // The four app buttons, laid out as they sit on the remote.
     val (grid, others) = RemoteButtons.all.partition { it.id.startsWith("app") }
@@ -1117,6 +1119,16 @@ private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, 
         val label = if (a == button.default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
         MenuRow(label, { set(a) }, if (i == 0) f else Modifier, value = if (a == current) "✓" else null)
     }
+    // Add-on actions (switched-on add-ons that offer some): choosing one is the consent; a stored one whose add-on is gone shows as unavailable.
+    val ctx = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) { dev.glasslauncher.addons.AddonHost.loadActions(ctx, dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) }
+    val addonEntries = dev.glasslauncher.addons.AddonActionPicker.entries(dev.glasslauncher.addons.AddonHost.actionLists, current.key)
+    if (addonEntries.isNotEmpty()) {
+        SectionLabel("Add-on actions")
+        addonEntries.forEach { e ->
+            MenuRow(e.label, { if (e.available) set(dev.glasslauncher.system.RemoteAction.parse(e.key)) }, value = if (e.key == current.key) "✓" else null)
+        }
+    }
     MenuRow("Open Another App…", { push(Page.ButtonApp(id)) }, chevron = true,
         value = (current as? RemoteAction.OpenApp)?.takeIf { it != button.default }?.let { actionName(it, apps) })
 }
@@ -1133,6 +1145,7 @@ private fun ColumnScope.ButtonAppPage(model: HomeModel, layout: HomeLayout, id: 
 }
 
 private fun actionName(action: RemoteAction, pm: android.content.pm.PackageManager): String = when (action) {
+    is RemoteAction.AddonAction -> dev.glasslauncher.addons.AddonActionPicker.name(dev.glasslauncher.addons.AddonActionRef(action.pkg, action.service, action.id), dev.glasslauncher.addons.AddonHost.actionLists)
     is RemoteAction.OpenApp -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(action.pkg, 0)).toString() }.getOrDefault(action.pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() })
     RemoteAction.TvSettings -> "TV Settings"
     RemoteAction.ControlCenter -> "Control Center"
@@ -1377,6 +1390,7 @@ private fun pointName(p: String) = when (p) {
     dev.glasslauncher.addon.AddonPoint.TOPSHELF -> "Top Shelf"
     dev.glasslauncher.addon.AddonPoint.HOME_ROW -> "Home row"
     dev.glasslauncher.addon.AddonPoint.SETTINGS -> "Settings page"
+    dev.glasslauncher.addon.AddonPoint.ACTIONS -> "Remote action"
     else -> "Control Center tile"
 }
 

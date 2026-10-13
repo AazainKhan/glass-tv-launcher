@@ -9,10 +9,14 @@ import android.os.Parcel
 
 /** The add-on's side of the contract, without Android types so it tests on the JVM. */
 interface AddonHandler {
-    fun tiles(): List<TileState>
+    fun tiles(): List<TileState> = emptyList()
     fun tile(id: String): TileState? = tiles().firstOrNull { it.id == id }
     /** Handle Select; return the tile's new state. */
     fun onTap(id: String): TileState? = tile(id)
+    /** The remote-button actions this add-on offers (declare the `actions` point). */
+    fun actions(): List<ActionInfo> = emptyList()
+    /** Run action [id]; return an optional short notice for Glass to show (null = none). */
+    fun onAction(id: String): String? = null
 }
 
 /** Decodes a call, runs the handler and encodes the reply; an exception in the add-on becomes an error reply. */
@@ -20,17 +24,25 @@ object AddonServer {
     /** Null = refused or unknown code (the caller then sees a failed transaction). */
     fun handle(code: Int, request: String?, h: AddonHandler, permitted: Boolean): String? {
         if (!permitted) return null
-        val tile = AddonCodec.decodeRequest(request)?.tile
+        val req = AddonCodec.decodeRequest(request)
+        val tile = req?.tile
         return try {
             when (code) {
                 AddonApi.GET_TILES -> AddonCodec.encodeTiles(TilesReply(tiles = h.tiles()))
                 AddonApi.GET_TILE_STATE -> AddonCodec.encodeState(StateReply(tile?.let(h::tile)))
                 AddonApi.ON_TAP -> AddonCodec.encodeState(StateReply(tile?.let(h::onTap)))
+                AddonApi.GET_ACTIONS -> AddonCodec.encodeActions(ActionsReply(actions = h.actions()))
+                AddonApi.ON_ACTION -> AddonCodec.encodeActionResult(ActionResult(notice = req?.action?.let(h::onAction)))
                 else -> null
             }
         } catch (e: Exception) {
             val msg = e.javaClass.simpleName
-            if (code == AddonApi.GET_TILES) AddonCodec.encodeTiles(TilesReply(error = msg)) else AddonCodec.encodeState(StateReply(error = msg))
+            when (code) {
+                AddonApi.GET_TILES -> AddonCodec.encodeTiles(TilesReply(error = msg))
+                AddonApi.GET_ACTIONS -> AddonCodec.encodeActions(ActionsReply(error = msg))
+                AddonApi.ON_ACTION -> AddonCodec.encodeActionResult(ActionResult(error = msg))
+                else -> AddonCodec.encodeState(StateReply(error = msg))
+            }
         }
     }
 }

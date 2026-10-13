@@ -1,5 +1,6 @@
 package dev.glasslauncher.addon.sample
 
+import dev.glasslauncher.addon.ActionInfo
 import dev.glasslauncher.addon.GlassAddonService
 import dev.glasslauncher.addon.TileState
 
@@ -16,5 +17,14 @@ class SampleAddonService : GlassAddonService() {
     override fun onTap(id: String): TileState? {
         if (id == "counter") prefs.edit().putInt("count", prefs.getInt("count", 0) + 1).apply()
         return tile(id)
+    }
+
+    override fun actions() = listOf(ActionInfo("increment", "Increment counter"))
+
+    override fun onAction(id: String): String? {
+        if (id != "increment") return null
+        val n = prefs.getInt("count", 0) + 1
+        prefs.edit().putInt("count", n).apply()
+        return "Counter: $n"
     }
 }

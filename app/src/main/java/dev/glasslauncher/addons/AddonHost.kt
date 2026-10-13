@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import dev.glasslauncher.R
 import dev.glasslauncher.addon.AddonApi
 import dev.glasslauncher.addon.AddonCodec
+import dev.glasslauncher.addon.AddonPoint
 import dev.glasslauncher.addon.AddonRequest
 import dev.glasslauncher.addon.ProviderRequest
 import dev.glasslauncher.home.CcCatalogEntry
@@ -72,7 +73,7 @@ internal object AddonHost {
 
     private suspend fun readTiles(context: Context, info: AddonInfo) {
         if (!policy.tryAcquire(info.pkg, "")) { if (policy.isMuted(info.pkg)) shown.failPkg(info.pkg, true); return }
-        val tiles = invoke(context, info, AddonApi.GET_TILES, null, AddonReplies::tiles)
+        val tiles = invoke(context, info, AddonApi.GET_TILES, AddonRequest(), enabled, AddonReplies::tiles)
         if (tiles != null) shown.setTiles(info.pkg, info.title, tiles) else shown.failPkg(info.pkg, policy.isMuted(info.pkg))
     }
 
@@ -81,20 +82,46 @@ internal object AddonHost {
         val info = synchronized(infos) { infos[t.pkg] } ?: return
         if (!policy.tryAcquire(info.pkg, t.state.id)) return
         // The reply carries the new state, so no second call lands inside the rate limit.
-        val next = invoke(context, info, AddonApi.ON_TAP, t.state.id) { AddonReplies.state(it, t.state.id) } ?: return
+        val next = invoke(context, info, AddonApi.ON_TAP, AddonRequest(tile = t.state.id), enabled) { AddonReplies.state(it, t.state.id) } ?: return
         shown[id] = t.copy(state = next)
     }
 
     /** One verified call: the package and its signing certificate must still match what the user enabled. A reply that does not parse is a failure. */
-    private suspend fun <T> invoke(context: Context, info: AddonInfo, code: Int, tile: String?, parse: (String?) -> T?): T? = lock(info.pkg).withLock {
+    private suspend fun <T> invoke(context: Context, info: AddonInfo, code: Int, request: AddonRequest, enabledNow: Map<String, String>, parse: (String?) -> T?): T? = lock(info.pkg).withLock {
         val now = AddonScanner.scan(context, info.pkg).firstOrNull { it.service == info.service }
-        if (now == null || !now.compatible || !AddonTrust.isEnabled(enabled, now.pkg, now.cert)) return@withLock null
+        if (now == null || !now.compatible || !AddonTrust.isEnabled(enabledNow, now.pkg, now.cert)) return@withLock null
         val t0 = SystemClock.elapsedRealtime()
-        val out = parse(AddonClient.call(context, now, code, AddonCodec.encodeRequest(AddonRequest(tile = tile))))
+        val out = parse(AddonClient.call(context, now, code, AddonCodec.encodeRequest(request)))
         // Cold start (process launch plus bind) must stay well inside the 2 s budget.
         Log.i(TAG, "${info.pkg} call=$code ${SystemClock.elapsedRealtime() - t0} ms ok=${out != null}")
         if (policy.report(info.pkg, out != null)) shown.failPkg(info.pkg, true)
         out
+    }
+
+    /** pkg -> the actions it offers (read when the button picker or the buttons page opens); Settings reads it as state. */
+    val actionLists = mutableStateMapOf<String, ActionListing>()
+
+    /** Reads the actions of every enabled add-on that declares them. A read that fails clears that add-on's stale list; one that is rate limited keeps it. */
+    suspend fun loadActions(context: Context, snap: AddonSnapshot) = withContext(Dispatchers.IO) {
+        val live = AddonScanner.scan(context).filter { it.compatible && AddonPoint.ACTIONS in it.points && AddonTrust.isEnabled(snap.enabled, it.pkg, it.cert) }
+        actionLists.keys.filter { p -> live.none { it.pkg == p } }.forEach { actionLists.remove(it) }
+        for (info in live) {
+            if (!policy.tryAcquire(info.pkg, "actions")) continue
+            val list = invoke(context, info, AddonApi.GET_ACTIONS, AddonRequest(), snap.enabled, AddonReplies::actions)
+            if (list != null) actionLists[info.pkg] = ActionListing(info.service, info.title, list) else actionLists.remove(info.pkg)
+        }
+    }
+
+    /**
+     * A remote button mapped to an add-on action was pressed: the add-on must be installed, the same service, compatible, switched
+     * on with its current certificate and declare `actions`; then the usual budget applies (1 call per second per action, 2 s, one call
+     * at a time, mute). Returns the add-on's notice (maybe empty), or null when nothing ran (absent, refused or failed). Glass runs nothing for it.
+     */
+    suspend fun runAction(context: Context, snap: AddonSnapshot, ref: AddonActionRef): String? = withContext(Dispatchers.IO) {
+        val info = AddonScanner.scan(context, ref.pkg).firstOrNull() ?: return@withContext null
+        if (info.service != ref.service || AddonPoint.ACTIONS !in info.points) return@withContext null
+        if (!policy.tryAcquire(ref.pkg, "action:${ref.id}")) return@withContext null
+        invoke(context, info, AddonApi.ON_ACTION, AddonRequest(action = ref.id), snap.enabled, AddonReplies::actionNotice)
     }
 
     /**
