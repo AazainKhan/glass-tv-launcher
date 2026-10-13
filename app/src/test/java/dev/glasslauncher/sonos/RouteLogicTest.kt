@@ -34,7 +34,7 @@ class RouteLogicTest {
         val play = arrayOf(RouteEvent.Start, RouteEvent.ConsentGranted, RouteEvent.CaptureReady, RouteEvent.SpeakerStarted)
         val blocked = run(*play, RouteEvent.OptedOut("Netflix"))
         assertEquals(RouteState.Blocked("Netflix"), blocked)
-        assertEquals("Netflix doesn't allow playing on other speakers", RouteLifecycle.label(blocked))
+        assertEquals("Netflix blocks sharing its sound. Use its own cast/devices menu.", RouteLifecycle.label(blocked))
         assertEquals(RouteState.Playing, RouteLifecycle.reduce(blocked, RouteEvent.AudioResumed))
         assertEquals(RouteState.Idle, run(RouteEvent.OptedOut("X")))
     }
