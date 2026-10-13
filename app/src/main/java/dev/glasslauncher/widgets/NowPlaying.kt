@@ -207,3 +207,8 @@ class NowPlayingRepository(context: Context, scope: CoroutineScope) {
         a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 }
+
+/** Test seam: screenshot tests put a fixed now-playing state here; null (always, in the app) uses the real repository. */
+object NowPlayingFixture {
+    @Volatile var state: StateFlow<NowPlaying?>? = null
+}

@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.testTag
@@ -71,27 +73,29 @@ private fun rememberPosition(item: NowPlaying): Long {
     return pos
 }
 
-private fun clock(ms: Long): String {
-    val s = (ms / 1000).coerceAtLeast(0)
-    return "%d:%02d".format(s / 60, s % 60)
-}
+private fun clock(ms: Long) = NowPlayingTime.format(ms)
 
 @Composable
 private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifier: Modifier = Modifier, inlineTimes: Boolean = false) {
     val pos = rememberPosition(item)
     val f = if (item.durationMs > 0) (pos.toFloat() / item.durationMs).coerceIn(0f, 1f) else 0f
     if (inlineTimes && item.durationMs > 0) {
-        // Control Center's card: elapsed, the bar, remaining on one line (a line shorter, so the panel
-        // fits on screen with the 13 sp type floor). Times kept out of accessibility, as below.
+        // Control Center's card: elapsed, the bar, remaining on one line under the track. Never wraps: the digits are
+        // tabular, one line each, and when the card is too narrow for both the remaining time goes (see NowPlayingTime.fit).
         val digits = Type.caption.copy(fontFeatureSettings = "tnum")
-        Row(modifier.fillMaxWidth().clearAndSetSemantics { testTag = "np-times" }, verticalAlignment = Alignment.CenterVertically) {
-            Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f))
-            Canvas(Modifier.weight(1f).padding(horizontal = 6.dp).height(5.dp)) {
-                val r = CornerRadius(size.height / 2)
-                drawRoundRect(color.copy(alpha = 0.28f), cornerRadius = r)
-                drawRoundRect(color, size = Size(size.width * f, size.height), cornerRadius = r)
+        val remaining = NowPlayingTime.remaining(item.durationMs, pos)
+        BoxWithConstraints(modifier.fillMaxWidth().clearAndSetSemantics { testTag = "np-times" }) {
+            val fontDp = digits.fontSize.value * LocalDensity.current.fontScale
+            val fit = NowPlayingTime.fit(maxWidth.value, clock(pos), remaining, fontDp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
+                Canvas(Modifier.weight(1f).padding(horizontal = 6.dp).height(5.dp)) {
+                    val r = CornerRadius(size.height / 2)
+                    drawRoundRect(color.copy(alpha = 0.28f), cornerRadius = r)
+                    drawRoundRect(color, size = Size(size.width * f, size.height), cornerRadius = r)
+                }
+                if (fit == NowPlayingTime.Fit.Both) Text(remaining, style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
             }
-            Text("-" + clock(item.durationMs - pos), style = digits, color = color.copy(alpha = 0.75f))
         }
         return
     }
@@ -106,9 +110,9 @@ private fun Progress(item: NowPlaying, color: Color, showTimes: Boolean, modifie
         if (showTimes && item.durationMs > 0) Row(Modifier.fillMaxWidth().padding(top = 6.dp).clearAndSetSemantics { testTag = "np-times" }) {
             // Tabular digits: the times keep their width as they tick, so nothing re-lays out each second.
             val digits = Type.caption.copy(fontFeatureSettings = "tnum")
-            Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f))
+            Text(clock(pos), style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
             Box(Modifier.weight(1f))
-            Text("-" + clock(item.durationMs - pos), style = digits, color = color.copy(alpha = 0.75f))
+            Text(NowPlayingTime.remaining(item.durationMs, pos), style = digits, color = color.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
         }
     }
 }
@@ -183,13 +187,12 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
             .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
             .ccSurface(shape, dev.glasslauncher.home.LocalCcSheet.current).testTag("now-playing-card").padding((12 * scale).dp),
     ) {
-        // One row (art, track and progress, then the controls), so Control Center fits on screen with it.
+        // Art, track and the controls on one row; the progress under it, the card's full width (the times never wrap).
         Row(verticalAlignment = Alignment.CenterVertically) {
             Artwork(item, (46 * scale).dp, (9 * scale).dp)
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 2.dp), inlineTimes = true)
             }
             Row(modifier = Modifier.padding(start = 6.dp)) {
                 Transport(R.drawable.ic_skip_previous, "Previous Track", scale, 34) { item.previous() }
@@ -197,6 +200,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
                 Transport(R.drawable.ic_skip_next, "Next Track", scale, 34) { item.next() }
             }
         }
+        Progress(item, palette.primary, showTimes = true, modifier = Modifier.padding(top = 4.dp), inlineTimes = true)
     }
 }
 
@@ -210,5 +214,30 @@ private fun Transport(@DrawableRes icon: Int, label: String, scale: Float, size:
         ) {
             Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (focused) palette.onFocusFill else palette.primary), modifier = Modifier.size((size * 0.58f * scale).dp))
         }
+    }
+}
+
+/** The Now Playing times: one line each, tabular digits, hours when the item is an hour or longer. */
+object NowPlayingTime {
+    fun format(ms: Long): String {
+        val s = (ms / 1000).coerceAtLeast(0)
+        val h = s / 3600
+        val m = s % 3600 / 60
+        val sec = s % 60
+        return if (h > 0) String.format(java.util.Locale.ROOT, "%d:%02d:%02d", h, m, sec) else String.format(java.util.Locale.ROOT, "%d:%02d", m, sec)
+    }
+
+    fun remaining(durationMs: Long, positionMs: Long): String = "-" + format(durationMs - positionMs)
+
+    enum class Fit { Both, ElapsedOnly }
+
+    /**
+     * Whether [elapsed] and [remaining] both fit beside a bar at least [minBarDp] wide in [widthDp]; if not, the remaining
+     * time is dropped (a line that never wraps). Digits are estimated at 0.62 em, a safe over-estimate for tabular figures.
+     */
+    fun fit(widthDp: Float, elapsed: String, remaining: String, fontDp: Float, minBarDp: Float = 36f, gapDp: Float = 12f): Fit {
+        val em = fontDp * 0.62f
+        val need = (elapsed.length + remaining.length) * em + gapDp + minBarDp
+        return if (need <= widthDp) Fit.Both else Fit.ElapsedOnly
     }
 }

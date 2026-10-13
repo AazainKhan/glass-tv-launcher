@@ -814,7 +814,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 }
                 }
             }
-            val np by context.app.nowPlaying.state.collectAsStateWithLifecycle()
+            val np by (dev.glasslauncher.widgets.NowPlayingFixture.state ?: context.app.nowPlaying.state).collectAsStateWithLifecycle()
             if (gallery != null && !restartAsk && !agentCard) Text(
                 when (gallery) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
                 style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White,
@@ -1212,11 +1212,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             }
             }
-            }
             // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
             np?.let {
                 val e = remember(motion) { CcEmerge(motion, CcRole.Control) }
                 Box(Modifier.ccEmerge(e)) { androidx.compose.runtime.CompositionLocalProvider(LocalCcEmerge provides e) { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) } }
+            }
             }
             }
         }
