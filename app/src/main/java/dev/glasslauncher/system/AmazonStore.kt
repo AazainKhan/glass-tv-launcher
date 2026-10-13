@@ -19,8 +19,17 @@ object AmazonStore {
     /** A Home intent asking for one of the stock launcher's pages (what the Appstore sends). */
     fun isStoreRequest(intent: Intent?): Boolean = intent?.getStringExtra("navigate_node") != null
 
+    /**
+     * Extras reach this from any app's intent (MainActivity is exported for HOME) and go into a root shell line, so only
+     * plain identifiers pass; anything else falls back to the default instead of being quoted into the script.
+     */
+    internal fun safeExtra(value: String?, default: String): String =
+        value?.takeIf { it.length in 1..64 && it.all { c -> c.isLetterOrDigit() || c == '_' || c == '.' || c == '-' } } ?: default
+
     suspend fun open(context: Context, node: String = "l_apps", source: String = "appstore"): Boolean {
         if (!Root.available()) return false
+        val node = safeExtra(node, "l_apps")
+        val source = safeExtra(source, "appstore")
         context.getSharedPreferences(PREFS, 0).edit().putBoolean("open", true).apply()
         val ok = Root.action(context, "Open Appstore (Amazon launcher on)", """
             pm enable $STOCK
