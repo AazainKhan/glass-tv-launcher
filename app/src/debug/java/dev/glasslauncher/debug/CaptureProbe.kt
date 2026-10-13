@@ -76,11 +76,11 @@ object CaptureProbe {
         try {
             for (fmt in ProbeLogic.LADDER) {
                 try {
-                    val p = buildPolicy(context, usages, fmt)
+                    val (p, mix) = buildPolicy(context, usages, fmt)
                     val rc = Reflect.call(am, "registerAudioPolicy", p) as Int
                     if (rc != 0) { attempts += "$fmt: registerAudioPolicy=$rc"; continue }
                     policy = p
-                    val mix = Reflect.call(Reflect.call(p, "getMixes") as List<*>, "get", 0)
+                    // The mix built above is the one registered; AudioPolicy has no public getMixes (that lives on its config).
                     record = Reflect.call(p, "createAudioRecordSink", mix) as AudioRecord
                     granted = fmt
                     attempts += "$fmt: registered"
@@ -152,7 +152,7 @@ object CaptureProbe {
                 " (${when (a.allowedCapturePolicy) { AudioAttributes.ALLOW_CAPTURE_BY_ALL -> "ALL"; AudioAttributes.ALLOW_CAPTURE_BY_SYSTEM -> "SYSTEM"; else -> "NONE" }})"
         }.ifEmpty { "none" }
 
-    private fun buildPolicy(context: Context, usages: List<Int>, fmt: ProbeFormat): Any {
+    private fun buildPolicy(context: Context, usages: List<Int>, fmt: ProbeFormat): Pair<Any, Any> {
         val rule = Reflect.new("android.media.audiopolicy.AudioMixingRule\$Builder")
         for (u in usages) {
             val attrs = AudioAttributes.Builder().setUsage(u).build()
@@ -160,38 +160,49 @@ object CaptureProbe {
         }
         val format = AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(fmt.sampleRate)
             .setChannelMask(if (fmt.channels == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO).build()
-        val mix = Reflect.new("android.media.audiopolicy.AudioMix\$Builder", Reflect.call(rule, "build"))
-        Reflect.call(mix, "setFormat", format)
-        Reflect.call(mix, "setRouteFlags", ROUTE_RENDER_AND_LOOP_BACK)
+        val mixBuilder = Reflect.new("android.media.audiopolicy.AudioMix\$Builder", Reflect.call(rule, "build"))
+        Reflect.call(mixBuilder, "setFormat", format)
+        Reflect.call(mixBuilder, "setRouteFlags", ROUTE_RENDER_AND_LOOP_BACK)
+        val mix = Reflect.call(mixBuilder, "build")!!
         val pb = Reflect.new("android.media.audiopolicy.AudioPolicy\$Builder", context)
-        Reflect.call(pb, "addMix", Reflect.call(mix, "build"))
+        Reflect.call(pb, "addMix", mix)
         Reflect.call(pb, "setLooper", Looper.getMainLooper())
-        return Reflect.call(pb, "build")!!
+        return Reflect.call(pb, "build")!! to mix
     }
 }
 
-/** Minimal reflection over hidden API: matches by name and argument count/assignability. */
+/** Minimal reflection over hidden API: matches by name and argument count/assignability; a miss says exactly what was looked for and what the class declares. */
 private object Reflect {
     fun new(cls: String, vararg args: Any?): Any {
         val c = Class.forName(cls)
-        val ctor = c.declaredConstructors.first { fits(it.parameterTypes, args) }
+        val ctor = c.declaredConstructors.firstOrNull { fits(it.parameterTypes, args) }
+            ?: throw IllegalStateException("no constructor $cls(${argTypes(args)}); declared: " +
+                c.declaredConstructors.joinToString(" | ") { sig(it.parameterTypes) }.ifEmpty { "none" })
         ctor.isAccessible = true
         return ctor.newInstance(*args)
     }
 
     fun call(target: Any?, name: String, vararg args: Any?): Any? {
-        val m = generateSequence<Class<*>>(target!!.javaClass) { it.superclass }
-            .flatMap { it.declaredMethods.asSequence() }
-            .first { it.name == name && fits(it.parameterTypes, args) }
+        val cls = target!!.javaClass
+        val chain = generateSequence<Class<*>>(cls) { it.superclass }.toList()
+        val m = chain.flatMap { it.declaredMethods.asList() }.firstOrNull { it.name == name && fits(it.parameterTypes, args) }
+            ?: throw IllegalStateException("no method ${cls.name}.$name(${argTypes(args)}); same name declared: " +
+                chain.flatMap { it.declaredMethods.asList() }.filter { it.name == name }.joinToString(" | ") { "${it.declaringClass.simpleName}.$name(${sig(it.parameterTypes)})" }.ifEmpty {
+                    "none; methods on ${cls.simpleName}: " + chain.flatMap { it.declaredMethods.asList() }.map { it.name }.distinct().take(60).joinToString(",")
+                })
         m.isAccessible = true
         return m.invoke(target, *args)
     }
+
+    private fun argTypes(args: Array<out Any?>) = args.joinToString { it?.javaClass?.name ?: "null" }
+    private fun sig(types: Array<Class<*>>) = types.joinToString { it.name }
 
     private fun fits(types: Array<Class<*>>, args: Array<out Any?>) =
         types.size == args.size && types.indices.all { i ->
             val t = types[i]; val a = args[i]
             when (t) {
                 Int::class.javaPrimitiveType -> a is Int
+                Boolean::class.javaPrimitiveType -> a is Boolean
                 else -> a == null || t.isInstance(a)
             }
         }
