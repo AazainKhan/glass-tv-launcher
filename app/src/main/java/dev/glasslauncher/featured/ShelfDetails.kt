@@ -65,7 +65,7 @@ data class ShelfDetails(
          * page summaries (keyless), looked up in parallel and remembered; a person without one keeps their initials.
          */
         suspend fun load(http: OkHttpClient, item: FeaturedItem): ShelfDetails? = withContext(Dispatchers.IO) {
-            val meta = cinemetaFor(item, http) ?: return@withContext null
+            val meta = cinemetaForInfo(item, http) ?: return@withContext null
             val base = runCatching { parse(meta) }.getOrNull()?.takeIf { !it.isEmpty } ?: return@withContext null
             val cast = kotlinx.coroutines.coroutineScope {
                 base.cast.map { p -> async { if (p.photo != null) p else p.copy(photo = PersonPhotos.lookup(http, p.name)) } }.map { it.await() }

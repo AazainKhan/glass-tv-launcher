@@ -115,6 +115,49 @@ suspend fun FeaturedFeed.withCinemeta(http: OkHttpClient): FeaturedFeed = withCo
 }
 
 /** The Cinemeta meta of [item] (cached by IMDb id), or null when its link has none. Blocking: call off the main thread. */
+/** A title as Cinemeta spells it, for matching: lower case, no punctuation or accents' marks, single spaces. */
+internal fun normTitle(t: String): String =
+    java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
+        .lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+/**
+ * The Cinemeta search hit that is [title] (P131): the name must match exactly after [normTitle], and when the item has a
+ * [year] the hit's first year must be within one of it, so a remake or a same-named show doesn't lend its cast. Returns
+ * the type and IMDb id, or null.
+ */
+internal fun pickCinemetaMatch(metas: List<JsonObject>, title: String, year: Int?): Pair<String, String>? {
+    val want = normTitle(title).takeIf { it.isNotEmpty() } ?: return null
+    return metas.firstNotNullOfOrNull { o ->
+        val id = o["imdb_id"].str() ?: o["id"].str() ?: return@firstNotNullOfOrNull null
+        if (!Regex("tt\\d+").matches(id)) return@firstNotNullOfOrNull null
+        if (normTitle(o["name"].str() ?: return@firstNotNullOfOrNull null) != want) return@firstNotNullOfOrNull null
+        val first = Regex("\\d{4}").find(o["releaseInfo"].str().orEmpty())?.value?.toIntOrNull()
+        if (year != null && first != null && kotlin.math.abs(first - year) > 1) return@firstNotNullOfOrNull null
+        (o["type"].str() ?: "movie") to id
+    }
+}
+
+private val titleLookup = java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<String>>()
+
+/** The Info sheet's details: by IMDb link, else (Prime Video's rows carry only an Amazon deep link) by title (P131). */
+internal fun cinemetaForInfo(item: FeaturedItem, http: OkHttpClient): JsonObject? = cinemetaFor(item, http) ?: cinemetaByTitle(item, http)
+
+private fun cinemetaByTitle(item: FeaturedItem, http: OkHttpClient): JsonObject? {
+    val key = normTitle(item.title) + "|" + (item.year ?: "")
+    val cached = titleLookup[key]
+    val found = if (cached != null) cached.orElse(null) else {
+        val q = java.net.URLEncoder.encode(item.title, "UTF-8").replace("+", "%20")
+        val metas = listOf("movie", "series").flatMap { t ->
+            runCatching { (http.getJson("https://v3-cinemeta.strem.io/catalog/$t/top/search=$q.json").jsonObject["metas"] as? kotlinx.serialization.json.JsonArray)?.map { it.jsonObject } }.getOrNull().orEmpty()
+        }
+        val hit = pickCinemetaMatch(metas, item.title, item.year)
+        // Only an answer is remembered: a failed search (no network) must be tried again.
+        if (metas.isNotEmpty()) titleLookup[key] = java.util.Optional.ofNullable(hit?.let { "${it.first}/${it.second}" })
+        hit?.let { "${it.first}/${it.second}" }
+    } ?: return null
+    return cinemetaFor(item.copy(link = "stremio:///detail/$found"), http)
+}
+
 internal fun cinemetaFor(item: FeaturedItem, http: OkHttpClient): JsonObject? {
     val m = item.link?.let { Regex("(movie|series)/(tt\\d+)").find(it) } ?: return null
     // Stremio's rows sometimes label series as movies, so try the other type too.

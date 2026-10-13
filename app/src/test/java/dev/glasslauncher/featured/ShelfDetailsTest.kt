@@ -81,3 +81,28 @@ class PersonPhotosTest {
         assertEquals(false, PersonPhotos.cacheable(429))
     }
 }
+
+/** P131: Prime Video's rows have no IMDb link, so the Info sheet finds the title in Cinemeta by name. */
+class CinemetaTitleMatchTest {
+    private fun metas(json: String) = Json.parseToJsonElement(json).let { (it as kotlinx.serialization.json.JsonArray).map { e -> e.jsonObject } }
+
+    @Test fun titlesMatchWithoutCaseAccentsOrPunctuation() {
+        assertEquals("amelie", normTitle("Amélie"))
+        assertEquals("spider man no way home", normTitle("Spider-Man: No Way Home"))
+    }
+
+    @Test fun anExactNameAndNearYearIsTheMatch() {
+        val m = metas("""[{"id":"tt1","imdb_id":"tt1","name":"Dune","type":"movie","releaseInfo":"1984"},
+            {"id":"tt2","imdb_id":"tt2","name":"Dune","type":"movie","releaseInfo":"2021"}]""")
+        assertEquals("movie" to "tt2", pickCinemetaMatch(m, "Dune", 2021))
+        assertEquals("movie" to "tt1", pickCinemetaMatch(m, "Dune", null))
+    }
+
+    @Test fun aDifferentNameOrAFarYearIsNotAMatch() {
+        val m = metas("""[{"id":"tt3","name":"Dune: Part Two","type":"movie","releaseInfo":"2024"},
+            {"id":"tt4","name":"Fargo","type":"series","releaseInfo":"2014–2024"}]""")
+        assertNull(pickCinemetaMatch(m, "Dune", 2021))
+        assertNull(pickCinemetaMatch(m, "Fargo", 1996))
+        assertEquals("series" to "tt4", pickCinemetaMatch(m, "Fargo", 2014))
+    }
+}
