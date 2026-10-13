@@ -1218,7 +1218,7 @@ private fun Glyph(@DrawableRes icon: Int, tint: Color, modifier: Modifier = Modi
 @Composable
 private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color, value: String? = null, on: Boolean = false, accent: Color = fg) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Glyph(icon, if (on) accent else fg, Modifier.size(LocalCcSizes.current.bigGlyph))
+        Glyph(icon, if (on && !LocalCcTileFocused.current) accent else fg, Modifier.size(LocalCcSizes.current.bigGlyph))
         Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = fg)
         value?.let { Text(it, style = Type.caption, color = fg.copy(alpha = 0.7f), maxLines = 1) }
     }
@@ -1291,6 +1291,9 @@ private fun AlexaPage(sz: CcSizes, closeAll: () -> Unit) {
 
 private const val FILL_FADE_MS = 120
 
+/** tvOS swaps a toggle between off (glyph in a disc) and on (accent glyph) over 0.25 s. */
+private const val TOGGLE_FADE_MS = 250
+
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
 @Composable
 internal fun PillContent(
@@ -1306,13 +1309,13 @@ internal fun PillContent(
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 8.dp)) {
         // On: no disc, the glyph alone takes the accent colour. Off: the glyph sits in a translucent white disc
         // (white @ 0.15, tvOS's own value, not the control's tint) -- P129, REA's tvOS read of Control Center states.
-        val discAlpha by androidx.compose.animation.core.animateFloatAsState(if (on) 0f else 0.15f, androidx.compose.animation.core.tween(FILL_FADE_MS), label = "disc")
+        val discAlpha by androidx.compose.animation.core.animateFloatAsState(if (on) 0f else 0.15f, androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "disc")
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(sz.disc)
                 .then(if (disc) Modifier.background(Color.White.copy(alpha = discAlpha), CircleShape) else Modifier),
-        ) { Glyph(icon, if (on) accent else fg, Modifier.size(sz.discGlyph)) }
+        ) { Glyph(icon, if (on && !LocalCcTileFocused.current) accent else fg, Modifier.size(sz.discGlyph)) }
         Column(Modifier.weight(1f).padding(start = 7.dp)) {
             PillText(title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
             value?.let { PillText(it, Type.caption.copy(lineHeight = 15.sp), fg.copy(alpha = 0.7f)) }
