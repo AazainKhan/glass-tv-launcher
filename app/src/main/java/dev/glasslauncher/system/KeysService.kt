@@ -124,7 +124,7 @@ object KeysService {
                 Settings.Secure.putInt(context.contentResolver, "accessibility_enabled", 1)
             }
             WriteMode.Root -> Root.action(context, "Remote keys service was off: turned back on",
-                "settings put secure enabled_accessibility_services '$wanted'\nsettings put secure accessibility_enabled 1")
+                "settings put secure enabled_accessibility_services ${dev.glasslauncher.apps.IconPackSources.shellQuote(wanted)}\nsettings put secure accessibility_enabled 1")
             WriteMode.None -> Unit
         }
     }

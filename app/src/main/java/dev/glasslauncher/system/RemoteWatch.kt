@@ -63,7 +63,7 @@ object RemoteWatch {
         val f = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
-        app.registerReceiver(object : BroadcastReceiver() {
+        androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
             @android.annotation.SuppressLint("MissingPermission")
             override fun onReceive(c: Context, i: Intent) {
                 val d = i.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
@@ -86,7 +86,7 @@ object RemoteWatch {
                     }
                 }
             }
-        }, f)
+        }, f, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     private fun offerCard(app: Context) {

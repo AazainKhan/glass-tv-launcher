@@ -70,6 +70,13 @@ class MainActivity : ComponentActivity() {
     /** The Appstore's launcher entry asks Home for Amazon's apps page; show the store instead of ignoring it. */
     private fun storeRequest(intent: Intent?): Boolean {
         if (!dev.glasslauncher.system.AmazonStore.isStoreRequest(intent)) return false
+        // Opening the store turns Amazon's launcher on (root), so only the Appstore itself may ask. The referrer is the
+        // system's record of the caller unless the intent supplies its own, which any app could forge.
+        val forged = intent?.hasExtra(Intent.EXTRA_REFERRER) == true || intent?.hasExtra(Intent.EXTRA_REFERRER_NAME) == true
+        if (!dev.glasslauncher.system.AmazonStore.trustedCaller(referrer?.host, forged)) {
+            intent?.removeExtra("navigate_node")
+            return false
+        }
         val node = intent?.getStringExtra("navigate_node") ?: return false
         val source = intent.getStringExtra("source") ?: "appstore"
         intent.removeExtra("navigate_node")

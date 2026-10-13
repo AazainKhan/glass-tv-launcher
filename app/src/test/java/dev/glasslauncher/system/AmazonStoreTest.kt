@@ -17,4 +17,11 @@ class AmazonStoreTest {
         assertEquals("appstore", AmazonStore.safeExtra(null, "appstore"))
         assertEquals("appstore", AmazonStore.safeExtra("a".repeat(65), "appstore"))
     }
+
+    @Test fun onlyTheAppstoreBySystemReferrerMayOpenIt() {
+        assertEquals(true, AmazonStore.trustedCaller("com.amazon.venezia", referrerSupplied = false))
+        assertEquals(false, AmazonStore.trustedCaller("com.amazon.venezia", referrerSupplied = true))
+        assertEquals(false, AmazonStore.trustedCaller("com.evil.app", referrerSupplied = false))
+        assertEquals(false, AmazonStore.trustedCaller(null, referrerSupplied = false))
+    }
 }

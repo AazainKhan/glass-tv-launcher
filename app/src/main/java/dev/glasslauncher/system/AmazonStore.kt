@@ -19,6 +19,10 @@ object AmazonStore {
     /** A Home intent asking for one of the stock launcher's pages (what the Appstore sends). */
     fun isStoreRequest(intent: Intent?): Boolean = intent?.getStringExtra("navigate_node") != null
 
+    /** Only the Appstore (by the system's referrer, not one the intent supplies) may open it through Home. */
+    internal fun trustedCaller(referrerHost: String?, referrerSupplied: Boolean): Boolean =
+        !referrerSupplied && referrerHost == PACKAGE
+
     /**
      * Extras reach this from any app's intent (MainActivity is exported for HOME) and go into a root shell line, so only
      * plain identifiers pass; anything else falls back to the default instead of being quoted into the script.

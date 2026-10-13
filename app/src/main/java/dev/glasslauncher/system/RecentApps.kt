@@ -117,6 +117,8 @@ object RecentApps {
         if (privileged) return true
         // A "no root" answer cached before the grant must not stick: look again when something needs it.
         if (!Root.available() && !Root.recheck()) return false
+        // A package name only (system-provided today); anything else never reaches the shell.
+        if (!pkg.matches(Regex("[A-Za-z0-9_.]{1,255}"))) return false
         return Root.action(context, "Close $pkg", "am force-stop $pkg").ok
     }
 }

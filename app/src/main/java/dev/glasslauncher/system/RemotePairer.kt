@@ -76,7 +76,7 @@ class RemotePairer(private val context: Context) {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED); addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
         }
-        app.registerReceiver(screen, f)
+        androidx.core.content.ContextCompat.registerReceiver(app, screen, f, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         runCatching { adapter!!.getProfileProxy(app, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) { hidHost = proxy; Log.i(TAG, "HID host proxy ready") }
             override fun onServiceDisconnected(profile: Int) { hidHost = null }
