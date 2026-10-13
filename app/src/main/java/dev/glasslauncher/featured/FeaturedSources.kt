@@ -54,7 +54,16 @@ data class FeaturedItem(
     }
 }
 
-data class FeaturedFeed(val heading: String, val items: List<FeaturedItem>)
+/** One headed row of the sectioned shelf (tvOS 27's Top Shelf sections). */
+@Serializable
+data class FeaturedSection(val heading: String, val items: List<FeaturedItem>)
+
+/**
+ * What the shelf shows. [items] is every title once, in shelf order: the backdrop, slideshow, Play and More Info work
+ * from it. A source with several headed rows also sets [sections] (each title may repeat across them); every other
+ * feed leaves it empty and is one row under [heading].
+ */
+data class FeaturedFeed(val heading: String, val items: List<FeaturedItem>, val sections: List<FeaturedSection> = emptyList())
 
 interface FeaturedSource {
     suspend fun load(http: OkHttpClient, cfg: FeaturedConfig): FeaturedFeed
@@ -261,7 +270,6 @@ object YouTube : FeaturedSource {
     )
     private val channelId = Regex("UC[A-Za-z0-9_-]{22}")
     private const val MAX_CHANNELS = 10
-    private const val PER_CHANNEL = 4
     private const val MAX_FEED_BYTES = 512L * 1024
 
     /** The channel ids in [text] (ids or channel URLs, separated by anything), without repeats. */
@@ -271,13 +279,11 @@ object YouTube : FeaturedSource {
         val channels = channelIds(cfg.youtubeChannels)
         require(channels.isNotEmpty() || cfg.youtubeKey.isNotBlank()) { "Add YouTube channels or an API key in Settings" }
         val client = http.newBuilder().callTimeout(10, java.util.concurrent.TimeUnit.SECONDS).build()
-        val recent = kotlinx.coroutines.coroutineScope {
+        val perChannel = kotlinx.coroutines.coroutineScope {
             channels.take(MAX_CHANNELS).map { id ->
                 async {
                     try {
-                        // Newest few per channel before merging, so one busy channel can't crowd out the rest.
                         parseFeed(client.getText("https://www.youtube.com/feeds/videos.xml?channel_id=$id"))
-                            .sortedByDescending { it.second }.take(PER_CHANNEL)
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -286,11 +292,11 @@ object YouTube : FeaturedSource {
                     }
                 }
             }.map { it.await() }
-        }.flatten().sortedByDescending { it.second }.map { it.first }.distinctBy { it.id }.take(20)
+        }
         val trending = if (cfg.youtubeKey.isBlank()) emptyList() else runCatching { trending(http, cfg) }.getOrDefault(emptyList())
-        val items = (recent + trending).distinctBy { it.id }
-        check(items.isNotEmpty()) { "Couldn't load YouTube videos" }
-        FeaturedFeed(if (recent.isEmpty()) "Trending on YouTube" else if (trending.isEmpty()) "Latest from your channels" else "YouTube", items)
+        val feed = ShelfSections.youtube(perChannel, trending)
+        check(feed.items.isNotEmpty()) { "Couldn't load YouTube videos" }
+        feed
     }
 
     private fun OkHttpClient.getText(url: String): String =

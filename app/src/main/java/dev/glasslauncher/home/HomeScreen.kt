@@ -304,6 +304,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     val cardRequester = remember { FocusRequester() }
+    val sectionCursor = remember { dev.glasslauncher.featured.SectionCursor() }
     // Now Playing: Up from the tray reaches its controls, Up again the status pill (Control Center).
     val heroPlay = remember { FocusRequester() }
     var heroFocused by remember { mutableStateOf(false) }
@@ -968,6 +969,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         }
                         // Down always leaves full screen, wherever focus is (even mid-transition); from the
                         // status pill it goes back down to the titles instead.
+                        // A sectioned shelf moves Down to its next row first (its own handler); only the last row leaves.
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded && !pillFocused && sectionCursor.hasRowBelow -> false
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded -> when {
                             pillFocused -> { runCatching { cardRequester.requestFocus() }; true }
                             // Focus already back on Home (a stale state): just let Down move as usual.
@@ -1132,6 +1135,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         // Up from the Cover Flow reaches the pill (Control Center), as the card row's Play button did.
                         upTo = pillRequester,
                         labelIcon = shelfIcon,
+                        cursor = sectionCursor,
                     )
                 }
             }

@@ -20,7 +20,8 @@ import java.io.File
 
 /** Bump when FeaturedItem gains data a cached feed wouldn't have. */
 // 4: JustWatch rows resolve the service's per-country package code (P89); the 4-title Prime feed cached under 3 is dropped.
-private const val FEED_VERSION = 4
+// 5: a feed may carry headed sections (the YouTube shelf, P125b); a YouTube feed cached under 4 is one row.
+private const val FEED_VERSION = 5
 
 /** The cache key for [cfg]'s feed, versioned so a feed cached before items gained a field (logos) is fetched again. */
 fun cacheKey(cfg: FeaturedConfig) = "$FEED_VERSION:$cfg"
@@ -127,7 +128,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
  */
 class DiskFeedCache(private val dir: File, private val max: Int = 24, private val legacy: File? = null) {
     @Serializable
-    private data class Cached(val key: String, val heading: String, val items: List<FeaturedItem>)
+    private data class Cached(val key: String, val heading: String, val items: List<FeaturedItem>, val sections: List<FeaturedSection> = emptyList())
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -139,13 +140,13 @@ class DiskFeedCache(private val dir: File, private val max: Int = 24, private va
         // The single file the previous version wrote (and the device tests seed) is still read, for its own key.
         val cached = parse(f) ?: legacy?.let { parse(it) } ?: return null
         runCatching { if (f.exists()) f.setLastModified(System.currentTimeMillis()) }
-        return FeaturedFeed(cached.heading, cached.items)
+        return FeaturedFeed(cached.heading, cached.items, cached.sections)
     }
 
     fun write(key: String, feed: FeaturedFeed) {
         runCatching {
             dir.mkdirs()
-            fileFor(key).writeText(json.encodeToString(Cached.serializer(), Cached(key, feed.heading, feed.items)))
+            fileFor(key).writeText(json.encodeToString(Cached.serializer(), Cached(key, feed.heading, feed.items, feed.sections)))
             trim()
         }
     }

@@ -147,6 +147,8 @@ fun ExpandedShelf(
     upTo: FocusRequester? = null,
     /** The shelf app's glyph beside the Cover Flow's title (P86). */
     labelIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /** Which row of a sectioned shelf has focus (Home lets Down move between rows before it leaves full screen). */
+    cursor: SectionCursor = remember { SectionCursor() },
 ) {
     val m = LocalMetrics.current
     val context = LocalContext.current
@@ -192,7 +194,7 @@ fun ExpandedShelf(
                         }
                         shown.description?.let {
                             // The whole synopsis in full screen (it was cut at two lines); five covers nearly all.
-                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.9f), maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.9f), maxLines = if (feed.sections.size >= 2) 2 else 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
                 }
@@ -203,6 +205,23 @@ fun ExpandedShelf(
                 }
                 // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).
                 Spacer(Modifier.height(18.dp))
+            }
+            // Several headed rows (the YouTube shelf): tvOS 27's sections, in place of the single row below.
+            if (feed.sections.size >= 2) {
+                SectionedRows(
+                    rows = remember(feed) { ShelfSections.rows(feed) }, selectedId = item.id, firstCard = firstCard,
+                    onSelect = { c -> feed.items.indexOfFirst { it.id == c.id }.takeIf { it >= 0 }?.let(onIndex) },
+                    onOpen = { it.open(context) },
+                    onExitDown = onExitDown,
+                    onUp = { runCatching { playRequester.requestFocus() }.isSuccess },
+                    cursor = cursor,
+                ) { card, focused ->
+                    dev.glasslauncher.ui.ReliableImage(
+                        card.image, Modifier.fillMaxSize(), title = card.title, subtitle = card.subtitle,
+                        width = 300, height = 170, focused = focused,
+                    )
+                }
+                return@Column
             }
             // Square cover cards when the row's art is square (Spotify's playlists and albums), 16:9 otherwise.
             val square = remember(feed) { CardShape.square(feed.items) }

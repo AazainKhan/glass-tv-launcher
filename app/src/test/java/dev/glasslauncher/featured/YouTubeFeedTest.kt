@@ -166,11 +166,23 @@ class YouTubeFeedTest {
         }
     }
 
-    @Test fun eachChannelContributesAtMostFourNewest() {
+    @Test fun aChannelContributesAtMostTwelveNewest() {
         MockWebServer().use { server ->
-            serve(server) { MockResponse().setBody(feed("vid0000001", "vid0000002", "vid0000003", "vid0000004", "vid0000005", "vid0000006")) }
+            serve(server) { MockResponse().setBody(feed(*(10..24).map { "vid00000$it" }.toTypedArray())) }
             val one = cfg.copy(youtubeChannels = chA)
-            assertEquals(listOf("vid0000006", "vid0000005", "vid0000004", "vid0000003"), runBlocking { YouTube.load(clientFor(server), one) }.items.map { it.id })
+            val got = runBlocking { YouTube.load(clientFor(server), one) }
+            assertEquals((24 downTo 13).map { "vid00000$it" }, got.items.map { it.id })
+            assertTrue("one row is the plain feed", got.sections.isEmpty())
+        }
+    }
+
+    @Test fun twoChannelsMakeSections() {
+        MockWebServer().use { server ->
+            serve(server) { id -> MockResponse().setBody(feed(if (id == chA) "vid0000011" else "vid0000012")) }
+            val got = runBlocking { YouTube.load(clientFor(server), cfg) }
+            assertEquals(3, got.sections.size)
+            assertEquals(ShelfSections.NEW_HEADING, got.sections[0].heading)
+            assertEquals(listOf("vid0000012", "vid0000011"), got.items.map { it.id })
         }
     }
 }

@@ -177,6 +177,39 @@ fun CoverFlowPreview() {
     }
 }
 
+/** The sectioned Top Shelf (YouTube, P125b): headed rows of 16:9 cards, the first card focused; synthetic colour art. */
+@Composable
+private fun ShelfSectionsStage(light: Boolean) = PreviewStage(light = light) {
+    val rows = remember {
+        val names = listOf("New from your channels", "From Marques Brownlee", "From Veritasium", "Trending on YouTube")
+        names.mapIndexed { s, h ->
+            dev.glasslauncher.featured.FeaturedSection(h, (0 until 8).map { i ->
+                dev.glasslauncher.featured.FeaturedItem(id = "s$s-$i", title = "Video title number ${s * 8 + i + 1}", subtitle = h)
+            })
+        }
+    }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+    Column(Modifier.align(Alignment.BottomStart)) {
+        Text("Video title number 1", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 45.dp, bottom = 16.dp))
+        dev.glasslauncher.featured.SectionedRows(
+            rows = rows, selectedId = "s0-0", firstCard = first, onSelect = {}, onOpen = {}, onExitDown = {}, onUp = { false },
+        ) { card, _ ->
+            val hue = (card.id.hashCode().mod(360)).toFloat()
+            Box(Modifier.fillMaxSize().background(Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.5f, 0.6f)))))
+        }
+    }
+}
+
+@Preview(widthDp = 960, heightDp = 540, name = "shelf-sections-dark")
+@Composable
+fun ShelfSectionsDarkPreview() = ShelfSectionsStage(light = false)
+
+@Preview(widthDp = 960, heightDp = 540, name = "shelf-sections-light")
+@Composable
+fun ShelfSectionsLightPreview() = ShelfSectionsStage(light = true)
+
 /** The download manager's list on the Settings page wash, with one download in each state. */
 @Composable
 private fun DownloadsPage(light: Boolean) {

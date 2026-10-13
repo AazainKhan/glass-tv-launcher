@@ -34,6 +34,15 @@ class DiskFeedCacheTest {
         assertNull("dropped", cache.read("k2"))
     }
 
+    @Test fun sectionsSurviveTheDisk() {
+        val cache = DiskFeedCache(tmp.newFolder("featured"))
+        val sec = listOf(FeaturedSection("From A", listOf(FeaturedItem("a", "A"))), FeaturedSection("Trending", listOf(FeaturedItem("b", "B"))))
+        cache.write("5:y", FeaturedFeed("YouTube", sec.flatMap { it.items }, sec))
+        assertEquals(sec, cache.read("5:y")?.sections)
+        cache.write("5:z", feed("Z"))
+        assertEquals(emptyList<FeaturedSection>(), cache.read("5:z")?.sections)
+    }
+
     @Test fun aFileForAnotherKeyIsNotTakenForThisOne() {
         val cache = DiskFeedCache(tmp.newFolder("featured"))
         cache.write("4:x", feed("X"))
