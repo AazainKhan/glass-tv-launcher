@@ -70,12 +70,19 @@ object ResumeIntents {
      * [installed] are the item's packages that are installed, in order. Untrusted rows ([FeaturedItem.id] "tv:…") never produce an unrestricted step.
      */
     fun steps(item: FeaturedItem, installed: List<String>, glassPkg: String): List<Step> {
-        val apps = installed.filter { it != glassPkg }
+        // A row belongs to the app that published it: only that app is ever tried. Scanning the installed apps is for items with no owner.
+        val owner = item.owner
+        val apps = (if (owner != null) installed.filter { it == owner } else installed).filter { it != glassPkg }
         val link = item.link
         val out = mutableListOf<Step>()
         if (link != null) {
             if (link.startsWith("intent:", ignoreCase = true)) {
-                for (pkg in apps) if (parsePublished(link, pkg, glassPkg) != null) out += Step.Published(link, pkg)
+                for (pkg in apps) {
+                    val parsed = parsePublished(link, pkg, glassPkg) ?: continue
+                    // Without a package or component the intent names no app: it needs a known owner to be sent anywhere.
+                    if (owner == null && parsed.pkg == null && parsed.component == null) continue
+                    out += Step.Published(link, pkg)
+                }
             } else if (schemeOk(schemeOf(link))) {
                 for (pkg in apps) out += Step.View(link, pkg)
             }
@@ -85,7 +92,7 @@ object ResumeIntents {
     }
 
     /** Whether Glass may also offer this link to any app (only for links Glass fetched itself, never a row another app published). */
-    fun isAppPublished(item: FeaturedItem): Boolean = item.id.startsWith("tv:")
+    fun isAppPublished(item: FeaturedItem): Boolean = item.owner != null || item.id.startsWith("tv:")
 
     // ---- Android side ----
 

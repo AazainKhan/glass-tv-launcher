@@ -34,6 +34,8 @@ data class FeaturedItem(
     val link: String? = null,
     /** Apps that can open [link] or, failing that, are launched directly. Tried in order. */
     val packages: List<String> = emptyList(),
+    /** The app that published this row (the TV provider's package_name); null for titles Glass fetched itself. */
+    val owner: String? = null,
     val year: Int? = null,
     /** Age rating as the service shows it (14+, TV-MA…). */
     val rating: String? = null,

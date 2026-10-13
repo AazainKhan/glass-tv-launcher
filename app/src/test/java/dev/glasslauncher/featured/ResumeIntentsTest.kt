@@ -12,7 +12,7 @@ class ResumeIntentsTest {
     private val glass = "dev.glasslauncher"
     private val app = "com.example.tv"
     private fun parse(uri: String, pkg: String = app) = ResumeIntents.parsePublished(uri, pkg, glass)
-    private fun item(link: String?, id: String = "tv:$app:1", pkgs: List<String> = listOf(app)) = FeaturedItem(id = id, title = "T", link = link, packages = pkgs)
+    private fun item(link: String?, id: String = "tv:$app:1", pkgs: List<String> = listOf(app), owner: String? = null) = FeaturedItem(id = id, title = "T", link = link, packages = pkgs, owner = owner)
 
     @Test fun httpsAndOwnSchemeAreAccepted() {
         assertNotNull(parse("intent://watch/123#Intent;scheme=https;package=$app;end"))
@@ -55,7 +55,7 @@ class ResumeIntentsTest {
 
     @Test fun publishedIntentComesFirstThenAppLaunch() {
         val link = "intent://watch/1#Intent;scheme=https;end"
-        assertEquals(listOf<Step>(Step.Published(link, app), Step.Launch(app)), ResumeIntents.steps(item(link), listOf(app), glass))
+        assertEquals(listOf<Step>(Step.Published(link, app), Step.Launch(app)), ResumeIntents.steps(item(link, owner = app), listOf(app), glass))
     }
 
     @Test fun plainLinksAreViewedInEachCapableApp() {
@@ -73,5 +73,29 @@ class ResumeIntentsTest {
     @Test fun onlyRowsFromOtherAppsAreUntrusted() {
         assertTrue(ResumeIntents.isAppPublished(item("https://a")))
         assertTrue(!ResumeIntents.isAppPublished(item("https://a", id = "tt123")))
+    }
+
+    private val unpackaged = "intent://watch/1#Intent;scheme=https;end"
+    private val crowd = listOf("com.a", "com.b", app, "com.c")   // several installed apps that would all handle the intent
+
+    @Test fun anUnpackagedIntentOnlyGoesToTheRowsOwner() {
+        val steps = ResumeIntents.steps(item(unpackaged, pkgs = crowd, owner = app), crowd, glass)
+        assertEquals(listOf<Step>(Step.Published(unpackaged, app), Step.Launch(app)), steps)
+        // The owner not installed: nobody else is tried.
+        assertEquals(emptyList<Step>(), ResumeIntents.steps(item(unpackaged, pkgs = crowd, owner = "com.gone"), crowd, glass))
+        // A plain link is also the owner's alone.
+        assertEquals(listOf<Step>(Step.View("https://x/y", app), Step.Launch(app)), ResumeIntents.steps(item("https://x/y", pkgs = crowd, owner = app), crowd, glass))
+    }
+
+    @Test fun withoutAnOwnerAnUnpackagedIntentIsRefused() {
+        val steps = ResumeIntents.steps(item(unpackaged, id = "x", pkgs = crowd), crowd, glass)
+        assertTrue(steps.none { it is Step.Published })
+        assertEquals(crowd.map { Step.Launch(it) }, steps)
+    }
+
+    @Test fun withoutAnOwnerAPackagedIntentStillOnlyReachesItsApp() {
+        val link = "intent://watch/1#Intent;scheme=https;package=$app;end"
+        val steps = ResumeIntents.steps(item(link, id = "x", pkgs = crowd), crowd, glass)
+        assertEquals(listOf<Step>(Step.Published(link, app)), steps.filterIsInstance<Step.Published>())
     }
 }

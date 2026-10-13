@@ -99,6 +99,7 @@ object TvRows {
             image = image,
             link = str("intent_uri"),
             packages = listOf(pkg),
+            owner = pkg,
             year = str("release_date")?.take(4)?.toIntOrNull(),
             rating = str("content_rating")?.substringAfterLast('/')?.substringAfterLast('_'),
             genre = str("genre")?.split(',')?.firstOrNull()?.trim()?.lowercase()?.replaceFirstChar { it.uppercase() },
