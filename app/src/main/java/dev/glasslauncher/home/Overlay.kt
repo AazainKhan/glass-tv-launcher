@@ -61,8 +61,8 @@ sealed interface Overlay {
         val hint: String = "",
         /** Shown under the field, newest first; Select takes one and finishes (URL entry's history). */
         val suggestions: List<String> = emptyList(),
-        /** A "Paste" row that fills the field with this text. */
-        val paste: String? = null,
+        /** A "Paste" row; Select calls this for the text (the clipboard is read then, not when the row is drawn). Null: no row. */
+        val paste: (() -> String?)? = null,
         val onDone: (String) -> Unit,
     ) : Overlay
     data object Settings : Overlay

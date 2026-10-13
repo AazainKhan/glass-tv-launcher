@@ -42,8 +42,8 @@ internal fun ColumnScope.DownloadsSettingsPage(model: HomeModel, cfg: LauncherCo
         help = "Off: an app's file is deleted once it is installed.")
     MenuRow("My Codes", onCodes, value = d.codes.size.toString(), chevron = true, help = "Short words or numbers that stand for a link of your own.")
     MenuRow("Clear History", {
-        open(Overlay.Confirm("Clear Download History?", "Forgets the links you typed and takes finished downloads off the list. The files stay on this TV.", "Clear", destructive = true) {
-            model.editDownloads { it.copy(history = emptyList()) }
+        open(Overlay.Confirm("Clear Download History?", "Forgets the links you typed and the ones you accepted, and takes finished downloads off the list. The files stay on this TV.", "Clear", destructive = true) {
+            model.editDownloads { DownloadInput.cleared(it) }
             val queue = Downloads.queue(context)
             queue.items.value.filter { it.state == DownloadState.Done || it.state == DownloadState.Failed }.forEach { queue.remove(it.id, deleteFile = false) }
         })

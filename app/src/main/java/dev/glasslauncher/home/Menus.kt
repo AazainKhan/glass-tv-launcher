@@ -371,7 +371,13 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
             )
         }
         if (overlay.hint.isNotEmpty()) Hint(overlay.hint)
-        overlay.paste?.let { clip -> MenuRow("Paste", { text = clip }, value = clip.take(28), modifier = Modifier.testTag("text-paste")) }
+        val pasteContext = androidx.compose.ui.platform.LocalContext.current
+        overlay.paste?.let { read ->
+            MenuRow("Paste", {
+                val clip = read()
+                if (clip != null) text = clip else dev.glasslauncher.system.RemoteNotice.show(pasteContext, "The clipboard has no link")
+            }, modifier = Modifier.testTag("text-paste"))
+        }
         Spacer(Modifier.height(8.dp))
         MenuRow("Type on Your Phone", {
             open(Overlay.PhoneSetup(overlay.title, listOf(PhoneField("value", overlay.title, text, overlay.hint))) { values ->

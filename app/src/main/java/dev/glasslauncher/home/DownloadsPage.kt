@@ -139,7 +139,7 @@ fun DownloadsPage(
     androidx.compose.runtime.CompositionLocalProvider(LocalPageKey provides Overlay.Downloads) { DownloadsList(
         items, active,
         onAdd = {
-            open(Overlay.TextInput("Add Download", "", "A link, or a code you saved.", config.downloads.history, clipboardUrl(context)) { submit(it) })
+            open(Overlay.TextInput("Add Download", "", "A link, or a code you saved.", config.downloads.history, { clipboardUrl(context) }) { submit(it) })
         },
         onSelect = { item ->
             when (item.state) {
@@ -258,9 +258,8 @@ internal fun DownloadMenuBody(id: String, active: Boolean, open: (Overlay) -> Un
     }
 }
 
-/** The clipboard's text when it is a link Glass can download; the Paste row only shows then. */
+/** The clipboard's text when it is a link Glass can download. Read only when the user selects Paste. */
 private fun clipboardUrl(context: Context): String? = runCatching {
     val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
-    clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()?.trim()
-        ?.takeIf { dev.glasslauncher.downloads.DownloadInput.parse(it) is dev.glasslauncher.downloads.Entry.Url }
+    dev.glasslauncher.downloads.DownloadInput.linkOrNull(clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString())
 }.getOrNull()

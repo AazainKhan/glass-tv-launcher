@@ -36,12 +36,22 @@ object DownloadInput {
 
     fun host(url: String): String? = url.toHttpUrlOrNull()?.host
 
-    /** [text] first, any earlier copy of it dropped, at most [HISTORY_MAX] kept. */
+    /** The clipboard text when it is a link Glass can download, else null. */
+    fun linkOrNull(text: String?): String? = text?.trim()?.takeIf { parse(it) is Entry.Url }
+
+    /** What history may keep of a typed link: no query, fragment or sign-in part, which often carry tokens. */
+    fun forHistory(text: String): String =
+        text.trim().replace(USERINFO, "$1").substringBefore('?').substringBefore('#')
+
+    /** [text] first, any earlier copy of it dropped, at most [HISTORY_MAX] kept. Older entries are cleaned too. */
     fun pushHistory(history: List<String>, text: String): List<String> {
-        val t = text.trim()
+        val t = forHistory(text)
         if (t.isEmpty()) return history
-        return (listOf(t) + history.filter { it != t }).take(HISTORY_MAX)
+        return (listOf(t) + history.map(::forHistory).filter { it != t && it.isNotEmpty() }).take(HISTORY_MAX)
     }
+
+    /** Clear History: the typed links and the accepted links go; codes and settings stay. */
+    fun cleared(d: dev.glasslauncher.data.DownloadsConfig) = d.copy(history = emptyList(), acceptedUrls = emptySet())
 
     /** What a yes is stored under: the whole link, so a later code that points elsewhere on the same site asks again. */
     fun acceptKey(url: String): String = url.toHttpUrlOrNull()?.newBuilder()?.fragment(null)?.build()?.toString() ?: url
@@ -51,6 +61,7 @@ object DownloadInput {
 
     fun accept(accepted: Set<String>, url: String): Set<String> = accepted + acceptKey(url)
 
+    private val USERINFO = Regex("^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#@]*@")
     private val SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.-]*)://")
 }
 
