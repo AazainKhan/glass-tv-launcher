@@ -95,13 +95,18 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
 
     /** Opens an app; with a source view and tile bounds the system zooms it out of the tile (MOTION-03). */
     fun launch(app: AppEntry, from: android.view.View? = null, bounds: androidx.compose.ui.geometry.Rect? = null) {
-        val intent = graph.apps.launchIntent(app) ?: return
         val options = if (from != null && bounds != null) {
             android.app.ActivityOptions.makeScaleUpAnimation(
                 from, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt(),
             ).toBundle()
         } else null
-        try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
+        // The real task, with its state, when this build can see one (I08) — same zoom options, same fallback below.
+        val resumed = dev.glasslauncher.system.RecentApps.taskId(app.packageName)
+            ?.let { dev.glasslauncher.system.RecentApps.resume(getApplication(), it, options) } ?: false
+        if (!resumed) {
+            val intent = graph.apps.launchIntent(app) ?: return
+            try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
+        }
         noteLaunched(app.packageName)
     }
 

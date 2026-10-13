@@ -36,6 +36,10 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <!-- App switcher's real task list (I08): normal permission, but getRecentTasks returns every app's tasks
+         (not just Glass's own) to a GET_TASKS holder that's also a privileged uid, which glass-system makes Glass. -->
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <!-- Granted manually over adb; lets the app set itself as screensaver and enable its Home button fallback. -->
     <uses-permission
         android:name="android.permission.WRITE_SECURE_SETTINGS"

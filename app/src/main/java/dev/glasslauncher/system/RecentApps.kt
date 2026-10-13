@@ -18,18 +18,63 @@ object RecentApps {
         return ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
     }
 
+    /** A real recent task: [taskId] is what [resume] needs to bring it to the front with its state intact. */
+    data class RecentTask(val packageName: String, val taskId: Int)
+
+    /** The task id [resume] can use for [pkg], from the last [list] call. Null without task access, or if it has no current task. */
+    @Volatile private var taskIds: Map<String, Int> = emptyMap()
+    fun taskId(pkg: String): Int? = taskIds[pkg]
+
+    /**
+     * The real task stack, most recent first, each with the id [resume] needs. `getRecentTasks` is a deprecated
+     * public API whose own behaviour changed under it: since API 21 it silently returns only the caller's tasks
+     * unless the caller is privileged, in which case it returns everyone's (I08 spec). Glass is a priv-app via
+     * the glass-system Magisk module, so this is empty rather than throwing on any build where that isn't true.
+     */
+    fun tasks(context: Context, maxNum: Int = 50): List<RecentTask> = runCatching {
+        val am = context.getSystemService(ActivityManager::class.java) ?: return@runCatching emptyList()
+        @Suppress("DEPRECATION")
+        am.getRecentTasks(maxNum, 0).mapNotNull { info ->
+            info.baseIntent?.component?.packageName?.let { RecentTask(it, info.id) }
+        }
+    }.getOrDefault(emptyList())
+
+    /**
+     * Brings an already-running task to the front with its state intact, instead of relaunching the app fresh.
+     * False if it couldn't (the task was evicted from memory, or this build isn't privileged) — the caller should
+     * fall back to a normal launch intent then, which is the APK-mode behaviour this never regresses.
+     */
+    fun resume(context: Context, taskId: Int, options: android.os.Bundle? = null): Boolean = runCatching {
+        val am = context.getSystemService(ActivityManager::class.java) ?: return@runCatching false
+        @Suppress("DEPRECATION")
+        am.moveTaskToFront(taskId, 0, options)
+        true
+    }.getOrDefault(false)
+
     /**
      * Apps brought to the front in the last [days] days per the system's usage history (Fire OS only
      * keeps it since the last restart), followed by launches Glass recorded itself ([own]). Only apps
      * on Home are returned, so system screens and launchers never show up. An app in [closed] (closed from the
      * switcher, with when) stays out until it comes to the foreground again after that.
+     *
+     * Prefers the real task stack ([tasks]) when this build can see it: no manual `adb appops` grant needed,
+     * and it also populates [taskId] so the switcher can [resume] instead of relaunching. Falls back to usage
+     * history otherwise.
      */
     fun list(
         context: Context, installed: List<AppEntry>, own: List<String>, closed: Map<String, Long> = emptyMap(),
         limit: Int = 12, days: Int = 3,
     ): List<AppEntry> {
         val byPackage = installed.associateBy { it.packageName }
-        val usage = if (hasUsageAccess(context)) fromUsage(context, days) else emptyList()
+        val privileged = tasks(context)
+        val usage = if (privileged.isNotEmpty()) {
+            taskIds = privileged.associate { it.packageName to it.taskId }
+            val now = System.currentTimeMillis()
+            privileged.mapIndexed { i, t -> t.packageName to (now - i) }
+        } else {
+            taskIds = emptyMap()
+            if (hasUsageAccess(context)) fromUsage(context, days) else emptyList()
+        }
         return order(usage, own, closed).mapNotNull { byPackage[it] }.filter { it.packageName != context.packageName }.take(limit)
     }
 
