@@ -156,3 +156,42 @@ class AddonContentTest {
         assertTrue(AddonSnapshot.NONE.valuesOf("p").isEmpty())
     }
 }
+
+class FocusRefreshTest {
+    private var t = 0L
+    private val gate = IntervalGate { t }
+    private val f = FocusRefresh(gate)
+    private fun min(n: Int) = n * 60_000L
+
+    @Test fun firstFocusRefreshesAndRepeatedFocusInsideTheFloorDoesNot() {
+        assertTrue(f.begin("row:p", 1, homeVisible = true)); f.end("row:p"); gate.mark("row:p", 1, 30)
+        t = min(1); assertFalse(f.begin("row:p", 1, true)) // focus flapping never polls
+        t = min(29); assertFalse(f.begin("row:p", 1, true))
+        t = min(30); assertTrue(f.begin("row:p", 1, true))
+    }
+
+    @Test fun nothingRefreshesWhileHomeIsNotVisible() {
+        assertFalse(f.begin("row:p", 1, homeVisible = false))
+        assertTrue(f.begin("row:p", 1, homeVisible = true))
+    }
+
+    @Test fun oneRefreshAtATimePerKeyAndFocusDuringItIsIgnored() {
+        assertTrue(f.begin("row:p", 1, true))
+        assertFalse(f.begin("row:p", 1, true)) // already running
+        assertTrue(f.begin("row:q", 1, true)) // another add-on is independent
+        f.end("row:p"); assertTrue(f.begin("row:p", 1, true))
+    }
+
+    @Test fun anExplicitUserChangeReopensTheFloorButAReSignDoesNot() {
+        gate.mark("row:p", AddonSurfaces.version(AddonSnapshot(mapOf("p" to "c1"), mapOf("p/x" to "1")), "p"), 30)
+        t = min(2)
+        assertFalse(f.begin("row:p", AddonSurfaces.version(AddonSnapshot(mapOf("p" to "c2"), mapOf("p/x" to "1")), "p"), true))
+        assertTrue(f.begin("row:p", AddonSurfaces.version(AddonSnapshot(mapOf("p" to "c1"), mapOf("p/x" to "2")), "p"), true))
+    }
+
+    @Test fun aFailedReadRetriesSoonButStillNotOnEveryFocus() {
+        gate.retryIn("row:p", 1, AddonSurfaces.RETRY_MS)
+        t = AddonSurfaces.RETRY_MS - 1; assertFalse(f.begin("row:p", 1, true))
+        t = AddonSurfaces.RETRY_MS; assertTrue(f.begin("row:p", 1, true))
+    }
+}

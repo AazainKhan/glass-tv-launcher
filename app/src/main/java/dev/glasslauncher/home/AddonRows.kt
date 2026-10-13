@@ -24,6 +24,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.glasslauncher.R
+import dev.glasslauncher.app
+import androidx.lifecycle.compose.currentStateAsState
+import kotlinx.coroutines.launch
 import dev.glasslauncher.addons.AddonSurfaces
 import dev.glasslauncher.addons.HomeRowShown
 import dev.glasslauncher.ui.FocusTile
@@ -42,8 +45,19 @@ internal fun AddonRow(shown: HomeRowShown, onFocused: () -> Unit) {
     val m = LocalMetrics.current
     val palette = LocalPalette.current
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val visible = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
     Column(
-        Modifier.fillMaxWidth().padding(top = 28.dp).onFocusChanged { if (it.hasFocus) onFocused() }.stopAtRowEnds().testTag("addon-row"),
+        Modifier.fillMaxWidth().padding(top = 28.dp).onFocusChanged {
+            if (it.hasFocus) {
+                onFocused()
+                // Focus on the row is a reason to refresh it (its interval permitting): off Main, never blocking focus.
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val c = context.app.config.config.value
+                    AddonSurfaces.refreshRowOnFocus(context, dev.glasslauncher.addons.AddonSnapshot(c.addonsEnabled, c.addonSettings), shown.pkg, visible)
+                }
+            }
+        }.stopAtRowEnds().testTag("addon-row"),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Row(Modifier.padding(start = m.inset), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

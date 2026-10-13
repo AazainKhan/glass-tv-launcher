@@ -80,6 +80,21 @@ class IntervalGate(private val now: () -> Long) {
     @Synchronized fun forget(key: String) { marks.remove(key) }
 }
 
+/**
+ * Whether a focus event may start a refresh: Home must be visible, the key's 15-minute floor (or an explicit user change, see
+ * [AddonSurfaces.version]) must have passed, and none may already be running for it. Focus moving around never polls: it only
+ * asks this, and the answer is no until the floor is over.
+ */
+class FocusRefresh(private val gate: IntervalGate) {
+    private val running = HashSet<String>()
+    @Synchronized fun begin(key: String, version: Any?, homeVisible: Boolean): Boolean {
+        if (!homeVisible || key in running || !gate.due(key, version)) return false
+        running += key
+        return true
+    }
+    @Synchronized fun end(key: String) { running -= key }
+}
+
 /** What an add-on's content looks like once Glass has made it safe to draw. */
 data class SafeRow(val title: String, val items: List<SafeCard>, val refreshMinutes: Int)
 data class SafeCard(val id: String, val title: String, val subtitle: String?, val image: String?, val action: AddonAction?)

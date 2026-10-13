@@ -29,6 +29,7 @@ internal object AddonSurfaces {
     /** pkg -> its Home row. Written off the main thread; Home reads it as state. */
     val homeRows = mutableStateMapOf<String, HomeRowShown>()
     private val gate = IntervalGate { SystemClock.elapsedRealtime() }
+    private val focus = FocusRefresh(gate)
     private val lastGood = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private const val PARALLEL = 3
     /** Home rows drawn at most this many (memory), first by package name. */
@@ -81,6 +82,16 @@ internal object AddonSurfaces {
                 }
             }.awaitAll()
         }
+    }
+
+    /**
+     * The user focused [pkg]'s Home row: read it again if its interval is over (never earlier, never while Home is hidden, one at a time).
+     * Called off Main; it never blocks focus or scrolling, and a failed read leaves the row as it was.
+     */
+    suspend fun refreshRowOnFocus(context: Context, snap: AddonSnapshot, pkg: String, homeVisible: Boolean) {
+        val key = "row:$pkg"
+        if (!focus.begin(key, version(snap, pkg), homeVisible)) return
+        try { refreshRows(context, snap) } finally { focus.end(key) }
     }
 
     /** The Top Shelf feed of [pkg] and how often it may be asked again, or null. */

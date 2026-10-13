@@ -692,6 +692,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val homeVisible = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
     // Control Center over Home reuses Home's own glass (no screen capture needed).
     val homeScene = backdrop.backdrop
+    // The Top Shelf of an add-on is shown (Home visible, focus on the shelf row): ask again; the repository's own interval (15 min or more) decides.
+    LaunchedEffect(homeVisible, focusedRow == 1, featuredCfg) {
+        val fc = featuredCfg
+        if (homeVisible && focusedRow == 1 && fc?.source == dev.glasslauncher.data.FeaturedSourceId.Addon) graph.featured.refresh(fc, addons = dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings))
+    }
     LaunchedEffect(homeVisible, homeScene) { ControlCenterWindow.homeBackdrop = homeScene.takeIf { homeVisible } }
     // The effect above can't run once an app hides Home (no frames), so the lifecycle clears it on STOP.
     val latestScene = androidx.compose.runtime.rememberUpdatedState(homeScene)
