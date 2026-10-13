@@ -50,3 +50,29 @@ Nothing persists: the policy is unregistered in `finally` and the result file is
 ## Platform evidence (read-only, no device)
 
 `fireos-karat-decompiled` has only member indexes. `jar-framework.members.tsv` still lists `AudioMix.PRIVILEDGED_CAPTURE_MAX_SAMPLE_RATE`, `..._MAX_CHANNEL_NUMBER` and `..._MAX_BYTES_PER_SAMPLE`, so Amazon did not remove the cap fields. The values are not in the index. Whether the check is enforced is what this probe measures.
+
+## Result (stick run, 2026-10-14)
+
+Fire TV Stick 4K 2nd gen, Fire OS 8, debug Glass as a priv-app with `MODIFY_AUDIO_ROUTING` and `CAPTURE_AUDIO_OUTPUT`
+granted after the allowlist refresh and one reboot. (The first run failed in 140 ms for every format: the probe called
+`AudioPolicy.getMixes`, which lives on `AudioPolicyConfig`; fixed in the probe, not a platform limit.)
+
+| What | Result |
+|---|---|
+| Registration of a USAGE_MEDIA loopback mix | accepted, at 48 kHz stereo PCM16, the first rung of the ladder |
+| AOSP's 16 kHz / mono cap for privileged capture | **not enforced** on Fire OS 8: the full format is granted |
+| YouTube playing (capture policy ALL) | audio, about -21 dBFS |
+| Spotify playing (capture policy SYSTEM) | **silent** at 48k/2ch and at 16k/1ch |
+
+### What it means
+
+- Capture quality is not the blocker: a priv-app can get a 48 kHz stereo system-media mix on this build.
+- What gets captured is decided per stream by the app's own `allowedCapturePolicy`. Apps that leave it at ALL (YouTube) can be
+  captured; Spotify sets ALLOW_CAPTURE_BY_SYSTEM (`AudioAttributes.ALLOW_CAPTURE_BY_SYSTEM`, "only the system may capture"), and a
+  priv-app that is not the system gets silence, not an error.
+- So a "route all TV audio to a network speaker" feature built on this works for apps that allow capture and silently drops
+  apps that opt out. It must tell the user which, not pretend.
+- Unverified and NOT recommended without a decision from the user: whether a process running as the system uid (the deferred
+  I11 uid-1000 helper idea) would be allowed to capture SYSTEM-policy streams. That would mean overriding an app's own
+  capture opt-out, which is a product and licensing decision, not just an engineering one: Spotify's terms and its explicit
+  opt-out are the reason for the policy. Nothing here proposes building it.
