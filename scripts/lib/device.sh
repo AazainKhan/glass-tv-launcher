@@ -7,8 +7,8 @@
 # Lock: scripts/stick-lock lets one session claim a device. Input scripts refuse to run while
 # someone else holds it (TV_OWNER names you; TV_FORCE=1 overrides, e.g. the human's live view).
 if [ -z "${ANDROID_SERIAL:-}" ]; then
-  ANDROID_SERIAL="$(adb devices | awk 'NR>1 && $2=="device" && $1 !~ /^emulator-/ {print $1; exit}')"
-  [ -n "$ANDROID_SERIAL" ] || ANDROID_SERIAL="$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')"
+  ANDROID_SERIAL="$( (adb devices || true) | awk 'NR>1 && $2=="device" && $1 !~ /^emulator-/ {print $1; exit}')"
+  [ -n "$ANDROID_SERIAL" ] || ANDROID_SERIAL="$( (adb devices || true) | awk 'NR>1 && $2=="device" {print $1; exit}')"
   export ANDROID_SERIAL
 fi
 TV_LOCK_DIR="${HOME}/.cache/glass-tv"
@@ -22,6 +22,7 @@ lock_owner() {  # prints the current holder of this device's lock, if any and un
 }
 
 require_device_access() {  # call before sending input
+  [ -n "${ANDROID_SERIAL:-}" ] || { echo "$(basename "$0"): no device attached (adb devices shows none)." >&2; exit 3; }
   local owner; owner="$(lock_owner)"
   if [ -n "$owner" ] && [ "$owner" != "${TV_OWNER:-}" ] && [ "${TV_FORCE:-0}" != 1 ]; then
     echo "$ANDROID_SERIAL is locked by \"$owner\" (scripts/stick-lock status). Set TV_OWNER=\"$owner\" if that's you, or TV_FORCE=1." >&2
