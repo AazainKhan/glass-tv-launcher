@@ -37,6 +37,7 @@ object CcCatalog {
         CcCatalogEntry("restart", "Restart", "Restart Fire TV", R.drawable.ic_restart, tier = CcTier.System),
         CcCatalogEntry("power", "Power Off", "Turns off the TV over HDMI-CEC and sleeps the stick", R.drawable.ic_power_settings_new),
         CcCatalogEntry("cleanup", "Clean Up", "Free memory and clear caches", R.drawable.ic_cleaning_services, tier = CcTier.System),
+        CcCatalogEntry("downloads", "Downloads", "Progress and speed; opens the download manager", R.drawable.ic_download),
         CcCatalogEntry("now_playing", "Now Playing", "Play, pause, skip any app", R.drawable.ic_music_note),
     ).filter { it.implemented }
 

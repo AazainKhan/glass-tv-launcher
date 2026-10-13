@@ -132,7 +132,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings, Remotes }
+enum class HomeRequest { Home, ControlCenter, AppSwitcher, TvSettings, Settings, Remotes, Downloads }
 
 private const val SLIDE_MS = 9_000L
 private const val SLIDE_QUIET_MS = 3_000L
@@ -823,11 +823,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
                 // From remote buttons: pressing the same button again closes it.
                 HomeRequest.ControlCenter -> { closeAll(); openControlCenter() }
-                HomeRequest.AppSwitcher, HomeRequest.TvSettings, HomeRequest.Settings, HomeRequest.Remotes -> {
+                HomeRequest.AppSwitcher, HomeRequest.TvSettings, HomeRequest.Settings, HomeRequest.Remotes, HomeRequest.Downloads -> {
                     val target = when (request) {
                         HomeRequest.AppSwitcher -> Overlay.AppSwitcher
                         HomeRequest.Settings -> Overlay.Settings
                         HomeRequest.Remotes -> Overlay.Remotes
+                        HomeRequest.Downloads -> Overlay.Downloads
                         else -> Overlay.TvSettings
                     }
                     val reopen = overlays.lastOrNull() != target
@@ -1827,4 +1828,4 @@ internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
     index >= 0 && stack.lastOrNull() is Overlay.Confirm && index < stack.lastIndex &&
         // Only a full page (Settings and its kin) stays drawn under the card; a side panel or menu goes, so the card is the
         // one glass layer over Home instead of a second one stacked on the panel (P105 #6).
-        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.AppSwitcher, is Overlay.Confirm -> true; else -> false }
+        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.Downloads, Overlay.AppSwitcher, is Overlay.Confirm -> true; else -> false }

@@ -59,6 +59,10 @@ sealed interface Overlay {
         val title: String,
         val initial: String,
         val hint: String = "",
+        /** Shown under the field, newest first; Select takes one and finishes (URL entry's history). */
+        val suggestions: List<String> = emptyList(),
+        /** A "Paste" row that fills the field with this text. */
+        val paste: String? = null,
         val onDone: (String) -> Unit,
     ) : Overlay
     data object Settings : Overlay
@@ -69,6 +73,10 @@ sealed interface Overlay {
     data object TvSettings : Overlay
     /** The paired remotes with their signal, battery and last seen, and how to pair one (P100). */
     data object Remotes : Overlay
+    /** The download manager (P119). */
+    data object Downloads : Overlay
+    /** The app-menu key's list on one download's row. */
+    data class DownloadMenu(val id: String) : Overlay
     /** tvOS's confirmation card: [confirm] first and focused (red when [destructive]), then Cancel. */
     data class Confirm(
         val title: String,
@@ -303,6 +311,8 @@ private val SETTINGS_ICONS = mapOf(
     "Text Size" to dev.glasslauncher.R.drawable.ic_format_size,
     "Control Center" to dev.glasslauncher.R.drawable.ic_tune,
     "Remotes" to dev.glasslauncher.R.drawable.ic_settings_remote,
+    "Downloads" to dev.glasslauncher.R.drawable.ic_download,
+    "My Codes" to dev.glasslauncher.R.drawable.ic_download,
     "Top Shelf Content" to dev.glasslauncher.R.drawable.ic_tv,
     "Hidden Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
     "Hide Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,

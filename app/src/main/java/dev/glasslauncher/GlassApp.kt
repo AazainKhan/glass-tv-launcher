@@ -56,6 +56,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
             }
         }
         dev.glasslauncher.system.RemoteWatch.start(this)
+        // Downloads that were waiting when Glass died (or the stick rebooted) carry on.
+        chore(Dispatchers.IO) { dev.glasslauncher.downloads.Downloads.resumePending(this@GlassApp) }
         // A store visit cut short (Glass restarted): put Glass back as Home.
         chore(Dispatchers.IO) { dev.glasslauncher.system.AmazonStore.close(this@GlassApp, bringHome = false) }
     }

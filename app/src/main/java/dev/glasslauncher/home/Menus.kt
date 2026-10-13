@@ -143,6 +143,8 @@ fun OverlayContent(
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll, close)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
         Overlay.Remotes -> SettingsPage(active) { RemotesPanel(active) }
+        Overlay.Downloads -> SettingsPage(active) { DownloadsPage(model, cfg, active, open, close) }
+        is Overlay.DownloadMenu -> SidePanel(active) { DownloadMenuBody(overlay.id, active, open, close) }
         Overlay.TvSettings -> SettingsPage(active) {
             val context = androidx.compose.ui.platform.LocalContext.current
             MenuList(active) { first ->
@@ -368,6 +370,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
             )
         }
         if (overlay.hint.isNotEmpty()) Hint(overlay.hint)
+        overlay.paste?.let { clip -> MenuRow("Paste", { text = clip }, value = clip.take(28), modifier = Modifier.testTag("text-paste")) }
         Spacer(Modifier.height(8.dp))
         MenuRow("Type on Your Phone", {
             open(Overlay.PhoneSetup(overlay.title, listOf(PhoneField("value", overlay.title, text, overlay.hint))) { values ->
@@ -376,6 +379,10 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
         }, value = "QR code")
         MenuRow("Done", { submit() })
         MenuRow("Cancel", { keyboard?.hide(); close() })
+        if (overlay.suggestions.isNotEmpty()) {
+            SectionLabel("Recent")
+            overlay.suggestions.forEach { s -> MenuRow(s, { text = s; submit() }) }
+        }
     }
 }
 

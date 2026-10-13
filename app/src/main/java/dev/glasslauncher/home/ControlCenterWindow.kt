@@ -384,6 +384,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             Overlay.Settings -> MainActivity.ACTION_SETTINGS
             Overlay.AppSwitcher -> MainActivity.ACTION_APP_SWITCHER
             Overlay.Remotes -> MainActivity.ACTION_REMOTES
+            Overlay.Downloads -> MainActivity.ACTION_DOWNLOADS
             else -> return
         }
         hide()

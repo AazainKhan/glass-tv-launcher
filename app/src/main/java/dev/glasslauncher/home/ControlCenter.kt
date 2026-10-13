@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -1093,6 +1094,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             }
                             "screensaver" -> SizedRound(tile.size, w, h, "Saver", null, R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
                             "switcher" -> SizedRound(tile.size, w, h, "Apps", null, R.drawable.ic_apps, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
+                            "downloads" -> {
+                                val downloads by remember { dev.glasslauncher.downloads.Downloads.queue(context).items }.collectAsState()
+                                val value = dev.glasslauncher.downloads.DownloadText.summary(downloads)
+                                val go = { closeAll(); open(Overlay.Downloads) }
+                                SizedRound(tile.size, w, h, "Downloads", value, R.drawable.ic_download, value?.let { "Downloads, $it" } ?: "Downloads", on = value != null, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { go() }) { tap { go() }() }
+                            }
                             "airplay" -> airPlay?.let { (state, _) ->
                                 // A menu pill, not a toggle (P129): Select opens the platter (receiver on/off, status),
                                 // like tvOS's Audio pill. The pill shows the connection, not an on/off disc.

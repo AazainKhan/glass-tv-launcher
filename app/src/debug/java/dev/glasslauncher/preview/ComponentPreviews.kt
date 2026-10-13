@@ -176,3 +176,32 @@ fun CoverFlowPreview() {
         )
     }
 }
+
+/** The download manager's list on the Settings page wash, with one download in each state. */
+@Composable
+private fun DownloadsPage(light: Boolean) {
+    val items = remember {
+        val mb = 1_000_000L
+        listOf(
+            dev.glasslauncher.downloads.DownloadItem("1", "https://releases.example.com/media-player-4.2.apk", state = dev.glasslauncher.downloads.DownloadState.Active, size = 96 * mb, downloaded = 41 * mb, bytesPerSecond = 3_400_000),
+            dev.glasslauncher.downloads.DownloadItem("2", "https://cdn.example.org/movies/short-film.mp4", state = dev.glasslauncher.downloads.DownloadState.Queued, size = 740 * mb),
+            dev.glasslauncher.downloads.DownloadItem("3", "https://files.example.net/launcher-skin.zip", state = dev.glasslauncher.downloads.DownloadState.Paused, size = 52 * mb, downloaded = 12 * mb),
+            dev.glasslauncher.downloads.DownloadItem("4", "https://example.com/dl/file-manager.apk", state = dev.glasslauncher.downloads.DownloadState.Done, size = 18 * mb, downloaded = 18 * mb, file = "file-manager.apk"),
+            dev.glasslauncher.downloads.DownloadItem("5", "https://example.com/dl/notes.pdf", state = dev.glasslauncher.downloads.DownloadState.Failed, error = "Server answered HTTP 404"),
+        )
+    }
+    val page = dev.glasslauncher.home.SettingsTint.page(null, light)
+    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(page))) {
+        Box(Modifier.padding(horizontal = 45.dp)) {
+            dev.glasslauncher.home.DownloadsList(items, active = true, onAdd = {}, onSelect = {}, onMenu = {}, onPauseAll = {})
+        }
+    }
+}
+
+@Preview(name = "downloads-dark", widthDp = 960, heightDp = 540)
+@Composable
+fun DownloadsDarkPreview() = PreviewStage { DownloadsPage(light = false) }
+
+@Preview(name = "downloads-light", widthDp = 960, heightDp = 540)
+@Composable
+fun DownloadsLightPreview() = PreviewStage(light = true) { DownloadsPage(light = true) }

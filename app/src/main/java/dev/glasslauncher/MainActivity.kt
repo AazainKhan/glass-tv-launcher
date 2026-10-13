@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
             ACTION_APP_SWITCHER -> requests.trySend(HomeRequest.AppSwitcher)
             ACTION_TV_SETTINGS -> requests.trySend(HomeRequest.TvSettings)
             ACTION_REMOTES -> requests.trySend(HomeRequest.Remotes)
+            ACTION_DOWNLOADS -> requests.trySend(HomeRequest.Downloads)
         }
     }
 
@@ -121,6 +122,7 @@ class MainActivity : ComponentActivity() {
         const val ACTION_TV_SETTINGS = "dev.glasslauncher.action.TV_SETTINGS"
         const val ACTION_SETTINGS = "dev.glasslauncher.action.SETTINGS"
         const val ACTION_REMOTES = "dev.glasslauncher.action.REMOTES"
+        const val ACTION_DOWNLOADS = "dev.glasslauncher.action.DOWNLOADS"
 
         @Volatile private var current: java.lang.ref.WeakReference<MainActivity>? = null
 

@@ -268,6 +268,7 @@ object CcControls {
         "controllers" to CIRCLE_PILL, "remotes" to CIRCLE_PILL, "screensaver" to CIRCLE_PILL, "switcher" to CIRCLE_PILL,
         "appearance" to CIRCLE_PILL_BIG, "airplay" to CIRCLE_PILL_BIG, "performance" to CIRCLE_PILL_BIG,
         "memory" to PILL_FIRST,
+        "downloads" to CIRCLE_PILL_BIG,
     )
 
     /** Rows a page holds without scrolling: tvOS's panel is about 867 px tall at 1080p and a row pitch is 112 px. */
