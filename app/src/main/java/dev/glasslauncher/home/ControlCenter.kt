@@ -13,6 +13,7 @@ import android.provider.Settings
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
@@ -150,6 +151,27 @@ private fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, co
             ),
     )
 }
+
+/** Platter push and pop (TVSPAnimator): spring mass 1, stiffness 150, damping 20 is a damping ratio of 20 / (2 * sqrt(150)). */
+private const val PLATTER_STIFFNESS = 150f
+private const val PLATTER_DAMPING = 0.8165f
+private const val PLATTER_FROM_SCALE = 0.3f
+
+/** Where the platter zooms from and to: the pill that opened it, as a fraction of the box the platter fills. Plain fields: no recomposition. */
+private class PlatterSource {
+    var box: androidx.compose.ui.geometry.Rect? = null
+    var id: String? = null
+    val pills = HashMap<String, androidx.compose.ui.geometry.Rect>()
+    fun origin(): androidx.compose.ui.graphics.TransformOrigin {
+        val b = box ?: return androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+        val p = pills[id] ?: return androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+        if (b.width <= 0f || b.height <= 0f) return androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+        return androidx.compose.ui.graphics.TransformOrigin(((p.center.x - b.left) / b.width).coerceIn(0f, 1f), ((p.center.y - b.top) / b.height).coerceIn(0f, 1f))
+    }
+}
+
+private fun Modifier.platterAnchor(source: PlatterSource, id: String): Modifier =
+    onGloballyPositioned { source.pills[id] = it.boundsInWindow() }
 
 /** The close's progress below which the capsule is the pill again and Home's own pill is shown under it. */
 private const val PILL_BACK_AT = 0.02f
@@ -582,6 +604,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // AirPlay is a menu pill, like tvOS's Audio pill: it opens a platter (receiver on/off + status) instead of
     // toggling in place (P129, REA: AirPlay has no on-state of its own in Control Center).
     var airplayPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    val platterSource = remember { PlatterSource() }
     // Edit mode's hint (P101): a small glass toast at the bottom centre when edit mode opens, gone after a few seconds,
     // and back for a moment on the first key pressed in edit mode.
     var hintKick by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -847,19 +870,30 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // The tiles scroll when they're taller than the screen (Now Playing, large text), as tvOS's do;
             // CC_BLEED of room on each side keeps a focused tile's growth and shadow from being clipped.
             val scrollState = androidx.compose.foundation.rememberScrollState()
-            // The grid and the Remotes platter swap with a 200 ms side push both ways (tvOS pushes a module over the page and
-            // pops it back the same way; spring 0.9/700 = tvOS's overlay spring, no bounce).
+            // A platter is pushed as tvOS pushes a module (pushPlatterController:...sourceIdentifier:): it zooms out of the
+            // pill it came from and zooms back into it on pop. Spring mass 1, stiffness 150, damping 20 (ratio 0.8165), rows
+            // and fades 0.25 s. Reduce Motion: a plain cross-fade, nothing scales. Never a cut either way.
             androidx.compose.animation.AnimatedContent(
                 targetState = remotesPlatter || airplayPlatter,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f, fill = false).onGloballyPositioned { platterSource.box = it.boundsInWindow() },
                 transitionSpec = {
                     val push = targetState
-                    val s = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(0.9f, 700f, androidx.compose.ui.unit.IntOffset(1, 1))
-                    val f = androidx.compose.animation.core.spring<Float>(0.9f, 700f)
-                    androidx.compose.animation.ContentTransform(
-                        targetContentEnter = androidx.compose.animation.slideInHorizontally(s) { w -> if (push) w / 3 else -w / 3 } + androidx.compose.animation.fadeIn(f),
-                        initialContentExit = androidx.compose.animation.slideOutHorizontally(s) { w -> if (push) -w / 3 else w / 3 } + androidx.compose.animation.fadeOut(f),
-                    )
+                    val fade = androidx.compose.animation.core.tween<Float>(TOGGLE_FADE_MS)
+                    if (reduceMotion) androidx.compose.animation.ContentTransform(
+                        targetContentEnter = androidx.compose.animation.fadeIn(fade),
+                        initialContentExit = androidx.compose.animation.fadeOut(fade),
+                        sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.tween(TOGGLE_FADE_MS) },
+                    ) else {
+                        val zoom = androidx.compose.animation.core.spring<Float>(PLATTER_DAMPING, PLATTER_STIFFNESS)
+                        val origin = platterSource.origin()
+                        androidx.compose.animation.ContentTransform(
+                            targetContentEnter = if (push) androidx.compose.animation.scaleIn(zoom, PLATTER_FROM_SCALE, origin) + androidx.compose.animation.fadeIn(fade) else androidx.compose.animation.fadeIn(fade),
+                            initialContentExit = if (push) androidx.compose.animation.fadeOut(fade) else androidx.compose.animation.scaleOut(zoom, PLATTER_FROM_SCALE, origin) + androidx.compose.animation.fadeOut(fade),
+                            // The platter is always the one on top: arriving over the grid, leaving over it.
+                            targetContentZIndex = if (push) 1f else -1f,
+                            sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.spring(PLATTER_DAMPING, PLATTER_STIFFNESS, androidx.compose.ui.unit.IntSize(1, 1)) },
+                        )
+                    }
                 },
                 label = "cc-platter",
             ) { showPlatter ->
@@ -1097,7 +1131,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     PillContent(R.drawable.ic_tune, "Launcher Settings", null, fg, on = false, accent = fg)
                                 }
                             }
-                            "remotes" -> SizedRound(tile.size, w, h, "Remotes", null, R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { remotesPlatter = true }) { tap { remotesPlatter = true }() }
+                            "remotes" -> SizedRound(tile.size, w, h, "Remotes", null, R.drawable.ic_settings_remote, "Remotes", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "remotes"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "remotes"; remotesPlatter = true }) { tap { platterSource.id = "remotes"; remotesPlatter = true }() }
                             "controllers" -> SizedRound(tile.size, w, h, "Gamepad", null, R.drawable.ic_sports_esports, "Game Controllers", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.openGameControllers(context) } }) { tap { system { SystemControls.openGameControllers(context) } }() }
                             "appearance" -> SizedRound(tile.size, w, h, "Theme", if (dark) "Dark" else "Light", if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode, if (dark) "Theme, Dark" else "Theme, Light", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }) {
@@ -1115,7 +1149,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 // A menu pill, not a toggle (P129): Select opens the platter (receiver on/off, status),
                                 // like tvOS's Audio pill. The pill shows the connection, not an on/off disc.
                                 val value = when { state.sender != null -> "Connected to ${state.sender}"; state.running -> "On"; else -> "Off" }
-                                SizedRound(tile.size, w, h, "AirPlay", null, R.drawable.ic_airplay, "AirPlay, $value", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { airplayPlatter = true }) { tap { airplayPlatter = true }() }
+                                SizedRound(tile.size, w, h, "AirPlay", null, R.drawable.ic_airplay, "AirPlay, $value", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "airplay"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "airplay"; airplayPlatter = true }) { tap { platterSource.id = "airplay"; airplayPlatter = true }() }
                             }
                             "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "Fast" else "Balanced", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { }) {
@@ -1702,7 +1736,10 @@ private fun CcAirPlayPlatter(
     }
     val rows = remember(found, audioOutput) { dev.glasslauncher.sonos.AudioOutputs.rows(found, audioOutput) }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
-    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-airplay")) {
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    // More rows than the screen holds (receiver controls, speakers, a volume row): scrolls like the grid, edges faded.
+    val scroll = androidx.compose.foundation.rememberScrollState()
+    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccEdgeFade(scroll).verticalScroll(scroll).width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED, vertical = 6.dp).testTag("cc-airplay")) {
         Text("AirPlay", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (airPlay == null) {
             CcTile("AirPlay unavailable", "Install PhairPlay to receive AirPlay", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
@@ -1731,43 +1768,107 @@ private fun CcAirPlayPlatter(
                 }
             }
         }
+        // The tvOS picker (TVSSAudioRoutingPanelPlatterController): the title, This TV, then a "Speakers" section. A click
+        // toggles the row and applies at once; the selected speaker has its volume row (and the mute rule) under it.
         Text("Audio Output", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
-        for (row in rows) {
-            val sub = row.subtitle
-            CcTile(row.title, sub, Shapes.pill, sz.column, sz.pill, onClick = {
-                // Stores the choice only: no SetVolume, no playback ("Play on" below starts it, after consent).
-                edit { it.copy(audioOutput = dev.glasslauncher.sonos.AudioOutputs.choice(row)) }
-            }, modifier = Modifier.testTag("cc-audio-" + row.key), on = row.selected) { fg ->
-                PillContent(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, if (row.selected) row.title + " \u2713" else row.title, sub, fg, on = row.selected, accent = Blue)
-            }
-        }
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
-        if (audioOutput != null) {
-            val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
-            val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
-            val line = dev.glasslauncher.sonos.RouteLifecycle.label(route)
-            CcTile(if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, Shapes.pill, sz.column, sz.pill, onClick = {
-                // Explicit action, never from selecting a row. Consent is asked every time; the speaker's volume is never set.
-                if (busy) dev.glasslauncher.sonos.SonosRoutes.stop(context) else dev.glasslauncher.sonos.SonosRoutes.start(context, audioOutput, muteTv && canMute)
-            }, modifier = Modifier.testTag("cc-audio-route"), on = busy) { fg ->
-                PillContent(R.drawable.ic_airplay, if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, fg, on = busy, accent = Blue)
+        val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
+        fun pick(row: dev.glasslauncher.sonos.AudioOutputRow) {
+            val change = dev.glasslauncher.sonos.OutputToggle.click(audioOutput, row)
+            edit { it.copy(audioOutput = change.choice) }
+            for (c in change.commands) when (c) {
+                dev.glasslauncher.sonos.OutputCommand.Stop -> dev.glasslauncher.sonos.SonosRoutes.stop(context)
+                // Consent is asked every time; the speaker's volume is never set here.
+                is dev.glasslauncher.sonos.OutputCommand.Start -> dev.glasslauncher.sonos.SonosRoutes.start(context, c.speaker, muteTv && canMute)
             }
-            // HDMI is a fixed-volume output on Fire TV: Android ignores a local mute there (the TV owns its volume over
-            // CEC), so a toggle would promise something it can't do. Offer it only where a local mute works.
-            if (canMute) {
-                CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
-                    modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
-                    PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
-                }
-            } else if (busy) {
-                CcTile("Use your TV remote to mute the TV", null, Shapes.pill, sz.column, sz.pill, onClick = {},
-                    modifier = Modifier.testTag("cc-audio-mute-note"), on = false) { fg ->
-                    PillContent(R.drawable.ic_tv, "TV sound", "Use your TV remote to mute", fg, on = false, accent = fg)
+        }
+        for ((i, row) in rows.withIndex()) {
+            if (i == 1) Text("Speakers", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+            Column {
+                CcRouteRow(sz, row, dev.glasslauncher.sonos.AudioOutputs.subtitle(row, route)) { pick(row) }
+                val speaker = row.speaker
+                if (speaker != null) androidx.compose.animation.AnimatedVisibility(
+                    visible = row.selected,
+                    enter = if (reduceMotion) androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)) else androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)),
+                    exit = if (reduceMotion) androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)) else androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.padding(top = sz.gap)) {
+                        CcVolumeRow(sz, speaker)
+                        val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
+                        // HDMI is a fixed-volume output on Fire TV: Android ignores a local mute there (the TV owns its volume over
+                        // CEC), so a toggle would promise something it can't do. Offer it only where a local mute works.
+                        if (canMute) {
+                            CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
+                                modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
+                                PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
+                            }
+                        } else if (busy) {
+                            CcTile("Use your TV remote to mute the TV", null, Shapes.pill, sz.column, sz.pill, onClick = {},
+                                modifier = Modifier.testTag("cc-audio-mute-note"), on = false) { fg ->
+                                PillContent(R.drawable.ic_tv, "TV sound", "Use your TV remote to mute", fg, on = false, accent = fg)
+                            }
+                        }
+                    }
                 }
             }
         }
-        CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->
-            PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
+    }
+}
+
+/** One picker row (TVSSAudioRouteRenderer, format 8): glyph, name, a one-line subtitle, and checkmark.circle.fill or circle. */
+@Composable
+private fun CcRouteRow(sz: CcSizes, row: dev.glasslauncher.sonos.AudioOutputRow, subtitle: String?, onClick: () -> Unit) {
+    CcTile(row.title, listOfNotNull(subtitle, if (row.selected) "selected" else null).joinToString(", ").ifEmpty { null }, Shapes.pill, sz.column, sz.pill, onClick = onClick,
+        modifier = Modifier.testTag("cc-audio-" + row.key), on = false) { fg ->
+        val focused = LocalCcTileFocused.current
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 12.dp)) {
+            Box(Modifier.size(sz.disc).background(Color.White.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                Glyph(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, fg, Modifier.size(sz.discGlyph))
+            }
+            Column(Modifier.weight(1f).padding(start = 7.dp)) {
+                PillText(row.title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
+                subtitle?.let { PillText(it, Type.caption.copy(lineHeight = 15.sp), fg.copy(alpha = 0.7f)) }
+            }
+            // The mark changes over 0.25 s (tvOS's row property animator), never pops.
+            androidx.compose.animation.Crossfade(row.selected, animationSpec = androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "route-mark") { sel ->
+                Glyph(if (sel) R.drawable.ic_check_circle_fill else R.drawable.ic_circle, if (sel && !focused) Blue else fg, Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+/**
+ * The selected speaker's volume row. It reads GetVolume once when it appears and sets the volume only when the user
+ * presses Left or Right on it (throttled); appearing or selecting never sets anything.
+ */
+@Composable
+private fun CcVolumeRow(sz: CcSizes, speaker: dev.glasslauncher.data.AudioOutputConfig) {
+    val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
+    val control = remember(speaker.host) { dev.glasslauncher.sonos.SonosControl("http://${speaker.host}:1400") }
+    val sender = remember(speaker.host) {
+        dev.glasslauncher.sonos.ThrottledVolume(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO), 150) { v -> runCatching { control.setVolume(v) } }
+    }
+    val model = remember(speaker.host) { dev.glasslauncher.sonos.VolumeRowModel { sender.set(it) } }
+    androidx.compose.runtime.DisposableEffect(sender) { onDispose { sender.close() } }
+    LaunchedEffect(speaker.host) { runCatching { dev.glasslauncher.sonos.AudioOutputs.volumeReader(speaker.host) }.onSuccess { model.load(it) } }
+    val level = model.volume
+    CcTile("Volume", level?.let { "$it%" }, Shapes.pill, sz.column, sz.pill, onClick = {}, onPlay = null,
+        modifier = Modifier.testTag("cc-audio-volume").onPreviewKeyEvent { e ->
+            val k = e.nativeKeyEvent.keyCode
+            if (k != android.view.KeyEvent.KEYCODE_DPAD_LEFT && k != android.view.KeyEvent.KEYCODE_DPAD_RIGHT) return@onPreviewKeyEvent false
+            if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) model.nudge(if (k == android.view.KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+            true
+        }) { fg ->
+        val shown by androidx.compose.animation.core.animateFloatAsState((level ?: 0) / 100f, if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(120), label = "volume")
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 14.dp)) {
+            Box(Modifier.size(sz.disc).background(Color.White.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                Glyph(R.drawable.ic_volume_up, fg, Modifier.size(sz.discGlyph))
+            }
+            Canvas(Modifier.weight(1f).padding(start = 10.dp).height(6.dp)) {
+                val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+                drawRoundRect(fg.copy(alpha = 0.28f), cornerRadius = r)
+                if (level != null) drawRoundRect(fg, size = androidx.compose.ui.geometry.Size(size.width * shown, size.height), cornerRadius = r)
+            }
         }
     }
 }

@@ -23,7 +23,19 @@ class CcNowPlayingTest {
     @get:Rule val compose = createEmptyComposeRule()
     @get:Rule val pinnedClock = PinnedClockRule()
 
-    @After fun reset() { NowPlayingFixture.state = null }
+    @After fun reset() {
+        NowPlayingFixture.state = null
+        dev.glasslauncher.sonos.AudioOutputs.volumeReader = { host -> dev.glasslauncher.sonos.SonosControl("http://$host:1400").getVolume() }
+        hubField().set(null, null)
+    }
+
+    private fun hubField() = dev.glasslauncher.system.AirPlay::class.java.getDeclaredField("hubInstance").apply { isAccessible = true }
+
+    private class Link : dev.glasslauncher.system.AirPlayLink {
+        override fun target() = android.content.ComponentName("com.phairplay.firetv", "com.phairplay.service.ControlReceiver")
+        override fun send(intent: android.content.Intent) = true
+        override fun listen(onEvent: (dev.glasslauncher.system.AirPlayProtocol.Event) -> Unit, onPackages: () -> Unit) {}
+    }
 
     private val track = NowPlaying(
         "Spider-Man", "Sony Pictures", null, "airplay", null, durationMs = 8_158_000, positionMs = 542_000,
@@ -46,6 +58,31 @@ class CcNowPlayingTest {
             check(card.top >= last.bottom) { "card ${card.top} overlaps the grid (${last.bottom})" }
             check(card.bottom <= panel.bottom) { "card ${card.bottom} outside the panel (${panel.bottom})" }
             compose.onRoot().captureRoboImage(shot("cc-now-playing"))
+        }
+    }
+
+    /** Now Playing under the grid, then the AirPlay platter pushed from its pill: no Back row, the picker's rows, the volume row. */
+    @Test fun platterWithTheCardOnTheGrid() {
+        NowPlayingFixture.state = MutableStateFlow(track)
+        // A PhairPlay that answers: the AirPlay pill shows, as on the stick.
+        hubField().set(null, dev.glasslauncher.system.AirPlayHub(Link(), background = { it.run() }, main = { it.run() }))
+        dev.glasslauncher.sonos.AudioOutputs.volumeReader = { 35 }
+        TvHarness.setUp(config = { it.copy(audioOutput = dev.glasslauncher.data.AudioOutputConfig("10.0.0.5", "Kitchen")) })
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            compose.press(Button.Down, Button.Down, Button.Right)
+            check(compose.focused()?.startsWith("cc-tile:airplay") == true) { "focus ${compose.focused()}" }
+            compose.press(Button.Select)
+            compose.waitForTag("cc-airplay")
+            compose.settle()
+            compose.onRoot().captureRoboImage(shot("cc-airplay-platter"))
+            // Back pops the platter into its pill; a second Back would close Control Center.
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.settle()
+            check(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("cc-airplay")).fetchSemanticsNodes().isEmpty()) { "platter still up after Back" }
         }
     }
 }
