@@ -286,3 +286,91 @@ class DynamicFormTest {
         assertNull(f.showIf); assertNull(f.optionsFrom)
     }
 }
+
+class FormReviewTest {
+    private fun field(id: String, type: String = "toggle", showIf: ShowIf? = null, optionsFrom: String? = null, choices: List<Choice> = emptyList()) =
+        FormField(id, type, id.uppercase(), choices = choices, showIf = showIf, optionsFrom = optionsFrom)
+    private fun form(vararg f: FormField) = AddonContent.form(AddonCodec.encodeForm(FormReply(fields = f.toList())), "S")!!
+    private val opts = listOf(Choice("a", "A"), Choice("b", "B"))
+
+    @Test fun aDependencyChangeStartsFromTheStaticOptionsAndAFailureIsUnavailableAndNotSelectable() {
+        val f = field("dyn", "choice", optionsFrom = "x", choices = opts)
+        val start = FormRules.initialOptions(f)
+        assertEquals(opts, start.choices); assertEquals(FormRules.Status.Loading, start.status) // not the old dependency's options
+        val failed = FormRules.Options(emptyList(), FormRules.Status.Failed)
+        assertEquals("Unavailable", FormRules.choiceText(failed, "a")); assertFalse(FormRules.choiceSelectable(failed))
+        assertTrue(FormRules.choiceSelectable(FormRules.Options(opts, FormRules.Status.Ready)))
+    }
+
+    @Test fun aStoredValueThatIsNotAnOptionShowsNotSetNeverAnotherValue() {
+        val ready = FormRules.Options(listOf(Choice("cocoa", "Cocoa"), Choice("caramel", "Caramel")), FormRules.Status.Ready)
+        assertEquals("Not set", FormRules.choiceText(ready, "sprinkles")); assertEquals("Not set", FormRules.choiceText(ready, ""))
+        assertEquals("Caramel", FormRules.choiceText(ready, "caramel"))
+        assertEquals("cocoa", FormRules.next(ready.choices, "sprinkles")) // Select from "Not set" picks the first, and stores it
+    }
+
+    @Test fun nothingStaysOnLoadingForever() {
+        assertEquals("Loading…", FormRules.choiceText(FormRules.Options(emptyList(), FormRules.Status.Loading), ""))
+        assertEquals("Unavailable", FormRules.choiceText(FormRules.Options(emptyList(), FormRules.Status.Failed), ""))
+        assertEquals("A", FormRules.choiceText(FormRules.Options(opts, FormRules.Status.Loading), "a")) // static options meanwhile
+    }
+
+    @Test fun dependenciesAreOneLevelDeepWhateverTheirKind() {
+        val f = form(
+            field("root"), field("c1", "choice", choices = opts),
+            field("a", "choice", optionsFrom = "c1"), // ok
+            field("b", "choice", optionsFrom = "a"), // optionsFrom chain
+            field("cyc1", "choice", optionsFrom = "cyc2"), field("cyc2", "choice", optionsFrom = "cyc1"), // cycle
+            field("s1", "text", showIf = ShowIf("a", "x")), // showIf on a field that has an optionsFrom
+            field("s2", "text", showIf = ShowIf("root", "true")), field("o2", "choice", optionsFrom = "s2"), // optionsFrom on a field with a showIf
+        ).fields.map { it.id }
+        assertEquals(listOf("root", "c1", "a", "s2"), f)
+    }
+
+    @Test fun rulesAreResolvedAgainstTheFinalList() {
+        // "dead" is dropped (bad rule); "child" points at it, so it must go too instead of being hidden forever.
+        val f = form(field("t"), field("dead", "text", showIf = ShowIf("ghost", "x")), field("child", "text", showIf = ShowIf("dead", "x")), field("ok", "text", showIf = ShowIf("t", "true")))
+        assertEquals(listOf("t", "ok"), f.fields.map { it.id })
+    }
+
+    @Test fun sameValueForgetsNothingAndARealChangeForgetsDependents() {
+        val fields = listOf(field("flavour", "choice", choices = opts), field("topping", "choice", optionsFrom = "flavour"))
+        assertTrue(FormRules.dependentsOnChange(fields, "flavour", "a", "a").isEmpty())
+        assertEquals(listOf("topping"), FormRules.dependentsOnChange(fields, "flavour", "a", "b"))
+    }
+
+    @Test fun aReadThatWasNeverMadeDoesNotTouchTheMarks() {
+        val ok = ProviderResult.Ok("row")
+        assertEquals(AddonSurfaces.RowDecision.Replace, AddonSurfaces.rowDecision(ok, null, 0))
+        assertEquals(AddonSurfaces.RowDecision.Nothing, AddonSurfaces.rowDecision(ProviderResult.Skipped, 1_000, 2_000)) // rate limited: the fresh 15 min mark stays
+        assertEquals(AddonSurfaces.RowDecision.KeepAndRetry, AddonSurfaces.rowDecision(ProviderResult.Failed, 1_000, 2_000))
+        assertEquals(AddonSurfaces.RowDecision.ClearAndRetry, AddonSurfaces.rowDecision(ProviderResult.Failed, 1_000, 2_000 + AddonSurfaces.STALE_MS))
+        assertEquals(AddonSurfaces.RowDecision.ClearAndRetry, AddonSurfaces.rowDecision(ProviderResult.Failed, null, 5))
+    }
+
+    @Test fun nothingEnabledMeansNoScan() {
+        assertTrue(AddonSurfaces.nothingToRefresh(AddonSnapshot.NONE, haveRows = false))
+        assertFalse(AddonSurfaces.nothingToRefresh(AddonSnapshot(mapOf("p" to "c"), emptyMap()), false))
+        assertFalse(AddonSurfaces.nothingToRefresh(AddonSnapshot.NONE, haveRows = true)) // a row to clear
+        assertFalse(AddonSurfaces.nothingToRefresh(AddonSnapshot(emptyMap(), mapOf("p/x" to "1")), false)) // settings to purge
+    }
+
+    @Test fun optionReadsAreCappedPerAddonPerMinute() {
+        var t = 0L
+        val p = AddonPolicy({ t })
+        repeat(20) { assertTrue(p.windowAcquire("a", "options", 20, 60_000)); t += 100 }
+        assertFalse(p.windowAcquire("a", "options", 20, 60_000)) // the 21st inside the minute
+        assertTrue(p.windowAcquire("b", "options", 20, 60_000)) // another add-on has its own
+        t = 60_000; assertTrue(p.windowAcquire("a", "options", 20, 60_000)) // the oldest ones have aged out
+        repeat(3) { p.report("a", false) }
+        assertFalse(p.windowAcquire("a", "options", 20, 60_000)) // muted
+    }
+
+    @Test fun onlyIdsTheReplyDoesNotNameLoseTheirValuesNotFieldsWithABrokenRule() {
+        val f = form(field("t"), field("broken", "text", showIf = ShowIf("ghost", "x")))
+        assertEquals(listOf("t"), f.fields.map { it.id }); assertEquals(setOf("t", "broken"), f.declared) // rejected, but still declared
+        val stored = mapOf("p/t" to "true", "p/broken" to "keep me", "p/gone" to "x")
+        assertEquals(setOf("p/gone"), AddonPurge.undeclared(stored, "p", f.declared))
+        assertNull(AddonContent.form("""{"fields":"junk"}""", "S")) // a malformed reply is no form at all: nothing is purged from it
+    }
+}

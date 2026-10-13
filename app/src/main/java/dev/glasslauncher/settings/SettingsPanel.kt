@@ -1419,15 +1419,18 @@ private fun ColumnScope.AddonFormPage(model: HomeModel, cfg: LauncherConfig, pkg
     PanelTitle(form.first?.title ?: "Add-on")
     val shown = form.first
     // Values for fields the add-on no longer declares are dropped.
+    // Only a valid reply decides this, and only ids it does not name at all: a rule Glass rejected keeps the field's value.
     androidx.compose.runtime.LaunchedEffect(shown) {
-        if (shown != null) dev.glasslauncher.addons.AddonPurge.undeclared(cfg.addonSettings, pkg, shown.fields.map { it.id }.toSet()).takeIf { it.isNotEmpty() }
+        if (shown != null) dev.glasslauncher.addons.AddonPurge.undeclared(cfg.addonSettings, pkg, shown.declared).takeIf { it.isNotEmpty() }
             ?.let { stale -> model.edit { c -> c.copy(addonSettings = c.addonSettings - stale) } }
     }
     if (shown == null) { Hint(if (form.second) "Couldn't reach the add-on." else "Loading…"); Box(Modifier.size(1.dp)); return }
     Hint("From an add-on. Glass keeps these values and sends them to the add-on.")
     val stored = snap.valuesOf(pkg)
     fun set(id: String, v: String) {
-        val stale = dev.glasslauncher.addons.FormRules.dependents(shown.fields, id).map { "$pkg/$it" }.toSet()
+        // Dependents are forgotten only when the value really changes.
+        val old = shown.fields.firstOrNull { it.id == id }?.let { dev.glasslauncher.addons.FormRules.valueOf(it, stored) } ?: ""
+        val stale = dev.glasslauncher.addons.FormRules.dependentsOnChange(shown.fields, id, old, dev.glasslauncher.addons.AddonContent.value(v)).map { "$pkg/$it" }.toSet()
         model.edit { c -> c.copy(addonSettings = c.addonSettings - stale + ("$pkg/$id" to dev.glasslauncher.addons.AddonContent.value(v))) }
     }
     val cache = remember(pkg) { dev.glasslauncher.addons.OptionsCache() }
@@ -1441,15 +1444,21 @@ private fun ColumnScope.AddonFormPage(model: HomeModel, cfg: LauncherConfig, pkg
                 "toggle" -> ToggleRow(fl.label, v == "true", { on -> set(fl.id, on.toString()) }, mod, help = fl.help)
                 "choice" -> {
                     val dep = fl.optionsFrom?.let { d -> shown.fields.firstOrNull { it.id == d }?.let { dev.glasslauncher.addons.FormRules.valueOf(it, stored) } }
-                    val options by androidx.compose.runtime.produceState(fl.choices, fl.id, dep) {
+                    // Another read when this row gains focus while its last one failed (never on a timer).
+                    var retry by remember(fl.id) { mutableStateOf(0) }
+                    val options by androidx.compose.runtime.produceState(dev.glasslauncher.addons.FormRules.initialOptions(fl), fl.id, dep, retry) {
+                        // A new dependency value starts from the static options, never the previous dependency's.
+                        value = dev.glasslauncher.addons.FormRules.initialOptions(fl)
                         if (fl.optionsFrom == null || dep == null) return@produceState
                         val hit = cache.get(fl.id, dep)
-                        if (hit != null) { value = hit; return@produceState }
-                        dev.glasslauncher.addons.AddonSurfaces.options(context, snap, pkg, fl.id)?.let { cache.put(fl.id, dep, it); value = it }
+                        if (hit != null) { value = dev.glasslauncher.addons.FormRules.Options(hit, dev.glasslauncher.addons.FormRules.Status.Ready); return@produceState }
+                        val got = dev.glasslauncher.addons.AddonSurfaces.options(context, snap, pkg, fl.id)
+                        if (got != null) { cache.put(fl.id, dep, got); value = dev.glasslauncher.addons.FormRules.Options(got, dev.glasslauncher.addons.FormRules.Status.Ready) }
+                        else value = dev.glasslauncher.addons.FormRules.Options(emptyList(), dev.glasslauncher.addons.FormRules.Status.Failed)
                     }
-                    if (options.isEmpty()) MenuRow(fl.label, {}, mod, value = "Loading…", help = fl.help)
-                    else MenuRow(fl.label, { set(fl.id, dev.glasslauncher.addons.FormRules.next(options, v)) }, mod,
-                        value = options.firstOrNull { it.value == v }?.label ?: options.first().label, help = fl.help)
+                    val failed = options.status == dev.glasslauncher.addons.FormRules.Status.Failed
+                    MenuRow(fl.label, { if (dev.glasslauncher.addons.FormRules.choiceSelectable(options)) set(fl.id, dev.glasslauncher.addons.FormRules.next(options.choices, v)) },
+                        mod.onFocusChanged { if (it.hasFocus && failed) retry++ }, value = dev.glasslauncher.addons.FormRules.choiceText(options, v), help = fl.help)
                 }
                 "text" -> MenuRow(fl.label, { open(Overlay.TextInput(fl.label, v, fl.help ?: "") { t -> set(fl.id, t) }) }, mod, value = v.ifEmpty { "Not set" }, help = fl.help)
                 else -> MenuRow(fl.label, {

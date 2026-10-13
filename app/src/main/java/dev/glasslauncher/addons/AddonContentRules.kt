@@ -99,7 +99,8 @@ class FocusRefresh(private val gate: IntervalGate) {
 /** What an add-on's content looks like once Glass has made it safe to draw. */
 data class SafeRow(val title: String, val items: List<SafeCard>, val refreshMinutes: Int)
 data class SafeCard(val id: String, val title: String, val subtitle: String?, val image: String?, val action: AddonAction?)
-data class SafeForm(val title: String, val fields: List<FormField>)
+/** [declared]: every valid field id the reply named, including ones Glass rejected (a broken rule): only ids missing from it lose their stored values. */
+data class SafeForm(val title: String, val fields: List<FormField>, val declared: Set<String> = fields.map { it.id }.toSet())
 
 object AddonContent {
     const val MAX_ITEMS = 30
@@ -167,19 +168,27 @@ object AddonContent {
             f.copy(label = label, help = AddonText.clean(f.help, 120).ifEmpty { null }, choices = if (f.type == "choice") choices else emptyList(), default = default,
                 showIf = show, optionsFrom = if (dynamic) f.optionsFrom else null)
         }.take(MAX_FIELDS).toList()
-        // Rules are checked against the fields that survived: a field with a broken rule is dropped, never shown unconditionally.
-        // Depth is 1: a rule may only point at a field that has no rule itself; nothing is ever evaluated as code.
-        val byId = first.associateBy { it.id }
-        val fields = first.filter { f ->
-            val s = f.showIf
-            val o = f.optionsFrom
-            val r1 = s == null || (s.field != f.id && s.equals.isNotEmpty() && byId[s.field]?.let { it.type in RULE_TYPES && it.showIf == null } == true)
-            val r2 = o == null || (f.type == "choice" && o != f.id && byId[o]?.type in RULE_TYPES)
-            val noRawOptionsFrom = f.type == "choice" || f.optionsFrom == null
-            r1 && r2 && noRawOptionsFrom
+        // Rules are checked against the FINAL field list, repeatedly: a field whose rule is broken, or whose target was itself dropped, goes
+        // too (never shown unconditionally, never hidden forever). Dependencies are one level deep: a field that depends on another
+        // (showIf or optionsFrom) may only point at a field with no dependency of its own, so there are no chains and no cycles.
+        var fields = first
+        while (true) {
+            val byId = fields.associateBy { it.id }
+            val kept = fields.filter { f ->
+                val s = f.showIf
+                val o = f.optionsFrom
+                val r1 = s == null || (s.field != f.id && s.equals.isNotEmpty() && isRoot(byId[s.field]))
+                val r2 = o == null || (f.type == "choice" && o != f.id && isRoot(byId[o]))
+                r1 && r2
+            }
+            if (kept.size == fields.size) break
+            fields = kept
         }
-        return SafeForm(AddonText.clean(r.title, 32).ifEmpty { addon }, fields)
+        return SafeForm(AddonText.clean(r.title, 32).ifEmpty { addon }, fields, r.fields.filter { ID.matches(it.id) }.map { it.id }.toSet())
     }
+
+    /** A valid rule target: a field a user can have a value for, that depends on nothing itself. */
+    private fun isRoot(f: FormField?) = f != null && f.type in RULE_TYPES && f.showIf == null && f.optionsFrom == null
 
     private fun cleanChoices(list: List<dev.glasslauncher.addon.Choice>) = list.take(MAX_CHOICES).mapNotNull { c ->
         val v = AddonText.clean(c.value, MAX_VALUE).ifEmpty { return@mapNotNull null }
@@ -219,8 +228,28 @@ object FormRules {
         rule == null || fields.firstOrNull { it.id == rule.field }?.let { valueOf(it, stored) == rule.equals } == true
     }
 
+    /** The dependents to forget when [changed] goes from [old] to [new]: none if the value is the same (selecting the current value changes nothing). */
+    fun dependentsOnChange(fields: List<FormField>, changed: String, old: String, new: String): List<String> = if (old == new) emptyList() else dependents(fields, changed)
+
     /** Dynamic choices that depend on [changed]: their stored value no longer fits the new options, so Glass forgets it (they fall back to the default). */
     fun dependents(fields: List<FormField>, changed: String): List<String> = fields.filter { it.optionsFrom == changed }.map { it.id }
+
+    /** What a dynamic choice shows: its options may still be loading (static ones meanwhile), ready, or unavailable (the call failed). */
+    enum class Status { Loading, Ready, Failed }
+    data class Options(val choices: List<dev.glasslauncher.addon.Choice>, val status: Status)
+
+    /** Right after the dependency changes: forget the old dependency's options, show the field's static ones. */
+    fun initialOptions(f: FormField) = Options(f.choices, Status.Loading)
+
+    /** The text a choice row shows: the stored value's label, "Not set" if it is not one of the options (never a value that is not stored), "Unavailable" / "Loading…" while there is nothing to pick. */
+    fun choiceText(o: Options, stored: String): String = when {
+        o.status == Status.Failed -> "Unavailable"
+        o.choices.isEmpty() -> "Loading…"
+        else -> o.choices.firstOrNull { it.value == stored }?.label ?: "Not set"
+    }
+
+    /** Whether Select does anything: only with real options to pick from. */
+    fun choiceSelectable(o: Options) = o.status != Status.Failed && o.choices.isNotEmpty()
 
     /** The value after [current] in [choices] (wrapping); the first when [current] is not among them. */
     fun next(choices: List<dev.glasslauncher.addon.Choice>, current: String): String =

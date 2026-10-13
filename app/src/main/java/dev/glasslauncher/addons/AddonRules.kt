@@ -100,6 +100,19 @@ class AddonPolicy(private val now: () -> Long, private val minGapMs: Long = 1_00
         return n >= failsToMute && muted.add(pkg)
     }
 
+    private val windows = HashMap<String, ArrayDeque<Long>>()
+
+    /** At most [max] calls per [windowMs] for ([pkg], [key]): a sliding-window budget on top of the per-second gap. */
+    @Synchronized fun windowAcquire(pkg: String, key: String, max: Int, windowMs: Long): Boolean {
+        if (pkg in muted) return false
+        val t = now()
+        val q = windows.getOrPut("$pkg/$key") { ArrayDeque() }
+        while (q.isNotEmpty() && t - q.first() >= windowMs) q.removeFirst()
+        if (q.size >= max) return false
+        q.addLast(t)
+        return true
+    }
+
     /** How long until a call to [pkg]'s [tile] is allowed again (0 = now). Used to queue one pending press instead of dropping it. */
     @Synchronized fun nextAllowedIn(pkg: String, tile: String): Long = last["$pkg/$tile"]?.let { (minGapMs - (now() - it)).coerceAtLeast(0) } ?: 0L
 
@@ -218,4 +231,11 @@ sealed interface ActionOutcome {
     data class Done(val notice: String?) : ActionOutcome
     data object Dropped : ActionOutcome
     data class Unavailable(val title: String?) : ActionOutcome
+}
+
+/** What a provider call came to: not asked (refused, rate limited, muted), asked and failed, or an answer. */
+sealed interface ProviderResult<out T> {
+    data object Skipped : ProviderResult<Nothing>
+    data object Failed : ProviderResult<Nothing>
+    data class Ok<T>(val value: T) : ProviderResult<T>
 }

@@ -137,23 +137,30 @@ internal object AddonHost {
         }
     }
 
+    /** Up to 20 option reads a minute per add-on, however many fields it has (a form cannot hammer its provider). */
+    fun optionsBudget(pkg: String): Boolean = policy.windowAcquire(pkg, "options", 20, 60_000)
+
     /**
      * One provider call for a Top Shelf, Home row or Settings point: the add-on must be installed, compatible, switched on
      * with its current certificate, and declare [point]; then the shared budget applies (rate limit, mute, 2 s, one call at a
-     * time). A reply that does not parse is a failure. Null = no content (and, if it was a failure, counted).
+     * time). [ProviderResult.Skipped] = nothing was asked (refused, rate limited, muted); [ProviderResult.Failed] = it was asked and the
+     * reply was junk, an error or too late (counted toward muting).
      */
-    suspend fun <T> provider(context: Context, snap: AddonSnapshot, pkg: String, point: String, method: String, request: ProviderRequest, budgetKey: String = method, parse: (String?) -> T?): T? = withContext(Dispatchers.IO) {
-        val info = AddonScanner.scan(context, pkg).firstOrNull() ?: return@withContext null
-        if (!info.compatible || !AddonTrust.isEnabled(snap.enabled, info.pkg, info.cert) || point !in info.points || info.authority == null) return@withContext null
-        if (!policy.tryAcquire(pkg, budgetKey)) return@withContext null
+    suspend fun <T> providerResult(context: Context, snap: AddonSnapshot, pkg: String, point: String, method: String, request: ProviderRequest, budgetKey: String = method, parse: (String?) -> T?): ProviderResult<T> = withContext(Dispatchers.IO) {
+        val info = AddonScanner.scan(context, pkg).firstOrNull() ?: return@withContext ProviderResult.Skipped
+        if (!info.compatible || !AddonTrust.isEnabled(snap.enabled, info.pkg, info.cert) || point !in info.points || info.authority == null) return@withContext ProviderResult.Skipped
+        if (!policy.tryAcquire(pkg, budgetKey)) return@withContext ProviderResult.Skipped
         lock(pkg).withLock {
             val t0 = SystemClock.elapsedRealtime()
             val out = parse(AddonClient.provider(context, info, method, AddonCodec.encodeProviderRequest(request)))
             Log.i(TAG, "$pkg $method ${SystemClock.elapsedRealtime() - t0} ms ok=${out != null}")
             if (policy.report(pkg, out != null)) shown.failPkg(pkg, true)
-            out
+            if (out != null) ProviderResult.Ok(out) else ProviderResult.Failed
         }
     }
+
+    suspend fun <T> provider(context: Context, snap: AddonSnapshot, pkg: String, point: String, method: String, request: ProviderRequest, budgetKey: String = method, parse: (String?) -> T?): T? =
+        (providerResult(context, snap, pkg, point, method, request, budgetKey, parse) as? ProviderResult.Ok<T>)?.value
 
     /** Glass's own template glyphs an add-on can name; anything else gets the puzzle piece. */
     @DrawableRes fun glyph(key: String): Int = when (key) {

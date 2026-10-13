@@ -62,11 +62,11 @@ for fields you stop declaring, and for an uninstalled add-on, are deleted.
 **Dynamic forms.** A field can depend on another field's value, and Glass works it out locally from the values it stores (nothing of
 yours runs):
 - `showIf = ShowIf(field, equals)`: the field is drawn only while that other field has that value (a toggle's value is "true"/"false").
-  The other field must itself have no rule (nesting depth is 1); a broken rule drops the field.
+  The other field must itself have no dependency (no `showIf`, no `optionsFrom`): nesting depth is 1, so no chains or cycles. A broken rule, or a rule whose target was dropped, drops the field (its stored value is kept as long as your reply still names it).
 - `optionsFrom = "<field id>"` (on a `choice`): the options come from your provider's `fieldOptions(req)` (method `getFieldOptions`,
   `req.id` = the field, `req.values` = the current values) and are asked for again **only when that other field's value changes**. Static
   `choices` show until the answer arrives (they may be empty). When the field it depends on changes, Glass forgets the dependent's stored
-  value. Up to 8 options per reply; a default can only be checked against the static options.
+  value. Up to 8 options per reply, at most 20 option reads a minute per add-on; a default can only be checked against the static options. While the options load Glass shows the static ones, "Unavailable" if the call fails (retried when the row is focused again), and "Not set" for a stored value that is not one of the options.
 - The same caps apply (12 fields, 8 options, printable text). Hidden fields keep their stored values; values of fields you stop declaring are
   purged. You still read everything from `ProviderRequest.values`.
 
