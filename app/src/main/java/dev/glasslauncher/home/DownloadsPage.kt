@@ -66,6 +66,7 @@ fun DownloadsPage(
 
     fun begin(plan: Plan.Start) {
         val d = config.downloads
+        if (queue.items.value.none { it.state != DownloadState.Failed }) Downloads.askNotifications(context)
         queue.setSegments(d.segments)
         queue.setConcurrency(d.concurrent)
         runCatching { queue.add(plan.url, plan.name, plan.sha256) }
@@ -106,7 +107,7 @@ fun DownloadsPage(
                     val file = File(Downloads.folder(context), item.file ?: return@DownloadsList)
                     when {
                         !file.exists() -> RemoteNotice.show(context, "That file is gone")
-                        DownloadText.isApk(item) -> apk.start(item.id, file, item.expectedSha256 == null) { queue.remove(item.id, deleteFile = true) }
+                        DownloadText.isApk(item) -> apk.start(item.id, file, item.expectedSha256) { queue.remove(item.id, deleteFile = true) }
                         else -> DownloadText.open(context, file)
                     }
                 }

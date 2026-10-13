@@ -3,6 +3,7 @@ package dev.glasslauncher.downloads
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -271,10 +272,12 @@ class DownloadEngineTest {
     }
 
     @Test fun sweepRemovesOnlyOrphanPartFiles() {
-        val keep = listOf("k.part", "k.part.json", "plain.apk")
-        val drop = listOf("x.part", "x.part.json", "x.part.json.tmp")
+        val k = "11111111-1111-1111-1111-111111111111"; val x = "22222222-2222-2222-2222-222222222222"
+        // A user's own "movie.part" or "notes.part.json" is not a download's file and stays.
+        val keep = listOf("$k.part", "$k.part.json", "plain.apk", "movie.part", "notes.part.json")
+        val drop = listOf("$x.part", "$x.part.json", "$x.part.json.tmp")
         (keep + drop).forEach { File(tmp.root, it).writeText("1") }
-        DownloadEngine.sweep(tmp.root, setOf("k"))
+        DownloadEngine.sweep(tmp.root) { setOf(k) }
         assertEquals(keep.sorted(), tmp.root.list()!!.sorted())
     }
 
@@ -304,5 +307,28 @@ class DownloadEngineTest {
         val done = engine().download(DownloadRequest("a", s.url("/file.bin?other=1"), tmp.root, segments = 4)) {}
         assertTrue(done.restarted)
         assertArrayEquals(data, done.file.readBytes())
+    }
+
+    @Test fun sweepAsksWhoIsKnownAtDeleteTime() {
+        val id = "33333333-3333-3333-3333-333333333333"
+        File(tmp.root, "$id.part").writeText("1")
+        var known = emptySet<String>()
+        // The download is added (known) before the sweep reaches its file.
+        DownloadEngine.sweep(tmp.root) { known = setOf(id); known }
+        assertTrue(File(tmp.root, "$id.part").exists())
+    }
+
+    @Test fun twoStartsCannotBothClaimTheSameFreeSpace() = runBlocking {
+        val a = serve(testBytes(2 * 1024 * 1024)).also { it.slow = true }
+        val b = serve(testBytes(2 * 1024 * 1024)).also { it.slow = true }
+        // Room for one 2 MB file, not two.
+        val shared = engine(free = 3 * 1024 * 1024L)
+        val results = listOf(a to "a", b to "b").map { (s, id) ->
+            async(Dispatchers.Default) {
+                runCatching { shared.download(request(s, id = id, segments = 1)) {} }.exceptionOrNull()
+            }
+        }
+        val failures = results.map { kotlinx.coroutines.withTimeout(30_000) { it.await() } }
+        assertEquals(1, failures.count { it is DownloadFailure.NoSpace })
     }
 }

@@ -48,6 +48,12 @@ class DownloadQueue(
     private val jobs = HashMap<String, Job>()
     private var saving: Job? = null
     private val fileLock = Any()
+    private val saveLock = Any()
+    private var pending = false
+    private var dirty = false
+
+    /** Tests pause a write here to change the list while it is in flight. */
+    @Volatile internal var afterSnapshot: (() -> Unit)? = null
 
     /** Reads the saved queue. Downloads that were running are queued again; nothing starts until [startPending]. */
     @Synchronized
@@ -56,8 +62,7 @@ class DownloadQueue(
         concurrency = saved.concurrency.coerceIn(1, 4)
         segments = saved.segments.coerceIn(1, 8)
         _items.value = saved.items.map { if (it.state == DownloadState.Active) it.copy(state = DownloadState.Queued, bytesPerSecond = 0) else it }
-        val known = _items.value.map { it.id }.toSet()
-        scope.launch(io) { DownloadEngine.sweep(dir, known) }
+        scope.launch(io) { DownloadEngine.sweep(dir) { _items.value.mapTo(HashSet()) { it.id } } }
     }
 
     /** Starts whatever is waiting (after [load], or when the service is restarted). */
@@ -219,15 +224,26 @@ class DownloadQueue(
 
     // Many state changes come in a burst; one write after a short quiet beats a disk write on Main for each.
     private fun save() {
-        if (saving?.isActive == true) return
-        saving = scope.launch(io) { delay(saveDelayMs); write() }
+        synchronized(saveLock) {
+            if (pending) { dirty = true; return } // a write is queued or running: it goes round again
+            pending = true
+        }
+        saving = scope.launch(io) {
+            delay(saveDelayMs)
+            while (true) {
+                synchronized(saveLock) { dirty = false }
+                write()
+                synchronized(saveLock) { if (!dirty) { pending = false; return@launch } }
+            }
+        }
     }
 
     /** Writes the list now; for tests and for a clean exit. */
-    internal suspend fun flush() = withContext(io) { saving?.cancel(); write() }
+    internal suspend fun flush() = withContext(io) { saving?.cancel(); synchronized(saveLock) { pending = false; dirty = false }; write() }
 
     private fun write() {
         val data = QueueFile(concurrency, segments, _items.value)
+        afterSnapshot?.invoke()
         synchronized(fileLock) {
             runCatching {
                 stateFile.parentFile?.mkdirs()

@@ -23,6 +23,15 @@ object Downloads {
     /** Set when the system refused a foreground start from the background; tried again once Glass is on screen. */
     @Volatile internal var retryInForeground = false
 
+    /** API 33+: the progress notification needs the permission; ask once before the first download. Downloads run either way. */
+    fun askNotifications(context: Context) {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        var c: Context? = context
+        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+        (c as? android.app.Activity)?.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 119)
+    }
+
     /** Brings the service up for downloads still waiting after a process death or reboot. */
     fun resumePending(context: Context) {
         if (queue(context).items.value.any { it.state == DownloadState.Queued }) startService(context)

@@ -15,6 +15,7 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
@@ -164,5 +165,19 @@ class DownloadQueueTest {
         assertEquals(true, q.deleteFile(stray))
         assertFalse(stray.exists())
         server.stop()
+    }
+
+    @Test fun aSaveDuringAWriteIsNotLost() {
+        val q = queue()
+        val inWrite = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        q.afterSnapshot = { q.afterSnapshot = null; inWrite.countDown(); release.await() }
+        q.add("https://example.com/one.bin", paused = true)
+        assertTrue(inWrite.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        q.add("https://example.com/two.bin", paused = true) // changes the list after the first write took its snapshot
+        release.countDown()
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline && !(state.exists() && state.readText().contains("two.bin"))) Thread.sleep(20)
+        assertTrue(state.readText().contains("two.bin"))
     }
 }

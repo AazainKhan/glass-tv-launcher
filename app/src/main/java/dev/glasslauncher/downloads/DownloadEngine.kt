@@ -54,6 +54,7 @@ class DownloadEngine(
 
     // Preallocation does not reduce free space, so each download must count what the others still have to write.
     private val running = ConcurrentHashMap<String, Running>()
+    private val spaceLock = Any()
 
     /** A one-byte GET, not HEAD: the validators must come from the same kind of answer the data will. */
     suspend fun probe(url: String): Probe = withContext(io) {
@@ -100,21 +101,24 @@ class DownloadEngine(
             val ranged = probe.ranges && !fresh
             val segments = if (usable) old.segments else plan(probe, if (ranged && probe.size > rangeMinBytes) req.segments.coerceIn(1, 8) else 1)
             val have = segments.sumOf { it.written }
+            val written = AtomicLongArray(LongArray(segments.size) { segments[it].written })
             if (probe.size > 0) {
-                val needed = probe.size - have + keepFreeBytes + running.filterKeys { it != req.id }.values.sumOf { it.remaining() }
-                val free = freeSpace(req.dir)
-                if (needed > free) throw DownloadFailure.NoSpace(needed, free)
+                // One critical section: two downloads starting together must not both see the same free space.
+                synchronized(spaceLock) {
+                    val needed = probe.size - have + keepFreeBytes + running.filterKeys { it != req.id }.values.sumOf { it.remaining() }
+                    val free = freeSpace(req.dir)
+                    if (needed > free) throw DownloadFailure.NoSpace(needed, free)
+                    running[req.id] = Running(probe.size, written)
+                }
             }
             val meta = PartMeta(urlKey(req.url), probe.size, probe.etag, probe.lastModified, segments)
-            RandomAccessFile(part, "rw").use { raf ->
+            try { RandomAccessFile(part, "rw").use { raf ->
                 if (probe.size > 0 && raf.length() != probe.size) raf.setLength(probe.size)
                 writeMeta(metaFile, meta)
-                val written = AtomicLongArray(LongArray(segments.size) { segments[it].written })
                 val calls = ConcurrentHashMap.newKeySet<Call>()
                 fun snapshot() = meta.copy(segments = segments.mapIndexed { i, s -> s.copy(written = written[i]) })
                 // After a power cut the sidecar must not claim bytes the disk never got.
                 fun persist() { raf.channel.force(false); writeMeta(metaFile, snapshot()) }
-                if (probe.size > 0) running[req.id] = Running(probe.size, written)
                 try {
                     coroutineScope {
                         // Blocking socket reads ignore coroutine cancellation; cancelling the calls frees them.
@@ -142,7 +146,6 @@ class DownloadEngine(
                         }
                     }
                 } finally {
-                    running.remove(req.id)
                     // Paused, failed or done: what is on disk must match the table, so the next run continues from it.
                     persist()
                 }
@@ -150,7 +153,7 @@ class DownloadEngine(
                 // An unknown-size stream that was retried may have left a longer tail from the first try.
                 if (probe.size <= 0) raf.setLength(total)
                 onProgress(Progress(total, probe.size, 0, restarted))
-            }
+            } } finally { running.remove(req.id) }
 
             val actual = req.sha256?.let { expected ->
                 sha256(part).also {
@@ -306,12 +309,15 @@ class DownloadEngine(
         }
 
         /** Removes partial files and sidecars that no list entry owns (a crash or a Clear History between runs). */
-        fun sweep(dir: File, known: Set<String>) {
+        fun sweep(dir: File, known: () -> Set<String>) {
             dir.listFiles()?.forEach { f ->
-                val id = f.name.substringBefore(".part", "")
-                if (id.isNotEmpty() && id !in known && (f.name.endsWith(".part") || f.name.endsWith(".part.json") || f.name.endsWith(".part.json.tmp"))) f.delete()
+                val m = PART_NAME.matchEntire(f.name) ?: return@forEach
+                // Asked per file, so a download added while the sweep runs is not taken for an orphan.
+                if (m.groupValues[1] !in known()) f.delete()
             }
         }
+
+        private val PART_NAME = Regex("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\.part(\\.json(\\.tmp)?)?")
 
         /** Removes a download's partial file and sidecar. */
         fun discard(dir: File, id: String) {
