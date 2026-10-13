@@ -863,7 +863,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-platter",
             ) { showPlatter ->
             if (airplayPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-                CcAirPlayPlatter(sz, airPlay, cfg.audioOutput, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" })
+                CcAirPlayPlatter(sz, airPlay, cfg.audioOutput, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" })
             } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
                 CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (!restartAsk && !agentCard) Column(
@@ -1678,6 +1678,7 @@ private fun CcAirPlayPlatter(
     sz: CcSizes,
     airPlay: Pair<dev.glasslauncher.system.AirPlay.State, (Boolean) -> Unit>?,
     audioOutput: dev.glasslauncher.data.AudioOutputConfig?,
+    muteTv: Boolean,
     edit: ((LauncherConfig) -> LauncherConfig) -> Unit,
     active: Boolean,
     onBack: () -> Unit,
@@ -1717,6 +1718,21 @@ private fun CcAirPlayPlatter(
                 dev.glasslauncher.sonos.AudioOutputs.notice(row)?.let { dev.glasslauncher.system.RemoteNotice.show(context, it, 4_000) }
             }, modifier = Modifier.testTag("cc-audio-" + row.key), on = row.selected) { fg ->
                 PillContent(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, if (row.selected) row.title + " \u2713" else row.title, sub, fg, on = row.selected, accent = Blue)
+            }
+        }
+        val route by dev.glasslauncher.sonos.SonosRoutes.state.collectAsStateWithLifecycle()
+        if (audioOutput != null) {
+            val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
+            val line = dev.glasslauncher.sonos.RouteLifecycle.label(route)
+            CcTile(if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, Shapes.pill, sz.column, sz.pill, onClick = {
+                // Explicit action, never from selecting a row. Consent is asked every time; the speaker's volume is never set.
+                if (busy) dev.glasslauncher.sonos.SonosRoutes.stop(context) else dev.glasslauncher.sonos.SonosRoutes.start(context, audioOutput, muteTv)
+            }, modifier = Modifier.testTag("cc-audio-route"), on = busy) { fg ->
+                PillContent(R.drawable.ic_airplay, if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, fg, on = busy, accent = Blue)
+            }
+            CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) } },
+                modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
+                PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
             }
         }
         CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->

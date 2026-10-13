@@ -1,6 +1,8 @@
 package dev.glasslauncher.sonos
 
 import dev.glasslauncher.data.AudioOutputConfig
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -67,7 +69,7 @@ object SonosScan {
         scanner ?: ThrottledScan(10_000L, emptyList()) { SonosDiscovery(context.applicationContext).discover() }.also { scanner = it }
 }
 
-/** Where Glass's audio goes. TODO(P121): the audio source (capture or app mix) calls start/stop; the UI does not yet. */
+/** Where Glass's audio goes. [SonosRoutes] drives the capture route; this interface is the seam for other sources. */
 interface AudioRoute {
     /** Starts routing [source], 48 kHz 16-bit stereo little-endian PCM, to the output. */
     suspend fun start(source: AudioSource)
@@ -80,12 +82,18 @@ fun interface AudioSource {
     fun read(buf: ByteArray): Int
 }
 
-/** Routes to one Sonos speaker through [SonosSession]. Never sets the volume. */
+/** Routes [source] to one Sonos speaker through [SonosSession]: starts the session, then pumps PCM into its ring. Never sets the volume. */
 class SonosAudioRoute(private val session: SonosSession) : AudioRoute {
+    private var pump: kotlinx.coroutines.Job? = null
+
     override suspend fun start(source: AudioSource) {
         session.start()
-        // TODO(P121): pump [source] into session.ring.
+        val ring = session.ring ?: return
+        pump = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val buf = ByteArray(3840)
+            while (isActive) { val n = source.read(buf); if (n < 0) break; if (n > 0) ring.write(buf, 0, n) }
+        }
     }
 
-    override suspend fun stop() = session.stop()
+    override suspend fun stop() { pump?.cancel(); pump = null; session.stop() }
 }
