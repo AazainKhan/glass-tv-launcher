@@ -3,12 +3,12 @@
 Glass reads only what a session publishes. Seek shows when the PlaybackState actions include `ACTION_SEEK_TO` and the item has a
 duration. Like shows when the session has a heart or thumb-up/down rating type (with `ACTION_SET_RATING`), else when it has a
 custom action whose id or label reads as like / favorite / heart / thumbs up. Everything below is **unverified**: no app was
-run against it on the stick. Check each one with a real session (`adb shell dumpsys media_session`: look at `state=...actions=`,
+run against it on the stick. Only the Spotify row is verified. Check each other one with a real session (`adb shell dumpsys media_session`: look at `state=...actions=`,
 `ratingType` and the custom actions list) during the stick pass.
 
 | App | Seek | Like | Notes |
 |---|---|---|---|
-| Spotify | likely (tracks and podcasts; ads no) | likely, as a custom action (Android Auto / Wear expose "Add to Liked Songs" / "Remove from..."), not a rating | The action id and label flip when the state flips; Glass reads "Remove" / "Unlike" as liked. |
+| Spotify (TV) | **verified: seek yes** (actions include SEEK_TO) | **verified: no.** Rating type 0, no SET_RATING, no custom actions; the heart stays hidden | Stick dump, see below. |
 | YouTube Music | likely | likely, thumbs up as a custom action; may also publish a rating | A thumbs-down action exists and is ignored on purpose. |
 | SoundCloud | likely | possible, a like custom action | Unknown on Android TV builds. |
 | Amazon Music | unknown | unknown | Fire OS sessions may hide controls. |
@@ -25,3 +25,7 @@ Emulator check: debug builds carry a fake session, `adb shell am broadcast -n de
 --es cmd start --ez seek true --es like heart|custom|none --ei pos 62000 --ei dur 214000 --ez playing true` (and `--es cmd stop`);
 it logs `onSeekTo`, `onSetRating` and `onCustomAction` to logcat under `FakeSession`. Grant the listener first:
 `cmd notification allow_listener dev.glasslauncher/dev.glasslauncher.widgets.NowPlayingService`, then restart Glass.
+
+## Verified
+
+- **Spotify TV (`com.spotify.tv.android`) on the Fire TV Stick 4K, 2026-10:** publishes no rating type (`rating type=0`) and no custom actions (`custom actions=[]`), and its actions (2368383) include SEEK_TO (256) but not SET_RATING (128). No like is possible through MediaSession, so Glass hides the heart; seek works. Source: `glass-launcher/build/feedback/p147/spotify-session.txt` and `media_session-full.txt` (`dumpsys media_session`).
