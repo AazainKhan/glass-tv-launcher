@@ -88,7 +88,7 @@ No mode needs root to function, and none relies on a private API.
   `LICENSE` and `NOTICE`, and a link to the project.
 - README and the site: a Credits line. The patch file keeps upstream's headers; changed files get a "Modified for Glass"
   line (Apache-2.0 section 4(b)).
-- The repo ships no upstream source. If Glass OS preinstalls the APK, that image carries upstream's licences next to it.
+- The repo ships no upstream source, and no Glass release or image carries PhairPlay's APK (section 10). A user who builds it keeps upstream's licences with their build.
 
 ## 7. Phases (each its own branch, none requires the stick except where marked)
 
@@ -131,7 +131,7 @@ the settings migration, and the `playfair` licence work. `airplay-builtin.md` st
   `BOOT_COMPLETED` receiver as a backup when it was last enabled, so a Glass that has not started yet does not leave the
   receiver off.
 - Idle budget: while AirPlay is off, PhairPlay holds no foreground service, no mDNS and no wake lock; while on and idle it
-  advertises only. Measured in P118-style runs (CPU, RAM, battery of the sticks's Wi-Fi) before it ships on by default.
+  advertises only. Measured in P118-style runs (CPU, RAM, battery of the stick's Wi-Fi) before it ships on by default.
 - Permission on the `PAIRING_CODE` receiver (section 2): the receiver is registered with the `CONTROL` permission.
 - Card lifetime: the pairing-code card has a TTL (it dismisses itself if the matching close event never arrives), and
   Glass sends `QUERY` when it resumes or reconnects, so a missed event is resynchronised from `STATE` instead of leaving a
