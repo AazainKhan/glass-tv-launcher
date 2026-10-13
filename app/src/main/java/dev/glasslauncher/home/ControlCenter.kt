@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.glasslauncher.app
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -365,6 +366,8 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
     val bitmap: android.graphics.Bitmap? get() = baked?.bitmap
     /** The sheet's pixels (tests only: kept when [GlassMatch.keepPixels] is on). */
     val pixels: GlassMatch.Sheet? get() = baked?.pixels
+    /** P137: the backdrop is light, so the labels go dark (see [dev.glasslauncher.glass.CcAdapt]). */
+    val lightScene: Boolean get() = baked?.lightScene == true
     /** The one colour used when there is no baked sheet. */
     private val flat: Color get() = if (light) CcMaterial.fallbackLight else CcMaterial.fallback
     /** The window rectangle the sheet covers. */
@@ -510,6 +513,8 @@ internal val LocalCcPhase = androidx.compose.runtime.staticCompositionLocalOf { 
 internal const val CC_DIM_ALPHA = GlassMatch.CC_DIM
 /** The time, date and weather share one opacity, slightly muted, as tvOS's header. */
 private const val HEADER_ALPHA = 0.6f
+/** P137: how long the labels take to change ink when the backdrop flips light/dark under an open Control Center. */
+private const val INK_FADE_MS = 250
 private val CC_DIM_COLOR = Color.Black.copy(alpha = CC_DIM_ALPHA)
 private val CC_DIM_COLOR_LIGHT = Color.Black.copy(alpha = GlassMatch.CC_DIM_LIGHT)
 
@@ -571,9 +576,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val wifiOn = remember(active) { SystemControls.wifiConnected(context) }
     val bluetooth = remember(active) { SystemControls.bluetoothOn() }
     val clock = rememberClock(cfg.clock24h)
-    // The time sits on the dark wash, so it's white whatever is behind (no shadow: tvOS text is flat).
-    val headerOnLight = false
-    val headerColor = Color.White
     val headerStyle = Type.caption
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -705,9 +707,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // swap: a tile never changes colour once it has appeared. Nothing is baked or waited for here.
     val sheetRef = remember { CcSheetRef() }
     val pill = ControlCenterWindow.pillBounds
+    // P137: the labels' ink follows the sheet in use (0 white, 1 dark): it lands with the sheet at open, and crossfades
+    // (250 ms) if the backdrop flips while Control Center is open.
+    val inkTarget = remember { androidx.compose.runtime.mutableFloatStateOf(if (glassState.backdrop?.ccSheet?.lightScene == true) 1f else 0f) }
+    val inkAnim = remember { androidx.compose.animation.core.Animatable(inkTarget.floatValue) }
+    val inkPalette = remember(palette, inkAnim.value) { palette.copy(ink = inkAnim.value) }
+    val headerColor = inkPalette.primary
     fun takeSheet() {
         val root = glassState.rootSize
         sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root, glassState.backdrop?.isLight == true)
+        inkTarget.floatValue = if (sheetRef.sheet?.lightScene == true) 1f else 0f
         if (CcMaterial.recordLast) CcMaterial.last = sheetRef.sheet
     }
     // The window keeps this composition across opens, so everything per open starts here, not in remember.
@@ -732,9 +741,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         androidx.compose.runtime.snapshotFlow { glassState.backdrop?.ccSheet to glassState.rootSize }.collect { (offered, root) ->
             val have = sheetRef.sheet
             if (!exitingNow.value && enter.value < 0.02f && offered != null && (have?.baked !== offered || have.root != root)) takeSheet()
+            // P137: a backdrop that flips light/dark while open is taken (its glass and labels would otherwise lose contrast).
+            else if (!exitingNow.value && offered != null && have != null && offered.lightScene != have.lightScene) takeSheet()
         }
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalCcSizes provides sz, LocalCcSheet provides sheetRef, LocalCcPhase provides phase, LocalCcMotion provides motion) {
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.snapshotFlow { inkTarget.floatValue }.collectLatest { t ->
+            if (enter.value < 0.02f) inkAnim.snapTo(t) else inkAnim.animateTo(t, androidx.compose.animation.core.tween(INK_FADE_MS))
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalPalette provides inkPalette, LocalCcSizes provides sz, LocalCcSheet provides sheetRef, LocalCcPhase provides phase, LocalCcMotion provides motion) {
     Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent rect whose alpha
@@ -840,7 +856,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val np by (dev.glasslauncher.widgets.NowPlayingFixture.state ?: context.app.nowPlaying.state).collectAsStateWithLifecycle()
             if (gallery != null && !restartAsk && !agentCard) Text(
                 when (gallery) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
-                style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White,
+                style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = headerColor,
                 modifier = Modifier.offset(x = -CC_BLEED).width(sz.column).padding(start = 4.dp, bottom = 6.dp)
                     .ccSurface(RoundedCornerShape(14.dp), LocalCcSheet.current).padding(horizontal = 10.dp, vertical = 5.dp),
             )
@@ -1363,11 +1379,18 @@ private const val FILL_FADE_MS = 120
 /** tvOS swaps a toggle between off (glyph in a disc) and on (accent glyph) over 0.25 s. */
 private const val TOGGLE_FADE_MS = 250
 
+/** P137: an accent colour over light glass (dark ink) is deepened so a glyph keeps 3:1 against it. */
+@Composable
+private fun inkAccent(c: Color): Color {
+    val ink = LocalPalette.current.ink
+    return if (ink <= 0f) c else androidx.compose.ui.graphics.lerp(c, Color(c.red * dev.glasslauncher.glass.CcAdapt.ACCENT_DARKEN, c.green * dev.glasslauncher.glass.CcAdapt.ACCENT_DARKEN, c.blue * dev.glasslauncher.glass.CcAdapt.ACCENT_DARKEN, c.alpha), ink)
+}
+
 /** The glyph's colour: it fades to [accent] over tvOS's 0.25 s when a toggle turns on, and focus (near-black on white) wins. */
 @Composable
 private fun toggleTint(on: Boolean, fg: Color, accent: Color): Color {
     val mix by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "toggle-tint")
-    return if (LocalCcTileFocused.current) fg else androidx.compose.ui.graphics.lerp(fg, accent, mix)
+    return if (LocalCcTileFocused.current) fg else androidx.compose.ui.graphics.lerp(fg, inkAccent(accent), mix)
 }
 
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
@@ -1508,7 +1531,7 @@ internal fun CcTile(
         // derived state so it recomposes once per flip, not per frame.
         val litByFocus by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { focusA >= CcFocusPhase.FLIP } }
         val litByOn by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { onA >= CcFocusPhase.FLIP } }
-        val fg = if (litByFocus) palette.onFocusFill else if (litByOn) Blue else palette.primary
+        val fg = if (litByFocus) palette.onFocusFill else if (litByOn) inkAccent(Blue) else palette.primary
         Box(
             Modifier
                 .fillMaxSize()
@@ -1560,7 +1583,7 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
                 "addons" -> CcCatalog.addons.map { null to it }
                 else -> CcCatalog.byApp().flatMap { (app, list) -> list.map { app to it } }
             }
-            if (entries.isEmpty()) Text("No add-ons installed", style = Type.caption, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp))
+            if (entries.isEmpty()) Text("No add-ons installed", style = Type.caption, color = LocalPalette.current.primary.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp))
             entries.forEachIndexed { i, (app, e) ->
                 val added = layout.shown(e.id) && '#' !in e.id
                 // Rows are only pills (no label rows between them), so they stay on the grid's row pitch and the
@@ -1672,8 +1695,8 @@ private fun CcEditHint(shown: Boolean, lifted: Boolean, modifier: Modifier = Mod
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
-                ) { Text(key, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White.copy(alpha = 0.85f), maxLines = 1, softWrap = false) }
-                Text(word, style = Type.caption, color = Color.White.copy(alpha = 0.62f), maxLines = 1, softWrap = false)
+                ) { Text(key, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary.copy(alpha = 0.85f), maxLines = 1, softWrap = false) }
+                Text(word, style = Type.caption, color = LocalPalette.current.primary.copy(alpha = 0.62f), maxLines = 1, softWrap = false)
             }
         }
     }
@@ -1692,7 +1715,7 @@ private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> 
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-remotes")) {
-        Text("Remotes", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        Text("Remotes", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (rows.isEmpty()) {
             CcTile("No remote paired", "Hold Home for 10 s", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
                 PillContent(R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", fg, on = false, accent = fg)
@@ -1740,7 +1763,7 @@ private fun CcAirPlayPlatter(
     // More rows than the screen holds (receiver controls, speakers, a volume row): scrolls like the grid, edges faded.
     val scroll = androidx.compose.foundation.rememberScrollState()
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccEdgeFade(scroll).verticalScroll(scroll).width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED, vertical = 6.dp).testTag("cc-airplay")) {
-        Text("AirPlay", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        Text("AirPlay", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (airPlay == null) {
             CcTile("AirPlay unavailable", "Install PhairPlay to receive AirPlay", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
                 PillContent(R.drawable.ic_airplay, "AirPlay unavailable", "Install PhairPlay to receive AirPlay", fg, on = false, accent = fg)
@@ -1770,7 +1793,7 @@ private fun CcAirPlayPlatter(
         }
         // The tvOS picker (TVSSAudioRoutingPanelPlatterController): the title, This TV, then a "Speakers" section. A click
         // toggles the row and applies at once; the selected speaker has its volume row (and the mute rule) under it.
-        Text("Audio Output", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+        Text("Audio Output", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
         val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
         fun pick(row: dev.glasslauncher.sonos.AudioOutputRow) {
@@ -1783,7 +1806,7 @@ private fun CcAirPlayPlatter(
             }
         }
         for ((i, row) in rows.withIndex()) {
-            if (i == 1) Text("Speakers", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+            if (i == 1) Text("Speakers", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
             Column {
                 CcRouteRow(sz, row, dev.glasslauncher.sonos.AudioOutputs.subtitle(row, route)) { pick(row) }
                 val speaker = row.speaker
@@ -1831,7 +1854,7 @@ private fun CcRouteRow(sz: CcSizes, row: dev.glasslauncher.sonos.AudioOutputRow,
             }
             // The mark changes over 0.25 s (tvOS's row property animator), never pops.
             androidx.compose.animation.Crossfade(row.selected, animationSpec = androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "route-mark") { sel ->
-                Glyph(if (sel) R.drawable.ic_check_circle_fill else R.drawable.ic_circle, if (sel && !focused) Blue else fg, Modifier.size(20.dp))
+                Glyph(if (sel) R.drawable.ic_check_circle_fill else R.drawable.ic_circle, if (sel && !focused) inkAccent(Blue) else fg, Modifier.size(20.dp))
             }
         }
     }

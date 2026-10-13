@@ -21,11 +21,14 @@ import dev.glasslauncher.data.Auto
 import dev.glasslauncher.data.LauncherConfig
 
 @Immutable
-data class Palette(val light: Boolean, val highContrast: Boolean = false) {
-    val primary = if (light) Color(0xFF0E1015) else Color.White
+data class Palette(val light: Boolean, val highContrast: Boolean = false, val ink: Float = 0f) {
+    // P137: Control Center's labels sit on glass that follows its backdrop; [ink] 0 is white labels, 1 is dark labels
+    // (the light palette's ink), anything between a crossfade. Only meaningful when [light] is false.
+    private fun inked(onLight: Color, onDark: Color) = if (light) onLight else if (ink <= 0f) onDark else androidx.compose.ui.graphics.lerp(onDark, onLight, ink)
+    val primary = inked(Color(0xFF0E1015), Color.White)
     // Secondary and faint text keep WCAG AA (4.5:1) on the glass and grid ranges set by Blur.legible.
-    val secondary = if (light) Color(if (highContrast) 0xF00E1015 else 0xCC0E1015) else Color(if (highContrast) 0xF0FFFFFF else 0xDBFFFFFF)
-    val faint = if (light) Color(0x990E1015) else Color(0x99FFFFFF)
+    val secondary = inked(Color(if (highContrast) 0xF00E1015 else 0xCC0E1015), Color(if (highContrast) 0xF0FFFFFF else 0xDBFFFFFF))
+    val faint = inked(Color(0x990E1015), Color(0x99FFFFFF))
     // tvOS: focus is a white capsule in both appearances (a near-black one in light made buttons flip
     // between dark and light as focus moved across them).
     val focusFill = Color.White

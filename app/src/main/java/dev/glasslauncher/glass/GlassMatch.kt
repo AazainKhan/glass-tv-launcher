@@ -29,13 +29,13 @@ object GlassMatch {
     }
 
     /** A baked sheet: [pixels] (ARGB) of [width]×[height]. */
-    class Sheet(val pixels: IntArray, val width: Int, val height: Int)
+    class Sheet(val pixels: IntArray, val width: Int, val height: Int, val lightScene: Boolean = false)
 
     /**
      * Control Center's material, baked with the backdrop: [bitmap] covers the screen rectangle [left]..[right] ×
      * [top]..[bottom] (fractions of the root). [pixels] is kept only for tests ([keepPixels]).
      */
-    class PanelSheet(val bitmap: Bitmap, val left: Float, val top: Float, val right: Float, val bottom: Float, val pixels: Sheet?, val luma: Float = 0f)
+    class PanelSheet(val bitmap: Bitmap, val left: Float, val top: Float, val right: Float, val bottom: Float, val pixels: Sheet?, val luma: Float = 0f, val lightScene: Boolean = false)
 
     /** Mean luminance (0..1) of ARGB [px]: read at bake time, since a HARDWARE bitmap cannot be read back. */
     internal fun meanLuma(px: IntArray): Float {
@@ -102,12 +102,13 @@ object GlassMatch {
         val t0 = android.os.SystemClock.elapsedRealtime()
         val w = clear.width.toFloat(); val h = clear.height.toFloat()
         val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, if (light) CC_SHEET_DIM_LIGHT else CC_SHEET_DIM, CC_COLS,
-            blurPasses = CC_BLUR_PASSES, saturation = CC_SATURATION, lift = if (light) CC_LIFT_LIGHT else CC_LIFT) ?: return null
+            blurPasses = CC_BLUR_PASSES, saturation = CC_SATURATION, lift = if (light) CC_LIFT_LIGHT else CC_LIFT, adapt = true,
+            darkCap = if (light) CcAdapt.DARK_CAP_LIGHT_THEME else CcAdapt.DARK_CAP) ?: return null
         val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
         val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft
         // Fire OS drops Log.d from apps, so debug builds log at info level.
         if (dev.glasslauncher.BuildConfig.DEBUG) android.util.Log.i("CcMaterial", "sheet bake ${android.os.SystemClock.elapsedRealtime() - t0}ms (${sheet.width}x${sheet.height}, ${sheet.pixels.size * 4} bytes) on ${Thread.currentThread().name}")
-        return PanelSheet(bitmap, CC_LEFT, 0f, 1f, 1f, sheet.takeIf { keepPixels }, meanLuma(sheet.pixels))
+        return PanelSheet(bitmap, CC_LEFT, 0f, 1f, 1f, sheet.takeIf { keepPixels }, meanLuma(sheet.pixels), sheet.lightScene)
     }
 
     /**
@@ -117,7 +118,7 @@ object GlassMatch {
      */
     fun panelSheet(
         source: Bitmap, rootWidth: Int, rootHeight: Int, left: Float, top: Float, width: Float, height: Float, tint: Color, dim: Float, cols: Int = 40,
-        blurPasses: Int = 1, saturation: Float = 1f, lift: Float = 0f,
+        blurPasses: Int = 1, saturation: Float = 1f, lift: Float = 0f, adapt: Boolean = false, darkCap: Float = CcAdapt.DARK_CAP,
     ): Sheet? {
         if (rootWidth <= 0 || rootHeight <= 0 || width <= 0f || height <= 0f) return null
         sheetBakes++
@@ -158,6 +159,11 @@ object GlassMatch {
         }
         var br = r; var bg = g; var bbl = b
         repeat(blurPasses.coerceAtLeast(1)) { br = blur(br); bg = blur(bg); bbl = blur(bbl) }
+        // P137: the scene's own mean luminance (before tint, dim and lift) picks the mode, so the glass and its labels
+        // follow the backdrop (CcAdapt).
+        var sceneSum = 0.0
+        for (k in br.indices) sceneSum += 0.2126f * br[k] + 0.7152f * bg[k] + 0.0722f * bbl[k]
+        val lightScene = adapt && CcAdapt.isLightScene((sceneSum / br.size).toFloat())
         val pixels = IntArray(cols * rows) {
             // Colour boosted around its own luma, then the usual tint and dim, then the lift toward white.
             val y = 0.2126f * br[it] + 0.7152f * bg[it] + 0.0722f * bbl[it]
@@ -167,8 +173,9 @@ object GlassMatch {
                 (y + (bbl[it] - y) * saturation).coerceIn(0f, 1f),
             )
             val filled = fill(base, tint, dim)
-            (if (lift > 0f) Color.White.copy(alpha = lift).compositeOver(filled) else filled).toArgb()
+            val argb = (if (lift > 0f) Color.White.copy(alpha = lift).compositeOver(filled) else filled).toArgb()
+            if (adapt) CcAdapt.fit(argb, lightScene, darkCap) else argb
         }
-        return Sheet(pixels, cols, rows)
+        return Sheet(pixels, cols, rows, lightScene)
     }
 }
