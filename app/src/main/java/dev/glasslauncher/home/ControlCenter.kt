@@ -398,17 +398,25 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
             postScale(1f / moved.scale.coerceAtLeast(0.01f), 1f / moved.scale.coerceAtLeast(0.01f))
             postTranslate(slotCentre.x - origin.x, slotCentre.y - origin.y)
         }) ?: return androidx.compose.ui.graphics.SolidColor(flat)
-        // The bevel rides in the same shader (still one draw, four stops: P71 showed the stop count is paid per
-        // pixel): a sheen along the top edge and an inner shadow that starts at 70% and deepens to the bottom, so a
-        // tile reads as a convex bubble. The sheen ends above 15% of the height on purpose: the tests (and the
-        // one-material rule) read a tile's colour at 15-22% of its height, which stays "the sheet" there.
-        val bevel = android.graphics.LinearGradient(
+        // P139: the sheet alone. Its bevel is a second plain draw ([bevelBrush]), never a ComposeShader of the two: that
+        // dropped the platter for a frame on Fire OS's HWUI during focus blends.
+        return androidx.compose.ui.graphics.ShaderBrush(sheet)
+    }
+
+    /**
+     * The tiles' bevel, drawn over the sheet in the same node (P139: two plain draws, not a ComposeShader; one
+     * gradient, four stops, P71 showed the stop count is paid per pixel): a sheen along the top edge and an inner
+     * shadow that starts at 70% and deepens to the bottom, so a tile reads as a convex bubble. The sheen ends above
+     * 15% of the height on purpose: the tests (and the one-material rule) read a tile's colour at 15-22% of its
+     * height, which stays "the sheet" there.
+     */
+    fun bevelBrush(height: Float): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.ShaderBrush(
+        android.graphics.LinearGradient(
             0f, 0f, 0f, height,
             intArrayOf(Color.White.copy(alpha = 0.14f).toArgb(), 0, 0, bevelShade(sheetLuma).toArgb()),
             floatArrayOf(0f, 0.14f, 0.70f, 1f), android.graphics.Shader.TileMode.CLAMP,
-        )
-        return androidx.compose.ui.graphics.ShaderBrush(android.graphics.ComposeShader(sheet, bevel, android.graphics.PorterDuff.Mode.SRC_OVER))
-    }
+        ),
+    )
 }
 
 /**
@@ -456,8 +464,9 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
     private var brush: androidx.compose.ui.graphics.Brush? = null
     private var brushFor: CcSheet? = null
     private var rim: androidx.compose.ui.graphics.Brush? = null
+    private var bevel: androidx.compose.ui.graphics.Brush? = null
 
-    fun reset() { brush = null; outline = null; rim = null }
+    fun reset() { brush = null; outline = null; rim = null; bevel = null }
 
     override fun onGloballyPositioned(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
         val p = coordinates.positionInWindow()
@@ -468,11 +477,11 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
     }
 
     override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
-        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null }
+        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null; bevel = null }
         val rest = outline ?: return drawContent()
         // Read while drawing: a new sheet redraws this surface (and only that).
         val sheet = ref?.sheet
-        if (sheet !== brushFor) { brushFor = sheet; brush = null }
+        if (sheet !== brushFor) { brushFor = sheet; brush = null; bevel = null }
         // While the open's choreography moves this shape, its glass is mapped through the move every frame (and a
         // rounded tile starts as a capsule); at rest the cached brush and outline are used.
         val emerge = currentValueOf(LocalCcEmerge)
@@ -482,6 +491,7 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
             else brush ?: (sheet?.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
         // A software canvas (a snapshot of the screen) can't draw the sheet, a hardware bitmap: the flat colour then.
         drawOutline(o, if (hardwareCanvas()) b else sheet?.flatBrush ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
+        if (sheet != null && hardwareCanvas()) drawOutline(o, bevel ?: sheet.bevelBrush(size.height).also { bevel = it })
         // Liquid Glass's edge, one stroke: bright at the top-left, faint at the bottom-right, almost nothing between.
         val r = rim ?: CcMaterial.rimBrush(size).also { rim = it }
         drawOutline(o, r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
