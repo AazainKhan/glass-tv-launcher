@@ -424,27 +424,20 @@ object Plex : FeaturedSource {
     }
 }
 
-/** Opens an item: its deep link in the first capable app, else the first installed app. */
+/**
+ * Opens an item: the intent its app published (TV rows: this is what resumes playback), else its title link, else the app
+ * (P140, see [ResumeIntents]). Each step falls through when it cannot run; rows from other apps only ever reach their own app.
+ */
 fun FeaturedItem.open(context: Context): Boolean {
     val pm = context.packageManager
     val installed = packages.filter { pm.getLaunchIntentForPackage(it) != null || pm.getLeanbackLaunchIntentForPackage(it) != null }
-    // TV rows hand over full intents ("intent:…#Intent;…;end").
-    link?.takeIf { it.startsWith("intent:") }?.let { uri ->
-        runCatching { Intent.parseUri(uri, Intent.URI_INTENT_SCHEME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrNull()?.let { intent ->
-            if (runCatching { context.startActivity(intent) }.isSuccess) return true
-        }
-    }
-    link?.takeIf { !it.startsWith("intent:") }?.let { uri ->
+    for (step in ResumeIntents.steps(this, installed, context.packageName)) if (ResumeIntents.start(context, step)) return true
+    // A link Glass fetched itself (Stremio, JustWatch…) may also go to any app that handles it; a row another app published may not.
+    val uri = link
+    if (uri != null && !ResumeIntents.isAppPublished(this) && ResumeIntents.schemeOk(ResumeIntents.schemeOf(uri))) {
         val view = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        for (pkg in installed) {
-            val targeted = Intent(view).setPackage(pkg)
-            if (targeted.resolveActivity(pm) != null && runCatching { context.startActivity(targeted) }.isSuccess) return true
-        }
-        if (view.resolveActivity(pm) != null && runCatching { context.startActivity(view) }.isSuccess) return true
-    }
-    for (pkg in installed) {
-        val launch = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg) ?: continue
-        if (runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return true
+        if (view.resolveActivity(pm)?.packageName != context.packageName && view.resolveActivity(pm) != null &&
+            runCatching { context.startActivity(view) }.isSuccess) return true
     }
     return false
 }

@@ -1,0 +1,77 @@
+package dev.glasslauncher.featured
+
+import dev.glasslauncher.featured.ResumeIntents.Step
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** P140: a Continue Watching row's published intent is launched as published, but only ever into its own app. */
+class ResumeIntentsTest {
+    private val glass = "dev.glasslauncher"
+    private val app = "com.example.tv"
+    private fun parse(uri: String, pkg: String = app) = ResumeIntents.parsePublished(uri, pkg, glass)
+    private fun item(link: String?, id: String = "tv:$app:1", pkgs: List<String> = listOf(app)) = FeaturedItem(id = id, title = "T", link = link, packages = pkgs)
+
+    @Test fun httpsAndOwnSchemeAreAccepted() {
+        assertNotNull(parse("intent://watch/123#Intent;scheme=https;package=$app;end"))
+        assertNotNull(parse("intent://play?id=9&t=120#Intent;scheme=myapp;action=android.intent.action.VIEW;end"))
+        assertNotNull(parse("intent:https://example.com/title/1#Intent;end"))
+        assertNotNull(parse("intent://x#Intent;scheme=market;end"))
+    }
+
+    @Test fun anotherPackageOrComponentIsRefused() {
+        assertNull(parse("intent://x#Intent;scheme=https;package=com.other;end"))
+        assertNull(parse("intent://x#Intent;scheme=https;component=com.other/.Main;end"))
+        assertNull(parse("intent://x#Intent;scheme=https;component=$glass/.MainActivity;end"))
+        assertNotNull(parse("intent://x#Intent;scheme=https;component=$app/.PlayerActivity;end"))
+    }
+
+    @Test fun glassItselfIsNeverATarget() {
+        assertNull(parse("intent://x#Intent;scheme=https;end", pkg = glass))
+    }
+
+    @Test fun selectorsBadActionsAndBadSchemesAreRefused() {
+        assertNull(parse("intent://x#Intent;scheme=https;SEL;component=com.other/.A;end"))
+        assertNull(parse("intent://x#Intent;scheme=https;action=android.intent.action.CALL;end"))
+        assertNull(parse("intent://x#Intent;scheme=https;action=android.intent.action.DELETE;end"))
+        assertNull(parse("intent://x#Intent;scheme=file;end"))
+        assertNull(parse("intent://x#Intent;scheme=content;end"))
+        assertNull(parse("intent://x#Intent;scheme=javascript;end"))
+        assertNull(parse("intent:file:///sdcard/a.mp4#Intent;end"))
+        assertNull(parse("intent://x#Intent;scheme=HTTPS ;end"))
+        assertNull(parse("not an intent"))
+        assertNull(parse("intent:no marker"))
+        assertNull(parse("intent:#Intent;end"))
+    }
+
+    @Test fun mainNeedsItsOwnComponent() {
+        assertNull(parse("intent:#Intent;action=android.intent.action.MAIN;end"))
+        assertNotNull(parse("intent:#Intent;action=android.intent.action.MAIN;component=$app/.Home;end"))
+        assertNotNull(parse("intent://x#Intent;scheme=a;action=$app.PLAY;end"))
+        assertNull(parse("intent://x#Intent;scheme=a;action=com.other.PLAY;end"))
+    }
+
+    @Test fun publishedIntentComesFirstThenAppLaunch() {
+        val link = "intent://watch/1#Intent;scheme=https;end"
+        assertEquals(listOf<Step>(Step.Published(link, app), Step.Launch(app)), ResumeIntents.steps(item(link), listOf(app), glass))
+    }
+
+    @Test fun plainLinksAreViewedInEachCapableApp() {
+        val steps = ResumeIntents.steps(item("stremio:///detail/movie/tt1", id = "stremio:1", pkgs = listOf("a.b", "c.d")), listOf("a.b", "c.d"), glass)
+        assertEquals(listOf<Step>(Step.View("stremio:///detail/movie/tt1", "a.b"), Step.View("stremio:///detail/movie/tt1", "c.d"), Step.Launch("a.b"), Step.Launch("c.d")), steps)
+    }
+
+    @Test fun unsafeLinkFallsBackToLaunchOnly() {
+        assertEquals(listOf<Step>(Step.Launch(app)), ResumeIntents.steps(item("intent://x#Intent;scheme=https;package=com.other;end"), listOf(app), glass))
+        assertEquals(listOf<Step>(Step.Launch(app)), ResumeIntents.steps(item("file:///sdcard/x.mp4"), listOf(app), glass))
+        assertEquals(listOf<Step>(Step.Launch(app)), ResumeIntents.steps(item(null), listOf(app), glass))
+        assertEquals(emptyList<Step>(), ResumeIntents.steps(item(null, pkgs = listOf(glass)), listOf(glass), glass))
+    }
+
+    @Test fun onlyRowsFromOtherAppsAreUntrusted() {
+        assertTrue(ResumeIntents.isAppPublished(item("https://a")))
+        assertTrue(!ResumeIntents.isAppPublished(item("https://a", id = "tt123")))
+    }
+}
