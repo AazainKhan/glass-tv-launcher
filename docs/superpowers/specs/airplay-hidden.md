@@ -20,13 +20,14 @@ Glass `system/AirPlay.kt`, `home/ControlCenter.kt` (the AirPlay platter), the Se
   fetches and builds. Whatever upstream ships stays upstream's.
 - **Crash domain and memory stay out of Home.** The receiver, decoders and their buffers live in PhairPlay's process.
 - **No NDK or new libraries in Glass.**
+- **`playfair` stays out of anything Glass hosts or ships.** Its tables are unlicensed reverse-engineered data. Glass's repo, release assets, site and Glass OS image do not host, bundle or preinstall PhairPlay's APK (see section 10). `scripts/phairplay` builds it on the user's own machine, for personal use.
 
 ## 2. What changes in the PhairPlay patch
 
 All of it lives in `tools/phairplay/glass-control.patch` (extended), signature-guarded as today
 (`com.phairplay.permission.CONTROL`), so only apps signed with Glass's key can talk to PhairPlay.
 
-1. **Invisible.** Drop the `LAUNCHER` / `LEANBACK_LAUNCHER` intent filters from `MainActivity`. It stays as the video
+1. **Invisible, through the manifest (not `pm hide`).** Drop the `LAUNCHER` / `LEANBACK_LAUNCHER` intent filters from `MainActivity`; never `pm hide` / disable the package, which would stop its receiver and service. It stays as the video
    surface host, started by the service with an explicit component (already how the bring-forward works), never from Home.
    Glass also adds PhairPlay's packages to its built-in hidden list, so a build without the patch still doesn't show it.
 2. **Control protocol v2** (broadcasts, same permission both ways):
@@ -34,7 +35,7 @@ All of it lives in `tools/phairplay/glass-control.patch` (extended), signature-g
      `SettingsRepository`. Unknown keys are ignored and answered with `ERROR`.
    - `QUERY` (exists): PhairPlay answers `STATE` carrying `running`, `sender`, `protocol` (a version int), and every
      setting's current value, so Glass renders one source of truth and never caches its own copy.
-   - New events PhairPlay sends: `PAIRING_CODE` (the 4-digit code, and when it is dismissed), `SESSION`
+   - New events PhairPlay sends (every one is delivered with the `CONTROL` signature permission, and Glass's receiver for `PAIRING_CODE`, `SESSION` and `NOW_PLAYING` registers with that permission, so no other app can read or spoof the code): `PAIRING_CODE` (the 4-digit code, and when it is dismissed), `SESSION`
      (`started` / `ended`, sender name, kind: mirror / video / audio / photo), `NOW_PLAYING` (title, artist, artwork
      reference, position, duration, playing).
    - New command: `TRANSPORT` (`play`, `pause`, `stop`) for Glass's Now Playing card, forwarded to the sender over DACP.
@@ -75,9 +76,9 @@ ruled out.
 
 | Mode | PhairPlay is | Control |
 |---|---|---|
-| APK (non-root) | Installed beside Glass, same signing key (`scripts/phairplay`), icon hidden by the patch | Signature permission; works without root. Bring-forward needs `SYSTEM_ALERT_WINDOW` (one `appops` grant, as today); without it Glass shows "Open AirPlay" on the card instead of a silent miss. |
+| APK (non-root) | **Optional.** Most APK users cannot build PhairPlay (NDK, a signing key matching Glass's). Without it AirPlay is simply absent: the tile and Settings row say AirPlay isn't set up, with the one-line `scripts/phairplay install` hint. Where a user does build it, it is installed beside Glass signed with the same key, icon hidden by the patch. | Signature permission, so it needs the **same key as the Glass in use**: a Glass release build signed with the release key is paired with a PhairPlay built and signed with that key by whoever holds it; debug builds pair with debug builds. On non-Fire devices bring-forward needs `SYSTEM_ALERT_WINDOW` (`appops`, or the overlay settings page); without it Glass shows "Open AirPlay" on the card instead of a silent miss. |
 | Glass Pro (root) | Same APK; the grant is done by the installer | Same |
-| Glass OS | Preinstalled as a hidden system app (privapp XML grants the overlay permission) | Same, no grants to make |
+| Glass OS | **Not preinstalled** (see section 10). A user who builds it for themselves can install it as a system app, where the privapp XML grants the overlay permission. | Same, no grants to make |
 
 No mode needs root to function, and none relies on a private API.
 
@@ -108,3 +109,30 @@ No mode needs root to function, and none relies on a private API.
 
 The `:airplay` module, the NDK / CMake build, BouncyCastle and `ddplist` in Glass, the cross-process surface hand-off,
 the settings migration, and the `playfair` licence work. `airplay-builtin.md` stays on its branch for reference only.
+
+## 10. Blockers and fixes from Yin's review (2026-10-13)
+
+**Blockers, now decisions in this spec**
+1. **Signing key.** The control permission is `signature` level, so PhairPlay must be signed with the same key as Glass.
+   A release Glass is signed with the Glass release key; only the holder of that key can produce a matching PhairPlay.
+   Debug Glass pairs with debug PhairPlay. Section 5 states this per mode.
+2. **APK users can't build it.** AirPlay is therefore an optional feature. Without PhairPlay, the AirPlay tile, the
+   Settings page and the Control Center platter show a clear "not set up" state and nothing else changes.
+3. **`playfair` tables.** They are reverse-engineered FairPlay key data with no licence we can rely on. Glass does not host
+   PhairPlay's APK or source, does not attach it to releases, and does not preinstall it in Glass OS. `scripts/phairplay`
+   fetches upstream at the pinned commit and builds on the user's machine, for personal use only, until upstream's licence
+   position is clear. README and the site say so in one sentence.
+
+**Fixes folded into the design**
+- Hide through the manifest filters, never `pm hide` (section 2, item 1).
+- `SYSTEM_ALERT_WINDOW`: the Fire TV `appops` grant is not available on every non-Fire Android TV; there Glass opens the
+  overlay-permission settings page (deep link) and shows the card text until it is granted.
+- `BOOT_COMPLETED` backup: Glass sends `ENABLE` at boot when AirPlay is on, and PhairPlay keeps its own
+  `BOOT_COMPLETED` receiver as a backup when it was last enabled, so a Glass that has not started yet does not leave the
+  receiver off.
+- Idle budget: while AirPlay is off, PhairPlay holds no foreground service, no mDNS and no wake lock; while on and idle it
+  advertises only. Measured in P118-style runs (CPU, RAM, battery of the sticks's Wi-Fi) before it ships on by default.
+- Permission on the `PAIRING_CODE` receiver (section 2): the receiver is registered with the `CONTROL` permission.
+- Card lifetime: the pairing-code card has a TTL (it dismisses itself if the matching close event never arrives), and
+  Glass sends `QUERY` when it resumes or reconnects, so a missed event is resynchronised from `STATE` instead of leaving a
+  stale card or a wrong tile.
