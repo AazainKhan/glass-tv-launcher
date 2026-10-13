@@ -2,6 +2,7 @@ package dev.glasslauncher.home
 
 import androidx.annotation.DrawableRes
 import dev.glasslauncher.R
+import dev.glasslauncher.addons.AddonHost
 
 /** Which tier a control needs (spec 3): shown as a tag in the gallery. */
 enum class CcTier(val tag: String?) { None(null), System("System"), Root("Root") }
@@ -41,9 +42,9 @@ object CcCatalog {
         CcCatalogEntry("now_playing", "Now Playing", "Play, pause, skip any app", R.drawable.ic_music_note),
     ).filter { it.implemented }
 
-    /** Controls the installed add-ons declare (the add-on platform is not built yet: none). */
+    /** Controls of the enabled add-ons, plus the demo tiles while those are on. */
     val addons: List<CcCatalogEntry>
-        get() = if (!CcShowcase.enabled) emptyList() else CcShowcase.tiles.map {
+        get() = AddonHost.catalog + if (!CcShowcase.enabled) emptyList() else CcShowcase.tiles.map {
             CcCatalogEntry(it.id, it.name, "Demo data · ${it.description}", it.icon, addon = it.addon)
         }
 

@@ -60,6 +60,12 @@
         android:protectionLevel="signature" />
     <uses-permission android:name="com.phairplay.permission.CONTROL" />
 
+    <!-- Add-ons (A1): their services require this, and only Glass's signature holds it, so only Glass can bind them. -->
+    <permission
+        android:name="dev.glasslauncher.permission.BIND_ADDON"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="dev.glasslauncher.permission.BIND_ADDON" />
+
     <!--
         Glass Browser (a separate, unprivileged APK built by scripts/browser). Declared here too, like the one above;
         only apps signed with Glass's key can be opened by Glass, be talked to, or send it a download or keyboard request.
@@ -89,6 +95,10 @@
         <!-- Control Center's VPN pill: which installed apps are VPN apps. -->
         <intent>
             <action android:name="android.net.VpnService" />
+        </intent>
+        <!-- Add-ons (A1): installed apps that declare a Glass add-on service. -->
+        <intent>
+            <action android:name="dev.glasslauncher.ADDON" />
         </intent>
         <package android:name="com.phairplay.firetv" />
         <package android:name="com.phairplay.googletv" />

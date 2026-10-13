@@ -18,3 +18,5 @@ rootProject.name = "glass-tv-launcher"
 include(":app")
 include(":baselineprofile")
 include(":browser")
+include(":addon-api")
+include(":addon-sample")

@@ -44,6 +44,8 @@ data class LauncherConfig(
     val ccLayout: String? = null,
     /** Settings › About (Select on Version seven times): Control Center's demo add-on tiles, with fake data. Off by default. */
     val ccDemoTiles: Boolean = false,
+    /** Add-ons the user has switched on: package -> SHA-256 of its signing certificate. A changed certificate leaves it off again. */
+    val addonsEnabled: Map<String, String> = emptyMap(),
     /** Back or Home while an app Glass just started is still loading returns Home at once (P87). */
     val instantBack: Boolean = true,
     /** Which one-time "hide by default" additions have been applied to this install. */

@@ -127,6 +127,7 @@ private sealed interface Page {
     data object TextSize : Page
     data object Font : Page
     data object ControlCenterTiles : Page
+    data object Addons : Page
     data object Freezer : Page
     data object RootLog : Page
     data class ButtonAction(val id: String) : Page
@@ -212,6 +213,7 @@ fun SettingsPanel(
                 Page.TextSize -> TextSizePage(model, cfg, f)
                 Page.Font -> FontPage(model, cfg, f)
                 Page.ControlCenterTiles -> ControlCenterTilesPage(model, cfg, f)
+                Page.Addons -> AddonsPage(model, cfg, f)
                 Page.Freezer -> FreezerPage(f)
                 Page.RootLog -> RootLogPage(f)
                 is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
@@ -233,6 +235,9 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Appearance", { push(Page.Appearance) }, f, value = cfg.theme.name, chevron = true)
     MenuRow("Display & Text", { push(Page.DisplayText) }, value = textSizeName(cfg.textScale), chevron = true)
     MenuRow("Control Center", { push(Page.ControlCenterTiles) }, chevron = true)
+    // Only when an add-on is installed, so Settings stays as it was for everyone else.
+    val addons by androidx.compose.runtime.produceState(emptyList<dev.glasslauncher.addons.AddonInfo>()) { value = dev.glasslauncher.addons.AddonHost.installed(context) }
+    if (addons.isNotEmpty()) MenuRow("Add-ons", { push(Page.Addons) }, value = addons.count { dev.glasslauncher.addons.AddonTrust.isEnabled(cfg.addonsEnabled, it.pkg, it.cert) }.toString(), chevron = true)
     MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
     MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
@@ -1323,3 +1328,35 @@ private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherCo
     }
 }
 
+
+@Composable
+private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    val context = LocalContext.current
+    val ask = dev.glasslauncher.home.LocalConfirm.current
+    PanelTitle("Add-ons")
+    val addons by androidx.compose.runtime.produceState(emptyList<dev.glasslauncher.addons.AddonInfo>()) { value = dev.glasslauncher.addons.AddonHost.installed(context) }
+    Hint("Add-ons are separate apps. A new one starts off; switch it on to show its Control Center tiles. It runs in its own process and can only send Glass labels and state.")
+    addons.forEachIndexed { i, a ->
+        val trust = dev.glasslauncher.addons.AddonTrust
+        val on = trust.isEnabled(cfg.addonsEnabled, a.pkg, a.cert)
+        val paused = on && dev.glasslauncher.addons.AddonHost.isMuted(a.pkg)
+        val changed = trust.certChanged(cfg.addonsEnabled, a.pkg, a.cert)
+        fun set(v: Boolean) {
+            if (v) dev.glasslauncher.addons.AddonHost.resume(a.pkg)
+            model.edit { c -> c.copy(addonsEnabled = if (v) trust.enable(c.addonsEnabled, a.pkg, a.cert) else trust.disable(c.addonsEnabled, a.pkg)) }
+        }
+        ToggleRow(a.title, on, { v ->
+            if (v && changed) ask(dev.glasslauncher.home.Overlay.Confirm(
+                "Signing certificate changed",
+                "${a.title} (${a.pkg}) was approved with certificate ${trust.fingerprint(cfg.addonsEnabled.getValue(a.pkg))}; it is now ${trust.fingerprint(a.cert)}. Only continue if you trust whoever published this update.",
+                "Switch On", destructive = true,
+            ) { set(true) }) else set(v)
+        }, if (i == 0) f else Modifier, enabled = a.compatible,
+            help = "${a.pkg} · ${trust.fingerprint(a.cert)}\n" + when {
+                !a.compatible -> "Needs a newer or older Glass (API ${a.api})."
+                paused -> "Paused · stopped responding. Switch off and on to resume."
+                changed -> "Switched off: its signing certificate changed."
+                else -> "Control Center tile${if (a.needsRoot) " · needs root" else ""} · not from the Glass repo"
+            })
+    }
+}

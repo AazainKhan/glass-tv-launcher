@@ -571,6 +571,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Showcase add-on tiles (debug flag): the Agents card, in place of the grid like the gallery.
     CcShowcase.enabled = cfg.ccDemoTiles || remember(active) { CcShowcase.flag(context) }
+    // Real add-ons (A1): their tiles are read once per open; the add-on is bound for that call only.
+    LaunchedEffect(active, cfg.addonsEnabled) { if (active) dev.glasslauncher.addons.AddonHost.refresh(context, cfg.addonsEnabled) }
     val agents = remember { CcAgentState() }
     var agentCard by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Restart's confirm is drawn here, over the grid (an overlay opened after Control Center closes was lost).
@@ -1184,6 +1186,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         if (CcShowcase.isShowcase(id)) ShowcaseTile(
                             id, tile.size, w, h, agents, { agentCard = true }, focusMod, hold, wobbleOn, ::tap, ::playOr, label,
                         )
+                        else if (id.startsWith("addon:")) AddonTile(id, tile.size, w, h, focusMod, wobbleOn, ::tap, ::playOr, label)
                         // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.
                         if (editing && id != ADD_TILE && CcControls.removable(id)) Box(
                             Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp).size(18.dp)
