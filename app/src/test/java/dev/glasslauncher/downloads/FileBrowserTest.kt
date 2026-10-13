@@ -72,4 +72,41 @@ class FileBrowserTest {
         assertEquals(FileKind.Folder, FileBrowser.kind(FileEntry(File("d"), true, 0, 0)))
         assertEquals(FileKind.Other, FileBrowser.kind(FileEntry(File("a.zip"), false, 1, 0)))
     }
+
+    @Test fun aLeadingDotIsRefusedBecauseTheFileWouldVanish() {
+        assertNotNull(FileBrowser.renameError(tmp.root, "a.txt", ".hidden"))
+        val a = file("a.txt", 0)
+        assertNotNull(FileBrowser.rename(a, ".a.txt"))
+        assertEquals(true, a.exists())
+    }
+
+    @Test fun renameNeverReplacesAnExistingFile() {
+        val a = file("a.txt", 0, "A"); val b = file("b.txt", 0, "B")
+        assertNotNull(FileBrowser.rename(a, "b.txt"))
+        assertEquals("B", b.readText()); assertEquals(true, a.exists())
+    }
+
+    @Test fun deleteSaysWhyItCannot() {
+        val f = file("gone.txt", 0)
+        assertEquals(FileBrowser.Deleted.Ok, FileBrowser.delete(f))
+        assertEquals(false, f.exists())
+        val dir = tmp.newFolder("full"); File(dir, "x").writeText("1")
+        assertEquals(FileBrowser.Deleted.NotEmpty, FileBrowser.delete(dir))
+        assertEquals(true, dir.exists())
+        File(dir, "x").delete()
+        assertEquals(FileBrowser.Deleted.Ok, FileBrowser.delete(dir))
+        val locked = tmp.newFolder("locked"); val inside = File(locked, "f").apply { writeText("1") }
+        if (locked.setWritable(false)) {
+            // Where the filesystem enforces it (not as root), a failed delete is reported, not called success.
+            val r = FileBrowser.delete(inside)
+            locked.setWritable(true)
+            if (inside.exists()) assertEquals(FileBrowser.Deleted.Failed, r)
+        }
+    }
+
+    @Test fun hashingStopsWhenToldTo() {
+        val f = file("big.bin", 0, "x".repeat(200_000))
+        try { FileBrowser.sha256(f) { throw java.util.concurrent.CancellationException("stop") }; org.junit.Assert.fail() }
+        catch (e: java.util.concurrent.CancellationException) { /* expected */ }
+    }
 }

@@ -55,6 +55,7 @@ object FileBrowser {
         return when {
             n == old -> null
             n.isEmpty() -> "Enter a name."
+            n.startsWith(".") -> "A name can't start with a dot; the file would be hidden."
             n == "." || n == ".." || '/' in n || '\\' in n || '\u0000' in n -> "A name can't contain slashes."
             isSidecar(n) -> "Names ending in .part are used by downloads."
             File(dir, n).exists() -> "A file called “$n” is already here."
@@ -67,21 +68,36 @@ object FileBrowser {
         val n = newName.trim()
         renameError(file.parentFile ?: return "Can't rename that.", file.name, newName)?.let { return it }
         if (n == file.name) return null
-        return if (file.renameTo(File(file.parentFile, n))) null else "Couldn't rename that."
+        // No REPLACE_EXISTING: a name taken since the check fails instead of overwriting.
+        return try {
+            java.nio.file.Files.move(file.toPath(), File(file.parentFile, n).toPath())
+            null
+        } catch (e: java.nio.file.FileAlreadyExistsException) { "A file called “$n” is already here." }
+        catch (e: java.io.IOException) { "Couldn't rename that." }
     }
 
     /** Lower-case hex SHA-256 of [file], read in blocks (it can be gigabytes: call off the main thread). */
-    fun sha256(file: File): String {
+    fun sha256(file: File, check: () -> Unit = {}): String {
         val md = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buf = ByteArray(64 * 1024)
             while (true) {
+                check()
                 val n = input.read(buf)
                 if (n < 0) break
                 md.update(buf, 0, n)
             }
         }
         return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    enum class Deleted { Ok, NotEmpty, Failed }
+
+    /** Deletes a file or an empty folder, and says why when it can't. */
+    fun delete(file: File): Deleted = when {
+        file.isDirectory && file.list().orEmpty().isNotEmpty() -> Deleted.NotEmpty
+        file.delete() || !file.exists() -> Deleted.Ok
+        else -> Deleted.Failed
     }
 
     /** The hash in two lines of 32, so it fits a small card. */

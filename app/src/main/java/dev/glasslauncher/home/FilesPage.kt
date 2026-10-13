@@ -30,7 +30,9 @@ import dev.glasslauncher.downloads.FileKind
 import dev.glasslauncher.system.RemoteNotice
 import dev.glasslauncher.ui.Hint
 import dev.glasslauncher.ui.MenuRow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -48,6 +50,7 @@ fun FilesPage(
     val context = LocalContext.current
     val root = remember { Downloads.folder(context) }
     val queue = remember { Downloads.queue(context) }
+    val scope = rememberCoroutineScope()
     val items by queue.items.collectAsState()
     val changes by FileBrowser.changes.collectAsState()
     var sub by remember { mutableStateOf<File?>(null) }
@@ -61,15 +64,18 @@ fun FilesPage(
         FilesList(
             entries = listed?.first.orEmpty(), loaded = listed != null, free = listed?.second, inFolder = sub?.name, active = active,
             onSelect = { e ->
+                if (e.dir) { sub = e.file; return@FilesList }
+                scope.launch {
+                    val there = withContext(Dispatchers.IO) { e.file.exists() }
                 when {
-                    e.dir -> sub = e.file
-                    !e.file.exists() -> RemoteNotice.show(context, "That file is gone")
+                    !there -> RemoteNotice.show(context, "That file is gone")
                     FileBrowser.kind(e) == FileKind.Apk -> {
                         // A file that came from a download with a published hash was already checked; anything else is unchecked.
                         val expected = items.firstOrNull { it.state == DownloadState.Done && it.file == e.name && sub == null }?.expectedSha256
-                        apk.start(e.file.path, e.file, expected) { queue.deleteFile(e.file) }
+                        apk.start(e.file.path, e.file, expected) { queue.deleteFile(e.file); FileBrowser.changes.value++ }
                     }
                     else -> DownloadText.open(context, e.file)
+                }
                 }
             },
             onMenu = { open(Overlay.FileMenu(it.file.path)) },
@@ -96,6 +102,7 @@ internal fun FilesList(
         sink?.wide = pageKey
         onDispose { if (sink != null && sink.wide == pageKey) sink.wide = null }
     }
+    val dates = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
     MenuList(active) { first ->
         PanelTitle(inFolder ?: "Files")
         if (free != null) Hint("${DownloadText.bytes(free)} free on this TV.")
@@ -113,7 +120,7 @@ internal fun FilesList(
                         if (menu && k.nativeKeyEvent.action == KeyEvent.ACTION_UP) onMenu(e)
                         menu
                     },
-                    value = FileText.detail(e),
+                    value = FileText.detail(e, dates),
                     leading = { MenuIcon(FileText.icon(FileBrowser.kind(e))) },
                     chevron = e.dir,
                 )
@@ -124,8 +131,8 @@ internal fun FilesList(
 
 /** How the browser words a row. */
 internal object FileText {
-    fun detail(e: FileEntry): String {
-        val date = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(e.modified)
+    fun detail(e: FileEntry, format: SimpleDateFormat): String {
+        val date = format.format(e.modified)
         return if (e.dir) date else "${DownloadText.bytes(e.size)} · $date"
     }
 
@@ -148,36 +155,50 @@ internal fun FileMenuBody(path: String, active: Boolean, open: (Overlay) -> Unit
     var name by remember(path) { mutableStateOf(file.name) }
     val here = File(file.parentFile, name)
     var deleted by remember(path) { mutableStateOf(false) }
-    val gone = deleted || !here.exists()
+    val changes by FileBrowser.changes.collectAsState()
+    // Disk checks off Main: null while looking, then (exists, isDirectory).
+    val look by produceState<Pair<Boolean, Boolean>?>(null, here, changes) { value = withContext(Dispatchers.IO) { here.exists() to here.isDirectory } }
+    val gone = deleted || look?.first == false
     LaunchedEffect(gone) { if (gone) close() }
-    if (gone) return
+    if (gone || look == null) return
+    val isDir = look!!.second
     MenuList(active) { first ->
         PanelTitle(name)
         var firstRow = Modifier.focusRequester(first)
         fun f(): Modifier = firstRow.also { firstRow = Modifier }
-        if (!here.isDirectory) MenuRow("Open", {
+        if (!isDir) MenuRow("Open", {
             if (here.extension.equals("apk", true)) RemoteNotice.show(context, "Select the file in the list to install it") else DownloadText.open(context, here)
         }, f())
         MenuRow("Rename", {
-            open(Overlay.TextInput("Rename", name, "A new name for this ${if (here.isDirectory) "folder" else "file"}.") { text ->
-                val error = FileBrowser.rename(here, text)
-                if (error != null) RemoteNotice.show(context, error) else if (text.trim() != name) {
-                    forget(context, here)
-                    name = text.trim()
-                    FileBrowser.changes.value++
+            open(Overlay.TextInput("Rename", name, "A new name for this ${if (isDir) "folder" else "file"}.") { text ->
+                scope.launch {
+                    val error = withContext(Dispatchers.IO) { FileBrowser.rename(here, text) }
+                    if (error != null) RemoteNotice.show(context, error) else if (text.trim() != name) {
+                        forget(context, here)
+                        name = text.trim()
+                        FileBrowser.changes.value++
+                    }
                 }
             })
         }, f())
-        if (!here.isDirectory) MenuRow("Show Hash", {
+        if (!isDir) MenuRow("Show Hash", {
             RemoteNotice.show(context, "Checking ${name}…", 2_000)
             scope.launch {
-                val hash = runCatching { withContext(Dispatchers.IO) { FileBrowser.sha256(here) } }.getOrNull()
+                val hash = try {
+                    withContext(Dispatchers.IO) { FileBrowser.sha256(here) { ensureActive() } }
+                } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
                 if (hash == null) RemoteNotice.show(context, "Couldn't read that file") else open(Overlay.Confirm("SHA-256", FileBrowser.hashLines(hash), "Done") {})
             }
         }, f())
         MenuRow("Delete", {
-            open(Overlay.Confirm("Delete “$name”?", if (here.isDirectory) "The folder is removed if it is empty." else "The file is removed from this TV.", "Delete", destructive = true) {
-                if (Downloads.queue(context).deleteFile(here)) { FileBrowser.changes.value++; deleted = true } else RemoteNotice.show(context, "Couldn't delete that")
+            open(Overlay.Confirm("Delete “$name”?", if (isDir) "The folder is removed if it is empty." else "The file is removed from this TV.", "Delete", destructive = true) {
+                scope.launch {
+                    when (Downloads.queue(context).deleteFile(here)) {
+                        FileBrowser.Deleted.Ok -> { FileBrowser.changes.value++; deleted = true }
+                        FileBrowser.Deleted.NotEmpty -> RemoteNotice.show(context, "That folder isn't empty")
+                        FileBrowser.Deleted.Failed -> RemoteNotice.show(context, "Couldn't delete that")
+                    }
+                }
             })
         }, f(), destructive = true)
     }

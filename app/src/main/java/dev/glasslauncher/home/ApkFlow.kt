@@ -35,7 +35,7 @@ internal class ApkFlow(
     fun dispose() { kept.values.forEach { it.discard() }; kept.clear() }
 
     /** [removeAfter] runs once the install succeeded and "Keep Installed APKs" is off. */
-    fun start(key: String, file: File, expectedSha256: String?, removeAfter: () -> Unit) {
+    fun start(key: String, file: File, expectedSha256: String?, removeAfter: suspend () -> Unit) {
         val unchecked = expectedSha256 == null
         if (!busy.add(key)) return
         kept[key]?.let { ask(key, it, unchecked, removeAfter); return }
@@ -52,7 +52,7 @@ internal class ApkFlow(
         }
     }
 
-    private fun ask(key: String, staged: StagedApk, unchecked: Boolean, removeAfter: () -> Unit) {
+    private fun ask(key: String, staged: StagedApk, unchecked: Boolean, removeAfter: suspend () -> Unit) {
         open(Overlay.InstallConfirm(
             staged,
             onConfirm = { install(key, staged, removeAfter) },
@@ -61,7 +61,7 @@ internal class ApkFlow(
         ))
     }
 
-    private fun install(key: String, staged: StagedApk, removeAfter: () -> Unit) {
+    private fun install(key: String, staged: StagedApk, removeAfter: suspend () -> Unit) {
         kept.remove(key)
         // The app scope: leaving the page must not cancel an install that is already running.
         context.app.scope.launch {

@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -114,13 +115,13 @@ class DownloadQueue(
         _items.value.filter { it.state == DownloadState.Done || it.state == DownloadState.Failed }.forEach { remove(it.id, deleteFiles) }
     }
 
-    /** Deletes a file in the downloads folder; a finished download's row goes with it. */
-    @Synchronized
-    fun deleteFile(file: File): Boolean {
-        val item = if (file.parentFile == dir) _items.value.firstOrNull { it.state == DownloadState.Done && it.file == file.name } else null
-        if (item == null) return file.delete()
-        remove(item.id, deleteFile = true)
-        return true
+    /** Deletes a file in the downloads folder on IO, before returning; a finished download's row goes only if the file did. */
+    suspend fun deleteFile(file: File): FileBrowser.Deleted {
+        val result = withContext(io) { FileBrowser.delete(file) }
+        if (result == FileBrowser.Deleted.Ok && file.parentFile == dir) synchronized(this) {
+            _items.value.firstOrNull { it.state == DownloadState.Done && it.file == file.name }?.let { remove(it.id, deleteFile = false) }
+        }
+        return result
     }
 
     /** Lets a download that stopped at a redirect continue to [host]. */
@@ -231,6 +232,7 @@ class DownloadQueue(
         saving = scope.launch(io) {
             delay(saveDelayMs)
             while (true) {
+                ensureActive() // flush() cancels this job; an old writer must not keep looping
                 synchronized(saveLock) { dirty = false }
                 write()
                 synchronized(saveLock) { if (!dirty) { pending = false; return@launch } }
@@ -242,9 +244,10 @@ class DownloadQueue(
     internal suspend fun flush() = withContext(io) { saving?.cancel(); synchronized(saveLock) { pending = false; dirty = false }; write() }
 
     private fun write() {
-        val data = QueueFile(concurrency, segments, _items.value)
-        afterSnapshot?.invoke()
         synchronized(fileLock) {
+            // Snapshot inside the lock: a writer that waited here must not write an older list over a newer file.
+            val data = QueueFile(concurrency, segments, _items.value)
+            afterSnapshot?.invoke()
             runCatching {
                 stateFile.parentFile?.mkdirs()
                 val tmp = File(stateFile.path + ".tmp")

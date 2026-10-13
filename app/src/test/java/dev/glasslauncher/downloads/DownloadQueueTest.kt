@@ -158,11 +158,12 @@ class DownloadQueueTest {
         q.add(server.url("/one.bin"))
         val item = withTimeout(20_000) { q.items.first { it.single().state == DownloadState.Done } }.single()
         val file = File(dir, item.file!!)
-        assertEquals(true, q.deleteFile(file))
+        assertEquals(FileBrowser.Deleted.Ok, q.deleteFile(file))
+        assertFalse(file.exists()) // gone by the time deleteFile returns
         assertEquals(0, q.items.value.size)
         withTimeout(5_000) { while (file.exists()) delay(20) }
         val stray = File(dir, "stray.txt").apply { writeText("x") }
-        assertEquals(true, q.deleteFile(stray))
+        assertEquals(FileBrowser.Deleted.Ok, q.deleteFile(stray))
         assertFalse(stray.exists())
         server.stop()
     }
