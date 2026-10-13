@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Debug builds only: lets dev tools (agent-device trigger-app-event, adb) set app state directly. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- P144 capture probe (debug only, never in release): privileged, so scripts/privapp-check must allowlist them. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_ROUTING" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" tools:ignore="ProtectedPermissions" />
+
     <application>
         <activity
             android:name=".debug.DebugEventActivity"
@@ -14,5 +19,11 @@
                 <data android:scheme="glassdev" android:host="event" />
             </intent-filter>
         </activity>
+        <!-- Exported so adb can fire it; a signature permission would block the shell uid. Debug builds only. -->
+        <receiver android:name=".debug.CaptureProbeReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="dev.glasslauncher.debug.CAPTURE_PROBE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

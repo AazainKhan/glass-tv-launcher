@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
  *
  * - `config`: merges the payload's keys into [LauncherConfig], e.g. `{"idleFadeMinutes":0}`.
  * - `home`: just returns to Home, resetting focus.
+ * - `capture-probe`: P144 spike, see [CaptureProbe]; the payload is an optional usages list such as `game,unknown`.
  *
  * Results are logged under the `GlassDebug` tag.
  */
@@ -34,6 +35,7 @@ class DebugEventActivity : ComponentActivity() {
                 when (name) {
                     "config" -> mergeConfig(ConfigStore.json.parseToJsonElement(requireNotNull(payload) { "config needs a payload" }).jsonObject)
                     "home" -> Unit
+                    "capture-probe" -> CaptureProbe.start(applicationContext, ProbeLogic.parseUsages(payload))
                     else -> error("unknown event: $name")
                 }
             }.onSuccess { Log.i(TAG, "event $name ok") }

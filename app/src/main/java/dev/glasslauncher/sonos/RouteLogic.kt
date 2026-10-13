@@ -11,7 +11,7 @@ sealed interface RouteState {
     data object StartingSpeaker : RouteState
     data object Playing : RouteState
     /** The playing app opted out of capture: the TV keeps the sound. [app] is its label. */
-    data class Blocked(val app: String) : RouteState
+    data class Blocked(val app: String, val pkg: String = "") : RouteState
     data class Failed(val reason: String) : RouteState
 }
 
@@ -22,7 +22,7 @@ sealed interface RouteEvent {
     data object CaptureReady : RouteEvent
     data object SpeakerStarted : RouteEvent
     data class Error(val reason: String) : RouteEvent
-    data class OptedOut(val app: String) : RouteEvent
+    data class OptedOut(val app: String, val pkg: String = "") : RouteEvent
     /** PCM came back (the app changed or was un-blocked). */
     data object AudioResumed : RouteEvent
     data object Stop : RouteEvent
@@ -38,21 +38,26 @@ object RouteLifecycle {
         RouteEvent.CaptureReady -> if (s == RouteState.Capturing) RouteState.StartingSpeaker else s
         RouteEvent.SpeakerStarted -> if (s == RouteState.StartingSpeaker) RouteState.Playing else s
         is RouteEvent.Error -> if (active(s)) RouteState.Failed(e.reason) else s
-        is RouteEvent.OptedOut -> if (s == RouteState.Playing || s is RouteState.Blocked) RouteState.Blocked(e.app) else s
+        is RouteEvent.OptedOut -> if (s == RouteState.Playing || s is RouteState.Blocked) RouteState.Blocked(e.app, e.pkg) else s
         RouteEvent.AudioResumed -> if (s is RouteState.Blocked) RouteState.Playing else s
         RouteEvent.Stop -> RouteState.Idle
     }
+
+    /** P144: what to tell the user when the playing app opted out of capture (it will not share its sound). */
+    fun blockedHint(s: RouteState.Blocked, room: String): String =
+        if (s.pkg.startsWith("com.spotify.")) "Spotify: play on ${room.ifBlank { "this speaker" }} from Spotify's Devices menu."
+        else "${s.app} blocks sharing its sound. Use its own cast/devices menu."
 
     /** True while the route owns the TV mute and the capture: everything but Idle and Failed. */
     fun holdsResources(s: RouteState) = s != RouteState.Idle && s !is RouteState.Failed && s != RouteState.NeedsConsent
 
     /** The platter's state line, or null when nothing needs saying. */
-    fun label(s: RouteState): String? = when (s) {
+    fun label(s: RouteState, room: String = ""): String? = when (s) {
         RouteState.Idle -> null
         RouteState.NeedsConsent -> "Waiting for permission"
         RouteState.Capturing, RouteState.StartingSpeaker -> "Connecting…"
         RouteState.Playing -> "Playing on Sonos"
-        is RouteState.Blocked -> "${s.app} doesn't allow playing on other speakers"
+        is RouteState.Blocked -> blockedHint(s, room)
         is RouteState.Failed -> "Couldn't play on Sonos"
     }
 }

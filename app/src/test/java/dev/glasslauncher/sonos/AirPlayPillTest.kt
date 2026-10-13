@@ -25,4 +25,10 @@ class AirPlayPillTest {
     }
 
     @Test fun aBlankRoomFallsBackToSonos() = assertEquals("Sonos", AirPlayPill.of(RouteState.Playing, " ").title)
+
+    @Test fun optOutHintTellsTheUserWhatToDo() {
+        assertEquals("Netflix blocks sharing its sound. Use its own cast/devices menu.", RouteLifecycle.label(RouteState.Blocked("Netflix", "com.netflix.ninja"), "Roam 2"))
+        assertEquals("Spotify: play on Roam 2 from Spotify's Devices menu.", RouteLifecycle.label(RouteState.Blocked("Spotify", "com.spotify.tv.android"), "Roam 2"))
+        assertEquals("Spotify: play on this speaker from Spotify's Devices menu.", RouteLifecycle.label(RouteState.Blocked("Spotify", "com.spotify.music"), ""))
+    }
 }
