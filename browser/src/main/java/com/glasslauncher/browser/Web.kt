@@ -89,6 +89,40 @@ object Reply {
     }
 }
 
+/** A tap point from the script, in CSS pixels, with the layout width they were measured against. */
+data class TapPoint(val x: Float, val y: Float, val layoutWidth: Float) {
+    /** The point in view pixels of a WebView [viewWidth] wide, kept inside it. */
+    fun inView(viewWidth: Int, viewHeight: Int): Pair<Float, Float> {
+        val k = viewWidth / layoutWidth
+        return (x * k).coerceIn(0f, (viewWidth - 1).toFloat()) to (y * k).coerceIn(0f, (viewHeight - 1).toFloat())
+    }
+
+    companion object {
+        fun parse(raw: String?, nonce: String): TapPoint? {
+            val b = Reply.body(raw, nonce)?.takeIf { it.startsWith("C|") } ?: return null
+            val n = b.substring(2).split(',').map { it.toFloatOrNull() ?: return null }
+            if (n.size != 3 || n.any { !it.isFinite() || Math.abs(it) > 1e7f } || n[2] <= 0f) return null
+            return TapPoint(n[0], n[1], n[2])
+        }
+    }
+}
+
+/** The pages shown, in order, kept by us as well as by the WebView: Back must work even where the WebView skips an entry. */
+class Trail {
+    private val urls = ArrayList<String>()
+    val size get() = urls.size
+
+    /** A page finished loading at [url]. Going back onto the previous page drops the one left. */
+    fun shown(url: String) {
+        if (urls.lastOrNull() == url) return
+        if (urls.size >= 2 && urls[urls.size - 2] == url) urls.removeAt(urls.size - 1) else urls.add(url)
+        while (urls.size > 50) urls.removeAt(0)
+    }
+
+    /** The page before the current one, or null on the first. */
+    fun previous(): String? = urls.getOrNull(urls.size - 2)
+}
+
 /** The tiny JS string helpers the script bridge needs (no addJavascriptInterface, only evaluateJavascript). */
 object Js {
     /** A JS string literal for [s]. */
@@ -173,7 +207,10 @@ function focus(i){var e=els[i];if(!e)return 0;unmark();cur=e;prev=[e.style.outli
  e.style.outline='4px solid #0a84ff';e.style.outlineOffset='2px';
  var r=e.getBoundingClientRect();if(r.top<60||r.bottom>window.innerHeight-60||r.left<0||r.right>window.innerWidth){e.scrollIntoView({block:'center',inline:'center'});}return 1;}
 function info(e){return N+'~T|'+(e.tagName==='INPUT'?String(e.type||'text'):'text');}
-function act(){var e=cur;if(!e)return N+'~N';if(isText(e)){e.focus();return info(e);}e.click();return N+'~C';}
+// A link is not clicked from script: that navigation has no user activation, and Chromium skips such entries on Back.
+// The reply is its centre and the layout width, and Kotlin taps it like a finger.
+function act(){var e=cur;if(!e)return N+'~N';if(isText(e)){e.focus();return info(e);}var r=e.getBoundingClientRect();
+ return N+'~C|'+Math.round(r.left+r.width/2)+','+Math.round(r.top+r.height/2)+','+window.innerWidth;}
 function activeText(){var e=document.activeElement;return e&&e!==document.body&&isText(e)?info(e):N+'~';}
 function setText(v){var e=cur&&document.activeElement===cur?cur:(document.activeElement&&isText(document.activeElement)?document.activeElement:cur);if(!e)return 0;
  if(e.isContentEditable){e.textContent=v;}else{var p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
@@ -256,11 +293,12 @@ object ReleasePolicy {
 
 /** What Back does: step back in history, cancel a page that is still loading, close only from the first page. */
 object BackPolicy {
-    enum class Act { GoBack, CancelLoad, Close }
+    enum class Act { GoBack, LoadPrevious, CancelLoad, Close }
 
-    fun act(canGoBack: Boolean, loading: Boolean, pagesShown: Int): Act = when {
+    fun act(canGoBack: Boolean, loading: Boolean, pagesShown: Int, hasPrevious: Boolean = false): Act = when {
         canGoBack -> Act.GoBack
         loading && pagesShown > 0 -> Act.CancelLoad   // the next page has not committed yet: Back keeps the one on screen
+        hasPrevious -> Act.LoadPrevious               // the WebView lost or skipped its history; ours did not
         else -> Act.Close
     }
 }

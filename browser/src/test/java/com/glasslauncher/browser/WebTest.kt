@@ -169,5 +169,28 @@ class WebTest {
         assertEquals(BackPolicy.Act.CancelLoad, BackPolicy.act(false, true, 1))   // page 2 still loading: keep page 1
         assertEquals(BackPolicy.Act.Close, BackPolicy.act(false, true, 0))        // the first page is still loading
         assertEquals(BackPolicy.Act.Close, BackPolicy.act(false, false, 1))
+        assertEquals(BackPolicy.Act.LoadPrevious, BackPolicy.act(false, false, 2, hasPrevious = true))   // the WebView skipped its history
+        assertEquals(BackPolicy.Act.Close, BackPolicy.act(false, false, 1, hasPrevious = false))
+    }
+
+    @Test fun theTrailFollowsPagesForwardAndBack() {
+        val t = Trail()
+        assertEquals(null, t.previous())
+        t.shown("https://a.com/1"); t.shown("https://a.com/1")
+        assertEquals(null, t.previous())
+        t.shown("https://a.com/2")
+        assertEquals("https://a.com/1", t.previous())
+        t.shown("https://a.com/1")                         // went back
+        assertEquals(1, t.size); assertEquals(null, t.previous())
+        t.shown("https://a.com/3"); t.shown("https://a.com/4")
+        assertEquals("https://a.com/3", t.previous())
+    }
+
+    @Test fun aTapPointFromTheScriptIsCheckedAndScaled() {
+        val p = TapPoint.parse("\"$N~C|100,50,640\"", N)!!
+        assertEquals(200f to 100f, p.inView(1280, 720))
+        assertEquals(1279f to 719f, TapPoint(5000f, 5000f, 640f).inView(1280, 720))
+        assertNull(TapPoint.parse("\"zzz~C|100,50,640\"", N))
+        for (bad in listOf("C|NaN,1,640", "C|1,2,0", "C|1,2", "C|1,2,-5", "T|text", "C|1e30,2,640")) assertNull(bad, TapPoint.parse("\"$N~$bad\"", N))
     }
 }

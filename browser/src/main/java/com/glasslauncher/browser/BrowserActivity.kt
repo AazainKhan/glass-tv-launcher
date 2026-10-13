@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Messenger
 import android.os.SystemClock
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -180,7 +181,9 @@ class BrowserActivity : Activity() {
                 if (pending?.target == Target.Page) pending = null
                 if (clearOnClose()) prefs().edit().putBoolean("dirty", true).apply()
             }
-            override fun onPageFinished(view: WebView, u: String) { url = u; loading = false; pagesShown++; showUrl(); scanPage() }
+            override fun onPageFinished(view: WebView, u: String) { url = u; loading = false; pagesShown++; trail.shown(u); showUrl(); scanPage()
+                Log.i("GlassBrowser", "finished size=${view.copyBackForwardList().size} index=${view.copyBackForwardList().currentIndex} canGoBack=${view.canGoBack()} trail=${trail.size} url=$u")
+            }
         }
         w.setDownloadListener { dlUrl, _, disposition, mime, _ ->
             if (Link.httpsHost(dlUrl) == null) { toast("Downloads need an https link"); return@setDownloadListener }
@@ -224,10 +227,17 @@ class BrowserActivity : Activity() {
     override fun dispatchKeyEvent(ev: KeyEvent): Boolean {
         val down = ev.action == KeyEvent.ACTION_DOWN
         if (ev.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (ev.action == KeyEvent.ACTION_UP) when (BackPolicy.act(web?.canGoBack() == true, loading, pagesShown)) {
+            if (ev.action == KeyEvent.ACTION_UP) {
+                val list = web?.copyBackForwardList()
+                val prev = trail.previous()
+                val act = BackPolicy.act(web?.canGoBack() == true, loading, pagesShown, prev != null)
+                Log.i("GlassBrowser", "back act=$act canGoBack=${web?.canGoBack()} loading=$loading pages=$pagesShown backForwardList.size=${list?.size} index=${list?.currentIndex} trail=${trail.size} url=${web?.url}")
+                when (act) {
                 BackPolicy.Act.GoBack -> web?.goBack()
+                BackPolicy.Act.LoadPrevious -> prev?.let { web?.loadUrl(it) }
                 BackPolicy.Act.CancelLoad -> web?.stopLoading()
                 BackPolicy.Act.Close -> finishAndRemoveTask()
+                }
             }
             return true
         }
@@ -308,19 +318,26 @@ class BrowserActivity : Activity() {
     }
 
     private fun select() {
-        if (mode == Mode.Pointer) tap() else {
+        if (mode == Mode.Pointer) tap(cursorX, cursorY) else {
             val s = script
-            js(s.act()) { raw -> if (s === script) Reply.textKind(raw, s.nonce)?.let { askText(it, Target.Page) } }
+            js(s.act()) { raw ->
+                if (s !== script) return@js
+                val point = TapPoint.parse(raw, s.nonce)
+                val w = web
+                if (point != null && w != null) { val (x, y) = point.inView(w.width, w.height); tap(x, y) }
+                else Reply.textKind(raw, s.nonce)?.let { askText(it, Target.Page) }
+            }
         }
     }
 
-    private fun tap() {
+    /** A real touch, so the page sees a user gesture (a script click would not count as one). */
+    private fun tap(x: Float, y: Float) {
         val w = web ?: return
         val t = SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, cursorX, cursorY, 0)
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0)
         w.dispatchTouchEvent(down); down.recycle()
         main.postDelayed({
-            val up = MotionEvent.obtain(t, t + 40, MotionEvent.ACTION_UP, cursorX, cursorY, 0)
+            val up = MotionEvent.obtain(t, t + 40, MotionEvent.ACTION_UP, x, y, 0)
             web?.dispatchTouchEvent(up); up.recycle()
             // A tap that landed in a text field asks Glass for its keyboard instead of the system one.
             main.postDelayed({
@@ -388,6 +405,7 @@ class BrowserActivity : Activity() {
     private val expired = ArrayDeque<Long>()
     private var loading = false
     private var pagesShown = 0
+    private val trail = Trail()
 
     /** Never while Glass holds a request of ours (a typed answer, a download card): the page, form and back stack must survive it. */
     private fun mayRelease() = ReleasePolicy.mayRelease(pending != null, SystemClock.elapsedRealtime(), handoffAt)
