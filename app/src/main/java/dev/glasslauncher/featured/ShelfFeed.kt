@@ -26,7 +26,11 @@ object ShelfFeed {
     fun titleBelongsToFocus(focusLeft: Boolean, hasFeed: Boolean, stateKey: String?, wantedKey: String?): Boolean =
         !focusLeft && (!hasFeed || stateKey == wantedKey)
 
-    /** Whether the previous app's scene is held dimmed: focus is on [heroApp] but the scene on screen is [sceneOfApp]'s. */
-    fun holds(heroApp: String?, sceneOfApp: String?, featuredBackground: Boolean, reduceMotion: Boolean): Boolean =
-        heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && featuredBackground && !reduceMotion
+    /**
+     * Whether the previous app's scene is held dimmed: focus is on [heroApp] but the scene on screen is [sceneOfApp]'s.
+     * Never while Now Playing has the screen ([nowPlaying]): its artwork stays whichever app has focus, so there is no
+     * scene to wait for and a dim would be a blink over a backdrop that isn't changing (P143).
+     */
+    fun holds(heroApp: String?, sceneOfApp: String?, featuredBackground: Boolean, reduceMotion: Boolean, nowPlaying: Boolean = false): Boolean =
+        heroApp != null && sceneOfApp != null && sceneOfApp != heroApp && featuredBackground && !reduceMotion && !nowPlaying
 }

@@ -410,11 +410,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // Not at once: moving along the tray, the scene is usually there within a beat (cached art), and a dip to dark for it
     // read as a black flash on every switch. Only a scene that is really late dims the old one.
     var holdArmed by remember { mutableStateOf(false) }
-    LaunchedEffect(heroApp, sceneOfApp) {
+    LaunchedEffect(heroApp, sceneOfApp, takeover != null) {
         holdArmed = false
-        if (heroApp != null && sceneOfApp != null && sceneOfApp != heroApp) { delay(HOLD_GRACE_MS); holdArmed = true }
+        if (takeover == null && heroApp != null && sceneOfApp != null && sceneOfApp != heroApp) { delay(HOLD_GRACE_MS); holdArmed = true }
     }
-    val holdTarget = if (holdArmed && dev.glasslauncher.featured.ShelfFeed.holds(heroApp, sceneOfApp, cfg.background == BackgroundMode.Featured, prefs.reduceMotion)) HOLD_DIM else 0f
+    val holdTarget = if (holdArmed && dev.glasslauncher.featured.ShelfFeed.holds(heroApp, sceneOfApp, cfg.background == BackgroundMode.Featured, prefs.reduceMotion, nowPlaying = takeover != null)) HOLD_DIM else 0f
     val holdAnim = remember { Animatable(0f) }
     // After the first frame following the focus change (the stall there ate the tween's start on the stick: the dim landed
     // in three frames, a cut), over 300 ms so it is seen for at least 150 ms.

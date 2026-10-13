@@ -46,6 +46,12 @@ class ShelfFeedTest {
         assertFalse(ShelfFeed.holds("appletv", "spotify", featuredBackground = true, reduceMotion = true))
     }
 
+    /** P143: the normal case keeps its hold; only Now Playing (its artwork stays whichever app has focus) skips it. */
+    @Test fun noHoldWhileNowPlayingHasTheScreen() {
+        assertTrue(ShelfFeed.holds("appletv", "spotify", featuredBackground = true, reduceMotion = false, nowPlaying = false))
+        assertFalse(ShelfFeed.holds("appletv", "spotify", featuredBackground = true, reduceMotion = false, nowPlaying = true))
+    }
+
     @Test fun noTitleForAnAppThatHasLostFocus() {
         // Right, Right 0.3 s apart (P130): focus is on the third app while the second's feed and title are still up.
         assertFalse(ShelfFeed.titleBelongsToFocus(focusLeft = true, hasFeed = true, stateKey = "nuvio", wantedKey = "nuvio"))

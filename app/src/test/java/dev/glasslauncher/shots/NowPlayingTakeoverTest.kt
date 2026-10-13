@@ -6,6 +6,8 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -46,7 +48,7 @@ class NowPlayingTakeoverTest {
         for (y in 0 until 300) for (x in 0 until 300) b.setPixel(x, y, android.graphics.Color.rgb(200, 40 + x / 3, 120 + y / 6))
     }
 
-    private class Frame(val ms: Long, val preview: Boolean, val hero: Boolean, val luma: Float, val diff: Float)
+    private class Frame(val ms: Long, val preview: Boolean, val hero: Boolean, val luma: Float, val diff: Float, val top: Float = 0f)
 
     private fun has(tag: String) = compose.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
@@ -60,7 +62,7 @@ class NowPlayingTakeoverTest {
     }
 
     /** Records from the moment [start] runs: tags present, mean luma, and the mean absolute change from the frame before. */
-    private fun record(frames: Int, stepMs: Long, start: () -> Unit): List<Frame> {
+    private fun record(frames: Int, stepMs: Long, name: String = "np-takeover", start: () -> Unit): List<Frame> {
         val out = ArrayList<Frame>()
         val shots = ArrayList<Bitmap>()
         compose.mainClock.autoAdvance = false
@@ -72,13 +74,13 @@ class NowPlayingTakeoverTest {
                 awaitBakes(); compose.waitForIdle()
                 val bmp = compose.onRoot().captureToImage().asAndroidBitmap()
                 val l = luma(bmp)
-                out += Frame(it * stepMs, has("cover-preview-host"), has("now-playing-hero"), l.average().toFloat(), l.indices.sumOf { i -> abs(l[i] - (prev ?: l)[i]).toDouble() }.toFloat() / l.size)
+                out += Frame(it * stepMs, has("cover-preview-host"), has("now-playing-hero"), l.average().toFloat(), l.indices.sumOf { i -> abs(l[i] - (prev ?: l)[i]).toDouble() }.toFloat() / l.size, l.take(32 * 9).average().toFloat())
                 shots += Bitmap.createScaledBitmap(bmp, bmp.width / 4, bmp.height / 4, true)
                 prev = l
             }
         } finally { compose.mainClock.autoAdvance = true }
-        println("strip: " + sheet("np-takeover", shots, stepMs, 8).absolutePath)
-        println(out.joinToString("\n") { "t=${it.ms} preview=${it.preview} hero=${it.hero} luma=${"%.1f".format(it.luma)} diff=${"%.2f".format(it.diff)}" })
+        println("strip: " + sheet(name, shots, stepMs, 8).absolutePath)
+        println(out.joinToString("\n") { "t=${it.ms} top=${"%.2f".format(it.top)} preview=${it.preview} hero=${it.hero} luma=${"%.1f".format(it.luma)} diff=${"%.2f".format(it.diff)}" })
         return out
     }
 
@@ -101,6 +103,23 @@ class NowPlayingTakeoverTest {
             // And the swap is a blend: no frame changes the picture by a cut's worth.
             val worst = frames.maxOf { it.diff }
             assertTrue("a frame changes the picture by $worst (mean luma step), a cut", worst < CUT_LUMA_STEP)
+        }
+    }
+
+    /**
+     * P143: with Now Playing up, focus moving along the tray changes nothing behind it: the backdrop's hold (a dim while
+     * the next app's scene is awaited) must not run, so the top of the screen holds one brightness the whole way.
+     */
+    @Test fun focusMovesAcrossTheTrayLeaveTheNowPlayingBackdropAlone() {
+        NowPlayingFixture.state = MutableStateFlow(track(playing = true))
+        TvHarness.setUp(squareFeed = true)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome(); compose.settle()
+            assertTrue("Now Playing is up", has("now-playing-hero"))
+            val frames = record(110, 32, "np-focus-moves") { compose.onRoot().performKeyInput { pressKey(Button.Right.key) } }
+            val base = frames.first().top
+            val spread = frames.maxOf { abs(it.top - base) }
+            assertTrue("the backdrop's brightness moved by $spread while focus crossed the tray (a hold dim)", spread < 0.5f)
         }
     }
 }
