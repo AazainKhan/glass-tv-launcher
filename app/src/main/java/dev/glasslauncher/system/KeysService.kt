@@ -59,16 +59,17 @@ object KeysService {
             settingOn = settingOn, serviceOn = on, mode = KeysServicePolicy.mode(hasSecure, hasRoot), updateTime = updateTime,
             lastOnUpdate = if (prefs.contains("lastOnUpdate")) prefs.getLong("lastOnUpdate", 0L) else null,
             atBoot = atBoot, cardShown = prefs.getBoolean("cardShown", false),
+            userUnbound = prefs.getLong("unboundAt", 0L) > updateTime,
         )
         val action = KeysServicePolicy.decide(state)
         android.util.Log.i("GlassKeys", "check: setting=$settingOn service=$on mode=${state.mode} boot=$atBoot update=$updateTime last=${state.lastOnUpdate} -> $action")
         when (action) {
             KeysServicePolicy.Action.Nothing -> Unit
-            KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).apply()
+            KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).remove("unboundAt").apply()
             KeysServicePolicy.Action.Enable -> {
                 enable(app, state.mode)
                 // Record this install as healed: a manual off right after the heal is the user's, not an update's.
-                prefs.edit().putLong("lastOnUpdate", updateTime).apply()
+                prefs.edit().putLong("lastOnUpdate", updateTime).remove("unboundAt").apply()
             }
             KeysServicePolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(instantBack = false) }

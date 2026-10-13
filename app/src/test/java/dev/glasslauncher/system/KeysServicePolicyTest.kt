@@ -9,8 +9,8 @@ import org.junit.Test
 class KeysServicePolicyTest {
     private fun state(
         setting: Boolean = true, service: Boolean = false, mode: WriteMode = WriteMode.Root, version: Long = 10,
-        last: Long? = 10, boot: Boolean = false, card: Boolean = false,
-    ) = State(setting, service, mode, version, last, boot, card)
+        last: Long? = 10, boot: Boolean = false, card: Boolean = false, unbound: Boolean = false,
+    ) = State(setting, service, mode, version, last, boot, card, unbound)
 
     @Test fun modeDecision() {
         assertEquals(WriteMode.SecureSettings, KeysServicePolicy.mode(hasSecureWrite = true, hasRoot = true))
@@ -53,7 +53,7 @@ class KeysServicePolicyTest {
         // The update heal ran (Enable) and recorded this install time; the user then turns the service off.
         val installed = 2_000L
         assertEquals(Action.Enable, KeysServicePolicy.decide(state(version = installed, last = 1_000)))
-        assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(version = installed, last = installed)))
+        assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(version = installed, last = installed, unbound = true)))
     }
 
     @Test fun atBootItIsReEnabledEvenOnTheSameVersion() {
@@ -62,7 +62,7 @@ class KeysServicePolicyTest {
 
     @Test fun offOnTheSameVersionAfterBeingSeenOnIsTheUserAndGlassFollows() {
         for (mode in listOf(WriteMode.Root, WriteMode.SecureSettings)) {
-            assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(mode = mode, version = 10, last = 10)))
+            assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(mode = mode, version = 10, last = 10, unbound = true)))
         }
     }
 
@@ -91,6 +91,13 @@ class HomeCardPolicyTest {
         assertEquals(true, SleepTimer.canSleep(root = true, keysServiceOn = false))
         assertEquals(true, SleepTimer.canSleep(root = false, keysServiceOn = true))
         assertEquals(false, SleepTimer.canSleep(root = false, keysServiceOn = false))
+    }
+
+    @Test fun aServiceDroppedByForceStopOrAPackageChangeIsHealedNotFollowed() {
+        // Same version, seen on before, not a boot, but the service never saw an unbind: force-stop or uninstall-system-updates.
+        for (mode in listOf(WriteMode.Root, WriteMode.SecureSettings)) {
+            assertEquals(Action.Enable, KeysServicePolicy.decide(State(true, false, mode, 10, 10, false, false, false)))
+        }
     }
 }
 

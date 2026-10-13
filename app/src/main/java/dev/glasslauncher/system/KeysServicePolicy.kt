@@ -46,6 +46,12 @@ object KeysServicePolicy {
         val atBoot: Boolean,
         /** The Home card has already been shown since the setting was last turned on. */
         val cardShown: Boolean,
+        /**
+         * The running service saw the system unbind it (onUnbind) after this install: a switch-off in Accessibility
+         * settings with Glass alive. A force-stop or `uninstall-system-updates` drops the service from the enabled list
+         * with no callback, so without this marker an absence is not proof the user turned it off.
+         */
+        val userUnbound: Boolean = false,
     )
 
     fun decide(s: State): Action = when {
@@ -55,7 +61,8 @@ object KeysServicePolicy {
         // Off, and Glass may turn it on: after an update or at boot (or never seen on) that is the system dropping it;
         // otherwise (same version, seen on before) someone switched it off.
         s.atBoot || s.lastOnUpdate == null || s.lastOnUpdate != s.updateTime -> Action.Enable
-        else -> Action.UserTurnedOff
+        s.userUnbound -> Action.UserTurnedOff
+        else -> Action.Enable                                            // dropped with no unbind: force-stop or a package change
     }
 }
 
