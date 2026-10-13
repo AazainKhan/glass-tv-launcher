@@ -71,6 +71,8 @@
     <uses-permission android:name="android.permission.CLEAR_APP_CACHE" tools:ignore="ProtectedPermissions" />
     <!-- Power Off's CEC standby to the TV (I09): privileged; scripts/privapp-check allowlists it. Without the grant, PowerControl just skips CEC and sleeps the stick. -->
     <uses-permission android:name="android.permission.HDMI_CEC" tools:ignore="ProtectedPermissions" />
+    <!-- One-press install without the system card (ApkInstall, P119): privileged, so scripts/privapp-check allowlists it. -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" tools:ignore="ProtectedPermissions" />
 
     <queries>
         <!-- Control Center's VPN pill: which installed apps are VPN apps. -->

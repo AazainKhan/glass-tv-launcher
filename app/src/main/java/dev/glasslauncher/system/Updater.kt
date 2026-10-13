@@ -1,12 +1,10 @@
 package dev.glasslauncher.system
 
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import dev.glasslauncher.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -75,17 +73,9 @@ object Updater {
                     }
                 }
             }
-            val installer = context.packageManager.packageInstaller
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-            val id = installer.createSession(params)
-            installer.openSession(id).use { session ->
-                session.openWrite("update.apk", 0, file.length()).use { out -> file.inputStream().use { it.copyTo(out) }; session.fsync(out) }
-                val intent = Intent(context, InstallResultReceiver::class.java)
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-                session.commit(PendingIntent.getBroadcast(context, id, intent, flags).intentSender)
-            }
         }
+        // Fire and forget as before: the receiver opens the system card if one is needed.
+        ApkInstall.commit(context, file, userAction = false, await = false)
     }
 }
 
@@ -96,5 +86,10 @@ class InstallResultReceiver : BroadcastReceiver() {
             val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
             context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
+        ApkInstall.onStatus(
+            intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1),
+            intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1),
+            intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE),
+        )
     }
 }
