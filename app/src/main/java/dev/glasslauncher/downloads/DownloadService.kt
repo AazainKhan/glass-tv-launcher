@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import dev.glasslauncher.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 class DownloadService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var watching: Job? = null
+    private var lastStartId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,14 +35,19 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
+        // Foreground first: loading the queue reads a file, and the system gives a few seconds to call startForeground.
+        if (!enterForeground(notification(emptyList()))) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val queue = Downloads.queue(this)
-        enterForeground(notification(queue.items.value))
         queue.startPending()
         if (watching == null) watching = scope.launch {
             queue.items.sample(1000).collect { items ->
                 if (items.none { it.state == DownloadState.Active || it.state == DownloadState.Queued }) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    stopSelf(lastStartId) // not stopSelf(): a start that arrived meanwhile keeps the service
                 } else {
                     getSystemService(NotificationManager::class.java).notify(ID, notification(items))
                 }
@@ -52,7 +59,7 @@ class DownloadService : Service() {
     // Android 15 ends dataSync services after six hours; pause cleanly instead of being crashed.
     override fun onTimeout(startId: Int, fgsType: Int) {
         Downloads.queue(this).pauseAll()
-        stopSelf()
+        stopSelf(startId)
     }
 
     override fun onDestroy() {
@@ -60,9 +67,15 @@ class DownloadService : Service() {
         super.onDestroy()
     }
 
-    private fun enterForeground(n: Notification) {
+    /** False when the system refuses (API 31+ throws for a start from the background); the downloads then run without it. */
+    private fun enterForeground(n: Notification): Boolean = try {
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(ID, n)
+        true
+    } catch (e: Exception) {
+        Log.w("Downloads", "no foreground service from the background", e)
+        Downloads.retryInForeground = true
+        false
     }
 
     private fun notification(items: List<DownloadItem>): Notification {
