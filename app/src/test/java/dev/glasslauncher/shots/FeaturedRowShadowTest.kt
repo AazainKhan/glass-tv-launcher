@@ -25,7 +25,7 @@ class FeaturedRowShadowTest {
     @get:Rule val pinnedClock = PinnedClockRule()
 
     /** FocusTile's default focusedScale, which the shelf's cards use. */
-    private val FOCUSED_SCALE = 1.2f
+    private val FOCUSED_SCALE = dev.glasslauncher.ui.FOCUSED_SCALE
 
     @Test fun theFocusedCardsShadowFadesOutBelowItWithoutAStep() {
         TvHarness.setUp()

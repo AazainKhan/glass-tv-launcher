@@ -576,6 +576,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var restartAsk by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Remotes opens as a platter pushed over the grid, inside the panel (tvOS pushes modules; P111), not a full page.
     var remotesPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // AirPlay is a menu pill, like tvOS's Audio pill: it opens a platter (receiver on/off + status) instead of
+    // toggling in place (P129, REA: AirPlay has no on-state of its own in Control Center).
+    var airplayPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Edit mode's hint (P101): a small glass toast at the bottom centre when edit mode opens, gone after a few seconds,
     // and back for a moment on the first key pressed in edit mode.
     var hintKick by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -639,9 +642,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
     // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
     // closing Control Center save too).
-    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter) {
-        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter) ({
+    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter) {
+        val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter || airplayPlatter) ({
             when {
+                airplayPlatter -> { airplayPlatter = false; pendingFocus = "airplay" }
                 remotesPlatter -> { remotesPlatter = false; pendingFocus = "remotes" }
                 restartAsk -> { restartAsk = false; pendingFocus = "restart" }
                 // Back on the permission card is Deny.
@@ -842,7 +846,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // The grid and the Remotes platter swap with a 200 ms side push both ways (tvOS pushes a module over the page and
             // pops it back the same way; spring 0.9/700 = tvOS's overlay spring, no bounce).
             androidx.compose.animation.AnimatedContent(
-                targetState = remotesPlatter,
+                targetState = remotesPlatter || airplayPlatter,
                 modifier = Modifier.weight(1f, fill = false),
                 transitionSpec = {
                     val push = targetState
@@ -855,7 +859,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 },
                 label = "cc-platter",
             ) { showPlatter ->
-            if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            if (airplayPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+                CcAirPlayPlatter(sz, airPlay, onBack = { airplayPlatter = false; pendingFocus = "airplay" })
+            } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
                 CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
@@ -1087,9 +1093,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             }
                             "screensaver" -> SizedRound(tile.size, w, h, "Saver", null, R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
                             "switcher" -> SizedRound(tile.size, w, h, "Apps", null, R.drawable.ic_apps, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
-                            "airplay" -> airPlay?.let { (state, set) ->
+                            "airplay" -> airPlay?.let { (state, _) ->
+                                // A menu pill, not a toggle (P129): Select opens the platter (receiver on/off, status),
+                                // like tvOS's Audio pill. The pill shows the connection, not an on/off disc.
                                 val value = when { state.sender != null -> "Connected to ${state.sender}"; state.on -> "On"; else -> "Off" }
-                                SizedRound(tile.size, w, h, "AirPlay", if (state.sender != null) "Connected" else if (state.on) "On" else "Off", R.drawable.ic_airplay, "AirPlay, $value", on = state.on, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { set(!state.on) }) { tap { set(!state.on) }() }
+                                SizedRound(tile.size, w, h, "AirPlay", null, R.drawable.ic_airplay, "AirPlay, $value", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { airplayPlatter = true }) { tap { airplayPlatter = true }() }
                             }
                             "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "Fast" else "Balanced", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { }) {
@@ -1283,13 +1291,6 @@ private fun AlexaPage(sz: CcSizes, closeAll: () -> Unit) {
 
 private const val FILL_FADE_MS = 120
 
-/** A pill's icon disc: white when its toggle is on, fading between the two. */
-@Composable
-private fun discColor(on: Boolean, fg: Color): Color {
-    val a by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(FILL_FADE_MS), label = "disc")
-    return androidx.compose.ui.graphics.lerp(fg.copy(alpha = 0.16f), Color.White, a)
-}
-
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
 @Composable
 internal fun PillContent(
@@ -1303,12 +1304,14 @@ internal fun PillContent(
 ) {
     val sz = LocalCcSizes.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 8.dp)) {
+        // On: no disc, the glyph alone takes the accent colour. Off: the glyph sits in a translucent white disc
+        // (white @ 0.15, tvOS's own value, not the control's tint) -- P129, REA's tvOS read of Control Center states.
+        val discAlpha by androidx.compose.animation.core.animateFloatAsState(if (on) 0f else 0.15f, androidx.compose.animation.core.tween(FILL_FADE_MS), label = "disc")
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(sz.disc)
-                // On is a bare blue glyph on the tinted pill (tvOS 27), not iOS 18's white blob; off keeps a faint well (P105 #15).
-                .then(if (disc) Modifier.background(if (on) Color.Transparent else fg.copy(alpha = 0.16f), CircleShape) else Modifier),
+                .then(if (disc) Modifier.background(Color.White.copy(alpha = discAlpha), CircleShape) else Modifier),
         ) { Glyph(icon, if (on) accent else fg, Modifier.size(sz.discGlyph)) }
         Column(Modifier.weight(1f).padding(start = 7.dp)) {
             PillText(title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
@@ -1319,7 +1322,9 @@ internal fun PillContent(
 
 @Composable
 internal fun Round(
-    @DrawableRes icon: Int, label: String, on: Boolean = false, onLabel: (String?) -> Unit = {},
+    @DrawableRes icon: Int, label: String,
+    /** Kept for callers' own state in [label] (e.g. "Wi-Fi, Connected"); round controls never draw an on-state (P129). */
+    on: Boolean = false, onLabel: (String?) -> Unit = {},
     modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onPlay: (() -> Unit)? = null, wiggle: Boolean = false,
     onClick: () -> Unit,
 ) {
@@ -1327,7 +1332,10 @@ internal fun Round(
     var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
     // The caption follows the button while focused, including its state (Theme · Light → Dark).
     LaunchedEffect(focused, label) { if (focused) onLabel(label) }
-    CcTile(label, null, CircleShape, sz.round, sz.round, onClick = onClick, modifier = modifier, onLongClick = onLongClick, onPlay = onPlay ?: onClick, wiggle = wiggle, on = on, onFocusChange = { f ->
+    // Round (1x1) controls never show an on-state (P129, REA: tvOS's own round buttons -- Game Controllers,
+    // Accessibility, Restrictions, Search -- have none at all); the state still reaches the user through the
+    // spoken label its callers build ("Wi-Fi, Connected"). A control whose on-state matters resizes to a pill (F01).
+    CcTile(label, null, CircleShape, sz.round, sz.round, onClick = onClick, modifier = modifier, onLongClick = onLongClick, onPlay = onPlay ?: onClick, wiggle = wiggle, on = false, onFocusChange = { f ->
         focused = f
         if (!f) onLabel(null)
     }) { fg ->
@@ -1617,6 +1625,38 @@ private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> 
         }
         CcTile("Remote Settings", null, Shapes.pill, sz.column, sz.pill, onClick = onSettings) { fg ->
             PillContent(R.drawable.ic_tune, "Remote Settings", null, fg, on = false, accent = fg)
+        }
+        CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->
+            PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
+        }
+    }
+}
+
+/**
+ * AirPlay's platter (P129, REA: tvOS's Audio pill opens a panel rather than toggling in place): the receiver's
+ * on/off switch and, while a sender is connected, its name. No install prompts here (that pill never shows unless
+ * PhairPlay is installed: [airPlay] is null without it).
+ */
+@Composable
+private fun CcAirPlayPlatter(sz: CcSizes, airPlay: Pair<dev.glasslauncher.system.AirPlay.State, (Boolean) -> Unit>?, onBack: () -> Unit) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-airplay")) {
+        Text("AirPlay", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        if (airPlay == null) {
+            CcTile("AirPlay unavailable", "Install PhairPlay to receive AirPlay", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
+                PillContent(R.drawable.ic_airplay, "AirPlay unavailable", "Install PhairPlay to receive AirPlay", fg, on = false, accent = fg)
+            }
+        } else {
+            val (state, set) = airPlay
+            CcTile("AirPlay", if (state.on) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { set(!state.on) }, modifier = Modifier.focusRequester(first), on = state.on) { fg ->
+                PillContent(R.drawable.ic_airplay, "AirPlay", if (state.on) "On" else "Off", fg, on = state.on, accent = Blue)
+            }
+            state.sender?.let { sender ->
+                CcTile("Connected", sender, Shapes.pill, sz.column, sz.pill, onClick = {}) { fg ->
+                    PillContent(R.drawable.ic_airplay, "Connected", sender, fg, on = true, accent = Blue)
+                }
+            }
         }
         CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->
             PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
