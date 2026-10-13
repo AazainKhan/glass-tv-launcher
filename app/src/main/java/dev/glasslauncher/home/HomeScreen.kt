@@ -146,6 +146,13 @@ private const val HOLD_DIM = 0.25f
 private const val HOLD_GRACE_MS = 700L
 /** The longest the shelf's title waits for its art before it shows anyway. */
 private const val SCENE_TITLE_WAIT_MS = 1_500L
+
+/**
+ * The shelf title's gate alpha. [gate] is an animated value, so it lags [ready] by a frame: on a focus change the new
+ * app's title was drawn for that frame at the old app's full gate, before its background (P130). Reading [ready]
+ * (computed in the same composition as the title) closes the gate in the same frame the title changes.
+ */
+internal fun titleGateAlpha(ready: Boolean, gate: Float): Float = if (ready) gate else 0f
 /** The next slide's bake starts once input has been quiet this long (never during a scroll). */
 private const val BAKE_AHEAD_QUIET_MS = 1_500L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
@@ -1023,7 +1030,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                             .graphicsLayer {
                                 val atRest = 1f - (backdrop.wallpaperBlur.value * 4f).coerceIn(0f, 1f)
                                 // Gone within the first third of the expand, before the large title fades in.
-                                alpha = idle.chromeAlpha * atRest * (1f - expand.value * 3f).coerceIn(0f, 1f) * titleGate
+                                alpha = idle.chromeAlpha * atRest * (1f - expand.value * 3f).coerceIn(0f, 1f) * titleGateAlpha(titleReady, titleGate)
                                 translationY = -(if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 2000f)
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
