@@ -247,12 +247,15 @@ class RemoteKeysService : AccessibilityService() {
         // Glass's own windows other than Home (the Control Center overlay itself) aren't an app change.
         val glassHome = pkg == packageName && event.className?.toString() == MainActivity::class.java.name
         if (pkg == packageName && !glassHome) return
-        if (pkg != front || glassHome) controlCenter.onAppChanged()
-        if (pkg == front) return
         // Only apps with a launcher entry count; dialogs, the keyboard and system overlays don't change "front".
         val isApp = launchable.getOrPut(pkg) {
             pkg != packageName && (packageManager.getLeanbackLaunchIntentForPackage(pkg) ?: packageManager.getLaunchIntentForPackage(pkg)) != null
         }
+        // Picking a Sonos speaker in Control Center asks for consent in a system dialog: that is not an app change, and
+        // Control Center (with its platter) stays up under it (P136).
+        val consentDialog = dev.glasslauncher.sonos.ConsentGate.ignores(android.os.SystemClock.uptimeMillis(), isApp)
+        if ((pkg != front || glassHome) && !consentDialog) controlCenter.onAppChanged()
+        if (pkg == front) return
         if (!isApp && pkg != packageName) return
         front = pkg.takeIf { isApp }
         handler.removeCallbacks(capture)

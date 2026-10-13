@@ -82,3 +82,26 @@ class OutputToggleTest {
         t.close()
     }
 }
+
+/** P136: the consent dialog must not close Control Center, but a real app still does. */
+class ConsentGateTest {
+    @org.junit.After fun reset() = ConsentGate.end()
+
+    @Test fun systemDialogIsIgnoredOnlyWhileConsentIsPending() {
+        assertFalse(ConsentGate.ignores(1_000, launchableApp = false))
+        ConsentGate.begin(1_000)
+        assertTrue(ConsentGate.ignores(2_000, launchableApp = false))
+        ConsentGate.end()
+        assertFalse(ConsentGate.ignores(2_000, launchableApp = false))
+    }
+
+    @Test fun aRealAppStillClosesControlCenterDuringConsent() {
+        ConsentGate.begin(1_000)
+        assertFalse(ConsentGate.ignores(2_000, launchableApp = true))
+    }
+
+    @Test fun theGateExpires() {
+        ConsentGate.begin(1_000)
+        assertFalse(ConsentGate.ignores(1_000 + ConsentGate.WINDOW_MS, launchableApp = false))
+    }
+}

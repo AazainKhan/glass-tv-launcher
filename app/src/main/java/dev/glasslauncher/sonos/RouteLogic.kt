@@ -137,3 +137,19 @@ object MuteSupport {
     fun supported(volumeFixed: Boolean, hdmiOut: Boolean, bluetoothOut: Boolean): Boolean =
         !volumeFixed && (!hdmiOut || bluetoothOut)
 }
+
+/**
+ * While a route's consent is in flight (from [SonosRoutes.start] until the result, a denial, a stop or [WINDOW_MS]), the
+ * system's own dialogs (the projection prompt, the mic permission) are not "another app came forward": Control Center must
+ * stay open under them, as tvOS keeps its picker open. Real apps still close it.
+ */
+object ConsentGate {
+    const val WINDOW_MS = 20_000L
+    @Volatile private var until = 0L
+
+    fun begin(now: Long) { until = now + WINDOW_MS }
+    fun end() { until = 0L }
+
+    /** True for a window change that is not a launchable app while consent is pending. */
+    fun ignores(now: Long, launchableApp: Boolean): Boolean = !launchableApp && now < until
+}

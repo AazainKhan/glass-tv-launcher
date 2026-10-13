@@ -60,6 +60,7 @@ object SonosRoutes {
     /** Asks for consent (RECORD_AUDIO, then the projection dialog); everything else follows from the result. */
     fun start(context: Context, speaker: AudioOutputConfig, muteTvWhilePlaying: Boolean) {
         if (!runner(context).begin(speaker, muteTvWhilePlaying)) return
+        ConsentGate.begin(android.os.SystemClock.uptimeMillis())
         // Pro (su): pre-grant first so the system skips the projection dialog (P135). The plain APK has no su and keeps it.
         scope.launch {
             runCatching { ProjectionPregrant.ensure(context.applicationContext) }
@@ -85,13 +86,14 @@ object SonosRoutes {
     const val CONSENT_FLAGS = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
 
     fun onConsent(context: Context, resultCode: Int, data: Intent?) {
+        ConsentGate.end()
         val r = runner(context)
         if (resultCode != Activity.RESULT_OK || data == null) { r.consentDenied(); return }
         r.consentGranted()
         context.startForegroundService(Intent(context, CaptureService::class.java).putExtra("code", resultCode).putExtra("data", data))
     }
 
-    fun onDenied(context: Context) = runner(context).consentDenied()
+    fun onDenied(context: Context) { ConsentGate.end(); runner(context).consentDenied() }
 
     /** The foreground service has its projection. Its onStop (the user or the system ending the capture) stops the route. */
     fun onProjection(context: Context, projection: MediaProjection) {
@@ -100,7 +102,7 @@ object SonosRoutes {
         r.run(CaptureSource(projection))
     }
 
-    fun stop(context: Context) = runner(context).stop()
+    fun stop(context: Context) { ConsentGate.end(); runner(context).stop() }
 
     /** The service went away on its own: stop the route if it still holds anything. */
     fun onServiceGone(context: Context) { val r = runner(context); if (r.holdsResources()) r.stop() }
