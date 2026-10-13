@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -127,6 +128,24 @@ private fun Wordmark(item: FeaturedItem, height: Dp, textFallback: Boolean = tru
     }
 }
 
+/** The hero scrim's darkest point (bottom-left corner, under the title block), and its value halfway along the diagonal. */
+internal const val SCRIM_PEAK = 0.62f
+internal const val SCRIM_MID = 0.30f
+
+/**
+ * tvOS-style scrim (P133): the art darkens from the bottom-left, strongest under the title, metadata, synopsis and
+ * buttons, fading to clear toward the top-right. Black at any theme, since the hero text is white in both. One
+ * gradient rect (the brush is built once per size), no offscreen layer, and no text shadows (TYPE-03).
+ */
+internal fun Modifier.heroScrim(): Modifier = drawWithCache {
+    val brush = androidx.compose.ui.graphics.Brush.linearGradient(
+        0f to Color.Black.copy(alpha = SCRIM_PEAK), 0.5f to Color.Black.copy(alpha = SCRIM_MID), 1f to Color.Transparent,
+        start = androidx.compose.ui.geometry.Offset(0f, size.height),
+        end = androidx.compose.ui.geometry.Offset(size.width * 0.8f, size.height * 0.1f),
+    )
+    onDrawBehind { drawRect(brush) }
+}
+
 /**
  * "Swipe up for full screen": the tray and grid slide away, the artwork gets the whole screen, and a
  * row of the source's titles sits along the bottom. Left/right browses (the backdrop follows),
@@ -166,7 +185,7 @@ fun ExpandedShelf(
             // Starts after the small title has faded, so the title never shows twice.
             alpha = ((progress() - 0.4f) / 0.6f).coerceIn(0f, 1f)
             translationY = (1f - progress()) * 40.dp.toPx()
-        },
+        }.then(if (coverFlow) Modifier else Modifier.heroScrim()),
     ) {
         if (coverFlow) {
             CoverFlow(
