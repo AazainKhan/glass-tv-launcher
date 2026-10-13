@@ -6,6 +6,10 @@ import dev.glasslauncher.data.FeaturedSourceId
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -96,5 +100,77 @@ class YouTubeFeedTest {
         val cfg = FeaturedConfig(youtubeChannels = "UCBJycsmduvYEL83R_U4JriQ")
         assertEquals(cfg, json.decodeFromString(FeaturedConfig.serializer(), json.encodeToString(FeaturedConfig.serializer(), cfg)))
         assertEquals("", json.decodeFromString(FeaturedConfig.serializer(), "{}").youtubeChannels)
+    }
+
+    private val chA = "UCBJycsmduvYEL83R_U4JriQ"
+    private val chB = "UCX6OQ3DkcsbYNE6H8uQQuVA"
+
+    private fun feed(vararg ids: String) = "<feed xmlns:yt=\"y\" xmlns:media=\"m\">" + ids.joinToString("") {
+        "<entry><yt:videoId>$it</yt:videoId><title>t$it</title><published>2026-10-${it.takeLast(2)}T00:00:00+00:00</published></entry>"
+    } + "</feed>"
+
+    /** Client that sends every request to [server], whatever host the code asked for. */
+    private fun clientFor(server: MockWebServer) = OkHttpClient.Builder().addInterceptor { chain ->
+        val r = chain.request()
+        chain.proceed(r.newBuilder().url(r.url.newBuilder().scheme("http").host(server.hostName).port(server.port).build()).build())
+    }.build()
+
+    private fun serve(server: MockWebServer, body: (String) -> MockResponse) {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = body(request.requestUrl!!.queryParameter("channel_id")!!)
+        }
+    }
+
+    private val cfg get() = FeaturedConfig(source = FeaturedSourceId.YouTube, youtubeChannels = "$chA $chB")
+
+    @Test fun usesFeedThumbnail() {
+        val xml = rss.replace("<media:group>", "<media:group><media:thumbnail url=\"https://i.ytimg.com/vi/vid0000001/hq2.jpg\"/>")
+        assertEquals("https://i.ytimg.com/vi/vid0000001/hq2.jpg", YouTube.parseFeed(xml).first().first.image)
+    }
+
+    @Test fun doctypeAndExternalEntitiesAreRejected() {
+        val xxe = """<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY x SYSTEM "file:///etc/passwd">]>
+            <feed xmlns:yt="y"><entry><yt:videoId>vid0000001</yt:videoId><title>&x;</title></entry></feed>"""
+        assertTrue(YouTube.parseFeed(xxe).isEmpty())
+    }
+
+    @Test fun oversizeBodyCountsAsFailure() {
+        MockWebServer().use { server ->
+            serve(server) { MockResponse().setBody(feed("vid0000001") + " ".repeat(600 * 1024)) }
+            try {
+                runBlocking { YouTube.load(clientFor(server), cfg) }
+                fail("expected a failure")
+            } catch (e: IllegalStateException) {
+                assertEquals("Couldn't load YouTube videos", e.message)
+            }
+        }
+    }
+
+    @Test fun oneFailingChannelStillFillsTheRow() {
+        MockWebServer().use { server ->
+            serve(server) { id -> if (id == chA) MockResponse().setResponseCode(500) else MockResponse().setBody(feed("vid0000011", "vid0000012")) }
+            val feed = runBlocking { YouTube.load(clientFor(server), cfg) }
+            assertEquals(listOf("vid0000012", "vid0000011"), feed.items.map { it.id })
+        }
+    }
+
+    @Test fun everyChannelFailingFails() {
+        MockWebServer().use { server ->
+            serve(server) { MockResponse().setResponseCode(404) }
+            try {
+                runBlocking { YouTube.load(clientFor(server), cfg) }
+                fail("expected a failure")
+            } catch (e: IllegalStateException) {
+                assertEquals("Couldn't load YouTube videos", e.message)
+            }
+        }
+    }
+
+    @Test fun eachChannelContributesAtMostFourNewest() {
+        MockWebServer().use { server ->
+            serve(server) { MockResponse().setBody(feed("vid0000001", "vid0000002", "vid0000003", "vid0000004", "vid0000005", "vid0000006")) }
+            val one = cfg.copy(youtubeChannels = chA)
+            assertEquals(listOf("vid0000006", "vid0000005", "vid0000004", "vid0000003"), runBlocking { YouTube.load(clientFor(server), one) }.items.map { it.id })
+        }
     }
 }

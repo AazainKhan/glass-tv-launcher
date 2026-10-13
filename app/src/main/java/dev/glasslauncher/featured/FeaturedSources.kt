@@ -216,6 +216,9 @@ object YouTube : FeaturedSource {
         "io.gh.reisxd.tizentube.cobalt",
     )
     private val channelId = Regex("UC[A-Za-z0-9_-]{22}")
+    private const val MAX_CHANNELS = 10
+    private const val PER_CHANNEL = 4
+    private const val MAX_FEED_BYTES = 512L * 1024
 
     /** The channel ids in [text] (ids or channel URLs, separated by anything), without repeats. */
     fun channelIds(text: String): List<String> = channelId.findAll(text).map { it.value }.distinct().toList()
@@ -223,8 +226,22 @@ object YouTube : FeaturedSource {
     override suspend fun load(http: OkHttpClient, cfg: FeaturedConfig) = withContext(Dispatchers.IO) {
         val channels = channelIds(cfg.youtubeChannels)
         require(channels.isNotEmpty() || cfg.youtubeKey.isNotBlank()) { "Add YouTube channels or an API key in Settings" }
+        val client = http.newBuilder().callTimeout(10, java.util.concurrent.TimeUnit.SECONDS).build()
         val recent = kotlinx.coroutines.coroutineScope {
-            channels.map { id -> async { runCatching { parseFeed(http.getText("https://www.youtube.com/feeds/videos.xml?channel_id=$id")) }.getOrDefault(emptyList()) } }.map { it.await() }
+            channels.take(MAX_CHANNELS).map { id ->
+                async {
+                    try {
+                        // Newest few per channel before merging, so one busy channel can't crowd out the rest.
+                        parseFeed(client.getText("https://www.youtube.com/feeds/videos.xml?channel_id=$id"))
+                            .sortedByDescending { it.second }.take(PER_CHANNEL)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("YouTube", "channel $id failed: ${e.javaClass.simpleName}")
+                        emptyList()
+                    }
+                }
+            }.map { it.await() }
         }.flatten().sortedByDescending { it.second }.map { it.first }.distinctBy { it.id }.take(20)
         val trending = if (cfg.youtubeKey.isBlank()) emptyList() else runCatching { trending(http, cfg) }.getOrDefault(emptyList())
         val items = (recent + trending).distinctBy { it.id }
@@ -235,7 +252,10 @@ object YouTube : FeaturedSource {
     private fun OkHttpClient.getText(url: String): String =
         newCall(Request.Builder().url(url).build()).execute().use { r ->
             check(r.isSuccessful) { "HTTP ${r.code}" }
-            r.body.string()
+            val src = r.body.source()
+            src.request(MAX_FEED_BYTES + 1)
+            check(src.buffer.size <= MAX_FEED_BYTES) { "Feed too large" }
+            src.buffer.readUtf8()
         }
 
     private fun trending(http: OkHttpClient, cfg: FeaturedConfig): List<FeaturedItem> {
@@ -263,8 +283,16 @@ object YouTube : FeaturedSource {
 
     /** The videos of a channel's public RSS feed, each with its publish time (ISO, sorts as text); a malformed feed gives none. */
     fun parseFeed(xml: String): List<Pair<FeaturedItem, String>> = runCatching {
+        // Channel feeds never carry a DOCTYPE; refuse one outright rather than trust parser flags.
+        if (xml.contains("<!DOCTYPE", ignoreCase = true)) return@runCatching emptyList()
         val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
-        runCatching { factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+        factory.isExpandEntityReferences = false
+        for ((f, v) in listOf(
+            "http://apache.org/xml/features/disallow-doctype-decl" to true,
+            "http://xml.org/sax/features/external-general-entities" to false,
+            "http://xml.org/sax/features/external-parameter-entities" to false,
+            "http://apache.org/xml/features/nonvalidating/load-external-dtd" to false,
+        )) runCatching { factory.setFeature(f, v) }
         val doc = factory.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(xml)))
         fun org.w3c.dom.Element.text(tag: String) = getElementsByTagName(tag).item(0)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
         val entries = doc.getElementsByTagName("entry")
@@ -274,7 +302,9 @@ object YouTube : FeaturedSource {
             val title = e.text("title") ?: return@mapNotNull null
             val channel = (e.getElementsByTagName("author").item(0) as? org.w3c.dom.Element)?.text("name")
             val description = e.text("media:description")?.lineSequence()?.firstOrNull { it.isNotBlank() }?.take(240)
-            video(id, title, channel, "https://i.ytimg.com/vi/$id/hq720.jpg", description) to (e.text("published") ?: "")
+            // The feed's own thumbnail suits Shorts too; hq720 is only a guess when it is absent.
+            val thumb = (e.getElementsByTagName("media:thumbnail").item(0) as? org.w3c.dom.Element)?.getAttribute("url")?.takeIf { it.startsWith("https://") }
+            video(id, title, channel, thumb ?: "https://i.ytimg.com/vi/$id/hq720.jpg", description) to (e.text("published") ?: "")
         }
     }.getOrDefault(emptyList())
 }
