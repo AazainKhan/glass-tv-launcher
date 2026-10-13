@@ -286,4 +286,23 @@ class DownloadEngineTest {
         val text = File(tmp.root, "a.part.json").readText()
         assertFalse(text.contains("SECRET") || text.contains("localhost"))
     }
+
+    @Test fun urlKeyIsAStableDigestOfTheLink() {
+        val k = DownloadEngine.urlKey("https://a.example/f?token=SECRET")
+        assertEquals(64, k.length)
+        assertTrue(k.matches(Regex("[0-9a-f]{64}")))
+        assertEquals(k, DownloadEngine.urlKey("https://a.example/f?token=SECRET"))
+        assertFalse(k == DownloadEngine.urlKey("https://a.example/f?token=OTHER"))
+        assertFalse(k.contains("SECRET"))
+    }
+
+    @Test fun aSidecarFromAnotherLinkIsNotTrusted() = runBlocking {
+        val data = testBytes(3 * 1024 * 1024)
+        val s = serve(data)
+        s.cutNext.set(4)
+        try { engine(retries = 0).download(request(s)) {} } catch (e: DownloadFailure) { /* partial */ }
+        val done = engine().download(DownloadRequest("a", s.url("/file.bin?other=1"), tmp.root, segments = 4)) {}
+        assertTrue(done.restarted)
+        assertArrayEquals(data, done.file.readBytes())
+    }
 }

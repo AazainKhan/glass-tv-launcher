@@ -85,6 +85,9 @@ sealed interface Overlay {
         /** No SHA-256 was checked for this file; the card says so. */
         val unchecked: Boolean = false,
     ) : Overlay
+    /** The file browser on the downloads folder, and the app-menu key's list on one of its files (by path). */
+    data object Files : Overlay
+    data class FileMenu(val path: String) : Overlay
     /** tvOS's confirmation card: [confirm] first and focused (red when [destructive]), then Cancel. */
     data class Confirm(
         val title: String,
@@ -321,6 +324,7 @@ private val SETTINGS_ICONS = mapOf(
     "Remotes" to dev.glasslauncher.R.drawable.ic_settings_remote,
     "Downloads" to dev.glasslauncher.R.drawable.ic_download,
     "My Codes" to dev.glasslauncher.R.drawable.ic_download,
+    "Files" to dev.glasslauncher.R.drawable.ic_folder,
     "Top Shelf Content" to dev.glasslauncher.R.drawable.ic_tv,
     "Hidden Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,
     "Hide Apps" to dev.glasslauncher.R.drawable.ic_visibility_off,

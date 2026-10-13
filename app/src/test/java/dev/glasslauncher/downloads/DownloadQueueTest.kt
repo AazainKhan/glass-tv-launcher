@@ -150,4 +150,19 @@ class DownloadQueueTest {
         withTimeout(20_000) { q.items.first { it.single().state == DownloadState.Done } }
         server.stop()
     }
+
+    @Test fun deletingAFinishedFileTakesItsRowToo() = runBlocking {
+        val server = FileServer(testBytes(20_000))
+        val q = queue()
+        q.add(server.url("/one.bin"))
+        val item = withTimeout(20_000) { q.items.first { it.single().state == DownloadState.Done } }.single()
+        val file = File(dir, item.file!!)
+        assertEquals(true, q.deleteFile(file))
+        assertEquals(0, q.items.value.size)
+        withTimeout(5_000) { while (file.exists()) delay(20) }
+        val stray = File(dir, "stray.txt").apply { writeText("x") }
+        assertEquals(true, q.deleteFile(stray))
+        assertFalse(stray.exists())
+        server.stop()
+    }
 }

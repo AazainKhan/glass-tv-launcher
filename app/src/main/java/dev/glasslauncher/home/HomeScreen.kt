@@ -1828,4 +1828,4 @@ internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
     index >= 0 && (stack.lastOrNull().let { it is Overlay.Confirm || it is Overlay.InstallConfirm }) && index < stack.lastIndex &&
         // Only a full page (Settings and its kin) stays drawn under the card; a side panel or menu goes, so the card is the
         // one glass layer over Home instead of a second one stacked on the panel (P105 #6).
-        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.Downloads, Overlay.AppSwitcher, is Overlay.Confirm, is Overlay.InstallConfirm -> true; else -> false }
+        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.Downloads, Overlay.Files, Overlay.AppSwitcher, is Overlay.Confirm, is Overlay.InstallConfirm -> true; else -> false }

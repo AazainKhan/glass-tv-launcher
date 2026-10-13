@@ -205,3 +205,31 @@ fun DownloadsDarkPreview() = PreviewStage { DownloadsPage(light = false) }
 @Preview(name = "downloads-light", widthDp = 960, heightDp = 540)
 @Composable
 fun DownloadsLightPreview() = PreviewStage(light = true) { DownloadsPage(light = true) }
+
+/** The file browser on the Settings page wash: an APK, a video, a folder and a few plain files. */
+@Composable
+private fun FilesPage(light: Boolean) {
+    val entries = remember {
+        val day = 86_400_000L
+        val now = 1_760_000_000_000L
+        fun e(name: String, size: Long, ago: Long, dir: Boolean = false) = dev.glasslauncher.downloads.FileEntry(java.io.File("/d/$name"), dir, size, now - ago * day)
+        listOf(
+            e("media-player-4.2.apk", 96_000_000, 0), e("short-film.mp4", 740_000_000, 2), e("Extras", 0, 3, dir = true),
+            e("theme-song.mp3", 6_400_000, 9), e("launcher-skin.zip", 52_000_000, 20), e("notes.pdf", 820_000, 41),
+        )
+    }
+    val page = dev.glasslauncher.home.SettingsTint.page(null, light)
+    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(page))) {
+        Box(Modifier.padding(horizontal = 45.dp)) {
+            dev.glasslauncher.home.FilesList(entries, loaded = true, free = 8_300_000_000, inFolder = null, active = true, onSelect = {}, onMenu = {}, onUp = {})
+        }
+    }
+}
+
+@Preview(name = "files-dark", widthDp = 960, heightDp = 540)
+@Composable
+fun FilesDarkPreview() = PreviewStage { FilesPage(light = false) }
+
+@Preview(name = "files-light", widthDp = 960, heightDp = 540)
+@Composable
+fun FilesLightPreview() = PreviewStage(light = true) { FilesPage(light = true) }

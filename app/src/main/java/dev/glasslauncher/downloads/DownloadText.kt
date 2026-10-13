@@ -79,7 +79,7 @@ object DownloadText {
 
     /** Hands a finished file to the system chooser, by its MIME type. False when nothing can open it. */
     fun open(context: Context, file: File): Boolean {
-        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+        val mime = FileBrowser.mime(file.name) ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
         return runCatching {
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.downloads", file)
             val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

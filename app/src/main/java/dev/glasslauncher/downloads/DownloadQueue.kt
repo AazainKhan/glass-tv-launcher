@@ -109,6 +109,15 @@ class DownloadQueue(
         _items.value.filter { it.state == DownloadState.Done || it.state == DownloadState.Failed }.forEach { remove(it.id, deleteFiles) }
     }
 
+    /** Deletes a file in the downloads folder; a finished download's row goes with it. */
+    @Synchronized
+    fun deleteFile(file: File): Boolean {
+        val item = if (file.parentFile == dir) _items.value.firstOrNull { it.state == DownloadState.Done && it.file == file.name } else null
+        if (item == null) return file.delete()
+        remove(item.id, deleteFile = true)
+        return true
+    }
+
     /** Lets a download that stopped at a redirect continue to [host]. */
     @Synchronized
     fun allowRedirect(id: String, host: String) {

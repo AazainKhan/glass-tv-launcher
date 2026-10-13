@@ -146,6 +146,8 @@ fun OverlayContent(
         Overlay.Remotes -> SettingsPage(active) { RemotesPanel(active) }
         Overlay.Downloads -> SettingsPage(active) { DownloadsPage(model, cfg, active, open, close) }
         is Overlay.DownloadMenu -> SidePanel(active) { DownloadMenuBody(overlay.id, active, open, close) }
+        Overlay.Files -> SettingsPage(active) { FilesPage(cfg, active, open) }
+        is Overlay.FileMenu -> SidePanel(active) { FileMenuBody(overlay.path, active, open, close) }
         Overlay.TvSettings -> SettingsPage(active) {
             val context = androidx.compose.ui.platform.LocalContext.current
             MenuList(active) { first ->
@@ -264,7 +266,7 @@ private fun ColumnScope.MoveToBody(
 }
 
 @Composable
-private fun MenuIcon(@androidx.annotation.DrawableRes icon: Int) {
+internal fun MenuIcon(@androidx.annotation.DrawableRes icon: Int) {
     Image(
         androidx.compose.ui.res.painterResource(icon),
         contentDescription = null,

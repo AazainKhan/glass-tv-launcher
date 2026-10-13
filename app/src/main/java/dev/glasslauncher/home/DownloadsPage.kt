@@ -2,7 +2,6 @@ package dev.glasslauncher.home
 
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -41,18 +40,12 @@ import dev.glasslauncher.downloads.Downloads
 import dev.glasslauncher.downloads.Plan
 import dev.glasslauncher.downloads.forApp
 import dev.glasslauncher.app
-import dev.glasslauncher.downloads.installOutcome
-import dev.glasslauncher.system.ApkInstall
-import dev.glasslauncher.system.InstallResult
 import dev.glasslauncher.system.RemoteNotice
-import dev.glasslauncher.system.StagedApk
 import dev.glasslauncher.ui.Hint
 import dev.glasslauncher.ui.MenuRow
 import dev.glasslauncher.ui.SectionLabel
 import dev.glasslauncher.ui.Type
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /** The download manager (P119): everything queued, running, paused and finished, and where a new link or code is entered. */
@@ -69,44 +62,7 @@ fun DownloadsPage(
     val items by queue.items.collectAsState()
     val scope = rememberCoroutineScope()
     val config by rememberUpdatedState(cfg)
-    // Rows being staged or installed (Select on them is ignored), and staged copies kept for the retry after "allow installs".
-    val busy = remember { mutableSetOf<String>() }
-    val kept = remember { mutableMapOf<String, StagedApk>() }
-    DisposableEffect(Unit) { onDispose { kept.values.forEach { it.discard() }; kept.clear() } }
-
-    fun install(item: DownloadItem, staged: StagedApk) {
-        kept.remove(item.id)
-        // The app scope: leaving this page must not cancel an install that is already running.
-        context.app.scope.launch {
-            val result = ApkInstall.install(context, staged)
-            val outcome = installOutcome(result, staged.info.label, config.downloads.keepInstalledApks)
-            RemoteNotice.show(context, outcome.notice, 4_000)
-            if (result is InstallResult.NeedsUserAction) {
-                kept[item.id] = staged
-                runCatching { context.startActivity(result.settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            }
-            if (outcome.removeDownload) queue.remove(item.id, deleteFile = true)
-            busy.remove(item.id)
-        }
-    }
-
-    fun askInstall(item: DownloadItem, staged: StagedApk) {
-        open(Overlay.InstallConfirm(
-            staged,
-            onConfirm = { install(item, staged) },
-            onDiscard = { staged.discard(); kept.remove(item.id); busy.remove(item.id) },
-            unchecked = item.expectedSha256 == null,
-        ))
-    }
-
-    fun onInstall(item: DownloadItem, file: File) {
-        if (!busy.add(item.id)) return
-        kept[item.id]?.let { askInstall(item, it); return }
-        scope.launch {
-            val staged = withContext(Dispatchers.IO) { runCatching { StagedApk.stage(context, file) }.getOrNull() }
-            if (staged == null) { RemoteNotice.show(context, "Couldn't read that APK"); busy.remove(item.id) } else askInstall(item, staged)
-        }
-    }
+    val apk = rememberApkFlow(cfg.downloads.keepInstalledApks, open)
 
     fun begin(plan: Plan.Start) {
         val d = config.downloads
@@ -150,7 +106,7 @@ fun DownloadsPage(
                     val file = File(Downloads.folder(context), item.file ?: return@DownloadsList)
                     when {
                         !file.exists() -> RemoteNotice.show(context, "That file is gone")
-                        DownloadText.isApk(item) -> onInstall(item, file)
+                        DownloadText.isApk(item) -> apk.start(item.id, file, item.expectedSha256 == null) { queue.remove(item.id, deleteFile = true) }
                         else -> DownloadText.open(context, file)
                     }
                 }
@@ -163,6 +119,7 @@ fun DownloadsPage(
                 queue.removeFinished(deleteFiles = true)
             })
         },
+        onFiles = { open(Overlay.Files) },
     ) }
 }
 
@@ -177,6 +134,7 @@ internal fun DownloadsList(
     onPauseAll: () -> Unit,
     /** Null: no bulk-delete row (the previews). */
     onDeleteFinished: (() -> Unit)? = null,
+    onFiles: () -> Unit = {},
 ) {
     // Rows carry a progress bar and a status: this page uses the whole width, with no icon column.
     val sink = LocalTitleSink.current
@@ -188,6 +146,7 @@ internal fun DownloadsList(
     MenuList(active) { first ->
         PanelTitle("Downloads")
         MenuRow("Add Download", onAdd, Modifier.focusRequester(first).testTag("dl-add"), chevron = true)
+        MenuRow("Files", onFiles, Modifier.testTag("dl-files"), chevron = true)
         if (items.isEmpty()) Hint("Nothing downloaded yet. Add a link, or a code you saved in Settings.")
         val running = items.filter { it.state == DownloadState.Active || it.state == DownloadState.Queued || it.state == DownloadState.Paused }
         val finished = items.filter { it.state == DownloadState.Done || it.state == DownloadState.Failed }

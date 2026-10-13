@@ -28,6 +28,7 @@ internal fun ColumnScope.DownloadsSettingsPage(model: HomeModel, cfg: LauncherCo
     val d = cfg.downloads
     PanelTitle("Downloads")
     MenuRow("Open Downloads", { open(Overlay.Downloads) }, f, chevron = true)
+    MenuRow("Files", { open(Overlay.Files) }, chevron = true, help = "Open, rename, delete or check what is in the Downloads folder.")
     MenuRow("Simultaneous Downloads", {
         val n = d.concurrent % 4 + 1
         model.editDownloads { it.copy(concurrent = n) }
