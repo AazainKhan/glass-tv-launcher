@@ -11,13 +11,16 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 
 **Lanes.** Stay in yours. Findings for someone else's area go on the board, never as a patch.
 
-| Agent | Lane | Subagents |
-|---|---|---|
-| **Agent Manager** | Tooling, CI, hooks, publishing, the user's rules, vitals, and diagnosis handoffs. Raises every user decision with AskUserQuestion. Takes no app bugs. | Haiku 5.5 for runs and audits |
-| **Yin** (Opus) | Design calls, reviews, merges to master, stick time, Control Center. Reads `tvos27-inspo` directly for design. | Sonnet implements; Haiku 5.5 runs checks |
-| **Yang** (Sonnet) | Features and fixes on worktree branches, JVM tests, emulator runs. | Haiku 5.5 for parallel test and baseline runs |
+**No subagents** (user, 2026-10-13: too many tokens). The team is four sessions, and each does its own work directly: no Agent/Task tool, no workflows, no parallel helpers.
 
-The tvOS research session is idle. Pushes to the public repo happen only with the user's OK, relayed by Agent Manager.
+| Agent | Lane |
+|---|---|
+| **Agent Manager** | Tooling, CI, hooks, publishing, the user's rules, vitals, and diagnosis handoffs. Raises every user decision with AskUserQuestion. Takes no app bugs. |
+| **Yin** (Opus) | Design calls, reviews, merges to master, stick time, Control Center. Reads `tvos27-inspo` directly for design. |
+| **Yang** (Sonnet) | Features and fixes on worktree branches, JVM tests, emulator runs. |
+| **REA agent** | tvOS and Fire OS reverse-engineering answers, written to `rom/research/`. |
+
+Pushes to the public repo happen only with the user's OK, relayed by Agent Manager.
 
 **Board first.** `.superpowers/pair/board.md` is the single source of truth for work. The SessionStart hook prints its open items next to vitals and reports.
 - Read it at the start of each turn.
@@ -30,25 +33,13 @@ The tvOS research session is idle. Pushes to the public repo happen only with th
 - **Functional, focus and e2e checks run on the emulator.** `scripts/e2e` defaults to it: it boots `scripts/emulator`, installs a debug build, and skips stick-only tests (marked `@pytest.mark.stick`, or listed in `STICK_ONLY_MODULES` in e2e/conftest.py). For your own commands: `eval "$(scripts/emulator env)"`, then `scripts/key`, `shot`, `tv` act on it.
 - **The stick is only for looks** (`scripts/clip`, tv-live) **and performance** (`scripts/perf-gate`, `scripts/bench`, `scripts/e2e --stick -m perf`). Always use a time-boxed lock: `scripts/stick-lock hold <who> [--max 30] -- <command>` renews itself while the command runs and releases it at the end. `bench`, `perf-gate`, `clip` and `e2e --stick` do this on their own. If someone else holds the lock, they fail fast instead of colliding.
 
-**Models.** Use the cheapest one that's reliable:
-- **Haiku 5.5:** mechanical work only: run scripts and summarise, grep and audits, re-record baselines, draft tests. Never visual or design judgement.
-- **Sonnet 5.5:** specified implementation.
-- **Opus 5.5:** judgement: design, diagnosis, reviews, merges. Fable 5.1 only if a hard problem stalls.
-
-**Subagent briefs** are self-contained:
-1. the goal, in the user's words;
-2. evidence paths (strip, video, Gallery tab, report id);
-3. the files to touch and NOT touch (per the board);
-4. the rules (GPU, Conventional Commits, worktree, lock);
-5. exact acceptance commands;
-6. what to return: under ~200 words with paths and numbers, no raw logs.
+**Models.** Each session keeps its own model: Yin Opus 5.5, Yang Sonnet 5.5. Don't spawn cheaper helpers; run scripts yourself and read only their short summaries.
 
 **Context:**
-- Delegate logs and searches.
+- Read logs with `tail`/`grep`, never whole.
 - Look at images at 960 px or as crops, once.
 - Point at the Gallery instead of pasting images.
 - Background long jobs and wait for the notification.
-- Launch parallel subagents in one message.
 - Keep state on the board, not in chat.
 - Read state cheaply: `scripts/board` and `scripts/vitals --brief`, not whole files; `scripts/shots` already prints a short report.
 - Before a context reset, write `.superpowers/handoff/<agent>.md` (≤25 lines: role, items and status, branch, next step, numbers, open questions, gotchas). A fresh session reads it first; the SessionStart hook lists them.
