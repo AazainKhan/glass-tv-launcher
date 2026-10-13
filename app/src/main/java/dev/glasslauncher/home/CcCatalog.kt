@@ -35,6 +35,7 @@ object CcCatalog {
         CcCatalogEntry("sleep_timer", "Sleep Timer", "Pause and sleep after 15 to 90 minutes", R.drawable.ic_do_not_disturb_on),
         CcCatalogEntry("vpn", "VPN", "Shows if a VPN is on; opens its app", R.drawable.ic_vpn),
         CcCatalogEntry("restart", "Restart", "Restart Fire TV", R.drawable.ic_restart, tier = CcTier.System),
+        CcCatalogEntry("power", "Power Off", "Turns off the TV over HDMI-CEC and sleeps the stick", R.drawable.ic_power_settings_new),
         CcCatalogEntry("cleanup", "Clean Up", "Free memory and clear caches", R.drawable.ic_cleaning_services, tier = CcTier.System),
         CcCatalogEntry("now_playing", "Now Playing", "Play, pause, skip any app", R.drawable.ic_music_note),
     ).filter { it.implemented }

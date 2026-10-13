@@ -98,9 +98,14 @@ object SleepTimer {
         runCatching { context.app.nowPlaying.state.value?.takeIf { it.playing }?.playPause() }
         scope.launch {
             delay(1_000)
-            if (Root.known || Root.available()) Root.action(context, "Sleep timer: sleep", "input keyevent KEYCODE_SLEEP")
-            else RemoteKeysService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+            sleepNow(context)
         }
+    }
+
+    /** Root: KEYCODE_SLEEP. Otherwise Glass's accessibility service, if the user turned it on. Shared with Power Off (I09). */
+    suspend fun sleepNow(context: Context) {
+        if (Root.known || Root.available()) Root.action(context, "Sleep timer: sleep", "input keyevent KEYCODE_SLEEP")
+        else RemoteKeysService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
     }
 
     class Receiver : BroadcastReceiver() {

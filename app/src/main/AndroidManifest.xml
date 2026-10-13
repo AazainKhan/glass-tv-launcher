@@ -61,6 +61,8 @@
     <!-- Restart (system app) and Clean Up's bulk cache clear (P83 M5): privileged; scripts/privapp-check allowlists them. -->
     <uses-permission android:name="android.permission.REBOOT" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.CLEAR_APP_CACHE" tools:ignore="ProtectedPermissions" />
+    <!-- Power Off's CEC standby to the TV (I09): privileged; scripts/privapp-check allowlists it. Without the grant, PowerControl just skips CEC and sleeps the stick. -->
+    <uses-permission android:name="android.permission.HDMI_CEC" tools:ignore="ProtectedPermissions" />
 
     <queries>
         <!-- Control Center's VPN pill: which installed apps are VPN apps. -->
