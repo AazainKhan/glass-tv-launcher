@@ -1,6 +1,8 @@
 package dev.glasslauncher.home
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -46,7 +48,10 @@ internal fun AddonTile(
     val go = tap { if (live) scope.launch { AddonHost.tap(context, id) } }
     if (size == CcSize.S1x1) Box {
         Round(icon, "$label, $value, add-on", on = on, onLabel = onLabel, modifier = modifier, onPlay = playOr { go() }, wiggle = wiggle, onClick = go)
-        FromAddonMark(Color.White, Modifier.align(Alignment.BottomEnd).padding(end = 2.dp, bottom = 2.dp))
+        // The round tile has no foreground colour to follow (white when focused), so the mark sits on a dark disc, like edit mode's badges.
+        Box(Modifier.align(Alignment.BottomEnd).size(15.dp).background(Color(0xE61C1C1E), CircleShape), contentAlignment = Alignment.Center) {
+            FromAddonMark(Color.White, Modifier)
+        }
     } else CcTile(label, value, Shapes.pill, w, h, onClick = go, modifier = modifier, onPlay = playOr { go() }, wiggle = wiggle, on = on) { fg ->
         Box(Modifier.fillMaxSize()) {
             PillContent(icon, label, value, fg, on = on, accent = CcShowcase.Green)

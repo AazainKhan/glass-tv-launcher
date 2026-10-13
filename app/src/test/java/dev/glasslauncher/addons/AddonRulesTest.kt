@@ -128,4 +128,9 @@ class AddonRulesTest {
         m.setTiles("b", "B", listOf(TileState("u", "U")))
         assertEquals(setOf("addon:b/u"), m.keys); assertFalse(m.getValue("addon:b/u").muted)
     }
+
+    @Test fun certChangeCardShowsOldAndNewFingerprint() {
+        val m = AddonTrust.certChangeMessage("Sample", "a.b", "e53fbc78aa", "10ab582abb")
+        assertTrue("Approved: E5:3F:BC:78" in m && "Now: 10:AB:58:2A" in m && "a.b" in m)
+    }
 }

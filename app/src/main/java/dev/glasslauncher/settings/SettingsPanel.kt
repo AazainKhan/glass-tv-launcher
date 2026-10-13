@@ -1348,7 +1348,7 @@ private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Mod
         ToggleRow(a.title, on, { v ->
             if (v && changed) ask(dev.glasslauncher.home.Overlay.Confirm(
                 "Signing certificate changed",
-                "${a.title} (${a.pkg}) was approved with certificate ${trust.fingerprint(cfg.addonsEnabled.getValue(a.pkg))}; it is now ${trust.fingerprint(a.cert)}. Only continue if you trust whoever published this update.",
+                trust.certChangeMessage(a.title, a.pkg, cfg.addonsEnabled.getValue(a.pkg), a.cert),
                 "Switch On", destructive = true,
             ) { set(true) }) else set(v)
         }, if (i == 0) f else Modifier, enabled = a.compatible,

@@ -49,6 +49,9 @@ object AddonTrust {
     fun disable(enabled: Map<String, String>, pkg: String) = enabled - pkg
     /** True when [pkg] was enabled before but its signing certificate is not the one the user approved. */
     fun certChanged(enabled: Map<String, String>, pkg: String, cert: String) = enabled[pkg]?.let { it != cert } == true
+    /** The confirm card's text when a re-signed add-on is switched on again: who, and the old and new fingerprints side by side. */
+    fun certChangeMessage(title: String, pkg: String, oldCert: String, newCert: String) =
+        "$title\n$pkg\nApproved: ${fingerprint(oldCert)}\nNow: ${fingerprint(newCert)}\nOnly continue if you trust whoever published this update."
     /** Short form of the first signing certificate's SHA-256 for people to compare: AB:CD:EF:12. */
     fun fingerprint(cert: String): String = cert.substringBefore(',').take(8).uppercase().chunked(2).joinToString(":")
 }
