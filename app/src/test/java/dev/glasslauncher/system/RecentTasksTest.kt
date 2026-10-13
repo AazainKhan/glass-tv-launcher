@@ -4,7 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.glasslauncher.apps.AppEntry
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -19,20 +19,21 @@ class RecentTasksTest {
         assertEquals(emptyList<RecentApps.RecentTask>(), RecentApps.tasks(ctx))
     }
 
-    @Test fun resumeOfAnUnknownTaskIdNeverThrows() {
-        // Robolectric's ActivityManager shadow doesn't validate the id; the real contract this guards is
-        // "resume never crashes the tap", which runCatching gives regardless of what the id turns out to do.
-        RecentApps.resume(ctx, 999_999)
+    @Test fun glassOwnTasksAloneDoNotCountAsTaskAccess() {
+        // An unprivileged getRecentTasks still returns Glass's own task: that must not hide the usage fallback.
+        val own = listOf(RecentApps.RecentTask("dev.glasslauncher", 7))
+        assertEquals(emptyList<RecentApps.RecentTask>(), RecentApps.others(own, "dev.glasslauncher"))
+        val mixed = own + RecentApps.RecentTask("a", 8)
+        assertEquals(listOf(RecentApps.RecentTask("a", 8)), RecentApps.others(mixed, "dev.glasslauncher"))
     }
 
-    @Test fun taskIdIsNullForAnAppNeverSeenInATaskList() {
-        assertNull(RecentApps.taskId("dev.glasslauncher.nobody"))
+    @Test fun resumeWithNoLiveTaskIsFalseSoTheCallerLaunchesNormally() {
+        // No task for the package in a fresh list: nothing to move to the front, so the tap must fall through.
+        assertFalse(RecentApps.resume(ctx, "dev.glasslauncher.nobody"))
     }
 
-    @Test fun listFallsBackToUsageHistoryWithoutTaskAccess() {
-        // No "hdmi"-style privileged service here either: Robolectric's ActivityManager.getRecentTasks is empty,
-        // so list() must take the existing usage-history path rather than returning nothing.
+    @Test fun listFallsBackToGlassOwnLaunchesWithoutTaskAccessOrUsage() {
         val installed = listOf(AppEntry("a", "A", android.content.ComponentName("a", "A")))
-        assertEquals(emptyList<AppEntry>(), RecentApps.list(ctx, installed, own = emptyList()))
+        assertEquals(installed, RecentApps.list(ctx, installed, own = listOf("a")))
     }
 }

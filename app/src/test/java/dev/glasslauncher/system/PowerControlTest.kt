@@ -23,7 +23,9 @@ class PowerControlTest {
         assertEquals(PowerControl.Mode.SleepOnly, PowerControl.mode(ctx, root = false, keysServiceOn = true))
     }
 
-    @Test fun standbyNeverThrowsWithNoCecService() {
-        kotlinx.coroutines.runBlocking { PowerControl.standby(ctx) }
+    @Test fun noCecServiceReportsFailureSoTheTileCanSayTheTvStaysOn() {
+        var told = false
+        kotlinx.coroutines.runBlocking { PowerControl.standby(ctx) { told = true } }
+        org.junit.Assert.assertTrue(told)
     }
 }

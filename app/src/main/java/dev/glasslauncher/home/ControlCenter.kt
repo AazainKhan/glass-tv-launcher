@@ -1141,15 +1141,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             }
                             "power" -> {
                                 val go = tap {
-                                    when (dev.glasslauncher.system.PowerControl.mode(context)) {
-                                        dev.glasslauncher.system.PowerControl.Mode.Unavailable ->
-                                            dev.glasslauncher.system.RemoteNotice.show(context, "Power Off needs Glass turned on in Accessibility", 4_000)
-                                        dev.glasslauncher.system.PowerControl.Mode.SleepOnly -> {
-                                            // No HDMI-CEC grant on this build: sleeps the stick, but the TV itself stays on.
-                                            dev.glasslauncher.system.RemoteNotice.show(context, "No HDMI-CEC: sleeping the stick, not the TV", 4_000)
-                                            closeAll(); scope.launch { dev.glasslauncher.system.PowerControl.standby(context) }
+                                    if (dev.glasslauncher.system.PowerControl.mode(context) == dev.glasslauncher.system.PowerControl.Mode.Unavailable) {
+                                        dev.glasslauncher.system.RemoteNotice.show(context, "Power Off needs Glass turned on in Accessibility", 4_000)
+                                    } else {
+                                        closeAll()
+                                        scope.launch {
+                                            dev.glasslauncher.system.PowerControl.standby(context) {
+                                                // CEC didn't go out (no HDMI_CEC grant, or the call failed): the stick sleeps, the TV stays on.
+                                                dev.glasslauncher.system.RemoteNotice.show(context, "Couldn't turn off the TV: sleeping the stick only", 4_000)
+                                            }
                                         }
-                                        dev.glasslauncher.system.PowerControl.Mode.CecAndSleep -> { closeAll(); scope.launch { dev.glasslauncher.system.PowerControl.standby(context) } }
                                     }
                                 }
                                 SizedRound(tile.size, w, h, "Power", null, R.drawable.ic_power_settings_new, "Power Off", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { }) { go() }

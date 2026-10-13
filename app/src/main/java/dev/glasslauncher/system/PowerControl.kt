@@ -29,13 +29,22 @@ object PowerControl {
         return playbackClient(context) != null
     }
 
-    /** Sends `<Standby>` to the TV, waits a beat for it to leave before sleeping the stick. Never throws. */
-    suspend fun standby(context: Context) {
-        runCatching {
-            playbackClient(context)?.let { client ->
-                client.javaClass.getMethod("sendStandby").invoke(client)
-            }
-        }
+    /**
+     * Sends `<Standby>` to the TV and reports whether it was sent (false: no HDMI_CEC grant, no client, or the call
+     * threw). Never throws.
+     */
+    fun sendCecStandby(context: Context): Boolean = runCatching {
+        val client = playbackClient(context) ?: return@runCatching false
+        client.javaClass.getMethod("sendStandby").invoke(client)
+        true
+    }.getOrDefault(false)
+
+    /**
+     * Standby the TV over CEC, then (after a beat for the message to leave) sleep the stick. [onNoCec] runs at once
+     * when the TV couldn't be told, so the caller can say the TV stays on; the stick still sleeps.
+     */
+    suspend fun standby(context: Context, onNoCec: () -> Unit = {}) {
+        if (!sendCecStandby(context)) onNoCec()
         delay(1_000)
         SleepTimer.sleepNow(context)
     }

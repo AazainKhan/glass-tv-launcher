@@ -101,8 +101,7 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             ).toBundle()
         } else null
         // The real task, with its state, when this build can see one (I08) — same zoom options, same fallback below.
-        val resumed = dev.glasslauncher.system.RecentApps.taskId(app.packageName)
-            ?.let { dev.glasslauncher.system.RecentApps.resume(getApplication(), it, options) } ?: false
+        val resumed = dev.glasslauncher.system.RecentApps.resume(getApplication(), app.packageName, options)
         if (!resumed) {
             val intent = graph.apps.launchIntent(app) ?: return
             try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
