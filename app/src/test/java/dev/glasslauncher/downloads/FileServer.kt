@@ -24,15 +24,30 @@ class FileServer(var content: ByteArray, var etag: String? = "\"v1\"", private v
     /** Cut the next N GET bodies off halfway. */
     val cutNext = AtomicInteger()
 
+    /** Answers every request with a redirect to this URL. */
+    @Volatile var redirectTo: String? = null
+
+    /** No Content-Length: the size stays unknown to the client. */
+    @Volatile var chunked = false
+
+    /** Swapped in as the content once a cut body has been served. */
+    @Volatile var afterCut: ByteArray? = null
+
+    /** Delivers bodies slowly, so a download can be caught mid-flight. */
+    @Volatile var slow = false
+
     fun url(path: String = "/file.bin") = server.url(path).toString()
 
     override fun dispatch(request: RecordedRequest): MockResponse {
         requests += request
+        redirectTo?.let { return MockResponse.Builder().code(302).addHeader("Location", it).build() }
+        // The probe is a one-byte GET; the switches below are about the real transfers.
+        val probe = request.headers["Range"] == "bytes=0-0"
         val b = MockResponse.Builder().addHeader("Content-Type", "application/octet-stream")
         etag?.let { b.addHeader("ETag", it) }
         if (ranges) b.addHeader("Accept-Ranges", "bytes")
         if (request.method == "HEAD") return b.addHeader("Content-Length", content.size.toString()).build()
-        if (failNext.getAndUpdate { maxOf(0, it - 1) } > 0) return MockResponse.Builder().code(503).build()
+        if (!probe && failNext.getAndUpdate { maxOf(0, it - 1) } > 0) return MockResponse.Builder().code(503).build()
 
         val range = request.headers["Range"]?.let { Regex("bytes=(\\d+)-(\\d*)").matchEntire(it) }
         val ifRange = request.headers["If-Range"]
@@ -40,8 +55,13 @@ class FileServer(var content: ByteArray, var etag: String? = "\"v1\"", private v
         val from = if (ranged) range!!.groupValues[1].toInt() else 0
         val to = if (ranged) range!!.groupValues[2].toIntOrNull() ?: (content.size - 1) else content.size - 1
         if (ranged) b.code(206).addHeader("Content-Range", "bytes $from-$to/${content.size}")
-        if (cutNext.getAndUpdate { maxOf(0, it - 1) } > 0) b.onResponseBody(SocketEffect.CloseSocket())
-        return b.body(Buffer().write(content, from, to - from + 1)).build()
+        val cut = !probe && cutNext.getAndUpdate { maxOf(0, it - 1) } > 0
+        if (cut) b.onResponseBody(SocketEffect.CloseSocket())
+        val body = Buffer().write(content, from, to - from + 1)
+        if (slow && !probe) b.throttleBody(256 * 1024, 100, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (chunked) b.chunkedBody(body, 4096) else b.body(body)
+        if (cut) afterCut?.let { content = it }
+        return b.build()
     }
 
     fun stop() = server.close()

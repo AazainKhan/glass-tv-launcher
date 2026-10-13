@@ -39,6 +39,7 @@ class DownloadEngine(
     private val rangeMinBytes: Long = 8L shl 20,
     private val retries: Int = 3,
     private val backoffMs: (attempt: Int) -> Long = { 1000L shl (it - 1) },
+    private val keepFreeBytes: Long = KEEP_FREE,
 ) {
     // The write path (eMMC) is the limit, and Home must not jank while it runs.
     private val io = Executors.newCachedThreadPool { r ->
@@ -47,18 +48,16 @@ class DownloadEngine(
 
     private class Restart : Exception()
 
+    private class Running(val size: Long, val written: AtomicLongArray) {
+        fun remaining() = (size - written.sum()).coerceAtLeast(0)
+    }
+
+    // Preallocation does not reduce free space, so each download must count what the others still have to write.
+    private val running = ConcurrentHashMap<String, Running>()
+
+    /** A one-byte GET, not HEAD: the validators must come from the same kind of answer the data will. */
     suspend fun probe(url: String): Probe = withContext(io) {
         withRetry {
-            val head = try {
-                http.newCall(request(url).head().build()).execute().use { r ->
-                    if (!r.isSuccessful) null
-                    else describe(r, r.header("Content-Length")?.toLongOrNull() ?: -1, r.header("Accept-Ranges").orEmpty().contains("bytes", true))
-                }
-            } catch (e: IOException) {
-                currentCoroutineContext().ensureActive(); null
-            }
-            if (head != null && head.size >= 0 && head.ranges) return@withRetry head
-            // A server that rejects HEAD, or does not say it takes ranges, gets the one-byte GET: it answers for real.
             http.newCall(request(url).header("Range", "bytes=0-0").build()).execute().use { r ->
                 if (!r.isSuccessful) throw DownloadFailure.Http(r.code)
                 if (r.code == 206) {
@@ -73,6 +72,8 @@ class DownloadEngine(
 
     suspend fun download(req: DownloadRequest, onProgress: (Progress) -> Unit): Finished {
         val probe = probe(req.url)
+        val host = DownloadInput.host(probe.finalUrl).orEmpty()
+        if (host != DownloadInput.host(req.url) && host !in req.allowedHosts) throw DownloadFailure.CrossHost(host)
         var fresh = false
         while (true) {
             try {
@@ -90,8 +91,8 @@ class DownloadEngine(
             val metaFile = File(req.dir, "${req.id}.part.json")
             req.dir.mkdirs()
             val old = readMeta(metaFile)
-            val usable = !fresh && old != null && part.exists() && probe.ranges && old.url == req.url && old.size == probe.size &&
-                (old.etag != null || old.lastModified != null) && old.etag == probe.etag && old.lastModified == probe.lastModified
+            val usable = !fresh && old != null && part.exists() && probe.ranges && old.url == urlKey(req.url) && old.size == probe.size &&
+                validated(probe) && old.etag == probe.etag && old.lastModified == probe.lastModified
             val restarted = fresh || (!usable && (old?.segments?.sumOf { it.written } ?: 0) > 0)
             if (!usable) { part.delete(); metaFile.delete() }
 
@@ -99,17 +100,20 @@ class DownloadEngine(
             val segments = if (usable) old.segments else plan(probe, if (ranged && probe.size > rangeMinBytes) req.segments.coerceIn(1, 8) else 1)
             val have = segments.sumOf { it.written }
             if (probe.size > 0) {
-                val needed = probe.size - have
+                val needed = probe.size - have + keepFreeBytes + running.filterKeys { it != req.id }.values.sumOf { it.remaining() }
                 val free = freeSpace(req.dir)
                 if (needed > free) throw DownloadFailure.NoSpace(needed, free)
             }
-            val meta = PartMeta(req.url, probe.size, probe.etag, probe.lastModified, segments)
+            val meta = PartMeta(urlKey(req.url), probe.size, probe.etag, probe.lastModified, segments)
             RandomAccessFile(part, "rw").use { raf ->
                 if (probe.size > 0 && raf.length() != probe.size) raf.setLength(probe.size)
                 writeMeta(metaFile, meta)
                 val written = AtomicLongArray(LongArray(segments.size) { segments[it].written })
                 val calls = ConcurrentHashMap.newKeySet<Call>()
                 fun snapshot() = meta.copy(segments = segments.mapIndexed { i, s -> s.copy(written = written[i]) })
+                // After a power cut the sidecar must not claim bytes the disk never got.
+                fun persist() { raf.channel.force(false); writeMeta(metaFile, snapshot()) }
+                if (probe.size > 0) running[req.id] = Running(probe.size, written)
                 try {
                     coroutineScope {
                         // Blocking socket reads ignore coroutine cancellation; cancelling the calls frees them.
@@ -125,38 +129,40 @@ class DownloadEngine(
                                 val speed = (total - last) * 1_000_000_000L / (now - lastAt).coerceAtLeast(1)
                                 last = total; lastAt = now
                                 onProgress(Progress(total, probe.size, speed, restarted))
-                                if (++ticks % 4 == 0) writeMeta(metaFile, snapshot())
+                                if (++ticks % 4 == 0) persist()
                             }
                         }
                         try {
                             segments.indices.filter { !segments[it].done }.map { i ->
-                                async(io) { runSegment(i, segments, req.url, probe, ranged, raf.channel, written, calls) }
+                                async(io) { runSegment(i, segments, probe, ranged, raf.channel, written, calls) }
                             }.awaitAll()
                         } finally {
                             ticker.cancel(); watcher.cancel()
                         }
                     }
                 } finally {
+                    running.remove(req.id)
                     // Paused, failed or done: what is on disk must match the table, so the next run continues from it.
-                    writeMeta(metaFile, snapshot())
+                    persist()
                 }
                 val total = written.sum()
+                // An unknown-size stream that was retried may have left a longer tail from the first try.
+                if (probe.size <= 0) raf.setLength(total)
                 onProgress(Progress(total, probe.size, 0, restarted))
             }
 
-            val actual = sha256(part)
-            req.sha256?.let {
-                if (!it.equals(actual, ignoreCase = true)) {
-                    part.delete(); metaFile.delete()
-                    throw DownloadFailure.HashMismatch(it.lowercase(), actual)
+            val actual = req.sha256?.let { expected ->
+                sha256(part).also {
+                    if (!expected.equals(it, ignoreCase = true)) {
+                        part.delete(); metaFile.delete()
+                        throw DownloadFailure.HashMismatch(expected.lowercase(), it)
+                    }
                 }
             }
             val target = claim(part, req.dir, req.name?.let(::safeName) ?: probe.fileName?.let(::safeName) ?: nameFromUrl(probe.finalUrl))
             metaFile.delete()
             Finished(target, target.length(), actual, probe.finalUrl, restarted)
         }
-
-    private fun AtomicLongArray.sum() = (0 until length()).fold(0L) { acc, i -> acc + get(i) }
 
     private fun plan(probe: Probe, n: Int): List<Segment> {
         if (probe.size <= 0) return listOf(Segment(0, -1))
@@ -166,7 +172,7 @@ class DownloadEngine(
     }
 
     private suspend fun runSegment(
-        i: Int, segments: List<Segment>, url: String, probe: Probe, ranged: Boolean,
+        i: Int, segments: List<Segment>, probe: Probe, ranged: Boolean,
         channel: FileChannel, written: AtomicLongArray, calls: MutableSet<Call>,
     ) {
         val seg = segments[i]
@@ -175,7 +181,8 @@ class DownloadEngine(
             if (!ranged && done > 0) { written[i] = 0; done = 0 } // cannot continue: refetch the stream
             val from = seg.start + done
             val useRange = ranged && seg.end >= 0 && (from > 0 || segments.size > 1)
-            val builder = request(url)
+            // The probe's final URL, not the entry URL: a redirect must not send different segments to different hosts.
+            val builder = request(probe.finalUrl)
             if (useRange) {
                 builder.header("Range", "bytes=$from-${seg.end}")
                 (probe.etag?.takeIf { !it.startsWith("W/") } ?: probe.lastModified)?.let { builder.header("If-Range", it) }
@@ -187,8 +194,7 @@ class DownloadEngine(
                     if (useRange && (r.code == 200 || r.code == 416)) throw Restart()
                     if (!r.isSuccessful) throw DownloadFailure.Http(r.code)
                     if (useRange) {
-                        val start = r.header("Content-Range")?.substringAfter("bytes ")?.substringBefore('-')?.toLongOrNull()
-                        if (r.code != 206 || start != from) throw IOException("Unexpected range answer")
+                        if (r.code != 206 || !rangeMatches(r.header("Content-Range"), from, seg.end, probe.size)) throw IOException("Unexpected range answer")
                     }
                     copy(r, i, from, if (seg.end >= 0) seg.end + 1 else Long.MAX_VALUE, channel, written)
                 }
@@ -281,8 +287,30 @@ class DownloadEngine(
 
     companion object {
         private const val BUFFER = 256 * 1024
+        const val KEEP_FREE = 200L shl 20
         private const val PROGRESS_MS = 250L
         private val json = Json { ignoreUnknownKeys = true }
+
+        /** Only a strong ETag or a Last-Modified lets a later run trust the bytes already written. */
+        internal fun validated(p: Probe) = p.lastModified != null || (p.etag != null && !p.etag.startsWith("W/"))
+
+        /** The sidecar keeps a digest, not the link: query strings often carry tokens. */
+        internal fun urlKey(url: String) = MessageDigest.getInstance("SHA-256").digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
+
+        /** `bytes from-to/total` for exactly the range asked for, of the file the probe measured. */
+        internal fun rangeMatches(header: String?, from: Long, to: Long, size: Long): Boolean {
+            val m = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""").matchEntire(header?.trim().orEmpty()) ?: return false
+            val total = m.groupValues[3].toLongOrNull()
+            return m.groupValues[1].toLong() == from && m.groupValues[2].toLong() == to && (total == null || total == size)
+        }
+
+        /** Removes partial files and sidecars that no list entry owns (a crash or a Clear History between runs). */
+        fun sweep(dir: File, known: Set<String>) {
+            dir.listFiles()?.forEach { f ->
+                val id = f.name.substringBefore(".part", "")
+                if (id.isNotEmpty() && id !in known && (f.name.endsWith(".part") || f.name.endsWith(".part.json") || f.name.endsWith(".part.json.tmp"))) f.delete()
+            }
+        }
 
         /** Removes a download's partial file and sidecar. */
         fun discard(dir: File, id: String) {
@@ -315,3 +343,5 @@ class DownloadEngine(
             safeName(url.toHttpUrlOrNull()?.pathSegments?.lastOrNull { it.isNotBlank() }.orEmpty())
     }
 }
+
+private fun AtomicLongArray.sum() = (0 until length()).fold(0L) { acc, i -> acc + get(i) }

@@ -1,11 +1,17 @@
 package dev.glasslauncher.downloads
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -21,8 +27,8 @@ class DownloadEngineTest {
     private fun serve(content: ByteArray, etag: String? = "\"v1\"", ranges: Boolean = true) =
         FileServer(content, etag, ranges).also { servers += it }
 
-    private fun engine(free: Long = Long.MAX_VALUE, retries: Int = 3) =
-        DownloadEngine(freeSpace = { free }, rangeMinBytes = 1 shl 20, retries = retries, backoffMs = { 0 })
+    private fun engine(free: Long = Long.MAX_VALUE, retries: Int = 3, keepFree: Long = 0) =
+        DownloadEngine(freeSpace = { free }, rangeMinBytes = 1 shl 20, retries = retries, backoffMs = { 0 }, keepFreeBytes = keepFree)
 
     private fun request(server: FileServer, id: String = "a", sha: String? = null, segments: Int = 4) =
         DownloadRequest(id, server.url(), tmp.root, sha256 = sha, segments = segments)
@@ -37,8 +43,8 @@ class DownloadEngineTest {
         val done = engine().download(request(s)) {}
         assertArrayEquals(data, done.file.readBytes())
         assertEquals("file.bin", done.file.name)
-        assertEquals(sha256(data), done.sha256)
-        val ranges = s.gets.mapNotNull { it.headers["Range"] }
+        assertNull(done.sha256) // nothing asked for a check, so nothing is hashed
+        val ranges = s.gets.mapNotNull { it.headers["Range"] }.filter { it != "bytes=0-0" }
         assertEquals(4, ranges.toSet().size)
         assertTrue(s.gets.all { it.headers["Accept-Encoding"] == "identity" })
         assertFalse(File(tmp.root, "a.part").exists() || File(tmp.root, "a.part.json").exists())
@@ -57,7 +63,8 @@ class DownloadEngineTest {
         val s = serve(data)
         val done = engine().download(request(s)) {}
         assertArrayEquals(data, done.file.readBytes())
-        assertEquals(1, s.gets.size)
+        assertEquals(2, s.gets.size) // the probe and the file
+        assertTrue(s.requests.none { it.method == "HEAD" })
     }
 
     @Test fun resumesFromTheWrittenOffsets() = runBlocking {
@@ -134,7 +141,7 @@ class DownloadEngineTest {
             assertEquals(data.size.toLong(), e.needed)
             assertTrue(e.message!!.contains("3.0 MB"))
         }
-        assertTrue(s.gets.isEmpty())
+        assertEquals(1, s.gets.size) // only the probe
     }
 
     @Test fun retriesThenSucceeds() = runBlocking {
@@ -154,12 +161,129 @@ class DownloadEngineTest {
         } catch (e: DownloadFailure.Http) {
             assertEquals(503, e.code)
         }
-        assertEquals(3, s.gets.size)
+        assertEquals(4, s.gets.size) // the probe, then the file three times
     }
 
     @Test fun nameComesFromContentDisposition() {
         assertEquals("a b.apk", DownloadEngine.fileNameOf("""attachment; filename*=UTF-8''a%20b.apk"""))
         assertEquals("x.zip", DownloadEngine.fileNameOf("""attachment; filename="x.zip""""))
         assertEquals("evil.sh", DownloadEngine.safeName("../../evil.sh"))
+    }
+
+    private fun other(server: FileServer) = server.server.url("/file.bin").newBuilder().host("127.0.0.1").build().toString()
+
+    @Test fun crossHostRedirectStopsUntilAllowed() = runBlocking {
+        val data = testBytes(40_000)
+        val target = serve(data)
+        val origin = serve(ByteArray(0)).also { it.redirectTo = other(target) }
+        try {
+            engine().download(request(origin)) {}
+            fail("should stop at the other host")
+        } catch (e: DownloadFailure.CrossHost) {
+            assertEquals("127.0.0.1", e.host)
+        }
+        assertTrue(target.gets.size <= 1) // nothing was downloaded from it
+        val done = engine().download(request(origin).copy(allowedHosts = setOf("127.0.0.1"))) {}
+        assertArrayEquals(data, done.file.readBytes())
+    }
+
+    @Test fun segmentsGoToTheFinalUrlOnly() = runBlocking {
+        val data = testBytes(3 * 1024 * 1024)
+        val target = serve(data)
+        val origin = serve(ByteArray(0)).also { it.redirectTo = other(target) }
+        val done = engine().download(request(origin).copy(allowedHosts = setOf("127.0.0.1"))) {}
+        assertArrayEquals(data, done.file.readBytes())
+        assertEquals(1, origin.requests.size) // the probe; the 4 segments did not ask it again
+        assertTrue(target.gets.size >= 5)
+    }
+
+    @Test fun weakEtagWithoutLastModifiedIsNotResumable() = runBlocking {
+        val data = testBytes(3 * 1024 * 1024)
+        val s = serve(data, etag = "W/\"v1\"")
+        s.cutNext.set(4)
+        try { engine(retries = 0).download(request(s)) {} } catch (e: DownloadFailure) { /* partial */ }
+        s.requests.clear()
+        val done = engine().download(request(s)) {}
+        assertTrue(done.restarted)
+        assertArrayEquals(data, done.file.readBytes())
+    }
+
+    @Test fun validatorRules() {
+        fun probe(etag: String?, lm: String?) = Probe("u", 1, true, etag, lm, null)
+        assertTrue(DownloadEngine.validated(probe("\"a\"", null)))
+        assertTrue(DownloadEngine.validated(probe("W/\"a\"", "Mon")))
+        assertFalse(DownloadEngine.validated(probe("W/\"a\"", null)))
+        assertFalse(DownloadEngine.validated(probe(null, null)))
+    }
+
+    @Test fun contentRangeMustMatchTheRequestAndTheSize() {
+        assertTrue(DownloadEngine.rangeMatches("bytes 10-19/100", 10, 19, 100))
+        assertTrue(DownloadEngine.rangeMatches("bytes 10-19/*", 10, 19, 100))
+        assertFalse(DownloadEngine.rangeMatches("bytes 10-19/100", 10, 19, 99)) // the file changed size
+        assertFalse(DownloadEngine.rangeMatches("bytes 10-18/100", 10, 19, 100))
+        assertFalse(DownloadEngine.rangeMatches("bytes 11-19/100", 10, 19, 100))
+        assertFalse(DownloadEngine.rangeMatches(null, 10, 19, 100))
+    }
+
+    @Test fun unknownSizeRetryDropsTheOldTail() = runBlocking {
+        val first = testBytes(300_000, seed = 1)
+        val second = testBytes(100_000, seed = 2)
+        val s = serve(first, ranges = false).also { it.chunked = true; it.cutNext.set(1); it.afterCut = second }
+        val done = engine().download(request(s)) {}
+        assertArrayEquals(second, done.file.readBytes())
+    }
+
+    @Test fun usesNoHeadRequest() = runBlocking {
+        val s = serve(testBytes(10_000))
+        engine().download(request(s)) {}
+        assertTrue(s.requests.none { it.method == "HEAD" })
+        assertEquals("bytes=0-0", s.requests.first().headers["Range"])
+    }
+
+    @Test fun keepsFreeSpaceBeyondTheFile() = runBlocking {
+        val data = testBytes(1024 * 1024)
+        val s = serve(data)
+        try {
+            engine(free = data.size + 99L, keepFree = 100).download(request(s)) {}
+            fail("should refuse")
+        } catch (e: DownloadFailure.NoSpace) {
+            assertEquals(data.size + 100L, e.needed)
+        }
+        assertArrayEquals(data, engine(free = data.size + 100L, keepFree = 100).download(request(s)) {}.file.readBytes())
+    }
+
+    @Test fun anotherDownloadsRemainingBytesCount() = runBlocking {
+        val big = testBytes(3 * 1024 * 1024)
+        val a = serve(big).also { it.slow = true }
+        val b = serve(testBytes(2 * 1024 * 1024))
+        // Room for either file alone, not for the rest of `big` plus all of `small`.
+        val shared = engine(free = big.size + 500L)
+        val started = CompletableDeferred<Unit>()
+        val first = launch(Dispatchers.Default) {
+            runCatching { shared.download(request(a, id = "big", segments = 1)) { if (it.downloaded > 0) started.complete(Unit) } }
+        }
+        withTimeout(10_000) { started.await() }
+        try {
+            shared.download(request(b, id = "small"), {})
+            fail("the big download still has bytes to write")
+        } catch (e: DownloadFailure.NoSpace) { /* expected */ }
+        first.cancelAndJoin()
+    }
+
+    @Test fun sweepRemovesOnlyOrphanPartFiles() {
+        val keep = listOf("k.part", "k.part.json", "plain.apk")
+        val drop = listOf("x.part", "x.part.json", "x.part.json.tmp")
+        (keep + drop).forEach { File(tmp.root, it).writeText("1") }
+        DownloadEngine.sweep(tmp.root, setOf("k"))
+        assertEquals(keep.sorted(), tmp.root.list()!!.sorted())
+    }
+
+    @Test fun sidecarKeepsNoUrl() = runBlocking {
+        val s = serve(testBytes(3 * 1024 * 1024))
+        s.cutNext.set(4)
+        val req = DownloadRequest("a", s.url("/file.bin?token=SECRET"), tmp.root, segments = 4)
+        try { engine(retries = 0).download(req) {} } catch (e: DownloadFailure) { /* partial */ }
+        val text = File(tmp.root, "a.part.json").readText()
+        assertFalse(text.contains("SECRET") || text.contains("localhost"))
     }
 }

@@ -35,11 +35,13 @@ data class DownloadRequest(
     val name: String? = null,
     val sha256: String? = null,
     val segments: Int = DEFAULT_SEGMENTS,
+    /** Hosts the final URL may be on besides the entry URL's own; anything else stops the download. */
+    val allowedHosts: Set<String> = emptySet(),
 )
 
 data class Progress(val downloaded: Long, val size: Long, val bytesPerSecond: Long, val restarted: Boolean)
 
-data class Finished(val file: File, val size: Long, val sha256: String, val finalUrl: String, val restarted: Boolean)
+data class Finished(val file: File, val size: Long, val sha256: String?, val finalUrl: String, val restarted: Boolean)
 
 sealed class DownloadFailure(message: String, cause: Throwable? = null) : Exception(message, cause) {
     class Http(val code: Int) : DownloadFailure("Server answered HTTP $code") {
@@ -51,6 +53,8 @@ sealed class DownloadFailure(message: String, cause: Throwable? = null) : Except
 
     class HashMismatch(val expected: String, val actual: String) :
         DownloadFailure("SHA-256 does not match (expected $expected, got $actual)")
+
+    class CrossHost(val host: String) : DownloadFailure("Redirected to $host")
 
     class Network(detail: String, cause: Throwable? = null) : DownloadFailure("Network error: $detail", cause)
 }
@@ -74,6 +78,10 @@ data class DownloadItem(
     val file: String? = null,
     val sha256: String? = null,
     val finalUrl: String? = null,
+    /** Hosts the user let a redirect go to. */
+    val allowedHosts: Set<String> = emptySet(),
+    /** Set when the download stopped at a redirect to another host, so the manager can ask. */
+    val blockedHost: String? = null,
     /** The server could not continue a partial file, so it started over. */
     val restarted: Boolean = false,
 )
