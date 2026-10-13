@@ -217,7 +217,9 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
                     CcPage(p.id, p.icon, p.tiles.mapNotNull { t ->
                         // An unknown size is the control's default one; an unknown id is kept (its add-on may return).
                         val id = CcControls.canonical(t.id)
-                        val size = CcSize.parse(t.size) ?: CcControls.sizes(id).first()
+                        // An unknown size, or one the control no longer allows (Performance is a toggle: never a circle), is its default.
+                        val parsed = CcSize.parse(t.size)
+                        val size = parsed?.takeIf { s -> s in CcControls.sizes(id) || id !in CcControls.known } ?: CcControls.sizes(id).first()
                         CcTile(id, size)
                     })
                 },
@@ -266,7 +268,9 @@ object CcControls {
         "cleanup" to PILL_FIRST,
         "now_playing" to listOf(CcSize.S2x2, CcSize.S2x1, CcSize.S1x1),
         "controllers" to CIRCLE_PILL, "remotes" to CIRCLE_PILL, "screensaver" to CIRCLE_PILL, "switcher" to CIRCLE_PILL,
-        "appearance" to CIRCLE_PILL_BIG, "airplay" to CIRCLE_PILL_BIG, "performance" to CIRCLE_PILL_BIG,
+        "appearance" to CIRCLE_PILL_BIG, "airplay" to CIRCLE_PILL_BIG,
+        // A toggle shows its state as a glyph tint and a value line, which a circle never draws (P129): a pill or the big tile.
+        "performance" to listOf(CcSize.S2x1, CcSize.S2x2),
         "memory" to PILL_FIRST,
         "downloads" to CIRCLE_PILL_BIG,
     )
@@ -300,13 +304,16 @@ object CcControls {
     /** The default second page. */
     val DEFAULT_MORE = listOf(
         CcTile("screensaver", CcSize.S1x1), CcTile("switcher", CcSize.S1x1), CcTile("launcher", CcSize.S1x1), CcTile("controllers", CcSize.S1x1),
-        CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S1x1), CcTile("vpn", CcSize.S2x1),
+        CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S2x1), CcTile("vpn", CcSize.S2x1),
     )
 
     /** Ids that were renamed: Free Memory became Clean Up (it does both jobs, one tap). */
     fun canonical(id: String): String = if (id == "memory") "cleanup" else id
 
     /** An add-on's control (`addon:...`) may use 1x1 and 2x1 only; an unknown built-in is 1x1. */
+    /** Ids with a size table (a size outside it is corrected on load). */
+    val known: Set<String> get() = TABLE.keys
+
     fun sizes(id: String): List<CcSize> = TABLE[id] ?: if (id.startsWith("addon:")) listOf(CcSize.S2x1, CcSize.S1x1) else ONE
 
     /** Fire TV Settings is the only way into Fire's own settings: it stays. */

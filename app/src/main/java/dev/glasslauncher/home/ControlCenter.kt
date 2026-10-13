@@ -186,6 +186,9 @@ private const val PLATTER_STIFFNESS = 150f
 private const val PLATTER_DAMPING = 0.8165f
 private const val PLATTER_FROM_SCALE = 0.3f
 
+/** The page switch's fades: in and out run together and sum to one, so the panel is never empty and never doubled. */
+private const val PAGE_FADE_MS = 150
+
 /** Where the platter zooms from and to: the pill that opened it, as a fraction of the box the platter fills. Plain fields: no recomposition. */
 private class PlatterSource {
     var box: androidx.compose.ui.geometry.Rect? = null
@@ -999,7 +1002,29 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     .padding(bottom = m.chromeInset)
                     .width(sz.column),
             ) {
-            androidx.compose.animation.Crossfade(pageId, animationSpec = androidx.compose.animation.core.tween(140), label = "cc-page") { shownPage ->
+            // Switching modules from the menu bar (FW TVSSMenuItemPanelHostingViewController setHostedViewController:focusHeading:): the whole
+            // panel slides in from the direction focus was heading, on the platter springs (150/20), while the old one leaves the other
+            // way. One transition, interruptible; the two fades are complementary (in + out = 1), so there is never a frame with neither
+            // page showing, and the leaving page is never at full strength once the new one has begun. Reduce Motion: a plain fade.
+            androidx.compose.animation.AnimatedContent(
+                targetState = pageId,
+                transitionSpec = {
+                    val fade = androidx.compose.animation.core.tween<Float>(PAGE_FADE_MS, easing = androidx.compose.animation.core.LinearEasing)
+                    if (reduceMotion) androidx.compose.animation.ContentTransform(
+                        targetContentEnter = androidx.compose.animation.fadeIn(fade), initialContentExit = androidx.compose.animation.fadeOut(fade),
+                        sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() },
+                    ) else {
+                        val dir = if (layout.pages.indexOfFirst { it.id == targetState } >= layout.pages.indexOfFirst { it.id == initialState }) 1 else -1
+                        val slide = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(PLATTER_DAMPING, PLATTER_STIFFNESS, androidx.compose.ui.unit.IntOffset(1, 1))
+                        androidx.compose.animation.ContentTransform(
+                            targetContentEnter = androidx.compose.animation.slideIn(slide) { androidx.compose.ui.unit.IntOffset(dir * it.width / 3, 0) } + androidx.compose.animation.fadeIn(fade),
+                            initialContentExit = androidx.compose.animation.slideOut(slide) { androidx.compose.ui.unit.IntOffset(-dir * it.width / 6, 0) } + androidx.compose.animation.fadeOut(fade),
+                            sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.spring(PLATTER_DAMPING, PLATTER_STIFFNESS, androidx.compose.ui.unit.IntSize(1, 1)) },
+                        )
+                    }
+                },
+                label = "cc-page",
+            ) { shownPage ->
             Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
             if (shownPage == "alexa") {
                 Box(Modifier) { AlexaPage(sz, closeAll) }
@@ -1214,7 +1239,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 tap { screen.dissolve { edit { it.copy(theme = if (dark) ThemeMode.Light else ThemeMode.Dark) } } }()
                             }
                             "screensaver" -> SizedRound(tile.size, w, h, "Saver", null, R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
-                            "switcher" -> SizedRound(tile.size, w, h, "Apps", null, R.drawable.ic_apps, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
+                            "switcher" -> SizedRound(tile.size, w, h, "Apps", null, R.drawable.ic_app_switcher, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
                             "downloads" -> {
                                 val downloads by remember { dev.glasslauncher.downloads.Downloads.queue(context).items }.collectAsState()
                                 val value = dev.glasslauncher.downloads.DownloadText.summary(downloads)
@@ -1227,7 +1252,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 val value = when { state.sender != null -> "Connected to ${state.sender}"; state.running -> "On"; else -> "Off" }
                                 SizedRound(tile.size, w, h, "AirPlay", null, R.drawable.ic_airplay, "AirPlay, $value", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "airplay"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "airplay"; airplayPlatter = true }) { tap { platterSource.id = "airplay"; airplayPlatter = true }() }
                             }
-                            "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "Fast" else "Balanced", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
+                            "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "On" else "Off", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
                                 onPlay = playOr { }) {
                                 tap { val next = !fast; fast = next; scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) } }()
                             }

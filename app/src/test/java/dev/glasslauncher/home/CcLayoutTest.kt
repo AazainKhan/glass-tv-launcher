@@ -25,6 +25,16 @@ class CcLayoutTest {
         assertEquals("four rows, no scroll at rest", 4, p.maxOf { it.row + it.tile.size.h })
     }
 
+    @Test fun performanceIsAToggleSoItNeverStaysACircle() {
+        assertEquals(listOf(S2x1, S2x2), CcControls.sizes("performance"))
+        assertEquals(S2x1, CcLayout.default().page("more")!!.tiles.first { it.id == "performance" }.size)
+        // A layout saved when it was a 1x1 circle loads with the pill.
+        val old = CcLayout(listOf(CcPage("more", "more", listOf(CcTile("performance", S1x1), CcTile("wifi", S1x1))))).toJson()
+        val back = CcLayout.fromJson(old)!!.page("more")!!.tiles
+        assertEquals(S2x1, back.first { it.id == "performance" }.size)
+        assertEquals("a size the control allows is kept", S1x1, back.first { it.id == "wifi" }.size)
+    }
+
     @Test fun theSecondDefaultPageIsMore() {
         val more = CcLayout.default().page("more")!!
         assertEquals(listOf("screensaver", "switcher", "launcher", "controllers", "remotes", "performance", "vpn"), more.tiles.map { it.id })

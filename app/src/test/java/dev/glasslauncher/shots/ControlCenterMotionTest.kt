@@ -100,6 +100,48 @@ class ControlCenterMotionTest {
         }
     }
 
+    /**
+     * Switching pages from the menu bar (P138, FW setHostedViewController:focusHeading:): the panel slides over frame by frame on a
+     * paused clock. No frame is empty (the edge energy of the tile area never falls under half of the weaker settled page: the fades
+     * are complementary), none is a pop (no step between frames is most of the whole change), and the settled pages differ.
+     */
+    @Test fun switchingPagesIsContinuous() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            compose.press(Button.Up)
+            compose.settle()
+            val shots = compose.frames(Button.Right, frames = 40, stepMs = 16)
+            fun energy(b: android.graphics.Bitmap): Float {
+                var e = 0f
+                val x0 = (b.width * 0.68f).toInt(); val x1 = (b.width * 0.97f).toInt() - 1
+                val y0 = (b.height * 0.13f).toInt(); val y1 = (b.height * 0.7f).toInt() - 1
+                fun l(x: Int, y: Int): Float { val c = b.getPixel(x, y); return ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10f }
+                for (y in y0 until y1) for (x in x0 until x1) e += kotlin.math.abs(l(x + 1, y) - l(x, y)) + kotlin.math.abs(l(x, y + 1) - l(x, y))
+                return e
+            }
+            fun diff(a: android.graphics.Bitmap, b: android.graphics.Bitmap): Float {
+                var d = 0f; var n = 0
+                for (y in (a.height * 0.13f).toInt() until (a.height * 0.7f).toInt()) for (x in (a.width * 0.68f).toInt() until (a.width * 0.97f).toInt()) {
+                    val p = a.getPixel(x, y); val q = b.getPixel(x, y)
+                    d += (kotlin.math.abs((p shr 16 and 0xFF) - (q shr 16 and 0xFF)) + kotlin.math.abs((p shr 8 and 0xFF) - (q shr 8 and 0xFF)) + kotlin.math.abs((p and 0xFF) - (q and 0xFF))) / 3f; n++
+                }
+                return d / n
+            }
+            val first = shots.first(); val last = shots.last()
+            val total = diff(first, last)
+            assertTrue("the page did not change (diff $total)", total > 3f)
+            val floor = 0.5f * minOf(energy(first), energy(last))
+            val low = shots.withIndex().filter { energy(it.value) < floor }.map { it.index }
+            assertTrue("frames $low show (almost) nothing: neither page is visible", low.isEmpty())
+            val steps = shots.zipWithNext { a, b -> diff(a, b) }
+            assertTrue("a pop: one frame carries ${steps.max()} of a total ${total}", steps.max() < total * 0.6f)
+        }
+    }
+
     @Test fun opensWithAContinuousGrow() {
         TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use {
