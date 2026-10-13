@@ -55,7 +55,7 @@ fun InstallConfirmCard(info: ApkInfo, width: Dp, onCancel: () -> Unit, onConfirm
     val lines = installCardLines(info)
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
-    val destructive = info.signerChanged
+    val destructive = info.risky
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.width(width).ccSurface(RoundedCornerShape(26.dp), null).padding(horizontal = 14.dp, vertical = 8.dp).testTag("install-confirm"),

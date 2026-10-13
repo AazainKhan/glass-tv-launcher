@@ -29,6 +29,8 @@ data class ApkInfo(
     val installedSigner: String? = null,
 ) {
     val signerChanged get() = check == SignerCheck.Changed
+    /** Worth a pause: the card makes Cancel the default and Install destructive. */
+    val risky get() = signerChanged || check == SignerCheck.Unknown || version == VersionChange.Downgrade
     val signerShort get() = signers.firstOrNull()?.take(16).orEmpty()
     val version get() = ApkInfoReader.versionChange(versionCode, installedVersionCode)
 }
@@ -69,11 +71,12 @@ object ApkInfoReader {
 
     internal fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
 
-    /** Same only if every signer matches (or the new lineage contains all of the installed signers: a key rotation). */
+    /** Same only if the signer sets are equal, or a single new key's lineage runs through the single installed key (rotation). */
     internal fun compare(new: SignerSet?, installed: SignerSet?, isInstalled: Boolean = installed != null): SignerCheck = when {
         !isInstalled -> SignerCheck.NotInstalled
         new == null || installed == null || new.current.isEmpty() || installed.current.isEmpty() -> SignerCheck.Unknown
-        new.current == installed.current || new.lineage.containsAll(installed.current) -> SignerCheck.Same
+        new.current == installed.current -> SignerCheck.Same
+        new.current.size == 1 && installed.current.size == 1 && installed.current.first() in new.lineage -> SignerCheck.Same
         else -> SignerCheck.Changed
     }
 
@@ -97,18 +100,32 @@ class StagedApk(val file: File, val sha256: String, val info: ApkInfo) {
     fun discard() { file.delete() }
 
     companion object {
+        private const val STALE_MS = 24 * 3_600_000L
+
         fun hash(file: File): String {
             val md = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { i -> val buf = ByteArray(64 * 1024); while (true) { val n = i.read(buf); if (n < 0) break; md.update(buf, 0, n) } }
             return ApkInfoReader.hex(md.digest())
         }
 
+        /** A fresh unique file in [dir]; only files older than a day are swept, so a running install keeps its own. */
+        internal fun newFile(dir: File, now: Long = System.currentTimeMillis()): File {
+            dir.mkdirs()
+            dir.listFiles()?.forEach { if (now - it.lastModified() > STALE_MS) it.delete() }
+            return File(dir, "${java.util.UUID.randomUUID()}.apk")
+        }
+
+        fun newFile(context: Context) = newFile(File(context.filesDir, "installs"))
+
         /** Copies [source] into Glass's private dir and reads everything from the copy; null if it isn't an APK. */
         fun stage(context: Context, source: File): StagedApk? {
-            val dir = File(context.filesDir, "installs").apply { mkdirs() }
-            dir.listFiles()?.forEach { it.delete() }
-            val copy = File(dir, "pending.apk")
+            val copy = newFile(context)
             source.inputStream().use { i -> copy.outputStream().use { i.copyTo(it) } }
+            return adopt(context, copy)
+        }
+
+        /** Hashes and reads a file already in the private dir (the Updater downloads straight into one). */
+        fun adopt(context: Context, copy: File): StagedApk? {
             val info = ApkInfoReader.read(context, copy)
             if (info == null) { copy.delete(); return null }
             return StagedApk(copy, hash(copy), info)

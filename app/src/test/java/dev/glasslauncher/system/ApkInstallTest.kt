@@ -29,6 +29,8 @@ class ApkInstallTest {
 
     @Test fun rotatedKeyKeepsTheInstalledOneInItsLineage() {
         assertEquals(SignerCheck.Same, ApkInfoReader.compare(SignerSet(setOf("new"), setOf("old", "new")), set("old")))
+        // a superset of signers is a different owner, not a rotation
+        assertEquals(SignerCheck.Changed, ApkInfoReader.compare(SignerSet(setOf("a", "b")), set("a")))
         assertEquals(SignerCheck.Changed, ApkInfoReader.compare(set("old"), SignerSet(setOf("new"), setOf("old", "new"))))
     }
 
@@ -67,10 +69,16 @@ class ApkInstallTest {
         assertEquals(ApkInstall.RootOutcome.NoSu, ApkInstall.fromRoot(127, "su failed"))
         assertEquals(ApkInstall.RootOutcome.Unknown, ApkInstall.fromRoot(124, "partial"))
         assertEquals(ApkInstall.RootOutcome.Unknown, ApkInstall.fromRoot(0, ""))
+        assertEquals(ApkInstall.RootOutcome.NoSu, ApkInstall.fromRoot(1, ""))
     }
 
     @Test fun timeoutGivesNoResult() {
         assertNull(runBlocking { ApkInstall.awaitResult(CompletableDeferred(), 30) })
+    }
+
+    @Test fun aResultThatRacedTheTimeoutWins() {
+        val done = CompletableDeferred<InstallResult>().apply { complete(InstallResult.Success) }
+        assertEquals(InstallResult.Success, runBlocking { ApkInstall.awaitResult(done, 0) })
     }
 
     @Test fun cardWarnsOnSignerChangeAndDowngrade() {
@@ -90,21 +98,22 @@ class ApkInstallTest {
 
     private class Fake(
         val mode: InstallMode, val canInstall: Boolean = true, val root: Root.Result = Root.Result(0, "Success"),
-        var version: Long? = null, val commitResult: InstallResult = InstallResult.Success, val hashes: MutableList<String> = mutableListOf(),
+        var installed: ApkInstall.Installed? = null, val commitResult: InstallResult = InstallResult.Success, val hashes: MutableList<String> = mutableListOf(),
     ) : ApkInstall.Edges {
         val calls = mutableListOf<String>()
         override suspend fun mode() = mode
         override fun canInstall() = canInstall
         override fun unknownSources() = Intent()
         override suspend fun rootInstall(file: File): Root.Result { calls += "root"; return root }
-        override fun installedVersion(pkg: String) = version
+        override fun installed(pkg: String) = installed
+        override fun now() = 1_000L
         override suspend fun commit(file: File, userAction: Boolean): InstallResult { calls += "commit:$userAction"; return commitResult }
         override fun hash(file: File) = if (hashes.isEmpty()) "h" else hashes.removeAt(0)
         override fun log(line: String) {}
     }
 
     private val staged = StagedApk(File("x.apk"), "h", ApkInfo("com.x", "X", "2", 9, 1, listOf("aa"), SignerCheck.Same, 8, "aa"))
-    private fun run(f: Fake) = runBlocking { ApkInstall.install(f, staged) }
+    private fun run(f: Fake) = runBlocking { ApkInstall.install(f, staged, attempts = 2, pollMs = 1) }
 
     @Test fun apkModeNeedsUnknownSourcesThenUsesTheCard() {
         assertTrue(run(Fake(InstallMode.Apk, canInstall = false)) is InstallResult.NeedsUserAction)
@@ -132,12 +141,55 @@ class ApkInstallTest {
     }
 
     @Test fun proTimeoutIsVerifiedNeverReinstalled() {
-        val f = Fake(InstallMode.Pro, root = Root.Result(124, ""), version = 9)
+        val f = Fake(InstallMode.Pro, root = Root.Result(124, ""), installed = ApkInstall.Installed(9, 1_500))
         assertEquals(InstallResult.Success, run(f))
         assertEquals(listOf("root"), f.calls)
-        val g = Fake(InstallMode.Pro, root = Root.Result(0, ""), version = 8)
+        val g = Fake(InstallMode.Pro, root = Root.Result(0, ""), installed = ApkInstall.Installed(8, 1_500))
         assertTrue(run(g) is InstallResult.Failed)
         assertEquals(listOf("root"), g.calls)
+        // right version but installed before this attempt began: not ours
+        val h = Fake(InstallMode.Pro, root = Root.Result(124, ""), installed = ApkInstall.Installed(9, 500))
+        assertTrue(run(h) is InstallResult.Failed)
+        assertEquals(listOf("root"), h.calls)
+    }
+
+    @Test fun suDeniedWithNoOutputFallsBackToTheCard() {
+        val f = Fake(InstallMode.Pro, root = Root.Result(1, ""))
+        assertEquals(InstallResult.Success, run(f))
+        assertEquals(listOf("root", "commit:true"), f.calls)
+    }
+
+    @Test fun riskyCardsDefaultToCancel() {
+        val ok = ApkInfo("p", "P", "1", 5, 1, listOf("a"), SignerCheck.Same, 4, "a")
+        assertTrue(!ok.risky)
+        assertTrue(ok.copy(check = SignerCheck.Unknown).risky)
+        assertTrue(ok.copy(check = SignerCheck.Changed).risky)
+        assertTrue(ok.copy(installedVersionCode = 6).risky)
+    }
+
+    @Test fun updaterDigest() {
+        val hex = "a".repeat(64)
+        fun asset(d: String?) = kotlinx.serialization.json.buildJsonObject { if (d != null) put("digest", kotlinx.serialization.json.JsonPrimitive(d)) }
+        assertEquals(hex, Updater.digestOf(asset("sha256:${hex.uppercase()}")))
+        assertNull(Updater.digestOf(asset(null)))
+        assertNull(Updater.digestOf(asset("md5:abc")))
+        assertTrue(Updater.digestOk(null, hex))
+        assertTrue(Updater.digestOk(hex, hex))
+        assertTrue(!Updater.digestOk(hex, "b".repeat(64)))
+    }
+
+    @Test fun stagingUsesUniqueFilesAndOnlySweepsStaleOnes() {
+        val dir = java.nio.file.Files.createTempDirectory("installs").toFile()
+        val a = StagedApk.newFile(dir); a.writeText("one")
+        val b = StagedApk.newFile(dir)
+        assertTrue(a != b && a.exists())
+        val old = File(dir, "old.apk").apply { writeText("x"); setLastModified(1_000) }
+        StagedApk.newFile(dir)
+        assertTrue(a.exists() && !old.exists())
+        assertEquals(StagedApk.hash(a), StagedApk.hash(a))
+        assertEquals("7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed", StagedApk.hash(a.also { it.writeText("one") }))
+        a.writeText("two")
+        assertTrue(StagedApk.hash(a) != "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed")
     }
 
     @Test fun aChangedFileIsRefusedBeforeAndAfterTheModeSwitch() {

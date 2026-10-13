@@ -64,19 +64,23 @@ object Root {
      * Runs [command] as root with the bytes of [input] on its standard input (`pm install -S size` reads the package
      * there), so no file name is ever part of the command. Returns its exit code and combined output.
      */
-    suspend fun runWithInput(command: String, input: File, timeoutSeconds: Long = 180): Result = withContext(Dispatchers.IO) {
-        runCatching {
-            val p = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-            // Both pipes run on their own threads so the timeout below can fire while su is stuck on either.
-            val out = StringBuilder()
-            val reader = Thread { runCatching { p.inputStream.bufferedReader().forEachLine { synchronized(out) { out.appendLine(it) } } } }.apply { start() }
-            val writer = Thread { runCatching { input.inputStream().use { src -> p.outputStream.use { dst -> src.copyTo(dst) } } } }.apply { start() }
-            val done = p.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-            if (!done) p.destroyForcibly()
-            writer.join(2_000); reader.join(2_000)
-            val text = synchronized(out) { out.toString().trim() }
-            if (done) Result(p.exitValue(), text) else Result(124, text)
-        }.getOrElse { Result(127, it.message ?: "su failed") }
+    suspend fun runWithInput(command: String, input: File, timeoutSeconds: Long = 180): Result =
+        withContext(Dispatchers.IO) { runProcess(listOf("su", "-c", command), input, timeoutSeconds * 1000) }
+
+    /** Code 124 = timed out or interrupted (the process may have done its work); 127 = it never started. */
+    internal fun runProcess(cmd: List<String>, input: File, timeoutMs: Long): Result {
+        val p = try { ProcessBuilder(cmd).redirectErrorStream(true).start() } catch (e: Exception) { return Result(127, e.message ?: "su failed") }
+        // Both pipes run on their own threads so the timeout below can fire while the process is stuck on either.
+        val out = StringBuilder()
+        val reader = Thread { runCatching { p.inputStream.bufferedReader().forEachLine { synchronized(out) { out.appendLine(it) } } } }.apply { start() }
+        val writer = Thread { runCatching { input.inputStream().use { src -> p.outputStream.use { dst -> src.copyTo(dst) } } } }.apply { start() }
+        var interrupted = false
+        val done = try { p.waitFor(timeoutMs, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { interrupted = true; false }
+        if (!done) p.destroyForcibly()
+        try { writer.join(2_000); reader.join(2_000) } catch (_: InterruptedException) { interrupted = true }
+        if (interrupted) Thread.currentThread().interrupt()
+        val text = synchronized(out) { out.toString().trim() }
+        return if (done) Result(p.exitValue(), text) else Result(124, text)
     }
 
     /** Runs [script] as root; returns its exit code and combined output. */

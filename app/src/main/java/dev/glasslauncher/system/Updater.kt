@@ -35,7 +35,7 @@ object Updater {
             val asset = o["assets"]?.jsonArray?.map { it.jsonObject }
                 ?.firstOrNull { it["name"]?.jsonPrimitive?.content?.endsWith(".apk") == true } ?: return@withContext null
             val apk = asset["browser_download_url"]?.jsonPrimitive?.content ?: return@withContext null
-            val digest = (asset["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.removePrefix("sha256:")?.lowercase()?.takeIf { it.length == 64 }
+            val digest = digestOf(asset)
             Release(o["tag_name"]!!.jsonPrimitive.content.removePrefix("v"), apk, o["body"]?.jsonPrimitive?.content.orEmpty(), digest)
         }
     }
@@ -50,6 +50,14 @@ object Updater {
         return false
     }
 
+    /** GitHub's asset digest ("sha256:<hex>") as bare lowercase hex, or null if absent or in another form. */
+    internal fun digestOf(asset: kotlinx.serialization.json.JsonObject): String? =
+        (asset["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.startsWith("sha256:") }
+            ?.removePrefix("sha256:")?.lowercase()?.takeIf { it.length == 64 && it.all { c -> c in "0123456789abcdef" } }
+
+    /** No digest published may proceed; a published one must match. */
+    internal fun digestOk(want: String?, actual: String) = want == null || want == actual
+
     fun canInstall(context: Context) = context.packageManager.canRequestPackageInstalls()
 
     fun unknownSourcesIntent(context: Context) =
@@ -57,7 +65,7 @@ object Updater {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     suspend fun downloadAndInstall(context: Context, http: OkHttpClient, release: Release, progress: (Float) -> Unit) {
-        val file = File(context.cacheDir, "update.apk")
+        val file = StagedApk.newFile(context)
         withContext(Dispatchers.IO) {
             http.newCall(Request.Builder().url(release.apkUrl).build()).execute().use { r ->
                 check(r.isSuccessful) { "Download failed (${r.code})" }
@@ -76,9 +84,15 @@ object Updater {
                 }
             }
         }
-        release.sha256?.let { want -> if (withContext(Dispatchers.IO) { StagedApk.hash(file) } != want) { file.delete(); throw IllegalStateException("The download doesn't match GitHub's checksum") } }
-        // Fire and forget as before: the receiver opens the system card if one is needed.
-        (ApkInstall.commit(context, file, userAction = false, await = false) as? InstallResult.Failed)?.let { throw IllegalStateException(it.reason) }
+        val staged = withContext(Dispatchers.IO) { StagedApk.adopt(context, file) } ?: throw IllegalStateException("The download isn't a valid APK")
+        try {
+            check(digestOk(release.sha256, staged.sha256)) { "The download doesn't match GitHub's checksum" }
+            check(withContext(Dispatchers.IO) { StagedApk.hash(staged.file) } == staged.sha256) { "The download changed before it was installed" }
+            // Fire and forget as before: the receiver opens the system card if one is needed.
+            (ApkInstall.commit(context, staged.file, userAction = false, await = false) as? InstallResult.Failed)?.let { throw IllegalStateException(it.reason) }
+        } finally {
+            staged.discard()
+        }
     }
 }
 
