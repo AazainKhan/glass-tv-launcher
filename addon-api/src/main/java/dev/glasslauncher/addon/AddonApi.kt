@@ -26,6 +26,7 @@ object AddonApi {
     const val METHOD_HOME_ROW = "getHomeRow"
     const val METHOD_SETTINGS_FORM = "getSettingsForm"
     const val METHOD_SETTINGS_ACTION = "onSettingsAction"
+    const val METHOD_FIELD_OPTIONS = "getFieldOptions"
     const val KEY_JSON = "json"
 
     /** Binder transaction codes; every call carries one JSON string and returns one. */
@@ -88,6 +89,8 @@ object AddonCodec {
     fun decodeTiles(s: String?): TilesReply? = decode(s, TilesReply.serializer())
     fun decodeState(s: String?): StateReply? = decode(s, StateReply.serializer())
 
+    fun encodeOptions(r: OptionsReply) = json.encodeToString(OptionsReply.serializer(), r)
+    fun decodeOptions(s: String?): OptionsReply? = decode(s, OptionsReply.serializer())
     fun encodeActions(r: ActionsReply) = json.encodeToString(ActionsReply.serializer(), r)
     fun decodeActions(s: String?): ActionsReply? = decode(s, ActionsReply.serializer())
     fun encodeActionResult(r: ActionResult) = json.encodeToString(ActionResult.serializer(), r)

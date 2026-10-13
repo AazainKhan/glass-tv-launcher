@@ -142,10 +142,10 @@ internal object AddonHost {
      * with its current certificate, and declare [point]; then the shared budget applies (rate limit, mute, 2 s, one call at a
      * time). A reply that does not parse is a failure. Null = no content (and, if it was a failure, counted).
      */
-    suspend fun <T> provider(context: Context, snap: AddonSnapshot, pkg: String, point: String, method: String, request: ProviderRequest, parse: (String?) -> T?): T? = withContext(Dispatchers.IO) {
+    suspend fun <T> provider(context: Context, snap: AddonSnapshot, pkg: String, point: String, method: String, request: ProviderRequest, budgetKey: String = method, parse: (String?) -> T?): T? = withContext(Dispatchers.IO) {
         val info = AddonScanner.scan(context, pkg).firstOrNull() ?: return@withContext null
         if (!info.compatible || !AddonTrust.isEnabled(snap.enabled, info.pkg, info.cert) || point !in info.points || info.authority == null) return@withContext null
-        if (!policy.tryAcquire(pkg, method)) return@withContext null
+        if (!policy.tryAcquire(pkg, budgetKey)) return@withContext null
         lock(pkg).withLock {
             val t0 = SystemClock.elapsedRealtime()
             val out = parse(AddonClient.provider(context, info, method, AddonCodec.encodeProviderRequest(request)))

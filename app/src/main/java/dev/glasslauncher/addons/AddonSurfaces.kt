@@ -107,6 +107,10 @@ internal object AddonSurfaces {
         return AddonHost.provider(context, snap, pkg, AddonPoint.SETTINGS, AddonApi.METHOD_SETTINGS_FORM, req(snap, pkg)) { AddonContent.form(it, title) }
     }
 
+    /** The options of dynamic choice field [fieldId] (the current values ride along in the request), or null. Own rate budget per field. */
+    suspend fun options(context: Context, snap: AddonSnapshot, pkg: String, fieldId: String): List<dev.glasslauncher.addon.Choice>? =
+        AddonHost.provider(context, snap, pkg, AddonPoint.SETTINGS, AddonApi.METHOD_FIELD_OPTIONS, req(snap, pkg, fieldId), "${AddonApi.METHOD_FIELD_OPTIONS}:$fieldId") { AddonContent.options(it) }
+
     // The package scan is a binder call: never on Main.
     private suspend fun titleOf(context: Context, pkg: String) = withContext(Dispatchers.IO) { AddonScanner.scan(context, pkg).firstOrNull()?.title }
 

@@ -59,6 +59,17 @@ fields; values 80 characters; a default that does not fit the type is dropped. G
 provider call in `ProviderRequest.values` (keyed by field id): that is how you read them. The form is read when the page opens. Values
 for fields you stop declaring, and for an uninstalled add-on, are deleted.
 
+**Dynamic forms.** A field can depend on another field's value, and Glass works it out locally from the values it stores (nothing of
+yours runs):
+- `showIf = ShowIf(field, equals)`: the field is drawn only while that other field has that value (a toggle's value is "true"/"false").
+  The other field must itself have no rule (nesting depth is 1); a broken rule drops the field.
+- `optionsFrom = "<field id>"` (on a `choice`): the options come from your provider's `fieldOptions(req)` (method `getFieldOptions`,
+  `req.id` = the field, `req.values` = the current values) and are asked for again **only when that other field's value changes**. Static
+  `choices` show until the answer arrives (they may be empty). When the field it depends on changes, Glass forgets the dependent's stored
+  value. Up to 8 options per reply; a default can only be checked against the static options.
+- The same caps apply (12 fields, 8 options, printable text). Hidden fields keep their stored values; values of fields you stop declaring are
+  purged. You still read everything from `ProviderRequest.values`.
+
 **Remote action** (service, `actions()` / `onAction(id)`): up to 12 `ActionInfo(id, label)`, listed in the button picker as
 "<label> · via <your add-on>". `onAction` may return a short notice (60 characters) that Glass shows as "<your add-on>: <notice>". If the add-on is unavailable, muted or fails, Glass says "<your add-on> unavailable". A second press inside the one-second rate window waits and runs once more; further presses are dropped. The mapping is stored as
 `addon:<package>/<service>/<id>`; if you disappear it shows as unavailable in the picker and a press says so. Choosing it is the user's consent.
@@ -77,7 +88,7 @@ what is on screen. Your content is marked as add-on content ("· via <add-on>", 
   tile, method or action.
 - **Mute after 3 failures in a row** (timeout, exception, error, junk). The add-on shows as paused in Settings until the user switches it
   off and on. A failed Home row stays up for up to 30 min, then clears; Glass retries after 90 s.
-- **Refresh floor: 15 minutes** (`refreshMinutes`, 0 = 30). Never continuously. The floor is reopened only by explicit user actions:
+- **Refresh floor: 15 minutes** (`refreshMinutes`, 0 = 30). Never continuously: focusing your Home row, or showing your Top Shelf, asks for a refresh, and the answer is no until the floor has passed (and while Home is hidden). The floor is reopened only by explicit user actions:
   changing one of your settings, switching you on, and Settings > Top Shelf Content > Refresh Now.
 - Glass keeps its own memory budget (about 120 MB PSS): add-on data is rows and strings, never bitmaps. Return small lists.
 - API level: additive changes only within a level; Glass supports its level and the one before. `ON_LONG_PRESS` was dropped; code 4 is

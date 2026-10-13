@@ -48,3 +48,7 @@
 - Point `actions` on the add-on's service (same bind, `BIND_ADDON`, cert pin, 2 s, one call in flight, mute, 1 call/s per action). Codes `GET_ACTIONS=5`, `ON_ACTION=6`; `AddonHandler.actions()` and `onAction(id)` (returns an optional notice, cleaned, shown with RemoteNotice).
 - Stored in the button mapping as `addon:<package>/<service>/<action id>`; a malformed or absent one is "unavailable" and does nothing. Picking it in Remote Buttons > a button > "Add-on actions" is the consent. Glass binds off the main thread on press and runs nothing for the add-on.
 - Emulator: picker and mapping verified by screenshot. Injected keys (`input keyevent`) skip the accessibility key filter and the AVD has no key device, so the physical press was exercised with a temporary broadcast into the same code path (not committed): the sample returned "Counter: 1". The real press needs the stick.
+
+## Phase 1c: refresh on focus, dynamic forms
+- Focusing an add-on's Home row, or showing its Top Shelf, asks for a refresh (`FocusRefresh`): only while Home is visible, only after the 15-minute floor (or an explicit user change), one at a time, off Main. Focus never polls.
+- Forms: `FormField.showIf` (one rule, depth 1) and `optionsFrom` + provider method `getFieldOptions` (`OptionsReply`, up to 8 options, asked again only when the other field's value changes, cached per value). Glass evaluates rules from the stored values; a broken rule drops the field; a dependent choice's stored value is reset when its dependency changes.

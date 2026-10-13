@@ -9,7 +9,9 @@ import dev.glasslauncher.addon.FormReply
 import dev.glasslauncher.addon.GlassAddonProvider
 import dev.glasslauncher.addon.HomeRowReply
 import dev.glasslauncher.addon.ProviderRequest
+import dev.glasslauncher.addon.OptionsReply
 import dev.glasslauncher.addon.RowItem
+import dev.glasslauncher.addon.ShowIf
 
 /**
  * Top Shelf feed, Home row and Settings form. You supply data; Glass draws it, fetches the images itself and builds every Intent.
@@ -37,10 +39,16 @@ class MyAddonProvider : GlassAddonProvider() {
         fields = listOf(
             FormField("bright", "toggle", "Bright mode", default = "false"),
             FormField("flavour", "choice", "Flavour", choices = listOf(Choice("vanilla", "Vanilla"), Choice("mocha", "Mocha")), default = "vanilla"),
-            FormField("nickname", "text", "Nickname"),
+            // Dynamic forms: this field shows only while "Bright mode" is on; "topping" gets its options from fieldOptions() below,
+            // asked again only when the flavour changes.
+            FormField("topping", "choice", "Topping", optionsFrom = "flavour"),
+            FormField("nickname", "text", "Nickname", showIf = ShowIf("bright", "true")),
             FormField("reset", "action", "Reset counter"),
         ),
     )
+
+    override fun fieldOptions(req: ProviderRequest): OptionsReply? =
+        if (req.id == "topping") OptionsReply(choices = if (req.values["flavour"] == "mocha") listOf(Choice("cocoa", "Cocoa")) else listOf(Choice("nuts", "Nuts"))) else null
 
     override fun onSettingsAction(req: ProviderRequest): ActionReply {
         if (req.id == "reset") {

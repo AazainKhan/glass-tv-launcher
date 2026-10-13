@@ -1425,24 +1425,40 @@ private fun ColumnScope.AddonFormPage(model: HomeModel, cfg: LauncherConfig, pkg
     }
     if (shown == null) { Hint(if (form.second) "Couldn't reach the add-on." else "Loading…"); Box(Modifier.size(1.dp)); return }
     Hint("From an add-on. Glass keeps these values and sends them to the add-on.")
-    fun valueOf(fl: dev.glasslauncher.addon.FormField) = cfg.addonSettings["$pkg/${fl.id}"] ?: fl.default ?: if (fl.type == "toggle") "false" else ""
-    fun set(id: String, v: String) = model.edit { c -> c.copy(addonSettings = c.addonSettings + ("$pkg/$id" to dev.glasslauncher.addons.AddonContent.value(v))) }
-    shown.fields.forEachIndexed { i, fl ->
-        val mod = if (i == 0) f else Modifier
-        val v = valueOf(fl)
-        when (fl.type) {
-            "toggle" -> ToggleRow(fl.label, v == "true", { on -> set(fl.id, on.toString()) }, mod, help = fl.help)
-            "choice" -> MenuRow(fl.label, {
-                val next = fl.choices[(fl.choices.indexOfFirst { it.value == v } + 1) % fl.choices.size]
-                set(fl.id, next.value)
-            }, mod, value = fl.choices.firstOrNull { it.value == v }?.label ?: fl.choices.first().label, help = fl.help)
-            "text" -> MenuRow(fl.label, { open(Overlay.TextInput(fl.label, v, fl.help ?: "") { t -> set(fl.id, t) }) }, mod, value = v.ifEmpty { "Not set" }, help = fl.help)
-            else -> MenuRow(fl.label, {
-                scope.launch {
-                    val msg = dev.glasslauncher.addons.AddonSurfaces.action(context, snap, pkg, fl.id)
-                    dev.glasslauncher.system.RemoteNotice.show(context, msg?.ifEmpty { "Done" } ?: "The add-on didn't answer", 3_000)
+    val stored = snap.valuesOf(pkg)
+    fun set(id: String, v: String) {
+        val stale = dev.glasslauncher.addons.FormRules.dependents(shown.fields, id).map { "$pkg/$it" }.toSet()
+        model.edit { c -> c.copy(addonSettings = c.addonSettings - stale + ("$pkg/$id" to dev.glasslauncher.addons.AddonContent.value(v))) }
+    }
+    val cache = remember(pkg) { dev.glasslauncher.addons.OptionsCache() }
+    // Fields whose rule does not hold right now are not drawn (their values stay stored); a change to what a rule or an option list
+    // depends on redraws or re-asks, nothing else does.
+    dev.glasslauncher.addons.FormRules.visible(shown.fields, stored).forEachIndexed { i, fl ->
+        androidx.compose.runtime.key(fl.id) {
+            val mod = if (i == 0) f else Modifier
+            val v = dev.glasslauncher.addons.FormRules.valueOf(fl, stored)
+            when (fl.type) {
+                "toggle" -> ToggleRow(fl.label, v == "true", { on -> set(fl.id, on.toString()) }, mod, help = fl.help)
+                "choice" -> {
+                    val dep = fl.optionsFrom?.let { d -> shown.fields.firstOrNull { it.id == d }?.let { dev.glasslauncher.addons.FormRules.valueOf(it, stored) } }
+                    val options by androidx.compose.runtime.produceState(fl.choices, fl.id, dep) {
+                        if (fl.optionsFrom == null || dep == null) return@produceState
+                        val hit = cache.get(fl.id, dep)
+                        if (hit != null) { value = hit; return@produceState }
+                        dev.glasslauncher.addons.AddonSurfaces.options(context, snap, pkg, fl.id)?.let { cache.put(fl.id, dep, it); value = it }
+                    }
+                    if (options.isEmpty()) MenuRow(fl.label, {}, mod, value = "Loading…", help = fl.help)
+                    else MenuRow(fl.label, { set(fl.id, dev.glasslauncher.addons.FormRules.next(options, v)) }, mod,
+                        value = options.firstOrNull { it.value == v }?.label ?: options.first().label, help = fl.help)
                 }
-            }, mod, help = fl.help)
+                "text" -> MenuRow(fl.label, { open(Overlay.TextInput(fl.label, v, fl.help ?: "") { t -> set(fl.id, t) }) }, mod, value = v.ifEmpty { "Not set" }, help = fl.help)
+                else -> MenuRow(fl.label, {
+                    scope.launch {
+                        val msg = dev.glasslauncher.addons.AddonSurfaces.action(context, snap, pkg, fl.id)
+                        dev.glasslauncher.system.RemoteNotice.show(context, msg?.ifEmpty { "Done" } ?: "The add-on didn't answer", 3_000)
+                    }
+                }, mod, help = fl.help)
+            }
         }
     }
     Box(Modifier.size(1.dp))

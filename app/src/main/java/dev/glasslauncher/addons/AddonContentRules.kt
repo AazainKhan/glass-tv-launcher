@@ -5,6 +5,7 @@ import dev.glasslauncher.addon.FeedItem
 import dev.glasslauncher.addon.FeedReply
 import dev.glasslauncher.addon.FormField
 import dev.glasslauncher.addon.FormReply
+import dev.glasslauncher.addon.ShowIf
 import dev.glasslauncher.addon.HomeRowReply
 import dev.glasslauncher.addon.RowItem
 import dev.glasslauncher.featured.FeaturedFeed
@@ -149,22 +150,45 @@ object AddonContent {
         return SafeCard(i.id, title, AddonText.clean(i.subtitle, 60).ifEmpty { null }, AddonLinks.image(i.image), action)
     }
 
+    private val RULE_TYPES = setOf("toggle", "choice", "text")
+
     fun form(json: String?, addon: String): SafeForm? {
         val r: FormReply = AddonCodec.decodeForm(json)?.takeIf { it.error == null } ?: return null
-        val fields = r.fields.asSequence().filter { ID.matches(it.id) && it.type in TYPES }.distinctBy { it.id }.mapNotNull { f ->
+        val first = r.fields.asSequence().filter { ID.matches(it.id) && it.type in TYPES }.distinctBy { it.id }.mapNotNull { f ->
             val label = AddonText.clean(f.label, 40).ifEmpty { return@mapNotNull null }
-            val choices = f.choices.take(MAX_CHOICES).mapNotNull { c ->
-                val v = AddonText.clean(c.value, MAX_VALUE).ifEmpty { return@mapNotNull null }
-                c.copy(value = v, label = AddonText.clean(c.label, 30).ifEmpty { v })
-            }.distinctBy { it.value }
-            if (f.type == "choice" && choices.isEmpty()) return@mapNotNull null
+            val choices = cleanChoices(f.choices)
+            val dynamic = f.type == "choice" && f.optionsFrom != null
+            if (f.type == "choice" && choices.isEmpty() && !dynamic) return@mapNotNull null
+            // A dynamic choice's default can only be checked against its static options.
             val default = f.default?.let { AddonText.clean(it, MAX_VALUE) }?.takeIf { d ->
                 when (f.type) { "toggle" -> d == "true" || d == "false"; "choice" -> choices.any { it.value == d }; "text" -> true; else -> false }
             }
-            f.copy(label = label, help = AddonText.clean(f.help, 120).ifEmpty { null }, choices = if (f.type == "choice") choices else emptyList(), default = default)
+            val show = f.showIf?.let { ShowIf(it.field, AddonText.clean(it.equals, MAX_VALUE)) }
+            f.copy(label = label, help = AddonText.clean(f.help, 120).ifEmpty { null }, choices = if (f.type == "choice") choices else emptyList(), default = default,
+                showIf = show, optionsFrom = if (dynamic) f.optionsFrom else null)
         }.take(MAX_FIELDS).toList()
+        // Rules are checked against the fields that survived: a field with a broken rule is dropped, never shown unconditionally.
+        // Depth is 1: a rule may only point at a field that has no rule itself; nothing is ever evaluated as code.
+        val byId = first.associateBy { it.id }
+        val fields = first.filter { f ->
+            val s = f.showIf
+            val o = f.optionsFrom
+            val r1 = s == null || (s.field != f.id && s.equals.isNotEmpty() && byId[s.field]?.let { it.type in RULE_TYPES && it.showIf == null } == true)
+            val r2 = o == null || (f.type == "choice" && o != f.id && byId[o]?.type in RULE_TYPES)
+            val noRawOptionsFrom = f.type == "choice" || f.optionsFrom == null
+            r1 && r2 && noRawOptionsFrom
+        }
         return SafeForm(AddonText.clean(r.title, 32).ifEmpty { addon }, fields)
     }
+
+    private fun cleanChoices(list: List<dev.glasslauncher.addon.Choice>) = list.take(MAX_CHOICES).mapNotNull { c ->
+        val v = AddonText.clean(c.value, MAX_VALUE).ifEmpty { return@mapNotNull null }
+        c.copy(value = v, label = AddonText.clean(c.label, 30).ifEmpty { v })
+    }.distinctBy { it.value }
+
+    /** The options of a dynamic choice field: cleaned and capped; null for junk, an error reply or no usable option (the static ones stay). */
+    fun options(json: String?): List<dev.glasslauncher.addon.Choice>? =
+        AddonCodec.decodeOptions(json)?.takeIf { it.error == null }?.let { cleanChoices(it.choices) }?.takeIf { it.isNotEmpty() }
 
     fun action(json: String?): String? = AddonCodec.decodeAction(json)?.takeIf { it.error == null }?.let { AddonText.clean(it.message, 80) }
 
@@ -182,4 +206,32 @@ object AddonPurge {
 
     fun undeclared(settings: Map<String, String>, pkg: String, declared: Set<String>): Set<String> =
         settings.keys.filter { '/' in it && pkgOf(it) == pkg && fieldOf(it) !in declared }.toSet()
+}
+
+/** Evaluating a dynamic form from the values Glass stores: no code from the add-on is ever run. */
+object FormRules {
+    /** The value a field has: what the user set, else its default, else "false" for a toggle. */
+    fun valueOf(f: FormField, stored: Map<String, String>): String = stored[f.id] ?: f.default ?: if (f.type == "toggle") "false" else ""
+
+    /** The fields to draw now: those without a rule, and those whose rule holds. Hidden fields keep their stored values. */
+    fun visible(fields: List<FormField>, stored: Map<String, String>): List<FormField> = fields.filter { f ->
+        val rule = f.showIf
+        rule == null || fields.firstOrNull { it.id == rule.field }?.let { valueOf(it, stored) == rule.equals } == true
+    }
+
+    /** Dynamic choices that depend on [changed]: their stored value no longer fits the new options, so Glass forgets it (they fall back to the default). */
+    fun dependents(fields: List<FormField>, changed: String): List<String> = fields.filter { it.optionsFrom == changed }.map { it.id }
+
+    /** The value after [current] in [choices] (wrapping); the first when [current] is not among them. */
+    fun next(choices: List<dev.glasslauncher.addon.Choice>, current: String): String =
+        choices[(choices.indexOfFirst { it.value == current } + 1) % choices.size].value
+}
+
+/** Options already read, by (field, value of the field they depend on): a dependency that did not change is never asked again. */
+class OptionsCache(private val max: Int = 32) {
+    private val map = object : LinkedHashMap<Pair<String, String>, List<dev.glasslauncher.addon.Choice>>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<Pair<String, String>, List<dev.glasslauncher.addon.Choice>>) = size > max
+    }
+    @Synchronized fun get(field: String, dep: String) = map[field to dep]
+    @Synchronized fun put(field: String, dep: String, options: List<dev.glasslauncher.addon.Choice>) { map[field to dep] = options }
 }

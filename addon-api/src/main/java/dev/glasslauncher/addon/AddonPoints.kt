@@ -59,7 +59,15 @@ data class HomeRowReply(
 
 @Serializable data class Choice(val value: String, val label: String)
 
-/** [type] is toggle ("true"/"false"), choice (one of [choices]), text, or action (a button). */
+/** Show a field only while another field's value equals [equals]. [field] must itself have no rule (depth 1). Glass evaluates it locally. */
+@Serializable data class ShowIf(val field: String, val equals: String)
+
+/**
+ * [type] is toggle ("true"/"false"), choice (one of [choices]), text, or action (a button).
+ * [showIf]: the field is visible only while another field has a given value (evaluated by Glass from the stored values).
+ * [optionsFrom] (choice only): the id of another field; the options come from a `getFieldOptions` call (request `id` = this field) that
+ * Glass repeats only when that field's value changes. [choices] is what shows until then (it may be empty).
+ */
 @Serializable
 data class FormField(
     val id: String,
@@ -68,7 +76,12 @@ data class FormField(
     val help: String? = null,
     val choices: List<Choice> = emptyList(),
     val default: String? = null,
+    val showIf: ShowIf? = null,
+    val optionsFrom: String? = null,
 )
+
+/** Reply to `getFieldOptions`: at most 8 options. */
+@Serializable data class OptionsReply(val api: Int = AddonApi.LEVEL, val choices: List<Choice> = emptyList(), val error: String? = null)
 
 @Serializable
 data class FormReply(val api: Int = AddonApi.LEVEL, val title: String = "", val fields: List<FormField> = emptyList(), val error: String? = null)
@@ -83,6 +96,8 @@ interface AddonPointsHandler {
     fun homeRow(req: ProviderRequest): HomeRowReply? = null
     fun settingsForm(req: ProviderRequest): FormReply? = null
     fun onSettingsAction(req: ProviderRequest): ActionReply? = null
+    /** Options for the choice field named by `req.id`, given the current values in `req.values` (a dynamic form). */
+    fun fieldOptions(req: ProviderRequest): OptionsReply? = null
 }
 
 object AddonProviderServer {
@@ -96,6 +111,7 @@ object AddonProviderServer {
                 AddonApi.METHOD_HOME_ROW -> h.homeRow(req)?.let(AddonCodec::encodeHomeRow)
                 AddonApi.METHOD_SETTINGS_FORM -> h.settingsForm(req)?.let(AddonCodec::encodeForm)
                 AddonApi.METHOD_SETTINGS_ACTION -> h.onSettingsAction(req)?.let(AddonCodec::encodeAction)
+                AddonApi.METHOD_FIELD_OPTIONS -> h.fieldOptions(req)?.let(AddonCodec::encodeOptions)
                 else -> null
             }
         } catch (e: Exception) {
@@ -105,6 +121,7 @@ object AddonProviderServer {
                 AddonApi.METHOD_HOME_ROW -> AddonCodec.encodeHomeRow(HomeRowReply(error = msg))
                 AddonApi.METHOD_SETTINGS_FORM -> AddonCodec.encodeForm(FormReply(error = msg))
                 AddonApi.METHOD_SETTINGS_ACTION -> AddonCodec.encodeAction(ActionReply(error = msg))
+                AddonApi.METHOD_FIELD_OPTIONS -> AddonCodec.encodeOptions(OptionsReply(error = msg))
                 else -> null
             }
         }

@@ -13,6 +13,8 @@ import dev.glasslauncher.addon.FormReply
 import dev.glasslauncher.addon.HomeRowReply
 import dev.glasslauncher.addon.ProviderRequest
 import dev.glasslauncher.addon.RowItem
+import dev.glasslauncher.addon.OptionsReply
+import dev.glasslauncher.addon.ShowIf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -193,5 +195,94 @@ class FocusRefreshTest {
         gate.retryIn("row:p", 1, AddonSurfaces.RETRY_MS)
         t = AddonSurfaces.RETRY_MS - 1; assertFalse(f.begin("row:p", 1, true))
         t = AddonSurfaces.RETRY_MS; assertTrue(f.begin("row:p", 1, true))
+    }
+}
+
+class DynamicFormTest {
+    private fun field(id: String, type: String = "toggle", showIf: ShowIf? = null, optionsFrom: String? = null, choices: List<Choice> = emptyList(), default: String? = null) =
+        FormField(id, type, id.uppercase(), choices = choices, showIf = showIf, optionsFrom = optionsFrom, default = default)
+    private fun form(vararg f: FormField) = AddonContent.form(AddonCodec.encodeForm(FormReply(fields = f.toList())), "S")
+    private val opts = listOf(Choice("a", "A"), Choice("b", "B"))
+
+    @Test fun aRuleShowsAFieldOnlyWhileTheOtherFieldHasTheValue() {
+        val f = form(field("bright"), field("nick", "text", showIf = ShowIf("bright", "true")))!!.fields
+        assertEquals(listOf("bright"), FormRules.visible(f, emptyMap()).map { it.id }) // toggle defaults to "false"
+        assertEquals(listOf("bright", "nick"), FormRules.visible(f, mapOf("bright" to "true")).map { it.id })
+        assertEquals(listOf("bright"), FormRules.visible(f, mapOf("bright" to "false")).map { it.id })
+    }
+
+    @Test fun aRuleCanReadAChoiceOrAnUnsetDefault() {
+        val f = form(field("flavour", "choice", choices = opts, default = "a"), field("x", "text", showIf = ShowIf("flavour", "a")), field("y", "text", showIf = ShowIf("flavour", "b")))!!.fields
+        assertEquals(listOf("flavour", "x"), FormRules.visible(f, emptyMap()).map { it.id })
+        assertEquals(listOf("flavour", "y"), FormRules.visible(f, mapOf("flavour" to "b")).map { it.id })
+    }
+
+    @Test fun brokenRulesDropTheFieldAndNestingIsOneDeep() {
+        val f = form(
+            field("t"), field("ok", "text", showIf = ShowIf("t", "true")),
+            field("self", "text", showIf = ShowIf("self", "x")), field("ghost", "text", showIf = ShowIf("missing", "x")),
+            field("chain", "text", showIf = ShowIf("ok", "x")), // points at a field that has a rule: depth 2
+            field("empty", "text", showIf = ShowIf("t", "")), field("act", "action"), field("onact", "text", showIf = ShowIf("act", "x")),
+        )!!.fields.map { it.id }
+        assertEquals(listOf("t", "ok", "act"), f)
+    }
+
+    @Test fun optionsFromNeedsAChoiceAndARealOtherField() {
+        val f = form(
+            field("flavour", "choice", choices = opts), field("dyn", "choice", optionsFrom = "flavour"), field("dyn2", "choice", optionsFrom = "dyn2"),
+            field("dyn3", "choice", optionsFrom = "nope"), field("notchoice", "text", optionsFrom = "flavour"),
+        )!!.fields
+        assertEquals(listOf("flavour", "dyn", "notchoice"), f.map { it.id }) // a text field's stray optionsFrom is ignored, the field stays
+        assertNull(f.first { it.id == "notchoice" }.optionsFrom)
+        assertEquals("flavour", f.first { it.id == "dyn" }.optionsFrom)
+    }
+
+    @Test fun aDynamicChoiceNeedsNoStaticOptionsButTheDefaultMustBeOneOfThem() {
+        val f = form(field("flavour", "choice", choices = opts), field("dyn", "choice", optionsFrom = "flavour", default = "zzz"), field("dyn2", "choice", optionsFrom = "flavour", choices = opts, default = "a"))!!.fields.associateBy { it.id }
+        assertNull(f["dyn"]!!.default); assertEquals("a", f["dyn2"]!!.default)
+    }
+
+    @Test fun optionRepliesAreCappedCleanedAndJunkKeepsTheStaticOnes() {
+        val many = (1..20).map { Choice("v$it", "L‮$it") } + Choice("v1", "dup") + Choice("​", "x")
+        val got = AddonContent.options(AddonCodec.encodeOptions(OptionsReply(choices = many)))!!
+        assertEquals(AddonContent.MAX_CHOICES, got.size); assertEquals("L1", got.first().label)
+        assertNull(AddonContent.options("junk")); assertNull(AddonContent.options(null))
+        assertNull(AddonContent.options(AddonCodec.encodeOptions(OptionsReply(error = "x"))))
+        assertNull(AddonContent.options(AddonCodec.encodeOptions(OptionsReply(choices = emptyList()))))
+    }
+
+    @Test fun optionsAreAskedAgainOnlyWhenTheDependencyChanges() {
+        val c = OptionsCache()
+        assertNull(c.get("topping", "vanilla")); c.put("topping", "vanilla", opts)
+        assertEquals(opts, c.get("topping", "vanilla")) // same dependency value: no second call
+        assertNull(c.get("topping", "mocha")) // changed: asked
+        assertEquals(listOf("topping"), FormRules.dependents(listOf(field("flavour", "choice", choices = opts), field("topping", "choice", optionsFrom = "flavour")), "flavour"))
+        assertTrue(FormRules.dependents(listOf(field("a")), "a").isEmpty())
+        assertEquals("b", FormRules.next(opts, "a")); assertEquals("a", FormRules.next(opts, "b")); assertEquals("a", FormRules.next(opts, "gone"))
+    }
+
+    @Test fun capsStillApplyAndHiddenFieldsKeepTheirValuesButRemovedOnesArePurged() {
+        val many = (1..20).map { field("f$it", "text") }
+        assertEquals(AddonContent.MAX_FIELDS, form(*many.toTypedArray())!!.fields.size)
+        val stored = mapOf("p/nick" to "Al", "p/gone" to "x", "p/bright" to "false")
+        val f = form(field("bright"), field("nick", "text", showIf = ShowIf("bright", "true")))!!.fields
+        assertFalse(FormRules.visible(f, mapOf("bright" to "false")).any { it.id == "nick" }) // hidden...
+        assertEquals(setOf("p/gone"), AddonPurge.undeclared(stored, "p", f.map { it.id }.toSet())) // ...but declared, so its value is kept
+    }
+
+    @Test fun providerServerAnswersFieldOptionsAndFailsSafely() {
+        val h = object : dev.glasslauncher.addon.AddonPointsHandler {
+            override fun fieldOptions(req: dev.glasslauncher.addon.ProviderRequest) = if (req.id == "boom") throw IllegalStateException() else OptionsReply(choices = opts)
+        }
+        val ask = { id: String -> AddonProviderServer.handle(AddonApi.METHOD_FIELD_OPTIONS, AddonCodec.encodeProviderRequest(dev.glasslauncher.addon.ProviderRequest(id = id)), h, true) }
+        assertEquals(2, AddonCodec.decodeOptions(ask("topping"))!!.choices.size)
+        assertEquals("IllegalStateException", AddonCodec.decodeOptions(ask("boom"))!!.error)
+        assertNull(AddonProviderServer.handle(AddonApi.METHOD_FIELD_OPTIONS, "{}", object : dev.glasslauncher.addon.AddonPointsHandler {}, true))
+        assertNull(AddonProviderServer.handle(AddonApi.METHOD_FIELD_OPTIONS, "{}", h, permitted = false))
+    }
+
+    @Test fun oldFormsWithoutRulesDecodeUnchanged() {
+        val f = AddonCodec.decodeForm("""{"fields":[{"id":"a","type":"toggle","label":"A","future":1}]}""")!!.fields.single()
+        assertNull(f.showIf); assertNull(f.optionsFrom)
     }
 }
