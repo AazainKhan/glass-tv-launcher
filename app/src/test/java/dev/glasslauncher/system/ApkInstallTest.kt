@@ -114,7 +114,8 @@ class ApkInstallTest {
         override fun installed(pkg: String) = installed
         override fun now() = 1_000L
         override suspend fun commit(file: File, userAction: Boolean): InstallResult { calls += "commit:$userAction"; return commitResult }
-        override fun hash(file: File) = if (hashes.isEmpty()) "h" else hashes.removeAt(0)
+        val hashThreads = mutableListOf<String>()
+        override fun hash(file: File): String { hashThreads += Thread.currentThread().name; return if (hashes.isEmpty()) "h" else hashes.removeAt(0) }
         override fun log(line: String) {}
     }
 
@@ -126,6 +127,13 @@ class ApkInstallTest {
         val f = Fake(InstallMode.Apk)
         assertEquals(InstallResult.Success, run(f))
         assertEquals(listOf("commit:true"), f.calls)
+    }
+
+    @Test fun theApkIsHashedOffTheCallersThread() {
+        val f = Fake(InstallMode.Os)
+        val caller = Thread.currentThread().name
+        run(f)
+        assertTrue(f.hashThreads.isNotEmpty() && f.hashThreads.none { it == caller })
     }
 
     @Test fun osModeCommitsSilently() {

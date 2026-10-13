@@ -66,8 +66,8 @@ fun FilesPage(
                     !e.file.exists() -> RemoteNotice.show(context, "That file is gone")
                     FileBrowser.kind(e) == FileKind.Apk -> {
                         // A file that came from a download with a published hash was already checked; anything else is unchecked.
-                        val checked = items.any { it.state == DownloadState.Done && it.file == e.name && sub == null && it.expectedSha256 != null }
-                        apk.start(e.file.path, e.file, !checked) { queue.deleteFile(e.file) }
+                        val expected = items.firstOrNull { it.state == DownloadState.Done && it.file == e.name && sub == null }?.expectedSha256
+                        apk.start(e.file.path, e.file, expected) { queue.deleteFile(e.file) }
                     }
                     else -> DownloadText.open(context, e.file)
                 }

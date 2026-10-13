@@ -85,7 +85,8 @@ object ApkInstall {
     }
 
     internal suspend fun install(e: Edges, staged: StagedApk, attempts: Int = 5, pollMs: Long = 1_000): InstallResult {
-        fun intact() = runCatching { e.hash(staged.file) == staged.sha256 }.getOrDefault(false)
+        // Hashing a whole APK is disk work; the caller may be on Main.
+        suspend fun intact() = withContext(Dispatchers.IO) { runCatching { e.hash(staged.file) == staged.sha256 }.getOrDefault(false) }
         val changed = InstallResult.Failed("The file changed after it was checked")
         if (!intact()) return changed
         val mode = e.mode()

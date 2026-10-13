@@ -35,12 +35,20 @@ internal class ApkFlow(
     fun dispose() { kept.values.forEach { it.discard() }; kept.clear() }
 
     /** [removeAfter] runs once the install succeeded and "Keep Installed APKs" is off. */
-    fun start(key: String, file: File, unchecked: Boolean, removeAfter: () -> Unit) {
+    fun start(key: String, file: File, expectedSha256: String?, removeAfter: () -> Unit) {
+        val unchecked = expectedSha256 == null
         if (!busy.add(key)) return
         kept[key]?.let { ask(key, it, unchecked, removeAfter); return }
         scope.launch {
             val staged = withContext(Dispatchers.IO) { runCatching { StagedApk.stage(context, file) }.getOrNull() }
-            if (staged == null) { RemoteNotice.show(context, "Couldn't read that APK"); busy.remove(key) } else ask(key, staged, unchecked, removeAfter)
+            when {
+                staged == null -> { RemoteNotice.show(context, "Couldn't read that APK"); busy.remove(key) }
+                !checksumMatches(expectedSha256, staged.sha256) -> {
+                    staged.discard(); busy.remove(key)
+                    RemoteNotice.show(context, "This file no longer matches its checksum, so it won't be installed", 4_000)
+                }
+                else -> ask(key, staged, unchecked, removeAfter)
+            }
         }
     }
 
@@ -69,6 +77,9 @@ internal class ApkFlow(
         }
     }
 }
+
+/** Null [expected]: nothing to compare. Otherwise the staged copy must hash to what the download was verified against. */
+internal fun checksumMatches(expected: String?, actual: String) = expected == null || expected.equals(actual, ignoreCase = true)
 
 @Composable
 internal fun rememberApkFlow(keepApk: Boolean, open: (Overlay) -> Unit): ApkFlow {
