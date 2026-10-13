@@ -7,11 +7,15 @@
 # doesn't define). It only ever adds: what is listed already stays (the union is written), the old XML is saved as
 # $MOD/privapp.xml.bak first, and the new one is read back from the device and checked. Exit 0 when the allowlist covers the
 # APK (or Glass isn't a system app here); non-zero refuses (and so stops scripts/build before it installs).
-#   scripts/privapp-check <apk> [--dry-run]
+#   scripts/privapp-check <apk> [--dry-run] [--device]
+# Writing the allowlist needs --device and the stick lock (require_device_write); --dry-run only reads the device.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APK="${1:?usage: scripts/privapp-check <apk> [--dry-run]}"; DRY="${2:-}"
+APK="${1:?usage: scripts/privapp-check <apk> [--dry-run] [--device]}"; shift
+DRY=""
+for a in "$@"; do case "$a" in --dry-run) DRY=--dry-run ;; --device) export GLASS_DEVICE=1 ;; esac; done
 source "$ROOT/scripts/lib/device.sh"; require_device_access
+[ "$DRY" = --dry-run ] || require_device_write
 PKG=dev.glasslauncher
 MOD=/data/adb/modules/glass-system
 XML="$MOD/system/etc/permissions/privapp-permissions-$PKG.xml"

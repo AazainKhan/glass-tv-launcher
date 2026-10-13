@@ -29,6 +29,20 @@ require_device_access() {  # call before sending input
   fi
 }
 
+# Scripts that CHANGE the device (install, module or allowlist writes) need an explicit opt-in on top of that: the caller
+# passes --device (which exports GLASS_DEVICE=1) and holds the stick lock under its own TV_OWNER. An emulator needs only the
+# opt-in. This keeps a build run by an agent or a hook from ever writing to the stick by default.
+require_device_write() {
+  if [ "${GLASS_DEVICE:-0}" != 1 ]; then
+    echo "$(basename "$0"): this changes the device ($ANDROID_SERIAL); pass --device to allow it." >&2; exit 3
+  fi
+  case "$ANDROID_SERIAL" in emulator-*) return 0 ;; esac
+  local owner; owner="$(lock_owner)"
+  if [ -z "$owner" ] || [ "$owner" != "${TV_OWNER:-}" ]; then
+    echo "$(basename "$0"): writing to $ANDROID_SERIAL needs the stick lock held by you (scripts/stick-lock take \"<who>\"; export TV_OWNER=\"<who>\")." >&2; exit 3
+  fi
+}
+
 # For long stick jobs (bench, perf-gate, clip): re-run the calling script under a self-renewing lock,
 # so it can't outlive its lock or collide with another session. No-op when already held or on an emulator.
 hold_stick() {  # usage: hold_stick "$0" "$@"

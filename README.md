@@ -82,7 +82,7 @@ Needs JDK 17 or 21 and the Android SDK.
 
 ```bash
 ./gradlew :app:assembleRelease   # builds app/build/outputs/apk/release/ (no device needed)
-scripts/build release            # also installs on the connected TV and launches it
+scripts/build release --device   # also installs on the connected TV and launches it (without --device: build only)
 ```
 
 UI checks on a real TV use [agent-device](https://github.com/callstackincubator/agent-device) (`scripts/tv snapshot -i`, `scripts/tv tv-remote press down`, …). Every tile has a stable id such as `app:com.netflix.ninja`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the test setup and the performance rules this project holds itself to.

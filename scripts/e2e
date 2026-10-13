@@ -45,7 +45,7 @@ else
   # Pick the stick even if an emulator is attached to the default adb server.
   source "$ROOT/scripts/lib/device.sh"
   export TV_SERIAL="${TV_SERIAL:-$ANDROID_SERIAL}"
-  [ "$build" = 1 ] && { "$ROOT/scripts/build" release >/dev/null; sleep 8; }
+  [ "$build" = 1 ] && { "$ROOT/scripts/build" release --device >/dev/null; sleep 8; }
 fi
 case " ${args[*]:-} " in *" -m "*) ;; *) args+=(-m "not perf") ;; esac
 cd "$ROOT/e2e"

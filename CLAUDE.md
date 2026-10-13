@@ -86,7 +86,7 @@ The tvOS research session is idle. Pushes to the public repo happen only with th
 ## Build and run
 
 - **Needs JDK 17 or 21.** The system default is JDK 25, which AGP rejects. `scripts/build` picks 21 automatically. For raw Gradle: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
-- `scripts/build [release|debug]`: builds, installs on the connected TV, and launches. Default is release (R8 on, signed with the debug key for now).
+- `scripts/build [release|debug] [--device]`: builds; with `--device` it also checks the privapp allowlist, installs on the connected TV and launches. Without `--device` it never touches adb (agents and hooks must not pass it). `--device` needs the stick lock held by you (`scripts/stick-lock take`, `TV_OWNER`) unless the device is an emulator. Default is release (R8 on, signed with the debug key for now).
 - Toolchain: Gradle 9.8 wrapper, AGP 9.4.1 with **built-in Kotlin** (don't apply `org.jetbrains.kotlin.android` in `app/`), Kotlin 2.4.20, compileSdk 37, minSdk 28, targetSdk 36. Versions live in `gradle/libs.versions.toml`.
 - If a Gradle command hangs with no output, a daemon is stuck: `./gradlew --stop`, then rerun.
 - macOS has no `timeout`; use `gtimeout` (Homebrew coreutils, installed). Never wrap a command in a missing binary: it silently does nothing.

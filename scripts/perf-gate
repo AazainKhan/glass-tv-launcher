@@ -16,7 +16,7 @@ while [ $# -gt 0 ]; do case "$1" in --no-build) build=0; shift ;; --rounds) roun
 if adb shell pgrep screenrecord >/dev/null 2>&1; then
   echo "perf-gate: screenrecord is running (tv-live open?); close it first or the numbers are meaningless" >&2; exit 2
 fi
-[ "$build" = 0 ] || scripts/build release >/dev/null
+[ "$build" = 0 ] || scripts/build release --device >/dev/null
 # A first round after install pays one-off GPU shader compilation (~5% janky frames); discard it.
 scripts/perf-run --rounds 1 >/dev/null
 # Two routes, each the median of S samples: the dock (the default keys: the Top Shelf autoplays and pages under them)
