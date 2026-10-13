@@ -24,7 +24,7 @@ object AppSources {
         FeaturedSourceId.Off -> false
         FeaturedSourceId.Stremio -> true
         FeaturedSourceId.Tmdb -> cfg.tmdbKey.isNotBlank()
-        FeaturedSourceId.YouTube -> cfg.youtubeKey.isNotBlank()
+        FeaturedSourceId.YouTube -> cfg.youtubeKey.isNotBlank() || YouTube.channelIds(cfg.youtubeChannels).isNotEmpty()
         FeaturedSourceId.Plex -> cfg.plexToken.isNotBlank()
         FeaturedSourceId.ContinueWatching, FeaturedSourceId.TvApp, FeaturedSourceId.JustWatch -> true
     }

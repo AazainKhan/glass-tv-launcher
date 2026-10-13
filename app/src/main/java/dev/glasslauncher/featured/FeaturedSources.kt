@@ -211,8 +211,34 @@ object Tmdb : FeaturedSource {
 }
 
 object YouTube : FeaturedSource {
+    private val PACKAGES = listOf(
+        "com.teamsmart.videomanager.tv", "com.google.android.youtube.tv", "com.amazon.firetv.youtube",
+        "io.gh.reisxd.tizentube.cobalt",
+    )
+    private val channelId = Regex("UC[A-Za-z0-9_-]{22}")
+
+    /** The channel ids in [text] (ids or channel URLs, separated by anything), without repeats. */
+    fun channelIds(text: String): List<String> = channelId.findAll(text).map { it.value }.distinct().toList()
+
     override suspend fun load(http: OkHttpClient, cfg: FeaturedConfig) = withContext(Dispatchers.IO) {
-        require(cfg.youtubeKey.isNotBlank()) { "Add a YouTube Data API key in Settings" }
+        val channels = channelIds(cfg.youtubeChannels)
+        require(channels.isNotEmpty() || cfg.youtubeKey.isNotBlank()) { "Add YouTube channels or an API key in Settings" }
+        val recent = kotlinx.coroutines.coroutineScope {
+            channels.map { id -> async { runCatching { parseFeed(http.getText("https://www.youtube.com/feeds/videos.xml?channel_id=$id")) }.getOrDefault(emptyList()) } }.map { it.await() }
+        }.flatten().sortedByDescending { it.second }.map { it.first }.distinctBy { it.id }.take(20)
+        val trending = if (cfg.youtubeKey.isBlank()) emptyList() else runCatching { trending(http, cfg) }.getOrDefault(emptyList())
+        val items = (recent + trending).distinctBy { it.id }
+        check(items.isNotEmpty()) { "Couldn't load YouTube videos" }
+        FeaturedFeed(if (recent.isEmpty()) "Trending on YouTube" else if (trending.isEmpty()) "Latest from your channels" else "YouTube", items)
+    }
+
+    private fun OkHttpClient.getText(url: String): String =
+        newCall(Request.Builder().url(url).build()).execute().use { r ->
+            check(r.isSuccessful) { "HTTP ${r.code}" }
+            r.body.string()
+        }
+
+    private fun trending(http: OkHttpClient, cfg: FeaturedConfig): List<FeaturedItem> {
         val url = "https://www.googleapis.com/youtube/v3/videos".toHttpUrl().newBuilder()
             .addQueryParameter("part", "snippet")
             .addQueryParameter("chart", "mostPopular")
@@ -220,26 +246,37 @@ object YouTube : FeaturedSource {
             .addQueryParameter("maxResults", "20")
             .addQueryParameter("key", cfg.youtubeKey)
             .build().toString()
-        val items = http.getJson(url).jsonObject["items"]!!.jsonArray.mapNotNull { v ->
+        return http.getJson(url).jsonObject["items"]!!.jsonArray.mapNotNull { v ->
             val o = v.jsonObject
             val id = o["id"].str() ?: return@mapNotNull null
             val s = o["snippet"]!!.jsonObject
             val thumbs = s["thumbnails"]?.jsonObject
             val image = listOf("maxres", "standard", "high").firstNotNullOfOrNull { thumbs?.get(it)?.jsonObject?.get("url").str() }
-            FeaturedItem(
-                id = id,
-                title = s["title"].str() ?: "",
-                subtitle = s["channelTitle"].str(),
-                image = image,
-                link = "https://www.youtube.com/watch?v=$id",
-                packages = listOf(
-                    "com.teamsmart.videomanager.tv", "com.google.android.youtube.tv", "com.amazon.firetv.youtube",
-                    "io.gh.reisxd.tizentube.cobalt",
-                ),
-            )
+            video(id, s["title"].str() ?: "", s["channelTitle"].str(), image, null)
         }
-        FeaturedFeed("Trending on YouTube", items)
     }
+
+    private fun video(id: String, title: String, channel: String?, image: String?, description: String?) = FeaturedItem(
+        id = id, title = title, subtitle = channel, description = description, image = image,
+        link = "https://www.youtube.com/watch?v=$id", packages = PACKAGES,
+    )
+
+    /** The videos of a channel's public RSS feed, each with its publish time (ISO, sorts as text); a malformed feed gives none. */
+    fun parseFeed(xml: String): List<Pair<FeaturedItem, String>> = runCatching {
+        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+        runCatching { factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+        val doc = factory.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(xml)))
+        fun org.w3c.dom.Element.text(tag: String) = getElementsByTagName(tag).item(0)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+        val entries = doc.getElementsByTagName("entry")
+        (0 until entries.length).mapNotNull { i ->
+            val e = entries.item(i) as org.w3c.dom.Element
+            val id = e.text("yt:videoId") ?: return@mapNotNull null
+            val title = e.text("title") ?: return@mapNotNull null
+            val channel = (e.getElementsByTagName("author").item(0) as? org.w3c.dom.Element)?.text("name")
+            val description = e.text("media:description")?.lineSequence()?.firstOrNull { it.isNotBlank() }?.take(240)
+            video(id, title, channel, "https://i.ytimg.com/vi/$id/hq720.jpg", description) to (e.text("published") ?: "")
+        }
+    }.getOrDefault(emptyList())
 }
 
 object Plex : FeaturedSource {

@@ -112,6 +112,8 @@ data class FeaturedConfig(
     val tmdbRegion: String = "US",
     val youtubeKey: String = "",
     val youtubeRegion: String = "US",
+    /** Public channels for the YouTube row (ids or channel URLs, any separator); their RSS feeds need no key or sign-in. */
+    val youtubeChannels: String = "",
     val plexToken: String = "",
     val plexClientId: String = "",
 )

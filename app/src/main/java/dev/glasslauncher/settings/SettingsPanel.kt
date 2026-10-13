@@ -68,6 +68,7 @@ import dev.glasslauncher.dream.AerialActivity
 import dev.glasslauncher.dream.Screensaver
 import dev.glasslauncher.featured.Plex
 import dev.glasslauncher.featured.Sources
+import dev.glasslauncher.featured.YouTube
 import dev.glasslauncher.glass.WallpaperLoader
 import dev.glasslauncher.home.HomeLayout
 import dev.glasslauncher.home.HomeModel
@@ -402,6 +403,9 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         MenuRow("TMDB API Key", {
             open(Overlay.TextInput("TMDB API Key", fc.tmdbKey, "Free at themoviedb.org → Settings → API. Used for Netflix, Prime Video, Disney+, Apple TV, Max and Hulu.") { k -> setFeatured { it.copy(tmdbKey = k) } })
         }, value = mask(fc.tmdbKey))
+        MenuRow("YouTube Channels", {
+            open(Overlay.TextInput("YouTube Channels", fc.youtubeChannels, "Channel IDs (UC…) or channel URLs, separated by spaces. Uses each channel's public feed; no sign-in.") { c -> setFeatured { it.copy(youtubeChannels = c) } })
+        }, value = channelsSummary(fc.youtubeChannels))
         MenuRow("YouTube API Key", {
             open(Overlay.TextInput("YouTube Data API Key", fc.youtubeKey, "Create one in Google Cloud Console with YouTube Data API v3 enabled.") { k -> setFeatured { it.copy(youtubeKey = k) } })
         }, value = mask(fc.youtubeKey))
@@ -433,6 +437,9 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         }
         FeaturedSourceId.YouTube -> {
             SectionLabel("YouTube")
+            MenuRow("YouTube Channels", {
+                open(Overlay.TextInput("YouTube Channels", fc.youtubeChannels, "Channel IDs (UC…) or channel URLs, separated by spaces. Uses each channel's public feed; no sign-in.") { c -> setFeatured { it.copy(youtubeChannels = c) } })
+            }, value = channelsSummary(fc.youtubeChannels))
             MenuRow("API Key", {
                 open(Overlay.TextInput("YouTube Data API Key", fc.youtubeKey, "Create one in Google Cloud Console with YouTube Data API v3 enabled.") { k -> setFeatured { it.copy(youtubeKey = k) } })
             }, value = mask(fc.youtubeKey))
@@ -453,6 +460,8 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     }
     MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true) } })
 }
+
+private fun channelsSummary(text: String) = YouTube.channelIds(text).size.let { if (it == 0) "Not set" else "$it" }
 
 private fun mask(key: String) = if (key.isBlank()) "Not set" else "••••" + key.takeLast(4)
 
