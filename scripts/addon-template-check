@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Builds the standalone add-on template (addon-template/) and lints it. Touches no device and not :app's build.
+#   scripts/addon-template-check
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+[ -n "${JAVA_HOME:-}" ] || { command -v /usr/libexec/java_home >/dev/null && export JAVA_HOME="$(/usr/libexec/java_home -v 21)"; } || true
+# The standalone build needs the Android SDK location too (git-ignored file; ANDROID_HOME also works).
+[ -f addon-template/local.properties ] || { [ -f local.properties ] && cp local.properties addon-template/local.properties; } || true
+scripts/addon-lint addon-template
+./gradlew --max-workers=2 -p addon-template :app:assembleDebug :app:lintDebug
+echo "addon-template-check: ok"

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- Do NOT declare the BIND_ADDON permission here: Glass defines it. Only require it on the service and provider below.
+         No <queries> either: Glass finds you; you never look for Glass. -->
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_addon"
+        android:label="My Glass Add-on">
+
+        <!-- The one service Glass reads (one add-on service per package). It carries the add-on's declaration. -->
+        <service
+            android:name=".MyAddonService"
+            android:exported="true"
+            android:permission="dev.glasslauncher.permission.BIND_ADDON">
+            <intent-filter>
+                <action android:name="dev.glasslauncher.ADDON" />
+            </intent-filter>
+            <meta-data android:name="dev.glasslauncher.addon.api" android:value="1" />
+            <meta-data android:name="dev.glasslauncher.addon.min_glass_api" android:value="1" />
+            <meta-data android:name="dev.glasslauncher.addon.title" android:value="My Add-on" />
+            <meta-data android:name="dev.glasslauncher.addon.icon" android:resource="@drawable/ic_addon" />
+            <meta-data android:name="dev.glasslauncher.addon.needs_root" android:value="false" />
+            <!-- Where the provider is, and which points you supply: tiles, topshelf, homerow, settings, actions. -->
+            <meta-data android:name="dev.glasslauncher.addon.provider" android:value="com.example.myaddon.provider" />
+            <meta-data android:name="dev.glasslauncher.addon.points" android:value="tiles,topshelf,homerow,settings,actions" />
+        </service>
+
+        <!-- Top Shelf, Home row and Settings page. Same guard: only Glass holds the permission. -->
+        <provider
+            android:name=".MyAddonProvider"
+            android:authorities="com.example.myaddon.provider"
+            android:exported="true"
+            android:permission="dev.glasslauncher.permission.BIND_ADDON" />
+    </application>
+</manifest>

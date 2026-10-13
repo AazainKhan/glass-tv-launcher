@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Checks an add-on project against the Glass add-on contract (manifest and source text only; it builds nothing).
+#   scripts/addon-lint [dir]      default: addon-template. Exit 1 if anything is wrong.
+set -uo pipefail
+DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)/addon-template}"
+M="$(find "$DIR" -path '*/src/main/AndroidManifest.xml' -not -path '*/build/*' | head -1)"
+[ -n "$M" ] || { echo "no src/main/AndroidManifest.xml under $DIR"; exit 1; }
+SRC="$(dirname "$M")"
+MX="$(mktemp)"; trap 'rm -f "$MX"' EXIT
+perl -0pe 's/<!--.*?-->//gs' "$M" > "$MX"   # comments do not count
+M="$MX"
+bad=0
+fail() { echo "FAIL: $*"; bad=1; }
+meta() { grep -o "dev.glasslauncher.addon.$1\"[^/]*" "$M" | head -1; }
+
+n=$(grep -c 'name="dev.glasslauncher.ADDON"' "$M")
+[ "$n" -eq 1 ] || fail "need exactly one service with the dev.glasslauncher.ADDON action (found $n): one add-on service per package"
+for k in api min_glass_api title icon needs_root; do [ -n "$(meta $k)" ] || fail "missing meta-data dev.glasslauncher.addon.$k"; done
+grep -q 'android:permission="dev.glasslauncher.permission.BIND_ADDON"' "$M" || fail "the service must have android:permission=dev.glasslauncher.permission.BIND_ADDON"
+grep -q '<permission' "$M" && fail "do not declare <permission>: Glass defines BIND_ADDON (a second definition clashes on install order)"
+grep -q '<queries' "$M" && fail "an add-on needs no <queries>"
+grep -q 'dev.glasslauncher.addon.api" android:value="[0-9]' "$M" || fail "addon.api must be an integer"
+
+points="$(grep -o 'addon.points" android:value="[^"]*"' "$M" | sed 's/.*value="//; s/"$//' | tr ',' ' ')"
+for p in $points; do case "$p" in tiles|topshelf|homerow|settings|actions) ;; *) fail "unknown point '$p' (tiles, topshelf, homerow, settings, actions)";; esac; done
+if echo " $points " | grep -qE ' (topshelf|homerow|settings) '; then
+  grep -q 'addon.provider" android:value=' "$M" || fail "topshelf/homerow/settings need meta-data dev.glasslauncher.addon.provider"
+  prov="$(tr '\n' ' ' < "$M" | grep -o '<provider[^>]*>' | head -1)"
+  echo "$prov" | grep -q 'android:exported="true"' || fail "the provider must be exported"
+  echo "$prov" | grep -q 'android:permission="dev.glasslauncher.permission.BIND_ADDON"' || fail "the provider must have android:permission=BIND_ADDON"
+fi
+
+# Source text: https art and links only, refresh hints of 15 minutes or more (0 = Glass's default).
+if grep -rnE '"http://' "$SRC" --include=*.kt >/dev/null 2>&1; then fail "http:// URL in source: art and links must be https"; grep -rnE '"http://' "$SRC" --include=*.kt; fi
+while read -r line; do v="${line##*refreshMinutes = }"; v="${v%%[^0-9]*}"; [ -n "$v" ] && [ "$v" -ne 0 ] && [ "$v" -lt 15 ] && fail "refreshMinutes = $v is under the 15-minute floor: $line"; done < <(grep -rhn 'refreshMinutes = [0-9]' "$SRC" --include=*.kt)
+grep -rqE 'ON_LONG_PRESS|onLongPress' "$SRC" --include=*.kt && fail "onLongPress was dropped from the contract (hold-Select is Control Center edit mode)"
+
+[ "$bad" -eq 0 ] && echo "addon-lint: $DIR ok (points: ${points:-tiles})"
+exit "$bad"
