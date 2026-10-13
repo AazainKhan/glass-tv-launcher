@@ -140,7 +140,7 @@ internal fun CcAgentCard(sz: CcSizes, decide: (allowed: Boolean) -> Unit) {
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(CARD_GAP),
         // One glass panel behind the whole card (the tiles' own material), so the title, command and path read over
         // the Cover Flow art behind Control Center.
-        modifier = Modifier.width(sz.column).ccSurface(androidx.compose.foundation.shape.RoundedCornerShape(26.dp), LocalCcSheet.current)
+        modifier = Modifier.width(sz.column).ccSurface(androidx.compose.foundation.shape.RoundedCornerShape(24.dp), LocalCcSheet.current)
             .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-agent-card"),
     ) {
         BasicText(CcShowcase.REQUEST_TITLE, style = Type.heading.copy(color = Color.White))
@@ -180,7 +180,7 @@ internal fun NowPlayingTile(
     when (size) {
         CcSize.S1x1 -> Round(if (np?.playing == true) R.drawable.ic_pause else R.drawable.ic_play_arrow, "Now Playing, $label", on = np?.playing == true, onLabel = onLabel,
             modifier = modifier, onLongClick = onLongClick, onPlay = playOr { go() }, wiggle = wiggle, onClick = go)
-        CcSize.S2x2 -> CcTile("Now Playing", label, androidx.compose.foundation.shape.RoundedCornerShape(26.dp), w, h, onClick = go, modifier = modifier,
+        CcSize.S2x2 -> CcTile("Now Playing", label, androidx.compose.foundation.shape.RoundedCornerShape(20.dp), w, h, onClick = go, modifier = modifier,
             onLongClick = onLongClick, onPlay = playOr { go() }, wiggle = wiggle) { fg ->
             var now by remember { mutableStateOf(0L) }
             if (np != null && np.playing) androidx.compose.runtime.LaunchedEffect(np.key) { while (true) { now = np.positionNow(); delay(1_000) } }
@@ -218,7 +218,7 @@ internal fun CcConfirmCard(sz: CcSizes, title: String, body: String, confirm: St
     androidx.compose.runtime.LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(CARD_GAP),
-        modifier = Modifier.width(sz.column).ccSurface(androidx.compose.foundation.shape.RoundedCornerShape(26.dp), LocalCcSheet.current)
+        modifier = Modifier.width(sz.column).ccSurface(androidx.compose.foundation.shape.RoundedCornerShape(24.dp), LocalCcSheet.current)
             .padding(horizontal = 14.dp, vertical = 8.dp).testTag("cc-confirm"),
     ) {
         BasicText(title, style = Type.heading.copy(color = Color.White))

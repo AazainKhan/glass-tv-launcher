@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -101,26 +102,51 @@ internal class CcSizes(k: Float) {
      * Circles are 1×1, pills 2×1 (as tall as a circle), the big tile 2×2 and square, wide rows 4×1, and the
      * panel 4u + 3·gap. Everything below derives from these two.
      */
-    // 56 dp: the smallest cell whose pills fit "Bluetooth" and "Connected" at the 13 sp floor (JVM test). tvOS's own cell
-    // is 48 dp with 11.5 sp pill text (F04): the cell and the gap stay (the pills' labels must fit at the text floor), the circle glyph follows tvOS.
-    val u = (56 * k).dp
-    val gap = (9 * k).dp
+    // tvOS 27's own grid (P138, docs/research/cc-spec-gaps.md G1/G2): cell 96 pt = 48 dp, gap 16 pt = 8 dp (FW defaultPlatterDesiredWidth
+    // 480 pt = 4 cells + 3 gaps + 2 x 24 pt of padding). The pills' text is tvOS's Caption 2 (11.5 sp) and long values clip or scroll
+    // on focus, as tvOS's do, so the cell no longer grows to fit a label at the 13 sp floor (it was 56 dp / 9 dp).
+    val u = (48 * k).dp
+    val gap = (8 * k).dp
     val round = u
     val pill = u
     val pillWidth = u * 2 + gap
     val big = u * 2 + gap
     val bigWidth = big
     val column = u * 4 + gap * 3
-    val disc = u * 0.5f
-    val discGlyph = u * 0.33f
-    // 21 dp at 1x: tvOS's circle glyph (F04).
+    // An off toggle's glyph sits in a disc: F27 measures the disc at 21 dp (0.44 u) and the moon in it at about 10 dp (KIT: 15 pt in 41 pt).
+    val disc = u * 0.44f
+    val discGlyph = u * 0.24f
+    // 21 dp: tvOS's controlCenterGlyphPointSize (42 pt), the circle's glyph and a pill's bare glyph (on, or without a disc).
     val roundGlyph = (21 * k).dp
-    val bigGlyph = u * 0.8f
+    val pillGlyph = (21 * k).dp
+    /** A pill's leading column (FW defaultSymbolReservedSpace 86 pt = 43 dp; 40 here so "Bluetooth" and "Connected" fit the 104 dp pill whole, F27 puts the text 42.6 dp in): the glyph or its disc centred in it, the text starts at its edge. */
+    val leadColumn = (40 * k).dp
+    /** The picker's volume row: FW volumeRowHeight 54 pt. */
+    val volumeRow = (27 * k).dp
+    // F27: the Power tile's ring is about 50 dp in the 104 dp tile (FW format 0xe: a 113 pt glyph box).
+    val bigGlyph = u * 1.04f
+    /** The big tile's corner: about 40 px on 215 px in the 27 frame (20 dp), not 26 (G/C16). */
+    val bigRadius = (20 * k).dp
+    /**
+     * How much a focused control grows in total (SK: 96 -> 116 px = 10 dp, an absolute lift, not a ratio) so that the growth on each side
+     * (5 dp) is always under the 8 dp gap and a focused control never touches its neighbours (P138: a x1.21 on a 104 dp pill grew 11 dp a side).
+     */
+    val focusGrowth = (10 * k).dp
+    fun focusScale(width: Dp): Float = 1f + focusGrowth.value / width.value
 }
 
-private val LocalCcPageIconSize = androidx.compose.runtime.staticCompositionLocalOf { 40.dp }
+private val LocalCcPageIconSize = androidx.compose.runtime.staticCompositionLocalOf { CC_PAGE_ICON }
+
+/** The menu bar's controls: F27 measures circles of about 48 px (24 dp) at a 60 px (30 dp) pitch, a 6 dp gap (SK's 58 px circles at a 60 px pitch leave 1 dp and read as touching, P138 H1). */
+private val CC_PAGE_ICON = 24.dp
 
 private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
+
+/** Pill text is tvOS's Caption 2 (FW stylingForState: style 7 = 23 px = 11.5 sp, 15 dp lines), Medium, for the title and the value (P138 C10). */
+private val CcPillTitle @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
+private val CcPillValue @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
+/** A platter's section header: Caption 1 (12.5 sp). */
+private val CcSectionHeader @Composable get() = Type.caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
 
 /** Whether the tile whose content is being drawn has focus (a pill's long text scrolls only then, F05). */
 private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { false }
@@ -131,7 +157,9 @@ private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { f
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, modifier: Modifier = Modifier) {
+private fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, modifier: Modifier = Modifier, lines: Int = 1) {
+    // A title with no value line under it wraps at its spaces onto a second line, as tvOS's do ("Do Not / Disturb"); never mid-word, never an ellipsis.
+    if (lines > 1) { Text(text, style = style, color = color, maxLines = lines, softWrap = true, overflow = TextOverflow.Clip, modifier = modifier); return }
     var overflows by remember(text) { androidx.compose.runtime.mutableStateOf(false) }
     val focused = LocalCcTileFocused.current
     Text(
@@ -300,6 +328,9 @@ data class CcEmergeFrame(val scale: Float, val dx: Float, val dy: Float, val rou
 
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
 private val CC_BLEED = 16.dp
+
+/** Room above the first row inside the scrolling viewport: the 2x2's growth (104 dp x 0.105) plus a margin, so a focused tile is never cut flat (P138 G6). */
+private val CC_TOP_ROOM = 12.dp
 
 /**
  * How edit mode is entered (P101): only from Launcher Settings › Control Center › Edit Layout. That sets
@@ -763,6 +794,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             if (enter.value < 0.02f) inkAnim.snapTo(t) else inkAnim.animateTo(t, androidx.compose.animation.core.tween(INK_FADE_MS))
         }
     }
+    // The column is as tall as the screen allows on every page (P138 P1: tvOS's platters fill it), but the open's stagger measures
+    // its reach from where the controls end, not from the empty rest of the column: the motion's panel is clamped to the content.
+    val colBounds = remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val contentBottom = remember { floatArrayOf(0f, 0f) }  // [0] the page or platter, [1] the Now Playing card (0 = none)
+    fun syncMotionPanel() {
+        val b = colBounds.value ?: return
+        val end = maxOf(contentBottom[0], contentBottom[1])
+        val bottom = if (end > b.top) minOf(b.bottom, end) else b.bottom
+        motion.panel = androidx.compose.ui.geometry.Rect(b.left, b.top, b.right, bottom)
+    }
     androidx.compose.runtime.CompositionLocalProvider(LocalPalette provides inkPalette, LocalCcSizes provides sz, LocalCcSheet provides sheetRef, LocalCcPhase provides phase, LocalCcMotion provides motion) {
     Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -791,11 +832,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 .onGloballyPositioned {
                     val b = it.boundsInWindow()
                     panel = b
-                    motion.panel = b
+                    colBounds.value = b
+                    syncMotionPanel()
                     // Where a lone drop settles when there are no page icons: where they would be.
                     val right = b.right - m.chromeInset.value * density - 14 * density
                     val top = b.top + m.chromeInset.value * density
-                    motion.loneSpot = androidx.compose.ui.geometry.Rect(right - 40 * density, top, right, top + 40 * density)
+                    motion.loneSpot = androidx.compose.ui.geometry.Rect(right - CC_PAGE_ICON.value * density, top, right, top + CC_PAGE_ICON.value * density)
                 }
                 // Reduce Motion: a plain fade of the whole panel. Never the tiles without their material (they would
                 // show bare on the open's first frame).
@@ -804,9 +846,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     alpha = if (sheetRef.sheet == null) 0f else 1f
                 }
                 // Never over the dock: the panel ends where the tray begins, and its tiles scroll inside that.
-                // The panel is as tall as its content, up to the screen's bottom inset, like tvOS (P101): the default page
-                // fits with no scrolling, and it is no longer cut off at the dock's top.
-                .heightIn(max = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - CC_BOTTOM_INSET)
+                // The panel is the screen's full height down to the bottom inset (P138; tvOS's platter is 860 pt, FW
+                // platterSizeForPlatterController): the grid page keeps its own height at the top of it and scrolls inside it,
+                // a pushed platter (Remotes, AirPlay) fills it.
+                .height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - CC_BOTTOM_INSET)
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
                 .onPreviewKeyEvent { e ->
@@ -838,9 +881,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 // The page icons are the two drops the pill splits into; their glyphs come in as they land.
                 // Three or more icons (a page of your own, or the + while editing) are a little smaller so the time keeps its room.
                 val iconCount = layout.pages.size + if (editing) 1 else 0
-                val iconSize = if (iconCount > 2) 34.dp else 40.dp
+                val iconSize = CC_PAGE_ICON
                 androidx.compose.runtime.CompositionLocalProvider(LocalCcPageIconSize provides iconSize) {
-                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(if (iconCount > 2) 6.dp else 10.dp), modifier = Modifier.padding(start = 16.dp)) {
+                if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 16.dp)) {
                     // The Alexa app's own icon (loaded once per open); the mic if it isn't installed.
                     val alexaIcon = remember(active) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }
                     // Not editable, so out of the strip (and the walk to +) while editing.
@@ -853,7 +896,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             if (pageId == pg.id) pageId = "controls"
                         }) else null
                         if (pg.id == "alexa" && alexaIcon != null) PageIcon(ccPageLabel(pg), lit, i, onShow = show, onPlay = delete) {
-                            Image(alexaIcon, null, modifier = Modifier.size(26.dp).clip(CircleShape))
+                            Image(alexaIcon, null, modifier = Modifier.size(CC_PAGE_ICON * 0.62f).clip(CircleShape))
                         } else PageIcon(ccPageIcon(pg), ccPageLabel(pg), selected = lit, index = i, onShow = show, onPlay = delete)
                     }
                     if (editing) PageIcon(R.drawable.ic_add, "New page", selected = false, index = minOf(layout.pages.size - 1, 7), onShow = {}, onPlay = null, onSelect = {
@@ -904,7 +947,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // and fades 0.25 s. Reduce Motion: a plain cross-fade, nothing scales. Never a cut either way.
             androidx.compose.animation.AnimatedContent(
                 targetState = remotesPlatter || airplayPlatter,
-                modifier = Modifier.weight(1f, fill = false).onGloballyPositioned { platterSource.box = it.boundsInWindow() },
+                modifier = Modifier.weight(1f, fill = remotesPlatter || airplayPlatter).onGloballyPositioned {
+                    platterSource.box = it.boundsInWindow()
+                    contentBottom[0] = it.boundsInWindow().bottom
+                    syncMotionPanel()
+                },
                 transitionSpec = {
                     val push = targetState
                     val fade = androidx.compose.animation.core.tween<Float>(TOGGLE_FADE_MS)
@@ -943,12 +990,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 modifier = Modifier
                     // The viewport starts 14 dp below the header's bottom while the tiles keep their place (content
                     // starts 2 dp inside it), so a scrolled row is cut under the header, not over its text.
-                    .padding(top = CC_BLEED - 2.dp)
+                    .padding(top = CC_BLEED - CC_TOP_ROOM)
                     // No hard cut line (P101, tvOS): the viewport's top and bottom edges fade out while there is more to
                     // scroll that way (one baked alpha gradient, applied only when the content overflows).
                     .ccEdgeFade(scrollState)
                     .verticalScroll(scrollState)
-                    .padding(start = CC_BLEED, end = CC_BLEED, top = 2.dp, bottom = CC_BLEED)
+                    .padding(start = CC_BLEED, end = CC_BLEED, top = CC_TOP_ROOM, bottom = CC_BLEED)
                     .padding(bottom = m.chromeInset)
                     .width(sz.column),
             ) {
@@ -1120,7 +1167,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         Modifier
                             .offset { off }
                             .size(w, h)
-                            .zIndex(if (isLifted) 2f else 0f)
+                            .zIndex(if (isLifted) 2f else if (focusedId == id) 1f else 0f)
                             // No layer of its own at rest: only while editing, lifting or settling a lift.
                             .then(if (editing || liftScale != 1f) Modifier.graphicsLayer {
                                 scaleX = liftScale; scaleY = liftScale
@@ -1135,7 +1182,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 // accessibility name is still "Add a Control", from the tile's description).
                                 PillContent(R.drawable.ic_add, "Add", null, fg, on = false, accent = fg)
                             }
-                            "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(26.dp), w, h, modifier = focusMod,
+                            "fire_settings" -> CcTile("Settings", "Fire TV", RoundedCornerShape(sz.bigRadius), w, h, modifier = focusMod,
                                 onClick = tap { closeAll(); open(Overlay.TvSettings) }, onLongClick = hold, onPlay = playOr { closeAll(); open(Overlay.TvSettings) }, wiggle = wobbleOn) { fg ->
                                 BigIcon(R.drawable.ic_settings, "Settings", fg)
                             }
@@ -1276,9 +1323,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             }
             // What's playing, with controls (any app with a media session: Spotify, Amazon Music, YouTube…).
+            if (np == null) contentBottom[1] = 0f
             np?.let {
                 val e = remember(motion) { CcEmerge(motion, CcRole.Control) }
-                Box(Modifier.ccEmerge(e)) { androidx.compose.runtime.CompositionLocalProvider(LocalCcEmerge provides e) { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) } }
+                Box(Modifier.ccEmerge(e).onGloballyPositioned { contentBottom[1] = it.boundsInWindow().bottom; syncMotionPanel() }) { androidx.compose.runtime.CompositionLocalProvider(LocalCcEmerge provides e) { dev.glasslauncher.widgets.NowPlayingCard(it, sz.column, cfg.textScale) } }
             }
             }
             }
@@ -1315,9 +1363,9 @@ private fun Glyph(@DrawableRes icon: Int, tint: Color, modifier: Modifier = Modi
 
 @Composable
 private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color, value: String? = null, on: Boolean = false, accent: Color = fg) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.5.dp)) {
         Glyph(icon, toggleTint(on, fg, accent), Modifier.size(LocalCcSizes.current.bigGlyph))
-        Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = fg)
+        Text(title, style = Type.caption, color = fg)
         value?.let { Text(it, style = Type.caption, color = fg.copy(alpha = 0.7f), maxLines = 1) }
     }
 }
@@ -1330,7 +1378,7 @@ private fun PageIcon(
 ) {
     val palette = LocalPalette.current
     PageIcon(label, selected, index, onShow, onPlay, onSelect) { lit ->
-        Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (lit) palette.onFocusFill else palette.primary), modifier = Modifier.size(20.dp))
+        Image(painterResource(icon), null, colorFilter = ColorFilter.tint(if (lit) palette.onFocusFill else palette.primary), modifier = Modifier.size(CC_PAGE_ICON * 0.5f))
     }
 }
 
@@ -1371,7 +1419,7 @@ private fun AlexaPage(sz: CcSizes, closeAll: () -> Unit) {
     val context = LocalContext.current
     fun go(open: (android.content.Context) -> Boolean) { closeAll(); open(context) }
     Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
-        CcTile("Smart Home", null, RoundedCornerShape(26.dp), sz.bigWidth, sz.big, onClick = { go(SystemControls::openSmartHome) }) { fg ->
+        CcTile("Smart Home", null, RoundedCornerShape(sz.bigRadius), sz.bigWidth, sz.big, onClick = { go(SystemControls::openSmartHome) }) { fg ->
             BigIcon(R.drawable.ic_home, "Smart Home", fg)
         }
         Column(verticalArrangement = Arrangement.spacedBy(sz.gap)) {
@@ -1418,19 +1466,23 @@ internal fun PillContent(
     disc: Boolean = true,
 ) {
     val sz = LocalCcSizes.current
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 8.dp)) {
-        // On: no disc, the glyph alone takes the accent colour. Off: the glyph sits in a translucent white disc
-        // (white @ 0.15, tvOS's own value, not the control's tint) -- P129, REA's tvOS read of Control Center states.
-        val discAlpha by androidx.compose.animation.core.animateFloatAsState(if (on) 0f else 0.15f, androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "disc")
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(sz.disc)
-                .then(if (disc) Modifier.background(Color.White.copy(alpha = discAlpha), CircleShape) else Modifier),
-        ) { Glyph(icon, toggleTint(on, fg, accent), Modifier.size(sz.discGlyph)) }
-        Column(Modifier.weight(1f).padding(start = 7.dp)) {
-            PillText(title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
-            value?.let { PillText(it, Type.caption.copy(lineHeight = 15.sp), fg.copy(alpha = 0.7f)) }
+    // The leading column is tvOS's 86 pt = 43 dp (FW defaultSymbolReservedSpace) with the glyph centred in it; the text starts at its edge.
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 0.dp, end = 1.dp)) {
+        // On: no disc, the glyph alone takes the accent colour, at tvOS's full glyph size. Off: the glyph sits smaller in a
+        // translucent white disc (white @ 0.15, tvOS's own value, not the control's tint) -- P129, REA's tvOS read of Control Center
+        // states. The glyph's size follows the disc over the same 0.25 s, so a toggle never pops.
+        val fade = androidx.compose.animation.core.tween<androidx.compose.ui.unit.Dp>(TOGGLE_FADE_MS)
+        val discAlpha by androidx.compose.animation.core.animateFloatAsState(if (on || !disc) 0f else 0.15f, androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "disc")
+        val glyphSize by androidx.compose.animation.core.animateDpAsState(if (on || !disc) sz.pillGlyph else sz.discGlyph, fade, label = "pill-glyph")
+        Box(Modifier.width(sz.leadColumn).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(sz.disc).then(if (disc) Modifier.background(Color.White.copy(alpha = discAlpha), CircleShape) else Modifier),
+                contentAlignment = Alignment.Center,
+            ) { Glyph(icon, toggleTint(on, fg, accent), Modifier.size(glyphSize)) }
+        }
+        Column(Modifier.weight(1f)) {
+            PillText(title, CcPillTitle, fg, lines = if (value == null) 2 else 1)
+            value?.let { PillText(it, CcPillValue, fg.copy(alpha = 0.7f)) }
         }
     }
 }
@@ -1488,7 +1540,7 @@ internal fun PillOrBig(
     fillOn: Boolean = false,
 ) {
     val big = size == CcSize.S2x2
-    CcTile(name, value, if (big) RoundedCornerShape(26.dp) else Shapes.pill, w, h, onClick = onClick, modifier = modifier, onLongClick = onLongClick,
+    CcTile(name, value, if (big) RoundedCornerShape(LocalCcSizes.current.bigRadius) else Shapes.pill, w, h, onClick = onClick, modifier = modifier, onLongClick = onLongClick,
         onPlay = onPlay ?: onClick, wiggle = wiggle, on = fillOn) { fg ->
         if (big) BigIcon(icon, title, fg, value, on, accent) else PillContent(icon, title, value, fg, on = on, accent = accent)
     }
@@ -1522,10 +1574,10 @@ internal fun CcTile(
         wiggle = wiggle,
         onFocusChange = onFocusChange,
         shape = shape,
-        // tvOS's focus is a clear lift with a shadow under it (F06). 1.10 stays inside the 9 dp gap of the smallest cell
-        // (5.6 dp each side on a pill); the first 1.06 spilled the Settings tile past the grid because the shadow was
-        // not baked, which it is now.
-        focusedScale = 1.10f,
+        // tvOS's focus is a clear lift with a shadow under it (F06): x1.21 (SK: 96 -> 116 px, F27's 2x2 about +21%, P138 F1).
+        // A wide tile grows 11 dp each side, past the 8 dp gap, so the grid raises the focused tile above its neighbours
+        // (zIndex) and keeps 12 dp of room above the first row inside the scroll viewport.
+        focusedScale = LocalCcSizes.current.focusScale(width),
         shadow = true,
         // Grows out of its drop as Control Center opens ([CcEmerge]).
         modifier = modifier.size(width, height).ccEmerge(emerge),
@@ -1728,7 +1780,7 @@ private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> 
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-remotes")) {
-        Text("Remotes", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        Text("Remotes", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (rows.isEmpty()) {
             CcTile("No remote paired", "Hold Home for 10 s", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
                 PillContent(R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", fg, on = false, accent = fg)
@@ -1776,7 +1828,7 @@ private fun CcAirPlayPlatter(
     // More rows than the screen holds (receiver controls, speakers, a volume row): scrolls like the grid, edges faded.
     val scroll = androidx.compose.foundation.rememberScrollState()
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.ccEdgeFade(scroll).verticalScroll(scroll).width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED, vertical = 6.dp).testTag("cc-airplay")) {
-        Text("AirPlay", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        Text("AirPlay", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (airPlay == null) {
             CcTile("AirPlay unavailable", "Install PhairPlay to receive AirPlay", Shapes.pill, sz.column, sz.pill, onClick = onBack, modifier = Modifier.focusRequester(first)) { fg ->
                 PillContent(R.drawable.ic_airplay, "AirPlay unavailable", "Install PhairPlay to receive AirPlay", fg, on = false, accent = fg)
@@ -1806,7 +1858,7 @@ private fun CcAirPlayPlatter(
         }
         // The tvOS picker (TVSSAudioRoutingPanelPlatterController): the title, This TV, then a "Speakers" section. A click
         // toggles the row and applies at once; the selected speaker has its volume row (and the mute rule) under it.
-        Text("Audio Output", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+        Text("Audio Output", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
         val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
         fun pick(row: dev.glasslauncher.sonos.AudioOutputRow) {
@@ -1819,7 +1871,7 @@ private fun CcAirPlayPlatter(
             }
         }
         for ((i, row) in rows.withIndex()) {
-            if (i == 1) Text("Speakers", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+            if (i == 1) Text("Speakers", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
             Column {
                 CcRouteRow(sz, row, dev.glasslauncher.sonos.AudioOutputs.subtitle(row, route)) { pick(row) }
                 val speaker = row.speaker
@@ -1857,13 +1909,14 @@ private fun CcRouteRow(sz: CcSizes, row: dev.glasslauncher.sonos.AudioOutputRow,
     CcTile(row.title, listOfNotNull(subtitle, if (row.selected) "selected" else null).joinToString(", ").ifEmpty { null }, Shapes.pill, sz.column, sz.pill, onClick = onClick,
         modifier = Modifier.testTag("cc-audio-" + row.key), on = false) { fg ->
         val focused = LocalCcTileFocused.current
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 12.dp)) {
-            Box(Modifier.size(sz.disc).background(Color.White.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
-                Glyph(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, fg, Modifier.size(sz.discGlyph))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 2.dp, end = 12.dp)) {
+            // Format 8 (FW): the device's own glyph at tvOS's 42 pt in the 43 dp column, no disc.
+            Box(Modifier.width(sz.leadColumn).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Glyph(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, fg, Modifier.size(sz.pillGlyph))
             }
-            Column(Modifier.weight(1f).padding(start = 7.dp)) {
-                PillText(row.title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
-                subtitle?.let { PillText(it, Type.caption.copy(lineHeight = 15.sp), fg.copy(alpha = 0.7f)) }
+            Column(Modifier.weight(1f)) {
+                PillText(row.title, CcPillTitle, fg, lines = if (subtitle == null) 2 else 1)
+                subtitle?.let { PillText(it, CcPillValue, fg.copy(alpha = 0.7f)) }
             }
             // The mark changes over 0.25 s (tvOS's row property animator), never pops.
             androidx.compose.animation.Crossfade(row.selected, animationSpec = androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "route-mark") { sel ->
@@ -1888,7 +1941,7 @@ private fun CcVolumeRow(sz: CcSizes, speaker: dev.glasslauncher.data.AudioOutput
     androidx.compose.runtime.DisposableEffect(sender) { onDispose { sender.close() } }
     LaunchedEffect(speaker.host) { runCatching { dev.glasslauncher.sonos.AudioOutputs.volumeReader(speaker.host) }.onSuccess { model.load(it) } }
     val level = model.volume
-    CcTile("Volume", level?.let { "$it%" }, Shapes.pill, sz.column, sz.pill, onClick = {}, onPlay = null,
+    CcTile("Volume", level?.let { "$it%" }, Shapes.pill, sz.column, sz.volumeRow, onClick = {}, onPlay = null,
         modifier = Modifier.testTag("cc-audio-volume").onPreviewKeyEvent { e ->
             val k = e.nativeKeyEvent.keyCode
             if (k != android.view.KeyEvent.KEYCODE_DPAD_LEFT && k != android.view.KeyEvent.KEYCODE_DPAD_RIGHT) return@onPreviewKeyEvent false
@@ -1896,11 +1949,11 @@ private fun CcVolumeRow(sz: CcSizes, speaker: dev.glasslauncher.data.AudioOutput
             true
         }) { fg ->
         val shown by androidx.compose.animation.core.animateFloatAsState((level ?: 0) / 100f, if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(120), label = "volume")
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 9.dp, end = 14.dp)) {
-            Box(Modifier.size(sz.disc).background(Color.White.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
-                Glyph(R.drawable.ic_volume_up, fg, Modifier.size(sz.discGlyph))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 2.dp, end = 14.dp)) {
+            Box(Modifier.width(sz.leadColumn).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Glyph(R.drawable.ic_volume_up, fg, Modifier.size(sz.pillGlyph))
             }
-            Canvas(Modifier.weight(1f).padding(start = 10.dp).height(6.dp)) {
+            Canvas(Modifier.weight(1f).height(6.dp)) {
                 val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
                 drawRoundRect(fg.copy(alpha = 0.28f), cornerRadius = r)
                 if (level != null) drawRoundRect(fg, size = androidx.compose.ui.geometry.Size(size.width * shown, size.height), cornerRadius = r)
