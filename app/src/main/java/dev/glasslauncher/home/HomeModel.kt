@@ -100,13 +100,18 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
                 from, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt(),
             ).toBundle()
         } else null
-        // The real task, with its state, when this build can see one (I08) — same zoom options, same fallback below.
-        val resumed = dev.glasslauncher.system.RecentApps.resume(getApplication(), app.packageName, options)
-        if (!resumed) {
-            val intent = graph.apps.launchIntent(app) ?: return
-            try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
-        }
         noteLaunched(app.packageName)
+        // The real task, with its state, when this build can see one (I08): looked up off the main thread (a binder
+        // call), with the same zoom options. Anything else (no task, no privilege) launches normally.
+        viewModelScope.launch {
+            val resumed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                dev.glasslauncher.system.RecentApps.resume(getApplication(), app.packageName, options)
+            }
+            if (!resumed) {
+                val intent = graph.apps.launchIntent(app) ?: return@launch
+                try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
+            }
+        }
     }
 
     fun launchIntent(app: AppEntry): Intent? = graph.apps.launchIntent(app)

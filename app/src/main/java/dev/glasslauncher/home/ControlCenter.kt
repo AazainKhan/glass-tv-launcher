@@ -1234,7 +1234,7 @@ private fun Glyph(@DrawableRes icon: Int, tint: Color, modifier: Modifier = Modi
 @Composable
 private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color, value: String? = null, on: Boolean = false, accent: Color = fg) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Glyph(icon, if (on && !LocalCcTileFocused.current) accent else fg, Modifier.size(LocalCcSizes.current.bigGlyph))
+        Glyph(icon, toggleTint(on, fg, accent), Modifier.size(LocalCcSizes.current.bigGlyph))
         Text(title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = fg)
         value?.let { Text(it, style = Type.caption, color = fg.copy(alpha = 0.7f), maxLines = 1) }
     }
@@ -1310,6 +1310,13 @@ private const val FILL_FADE_MS = 120
 /** tvOS swaps a toggle between off (glyph in a disc) and on (accent glyph) over 0.25 s. */
 private const val TOGGLE_FADE_MS = 250
 
+/** The glyph's colour: it fades to [accent] over tvOS's 0.25 s when a toggle turns on, and focus (near-black on white) wins. */
+@Composable
+private fun toggleTint(on: Boolean, fg: Color, accent: Color): Color {
+    val mix by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "toggle-tint")
+    return if (LocalCcTileFocused.current) fg else androidx.compose.ui.graphics.lerp(fg, accent, mix)
+}
+
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
 @Composable
 internal fun PillContent(
@@ -1331,7 +1338,7 @@ internal fun PillContent(
             modifier = Modifier
                 .size(sz.disc)
                 .then(if (disc) Modifier.background(Color.White.copy(alpha = discAlpha), CircleShape) else Modifier),
-        ) { Glyph(icon, if (on && !LocalCcTileFocused.current) accent else fg, Modifier.size(sz.discGlyph)) }
+        ) { Glyph(icon, toggleTint(on, fg, accent), Modifier.size(sz.discGlyph)) }
         Column(Modifier.weight(1f).padding(start = 7.dp)) {
             PillText(title, Type.caption.copy(fontWeight = FontWeight.SemiBold, lineHeight = 15.sp), fg)
             value?.let { PillText(it, Type.caption.copy(lineHeight = 15.sp), fg.copy(alpha = 0.7f)) }

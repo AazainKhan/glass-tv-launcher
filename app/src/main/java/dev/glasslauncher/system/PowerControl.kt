@@ -44,8 +44,10 @@ object PowerControl {
      * when the TV couldn't be told, so the caller can say the TV stays on; the stick still sleeps.
      */
     suspend fun standby(context: Context, onNoCec: () -> Unit = {}) {
-        if (!sendCecStandby(context)) onNoCec()
-        delay(1_000)
+        // A failed CEC call lingers longer so the "TV stays on" notice is seen before the screen goes dark.
+        val sent = sendCecStandby(context)
+        if (!sent) onNoCec()
+        delay(if (sent) 1_000 else 3_000)
         SleepTimer.sleepNow(context)
     }
 
