@@ -37,4 +37,9 @@ class KeptUnderCardTest {
         assertEquals("a page under a menu under the card: the menu goes, the page stays", listOf(true, false),
             listOf(Overlay.Settings, Overlay.FolderMenu(folder), confirm("one")).let { st -> listOf(keptUnderCard(st, 0), keptUnderCard(st, 1)) })
     }
+
+    @Test fun anInstallCardKeepsTheDownloadsPageDrawn() {
+        val staged = dev.glasslauncher.system.StagedApk(java.io.File("x.apk"), "", dev.glasslauncher.system.ApkInfo("p", "P", "", 1, 1, emptyList(), dev.glasslauncher.system.SignerCheck.NotInstalled))
+        assertEquals(true, keptUnderCard(listOf(Overlay.Downloads, Overlay.InstallConfirm(staged, {}, {})), 0))
+    }
 }

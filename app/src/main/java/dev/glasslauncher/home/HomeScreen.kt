@@ -1825,7 +1825,7 @@ private suspend fun appHeroBackdrop(
  * came from, and a confirm over a confirm over that page too, so everything beneath a top confirm stays visible (P64).
  */
 internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
-    index >= 0 && stack.lastOrNull() is Overlay.Confirm && index < stack.lastIndex &&
+    index >= 0 && (stack.lastOrNull().let { it is Overlay.Confirm || it is Overlay.InstallConfirm }) && index < stack.lastIndex &&
         // Only a full page (Settings and its kin) stays drawn under the card; a side panel or menu goes, so the card is the
         // one glass layer over Home instead of a second one stacked on the panel (P105 #6).
-        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.Downloads, Overlay.AppSwitcher, is Overlay.Confirm -> true; else -> false }
+        when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.Downloads, Overlay.AppSwitcher, is Overlay.Confirm, is Overlay.InstallConfirm -> true; else -> false }

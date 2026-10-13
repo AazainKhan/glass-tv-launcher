@@ -137,6 +137,7 @@ fun OverlayContent(
         is Overlay.TextInput -> SidePanel(active) { TextInputBody(overlay, active, close, open) }
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         is Overlay.Confirm -> ConfirmCard(overlay, active, close)
+        is Overlay.InstallConfirm -> InstallConfirmHost(overlay, active, close)
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
@@ -711,6 +712,20 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
                 }
             }
         }
+    }
+}
+
+/** The install card over a dim, like [ConfirmCard]; leaving without Install discards the staged copy. */
+@Composable
+internal fun InstallConfirmHost(o: Overlay.InstallConfirm, active: Boolean, close: () -> Unit) {
+    var confirmed by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val discard by androidx.compose.runtime.rememberUpdatedState(o.onDiscard)
+    DisposableEffect(Unit) { onDispose { if (!confirmed) discard() } }
+    Box(Modifier.fillMaxSize().background(Scrim).trapFocus(active), contentAlignment = Alignment.Center) {
+        dev.glasslauncher.system.InstallConfirmCard(
+            o.staged.info, 300.dp, onCancel = close,
+            onConfirm = { confirmed = true; close(); o.onConfirm() },
+        )
     }
 }
 

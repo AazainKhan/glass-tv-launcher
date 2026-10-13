@@ -77,6 +77,12 @@ sealed interface Overlay {
     data object Downloads : Overlay
     /** The app-menu key's list on one download's row. */
     data class DownloadMenu(val id: String) : Overlay
+    /** The install card for a staged APK: Back or Cancel runs [onDiscard]; Install runs [onConfirm] and the install owns the file. */
+    data class InstallConfirm(
+        val staged: dev.glasslauncher.system.StagedApk,
+        val onConfirm: () -> Unit,
+        val onDiscard: () -> Unit,
+    ) : Overlay
     /** tvOS's confirmation card: [confirm] first and focused (red when [destructive]), then Cancel. */
     data class Confirm(
         val title: String,
