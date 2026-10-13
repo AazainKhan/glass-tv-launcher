@@ -45,4 +45,18 @@ class ShelfFeedTest {
         assertFalse(ShelfFeed.holds("appletv", "spotify", featuredBackground = false, reduceMotion = false))
         assertFalse(ShelfFeed.holds("appletv", "spotify", featuredBackground = true, reduceMotion = true))
     }
+
+    @Test fun noTitleForAnAppThatHasLostFocus() {
+        // Right, Right 0.3 s apart (P130): focus is on the third app while the second's feed and title are still up.
+        assertFalse(ShelfFeed.titleBelongsToFocus(focusLeft = true, hasFeed = true, stateKey = "nuvio", wantedKey = "nuvio"))
+    }
+
+    @Test fun noTitleFromThePreviousAppsFeedStandingInForALoad() {
+        assertFalse(ShelfFeed.titleBelongsToFocus(focusLeft = false, hasFeed = true, stateKey = "nuvio", wantedKey = "stremio"))
+        assertTrue(ShelfFeed.titleBelongsToFocus(focusLeft = false, hasFeed = true, stateKey = "stremio", wantedKey = "stremio"))
+    }
+
+    @Test fun withoutAFeedThereIsNothingToHold() {
+        assertTrue(ShelfFeed.titleBelongsToFocus(focusLeft = false, hasFeed = false, stateKey = null, wantedKey = null))
+    }
 }

@@ -386,7 +386,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // never arrives (offline, art that fails) lets the title in after 1.5 s.
     var sceneShownFor by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sceneUrl) { if (sceneUrl != null) { delay(SCENE_TITLE_WAIT_MS); sceneShownFor = sceneUrl } }
-    val titleReady = sceneUrl == null || sceneShownFor == sceneUrl
+    val titleReady = (sceneUrl == null || sceneShownFor == sceneUrl) &&
+        dev.glasslauncher.featured.ShelfFeed.titleBelongsToFocus(
+            focusLeftShelf, feed != null, featuredState.key, featuredCfg?.let { dev.glasslauncher.featured.cacheKey(it) },
+        )
     // The app whose scene the backdrop shows now. While focus has moved to another app and its scene hasn't arrived
     // (uncached art, a slow bake), the previous app's scene is held dimmed instead of standing in as if it were the new
     // app's (P105 #12 follow-up); it undims as the new scene dissolves in. A scene that never comes lets go after 2 s.
