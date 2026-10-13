@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Tests the stick-facing paths of scripts/emulator (mirror, deploy-stick) against a FAKE stick: an `adb` shim on PATH
+# answers for the stick serial and records every call; calls for the twin (-s emulator-*) go to the real adb on the
+# emulator's private server. Needs the twin running (scripts/emulator start --twin) and the addon-sample debug APK
+# (./gradlew :addon-sample:assembleDebug). Never talks to a real stick: fails on any call without -s or on a
+# non-read-only stick call.
+set -uo pipefail; [ -n "${DBG:-}" ] && set -x
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REAL_ADB="$(command -v adb)"; export REAL_ADB
+APK="$ROOT/addon-sample/build/outputs/apk/debug/addon-sample-debug.apk"
+[ -f "$APK" ] || { echo "build $APK first" >&2; exit 2; }
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+export ANDROID_ADB_SERVER_PORT=5038 STICK_SERIAL=FAKESTICK0001
+"$REAL_ADB" -s emulator-5610 get-state >/dev/null 2>&1 || { echo "start the twin first: scripts/emulator start --twin" >&2; exit 2; }
+mkdir -p "$T/bin" "$T/fx/arm32/lib/armeabi-v7a" "$T/fx/glass/shared_prefs" "$T/fx/glass/files" "$T/locks"
+cp "$APK" "$T/fx/one.apk"; cp "$APK" "$T/fx/split-base.apk"; cp "$APK" "$T/fx/split-cfg.apk"
+echo x > "$T/fx/arm32/lib/armeabi-v7a/x.so"; (cd "$T/fx/arm32" && zip -qr ../arm32.apk lib)
+echo '<map/>' > "$T/fx/glass/shared_prefs/p.xml"; echo '{}' > "$T/fx/glass/files/config.json"
+tar cf "$T/fx/glass.tar" -C "$T/fx/glass" shared_prefs files
+cat > "$T/bin/adb" <<SHIM
+#!/usr/bin/env bash
+echo "\$ANDROID_ADB_SERVER_PORT|\$*" >> "$T/calls.log"
+[ "\$1" = -s ] || { echo "VIOLATION no -s: \$*" >> "$T/violations.log"; exit 99; }
+case "\$2" in emulator-*) exec "\$REAL_ADB" "\$@" ;; esac
+shift 2
+case "\$*" in
+  "shell pm list packages -3") printf 'package:com.fake.one\r\npackage:com.fake.split\r\npackage:com.fake.arm32\r\n' ;;
+  "shell pm path com.fake.one") echo package:/data/app/one/base.apk ;;
+  "shell pm path com.fake.split") printf 'package:/data/app/split/base.apk\npackage:/data/app/split/split_cfg.apk\n' ;;
+  "shell pm path com.fake.arm32") echo package:/data/app/arm32/base.apk ;;
+  "pull /data/app/one/base.apk "*) cp "$T/fx/one.apk" "\$3" ;;
+  "pull /data/app/split/base.apk "*) cp "$T/fx/split-base.apk" "\$3" ;;
+  "pull /data/app/split/split_cfg.apk "*) cp "$T/fx/split-cfg.apk" "\$3" ;;
+  "pull /data/app/arm32/base.apk "*) cp "$T/fx/arm32.apk" "\$3" ;;
+  "exec-out run-as dev.glasslauncher tar cf - shared_prefs files") cat "$T/fx/glass.tar" ;;
+  *) echo "VIOLATION stick call: \$*" >> "$T/violations.log"; exit 99 ;;
+esac
+SHIM
+chmod +x "$T/bin/adb"
+export PATH="$T/bin:$PATH" TV_LOCK_DIR="$T/locks" MIRROR_DIR="$T/mirror"
+fail=0; ok() { echo "ok   $1"; }; bad() { echo "FAIL $1"; fail=1; }
+E="$ROOT/scripts/emulator"
+expect() {  # expect <label> <want-exit> cmd…
+  local l="$1" want="$2"; shift 2; "$@" >"$T/out" 2>&1; local rc=$?
+  [ "$rc" = "$want" ] && ok "$l" || { bad "$l (exit $rc, want $want)"; sed 's/^/     /' "$T/out"; }
+}
+S=FAKESTICK0001
+expect "mirror refuses without STICK_SERIAL" 3 env -u STICK_SERIAL GLASS_STICK=1 TV_OWNER=tester "$E" mirror
+expect "mirror refuses without GLASS_STICK" 3 "$E" mirror
+expect "mirror refuses without the lock" 3 env GLASS_STICK=1 TV_OWNER=tester "$E" mirror
+echo "$(( $(date +%s) + 600 )) someone-else" > "$T/locks/$S.lock"
+expect "mirror refuses when another session holds the lock" 3 env GLASS_STICK=1 TV_OWNER=tester "$E" mirror
+echo "$(( $(date +%s) + 600 )) tester" > "$T/locks/$S.lock"
+export GLASS_STICK=1 TV_OWNER=tester
+expect "mirror runs with lock" 0 "$E" mirror
+grep -q "installed com.fake.one" "$T/mirror/summary.txt" && ok "single APK installed on twin" || bad "single APK not installed"
+grep -q "skipped com.fake.arm32: 32-bit-only" "$T/mirror/summary.txt" && ok "32-bit-only skipped" || bad "arm32 not skipped"
+grep -q "com.fake.split" "$T/mirror/summary.txt" && grep -q "install-multiple" "$T/calls.log" && ok "split used install-multiple" || bad "split path"
+grep -q "glass-data: .*twin needs a debug" "$T/mirror/summary.txt" && ok "glass data pulled, restore limit reported" || bad "glass data line"
+expect "mirror resumes" 0 "$E" mirror
+# only the not-yet-installed packages (split, which fails on the twin, and arm32) may be pulled again; com.fake.one must not be
+[ "$(grep -c 'pull /data/app/one/' "$T/calls.log")" = 1 ] && ok "resume skips finished apps" || bad "resume re-pulled com.fake.one"
+"$REAL_ADB" -s emulator-5610 shell pm list packages -3 | tr -d '\r' | sed 's/^package://' | grep -v '^dev.glasslauncher$' |
+  while read -r p; do "$REAL_ADB" -s emulator-5610 uninstall "$p" >/dev/null 2>&1; done
+unset GLASS_STICK
+expect "deploy-stick --stick refuses without GLASS_DEVICE" 3 env GLASS_BUILD=/bin/false "$E" deploy-stick --stick
+expect "deploy-stick --stick refuses with GLASS_DEVICE but no lock" 3 env GLASS_DEVICE=1 TV_OWNER=nobody GLASS_BUILD=/bin/false "$E" deploy-stick --stick
+printf '#!/bin/sh\necho "$@" > "%s/build.args"\n' "$T" > "$T/stubbuild"; chmod +x "$T/stubbuild"
+expect "deploy-stick --stick delegates when both opt-ins hold" 0 env GLASS_DEVICE=1 GLASS_BUILD="$T/stubbuild" "$E" deploy-stick debug --stick
+[ "$(cat "$T/build.args")" = "debug --device" ] && ok "delegated to build --device" || bad "delegation args: $(cat "$T/build.args" 2>/dev/null)"
+GLASS_BUILD="$T/stubbuild" "$E" deploy-stick debug >/dev/null 2>&1
+[ "$(cat "$T/build.args")" = "debug" ] && ok "twin deploy builds without --device" || bad "twin deploy args"
+[ ! -s "$T/violations.log" ] && ok "no default-server or non-read-only stick calls" || { bad "violations"; cat "$T/violations.log"; }
+exit $fail
