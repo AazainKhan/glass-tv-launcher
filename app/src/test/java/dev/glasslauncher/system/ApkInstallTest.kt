@@ -94,6 +94,12 @@ class ApkInstallTest {
         assertEquals(1, installCardLines(info.copy(check = SignerCheck.Unknown, installedVersionCode = 3)).alerts.size)
     }
 
+    @Test fun cardSaysWhenThereIsNoChecksum() {
+        val info = ApkInfo("com.x", "X", "1.0", 4, 5L shl 20, listOf("abcdef0123456789ff"), SignerCheck.NotInstalled)
+        assertTrue(installCardLines(info).notes.none { it.startsWith("No checksum") })
+        assertTrue(installCardLines(info, unchecked = true).notes.any { it.startsWith("No checksum") })
+    }
+
     // --- install() orchestration with fakes -------------------------------------------------------------------------
 
     private class Fake(

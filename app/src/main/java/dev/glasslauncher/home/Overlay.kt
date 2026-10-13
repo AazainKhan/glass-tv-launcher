@@ -82,6 +82,8 @@ sealed interface Overlay {
         val staged: dev.glasslauncher.system.StagedApk,
         val onConfirm: () -> Unit,
         val onDiscard: () -> Unit,
+        /** No SHA-256 was checked for this file; the card says so. */
+        val unchecked: Boolean = false,
     ) : Overlay
     /** tvOS's confirmation card: [confirm] first and focused (red when [destructive]), then Cancel. */
     data class Confirm(

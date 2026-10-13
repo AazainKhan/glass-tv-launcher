@@ -38,4 +38,11 @@ class DownloadTextTest {
         assertEquals(true, DownloadText.isApk(item(DownloadState.Done, file = "App.APK")))
         assertEquals(false, DownloadText.isApk(item(DownloadState.Done, file = "movie.mp4")))
     }
+
+    @Test fun anAppWithoutAChecksumIsFlagged() {
+        assertEquals(true, DownloadText.checksumNote("https://x.example/a.apk?v=1", null, null).contains("No checksum"))
+        assertEquals(true, DownloadText.checksumNote("https://x.example/get", "tool.APK", null).contains("No checksum"))
+        assertEquals("", DownloadText.checksumNote("https://x.example/a.apk", null, "a".repeat(64)))
+        assertEquals("", DownloadText.checksumNote("https://x.example/a.zip", null, null))
+    }
 }

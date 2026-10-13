@@ -26,7 +26,8 @@ import dev.glasslauncher.ui.Type
 /** Lines of the card, apart from Compose so they can be tested. [alerts] are drawn red. */
 internal data class InstallCardLines(val title: String, val body: String, val notes: List<String>, val alerts: List<String>)
 
-internal fun installCardLines(info: ApkInfo): InstallCardLines {
+/** [unchecked]: the file came with no published SHA-256 to compare against. */
+internal fun installCardLines(info: ApkInfo, unchecked: Boolean = false): InstallCardLines {
     val ver = info.versionName.takeIf { it.isNotEmpty() }?.let { ", version $it" }.orEmpty()
     val notes = mutableListOf<String>()
     val alerts = mutableListOf<String>()
@@ -43,6 +44,7 @@ internal fun installCardLines(info: ApkInfo): InstallCardLines {
         SignerCheck.Unknown -> alerts += "Couldn't verify who signed this file."
         else -> {}
     }
+    if (unchecked) notes += "No checksum: nothing confirms this is the file its author published."
     return InstallCardLines("Install ${info.label}?", "Package ${info.pkg}, ${ApkInfoReader.formatSize(info.sizeBytes)}$ver", notes, alerts)
 }
 
@@ -51,8 +53,8 @@ internal fun installCardLines(info: ApkInfo): InstallCardLines {
  * has focus first (as in the Restart confirm); otherwise Install has focus. Back cancels via [onCancel].
  */
 @Composable
-fun InstallConfirmCard(info: ApkInfo, width: Dp, onCancel: () -> Unit, onConfirm: () -> Unit, modifier: Modifier = Modifier) {
-    val lines = installCardLines(info)
+fun InstallConfirmCard(info: ApkInfo, width: Dp, onCancel: () -> Unit, onConfirm: () -> Unit, modifier: Modifier = Modifier, unchecked: Boolean = false) {
+    val lines = installCardLines(info, unchecked)
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     val destructive = info.risky

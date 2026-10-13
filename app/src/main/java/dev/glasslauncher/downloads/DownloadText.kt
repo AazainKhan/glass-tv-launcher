@@ -43,6 +43,10 @@ object DownloadText {
 
     fun isApk(item: DownloadItem) = name(item).endsWith(".apk", ignoreCase = true)
 
+    /** The line a code's confirm card adds for an app that comes with no checksum; empty otherwise. */
+    fun checksumNote(url: String, name: String?, sha256: String?): String =
+        if (sha256 == null && (url.substringBefore('?').endsWith(".apk", true) || name?.endsWith(".apk", true) == true)) " No checksum is published for this app." else ""
+
     /** The row's middle text: host and how much is there. A failed row says why instead. */
     fun detail(item: DownloadItem): String = when (item.state) {
         DownloadState.Failed -> item.error ?: "Failed"
@@ -75,7 +79,7 @@ object DownloadText {
 
     /** Hands a finished file to the system chooser, by its MIME type. False when nothing can open it. */
     fun open(context: Context, file: File): Boolean {
-        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
         return runCatching {
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.downloads", file)
             val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

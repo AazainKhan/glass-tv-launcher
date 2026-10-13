@@ -95,6 +95,7 @@ fun DownloadsPage(
             staged,
             onConfirm = { install(item, staged) },
             onDiscard = { staged.discard(); kept.remove(item.id); busy.remove(item.id) },
+            unchecked = item.expectedSha256 == null,
         ))
     }
 
@@ -126,7 +127,7 @@ fun DownloadsPage(
                 is Plan.Start -> {
                     model.edit { it.copy(downloads = it.downloads.copy(history = dev.glasslauncher.downloads.DownloadInput.pushHistory(it.downloads.history, text))) }
                     if (plan.confirmHost == null) begin(plan) else open(
-                        Overlay.Confirm("Download from ${plan.confirmHost}?", "Code “${plan.code}” points to ${plan.url}. Glass asks once for each link.", "Download") {
+                        Overlay.Confirm("Download from ${plan.confirmHost}?", "Code “${plan.code}” points to ${plan.url}. Glass asks once for each link.${DownloadText.checksumNote(plan.url, plan.name, plan.sha256)}", "Download") {
                             model.edit { it.copy(downloads = it.downloads.copy(acceptedUrls = dev.glasslauncher.downloads.DownloadInput.accept(it.downloads.acceptedUrls, plan.url))) }
                             begin(plan)
                         },
@@ -157,6 +158,11 @@ fun DownloadsPage(
         },
         onMenu = { open(Overlay.DownloadMenu(it.id)) },
         onPauseAll = { queue.pauseAll() },
+        onDeleteFinished = {
+            open(Overlay.Confirm("Delete Finished Downloads?", "Every finished and failed download is removed, and so are the files. Downloads in progress stay.", "Delete", destructive = true) {
+                queue.removeFinished(deleteFiles = true)
+            })
+        },
     ) }
 }
 
@@ -169,6 +175,8 @@ internal fun DownloadsList(
     onSelect: (DownloadItem) -> Unit,
     onMenu: (DownloadItem) -> Unit,
     onPauseAll: () -> Unit,
+    /** Null: no bulk-delete row (the previews). */
+    onDeleteFinished: (() -> Unit)? = null,
 ) {
     // Rows carry a progress bar and a status: this page uses the whole width, with no icon column.
     val sink = LocalTitleSink.current
@@ -192,6 +200,7 @@ internal fun DownloadsList(
             finished.forEach { key(it.id) { DownloadRow(it, onSelect, onMenu) } }
         }
         if (items.any { it.state == DownloadState.Active || it.state == DownloadState.Queued }) MenuRow("Pause All", onPauseAll)
+        if (onDeleteFinished != null && finished.isNotEmpty()) MenuRow("Delete Finished Downloads", onDeleteFinished, destructive = true)
     }
 }
 

@@ -729,7 +729,7 @@ internal fun InstallConfirmHost(o: Overlay.InstallConfirm, active: Boolean, clos
     DisposableEffect(Unit) { onDispose { if (!confirmed) discard() } }
     Box(Modifier.fillMaxSize().background(Scrim).trapFocus(active), contentAlignment = Alignment.Center) {
         dev.glasslauncher.system.InstallConfirmCard(
-            o.staged.info, 300.dp, onCancel = close,
+            o.staged.info, 300.dp, onCancel = close, unchecked = o.unchecked,
             onConfirm = { confirmed = true; close(); o.onConfirm() },
         )
     }
