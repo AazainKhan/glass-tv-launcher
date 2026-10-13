@@ -67,9 +67,15 @@ object Root {
     suspend fun runWithInput(command: String, input: File, timeoutSeconds: Long = 180): Result = withContext(Dispatchers.IO) {
         runCatching {
             val p = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-            input.inputStream().use { src -> p.outputStream.use { dst -> src.copyTo(dst) } }
-            val out = p.inputStream.bufferedReader().readText()
-            if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { p.destroy(); Result(124, out) } else Result(p.exitValue(), out.trim())
+            // Both pipes run on their own threads so the timeout below can fire while su is stuck on either.
+            val out = StringBuilder()
+            val reader = Thread { runCatching { p.inputStream.bufferedReader().forEachLine { synchronized(out) { out.appendLine(it) } } } }.apply { start() }
+            val writer = Thread { runCatching { input.inputStream().use { src -> p.outputStream.use { dst -> src.copyTo(dst) } } } }.apply { start() }
+            val done = p.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+            if (!done) p.destroyForcibly()
+            writer.join(2_000); reader.join(2_000)
+            val text = synchronized(out) { out.toString().trim() }
+            if (done) Result(p.exitValue(), text) else Result(124, text)
         }.getOrElse { Result(127, it.message ?: "su failed") }
     }
 

@@ -9,6 +9,7 @@ import android.os.Build
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,6 +26,8 @@ enum class InstallMode { Apk, Pro, Os }
 object ApkInstall {
     private val waiting = ConcurrentHashMap<Int, CompletableDeferred<InstallResult>>()
 
+    internal val waitingForTest get() = waiting
+
     /** Glass OS (privileged INSTALL_PACKAGES) installs silently, Glass Pro (root) through su, else the system card. */
     internal fun chooseMode(hasInstallPackages: Boolean, root: Boolean) = when {
         hasInstallPackages -> InstallMode.Os
@@ -37,25 +40,70 @@ object ApkInstall {
         return chooseMode(perm, !perm && (Root.known || Root.available()))
     }
 
-    /** Suspends until the install ends; in APK mode that includes the user's answer on the system card. */
-    suspend fun install(context: Context, file: File): InstallResult {
-        val mode = mode(context)
-        if (mode == InstallMode.Apk && !Updater.canInstall(context)) return InstallResult.NeedsUserAction(Updater.unknownSourcesIntent(context))
-        if (mode == InstallMode.Pro) {
-            val r = Root.runWithInput("pm install -S ${file.length()} -r -d", file)
-            Root.log(context, "Install ${file.name}: ${if (r.ok) "ok" else "failed (${r.code}) ${r.out.take(200)}"}")
-            fromRoot(r.code, r.out)?.let { return it }
-            // su is there but refused or broke: the system card still works
-            if (!Updater.canInstall(context)) return InstallResult.NeedsUserAction(Updater.unknownSourcesIntent(context))
-        }
-        return commit(context, file, userAction = mode != InstallMode.Os)
+    /** What [install] needs from Android and su, so the order of events can be tested with fakes. */
+    internal interface Edges {
+        suspend fun mode(): InstallMode
+        fun canInstall(): Boolean
+        fun unknownSources(): Intent
+        suspend fun rootInstall(file: File): Root.Result
+        fun installedVersion(pkg: String): Long?
+        suspend fun commit(file: File, userAction: Boolean): InstallResult
+        fun hash(file: File): String
+        fun log(line: String)
     }
 
-    /** pm's verdict, or null when su itself failed (127 no su, 124 timeout, 1 with no pm output) and the session should try. */
-    internal fun fromRoot(code: Int, out: String): InstallResult? = when {
-        code == 0 && out.contains("Success") -> InstallResult.Success
-        code == 127 || code == 124 || out.isBlank() -> null
-        else -> InstallResult.Failed(out.lines().lastOrNull { it.isNotBlank() }.orEmpty().removePrefix("Failure ").trim())
+    private fun edges(context: Context) = object : Edges {
+        override suspend fun mode() = mode(context)
+        override fun canInstall() = Updater.canInstall(context)
+        override fun unknownSources() = Updater.unknownSourcesIntent(context)
+        override suspend fun rootInstall(file: File) = Root.runWithInput("pm install -S ${file.length()} -r", file)
+        override fun installedVersion(pkg: String) = runCatching { context.packageManager.getPackageInfo(pkg, 0).longVersionCode }.getOrNull()
+        override suspend fun commit(file: File, userAction: Boolean) = commit(context, file, userAction)
+        override fun hash(file: File) = StagedApk.hash(file)
+        override fun log(line: String) = Root.log(context, line)
+    }
+
+    /**
+     * Suspends until the install ends; in APK mode that includes the user's answer on the system card. Installs
+     * exactly the staged copy, and refuses if it no longer matches the hash the card was shown for.
+     */
+    suspend fun install(context: Context, staged: StagedApk): InstallResult = install(edges(context), staged)
+
+    internal suspend fun install(e: Edges, staged: StagedApk): InstallResult {
+        fun intact() = runCatching { e.hash(staged.file) == staged.sha256 }.getOrDefault(false)
+        val changed = InstallResult.Failed("The file changed after it was checked")
+        if (!intact()) return changed
+        val mode = e.mode()
+        if (mode == InstallMode.Apk && !e.canInstall()) return InstallResult.NeedsUserAction(e.unknownSources())
+        if (mode == InstallMode.Pro) {
+            // No -d: a downgrade needs the user's own uninstall, not a silent one.
+            val r = e.rootInstall(staged.file)
+            e.log("Install ${staged.info.pkg}: ${if (r.ok) "ok" else "failed (${r.code}) ${r.out.take(200)}"}")
+            when (val o = fromRoot(r.code, r.out)) {
+                is RootOutcome.Done -> return o.result
+                // su may have finished the install after we stopped listening: look, never install a second time.
+                RootOutcome.Unknown -> return if (e.installedVersion(staged.info.pkg) == staged.info.versionCode) InstallResult.Success
+                    else InstallResult.Failed("The install didn't report back")
+                RootOutcome.NoSu -> if (!e.canInstall()) return InstallResult.NeedsUserAction(e.unknownSources())
+            }
+            if (!intact()) return changed
+        }
+        return e.commit(staged.file, userAction = mode != InstallMode.Os)
+    }
+
+    internal sealed interface RootOutcome {
+        data class Done(val result: InstallResult) : RootOutcome
+        /** Nothing ran (no su): the PackageInstaller path is safe. */
+        data object NoSu : RootOutcome
+        /** Timed out or said nothing: pm may or may not have installed. */
+        data object Unknown : RootOutcome
+    }
+
+    internal fun fromRoot(code: Int, out: String): RootOutcome = when {
+        code == 0 && out.contains("Success") -> RootOutcome.Done(InstallResult.Success)
+        code == 127 -> RootOutcome.NoSu
+        code == 124 || out.isBlank() -> RootOutcome.Unknown
+        else -> RootOutcome.Done(InstallResult.Failed(out.lines().lastOrNull { it.isNotBlank() }.orEmpty().removePrefix("Failure ").trim()))
     }
 
     /** Null while the install is still waiting on the user (PENDING_USER_ACTION). */
@@ -69,6 +117,11 @@ object ApkInstall {
         PackageInstaller.STATUS_FAILURE_INVALID -> InstallResult.Failed("The file is not a valid APK")
         else -> InstallResult.Failed(message?.takeIf { it.isNotBlank() } ?: "Install failed ($status)")
     }
+
+    private const val ANSWER_TIMEOUT_MS = 10 * 60_000L
+
+    /** The session's result, or null if none came in [ms] (the caller abandons the session). */
+    internal suspend fun awaitResult(done: CompletableDeferred<InstallResult>, ms: Long): InstallResult? = withTimeoutOrNull(ms) { done.await() }
 
     /** Called by [InstallResultReceiver] for every status of a session. */
     internal fun onStatus(sessionId: Int, status: Int, message: String?) {
@@ -92,7 +145,7 @@ object ApkInstall {
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
                 session.commit(PendingIntent.getBroadcast(context, id, intent, flags).intentSender)
             }
-            if (await) done.await() else InstallResult.Success
+            if (await) awaitResult(done, ANSWER_TIMEOUT_MS) ?: run { installer.abandonSession(id); InstallResult.Failed("Timed out waiting for the installer") } else InstallResult.Success
         } catch (e: Exception) {
             runCatching { installer.abandonSession(id) }
             if (e is kotlinx.coroutines.CancellationException) throw e

@@ -17,7 +17,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 
-data class Release(val version: String, val apkUrl: String, val notes: String)
+/** [sha256] is GitHub's asset digest when it publishes one. */
+data class Release(val version: String, val apkUrl: String, val notes: String, val sha256: String? = null)
 
 /** In-app updates from GitHub Releases, installed through the system PackageInstaller. */
 object Updater {
@@ -31,10 +32,11 @@ object Updater {
         http.newCall(request).execute().use { r ->
             if (!r.isSuccessful) return@withContext null
             val o = json.parseToJsonElement(r.body.string()).jsonObject
-            val apk = o["assets"]?.jsonArray?.map { it.jsonObject }
-                ?.firstOrNull { it["name"]?.jsonPrimitive?.content?.endsWith(".apk") == true }
-                ?.get("browser_download_url")?.jsonPrimitive?.content ?: return@withContext null
-            Release(o["tag_name"]!!.jsonPrimitive.content.removePrefix("v"), apk, o["body"]?.jsonPrimitive?.content.orEmpty())
+            val asset = o["assets"]?.jsonArray?.map { it.jsonObject }
+                ?.firstOrNull { it["name"]?.jsonPrimitive?.content?.endsWith(".apk") == true } ?: return@withContext null
+            val apk = asset["browser_download_url"]?.jsonPrimitive?.content ?: return@withContext null
+            val digest = (asset["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.removePrefix("sha256:")?.lowercase()?.takeIf { it.length == 64 }
+            Release(o["tag_name"]!!.jsonPrimitive.content.removePrefix("v"), apk, o["body"]?.jsonPrimitive?.content.orEmpty(), digest)
         }
     }
 
@@ -74,8 +76,9 @@ object Updater {
                 }
             }
         }
+        release.sha256?.let { want -> if (withContext(Dispatchers.IO) { StagedApk.hash(file) } != want) { file.delete(); throw IllegalStateException("The download doesn't match GitHub's checksum") } }
         // Fire and forget as before: the receiver opens the system card if one is needed.
-        ApkInstall.commit(context, file, userAction = false, await = false)
+        (ApkInstall.commit(context, file, userAction = false, await = false) as? InstallResult.Failed)?.let { throw IllegalStateException(it.reason) }
     }
 }
 

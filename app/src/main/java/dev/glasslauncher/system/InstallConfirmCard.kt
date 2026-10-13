@@ -23,12 +23,28 @@ import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.Type
 
-/** The text lines of the card, kept apart from Compose so they can be tested. */
-internal fun installCardLines(info: ApkInfo): Triple<String, String, String?> = Triple(
-    "Install ${info.label}?",
-    "Package ${info.pkg}, ${ApkInfoReader.formatSize(info.sizeBytes)}" + info.versionName.takeIf { it.isNotEmpty() }?.let { ", version $it" }.orEmpty(),
-    if (info.signerChanged) "Signed by a different key than the installed app (${info.signerShort}). Only continue if you trust this file." else null,
-)
+/** Lines of the card, apart from Compose so they can be tested. [alerts] are drawn red. */
+internal data class InstallCardLines(val title: String, val body: String, val notes: List<String>, val alerts: List<String>)
+
+internal fun installCardLines(info: ApkInfo): InstallCardLines {
+    val ver = info.versionName.takeIf { it.isNotEmpty() }?.let { ", version $it" }.orEmpty()
+    val notes = mutableListOf<String>()
+    val alerts = mutableListOf<String>()
+    when (info.version) {
+        VersionChange.NewApp -> notes += "New app: not installed yet."
+        VersionChange.Upgrade -> notes += "Update from version code ${info.installedVersionCode}."
+        VersionChange.Same -> notes += "Same version as the installed app."
+        VersionChange.Downgrade -> alerts += "Older than the installed app (${info.installedVersionCode}). Android will refuse unless you uninstall first."
+    }
+    info.installedSigner?.let { notes += "Installed app's key: ${it.take(16)}" }
+    if (info.signers.isNotEmpty()) notes += "This file's key: ${info.signerShort}"
+    when (info.check) {
+        SignerCheck.Changed -> alerts += "Signed by a different key than the installed app. Only continue if you trust this file."
+        SignerCheck.Unknown -> alerts += "Couldn't verify who signed this file."
+        else -> {}
+    }
+    return InstallCardLines("Install ${info.label}?", "Package ${info.pkg}, ${ApkInfoReader.formatSize(info.sizeBytes)}$ver", notes, alerts)
+}
 
 /**
  * Confirm before every install. When the signer changed, the warning is red, the button is destructive and Cancel
@@ -36,7 +52,7 @@ internal fun installCardLines(info: ApkInfo): Triple<String, String, String?> = 
  */
 @Composable
 fun InstallConfirmCard(info: ApkInfo, width: Dp, onCancel: () -> Unit, onConfirm: () -> Unit, modifier: Modifier = Modifier) {
-    val (title, body, warning) = installCardLines(info)
+    val lines = installCardLines(info)
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     val destructive = info.signerChanged
@@ -44,9 +60,10 @@ fun InstallConfirmCard(info: ApkInfo, width: Dp, onCancel: () -> Unit, onConfirm
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.width(width).ccSurface(RoundedCornerShape(26.dp), null).padding(horizontal = 14.dp, vertical = 8.dp).testTag("install-confirm"),
     ) {
-        BasicText(title, style = Type.heading.copy(color = Color.White))
-        BasicText(body, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f)))
-        if (warning != null) BasicText(warning, style = Type.caption.copy(color = LocalPalette.current.danger), modifier = Modifier.testTag("install-warning"))
+        BasicText(lines.title, style = Type.heading.copy(color = Color.White))
+        BasicText(lines.body, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f)))
+        lines.notes.forEach { BasicText(it, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f))) }
+        lines.alerts.forEach { BasicText(it, style = Type.caption.copy(color = LocalPalette.current.danger), modifier = Modifier.testTag("install-warning")) }
         CcTile("Install", null, Shapes.pill, width - 28.dp, 42.dp, onClick = onConfirm,
             modifier = (if (destructive) Modifier else Modifier.focusRequester(first)).testTag("install-yes")) { fg ->
             BasicText("Install", style = Type.body.copy(color = if (destructive) LocalPalette.current.danger else fg))
