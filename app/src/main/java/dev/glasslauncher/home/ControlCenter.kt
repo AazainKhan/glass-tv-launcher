@@ -1743,17 +1743,27 @@ private fun CcAirPlayPlatter(
         }
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
         if (audioOutput != null) {
+            val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
             val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
             val line = dev.glasslauncher.sonos.RouteLifecycle.label(route)
             CcTile(if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, Shapes.pill, sz.column, sz.pill, onClick = {
                 // Explicit action, never from selecting a row. Consent is asked every time; the speaker's volume is never set.
-                if (busy) dev.glasslauncher.sonos.SonosRoutes.stop(context) else dev.glasslauncher.sonos.SonosRoutes.start(context, audioOutput, muteTv)
+                if (busy) dev.glasslauncher.sonos.SonosRoutes.stop(context) else dev.glasslauncher.sonos.SonosRoutes.start(context, audioOutput, muteTv && canMute)
             }, modifier = Modifier.testTag("cc-audio-route"), on = busy) { fg ->
                 PillContent(R.drawable.ic_airplay, if (busy) "Stop playing on " + audioOutput.room else "Play on " + audioOutput.room, line, fg, on = busy, accent = Blue)
             }
-            CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
-                modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
-                PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
+            // HDMI is a fixed-volume output on Fire TV: Android ignores a local mute there (the TV owns its volume over
+            // CEC), so a toggle would promise something it can't do. Offer it only where a local mute works.
+            if (canMute) {
+                CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
+                    modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
+                    PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
+                }
+            } else if (busy) {
+                CcTile("Use your TV remote to mute the TV", null, Shapes.pill, sz.column, sz.pill, onClick = {},
+                    modifier = Modifier.testTag("cc-audio-mute-note"), on = false) { fg ->
+                    PillContent(R.drawable.ic_tv, "TV sound", "Use your TV remote to mute", fg, on = false, accent = fg)
+                }
             }
         }
         CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->

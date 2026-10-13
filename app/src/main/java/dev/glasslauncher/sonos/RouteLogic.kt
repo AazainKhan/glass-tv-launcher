@@ -127,3 +127,13 @@ class TvMuteGuard(private val muter: StreamMuter, private val flag: MuteFlag) {
         if (flag.heldByGlass) { muter.setMuted(false); flag.heldByGlass = false }
     }
 }
+
+/**
+ * Whether "Mute TV while playing on Sonos" can do anything. A local STREAM_MUSIC mute is ignored on fixed-volume
+ * outputs, and on Fire TV that is HDMI (the TV owns the volume over CEC; measured 2026-10-13: mFixedVolumeDevices
+ * includes HDMI and ADJUST_MUTE left the stream unmuted). Speakers and Bluetooth outputs mute locally.
+ */
+object MuteSupport {
+    fun supported(volumeFixed: Boolean, hdmiOut: Boolean, bluetoothOut: Boolean): Boolean =
+        !volumeFixed && (!hdmiOut || bluetoothOut)
+}

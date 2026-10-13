@@ -66,6 +66,15 @@ object SonosRoutes {
     /** Applies the mute toggle to a route that is already running. */
     fun setMuteTv(context: Context, enabled: Boolean) = runner(context).setMuteTv(enabled)
 
+    /** False on fixed-volume outputs (HDMI on Fire TV), where a local mute does nothing; see [MuteSupport]. */
+    fun canMuteTv(context: Context): Boolean {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return false
+        val outs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+        val hdmi = outs.any { it == android.media.AudioDeviceInfo.TYPE_HDMI || it == android.media.AudioDeviceInfo.TYPE_HDMI_ARC }
+        val bt = outs.any { it == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+        return MuteSupport.supported(audio.isVolumeFixed, hdmi, bt)
+    }
+
     /** Consent runs in its own transient task, so Glass Home never comes forward over the app being captured. */
     fun consentIntent(context: Context) = Intent(context, CaptureConsentActivity::class.java).addFlags(CONSENT_FLAGS)
 

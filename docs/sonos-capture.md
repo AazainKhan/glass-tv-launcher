@@ -32,3 +32,8 @@ Glass captures what other apps play (AudioPlaybackCapture: USAGE_MEDIA, USAGE_GA
 - Whether the STREAM_MUSIC mute applies before the capture tap. If it does, muting the TV would silence the capture too (the PCM would go to zeros and trip the silence rule). Unverified here: no device was used.
 
 Live results 2026-10-13: YouTube (TizenTube) capture was audible on a Roam 2. The Spotify TV app opts out, so it is silent, as designed. Whether the mute applies before the capture tap is still unverified.
+
+## Mute TV on HDMI (2026-10-13)
+On the Fire TV Stick, HDMI is a fixed-volume output (`dumpsys audio`: `mFixedVolumeDevices` includes HDMI). Android ignores `adjustStreamVolume(STREAM_MUSIC, ADJUST_MUTE)` there, so "Mute TV while playing on Sonos" is hidden on HDMI. While a route plays, the panel shows "Use your TV remote to mute" instead. The toggle stays available on speaker and Bluetooth outputs, where a local mute works (`MuteSupport`).
+
+Ticket (untested, needs a CEC TV): in Glass Pro and Glass OS (HDMI_CEC granted), mute the TV with a CEC `<User Control Pressed: Mute>` through the playback client. Most TVs treat that as a toggle and Glass can't read the TV's mute state, so it could unmute a TV that was already muted. Read the audio status first (`<Give Audio Status>`) where the TV supports it.
