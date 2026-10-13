@@ -71,6 +71,8 @@ sealed interface Overlay {
         val onClosed: (() -> Unit)? = null,
         val onDone: (String) -> Unit,
     ) : Overlay
+    /** AirPlay's pairing code on a card: Glass's own, so PhairPlay's screen need not be brought forward for it (P117). */
+    class AirPlayCode(val code: String, val onClosed: () -> Unit) : Overlay
     data object Settings : Overlay
     data object Tips : Overlay
     data object ControlCenter : Overlay

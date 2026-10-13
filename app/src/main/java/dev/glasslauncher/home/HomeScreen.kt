@@ -577,6 +577,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     fun closeTop() { overlays.removeLastOrNull()?.let(::dismiss) }
     /** Closes everything; only the top overlay is visible, so only it animates out. */
     fun closeAll() { overlays.lastOrNull()?.let(::dismiss); overlays.clear() }
+    // AirPlay's pairing code: a card of Glass's own while PhairPlay says a code is up (it ends with the close event, the TTL or Back).
+    val airPlayHub = remember { dev.glasslauncher.system.AirPlay.hub(context) }
+    val airPlayCode = airPlayHub.ui.collectAsStateWithLifecycle().value.pairingCode
+    LaunchedEffect(airPlayCode) {
+        val up = overlays.lastOrNull { it is Overlay.AirPlayCode } as? Overlay.AirPlayCode
+        if (up != null && up.code == airPlayCode) return@LaunchedEffect
+        up?.let { overlays.remove(it); dismiss(it) }
+        if (airPlayCode != null) open(Overlay.AirPlayCode(airPlayCode) { airPlayHub.dismissPairing(airPlayCode) })
+    }
     /** Control Center: the overlay window when Remote Buttons (accessibility) is on, else in Glass. */
     fun openControlCenter() {
         val window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter

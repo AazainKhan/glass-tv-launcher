@@ -140,6 +140,7 @@ fun OverlayContent(
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         is Overlay.Confirm -> ConfirmCard(overlay, active, close)
         is Overlay.InstallConfirm -> InstallConfirmHost(overlay, active, close)
+        is Overlay.AirPlayCode -> AirPlayCodeCard(overlay, active, close)
         Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
@@ -698,6 +699,19 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
     val palette = LocalPalette.current
     val first = remember { FocusRequester() }
     LaunchedEffect(active) { if (active) { withFrameNanos { }; runCatching { first.requestFocus() } } }
+    AlertCard(active) {
+        Text(c.title, style = Type.heading, color = palette.primary, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+        Text(c.message, style = Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+        Spacer(Modifier.height(6.dp))
+        // A destructive card opens on Cancel: a stray Select must not replace or remove anything.
+        MenuRow(c.confirm, { close(); c.onConfirm() }, if (c.destructive) Modifier else Modifier.focusRequester(first), destructive = c.destructive, centered = true)
+        MenuRow("Cancel", close, if (c.destructive) Modifier.focusRequester(first) else Modifier, centered = true)
+    }
+}
+
+/** The alert chrome shared by the confirm cards: a dim, then a glass card (about 252 dp) holding [content]. */
+@Composable
+internal fun AlertCard(active: Boolean, content: @Composable ColumnScope.() -> Unit) {
     // tvOS's alert (P105 #6): the screen dims first (about 200 ms), then the card fades in at full size 80 ms later, with
     // no scale; the scrim is its own layer, not part of anything scaled. Leaving runs it back, quicker.
     val dim = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -724,14 +738,7 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
         Box(Modifier.graphicsLayer { alpha = card.value }) {
             // About 252 dp (tvOS's 504 px alert), the title and message leading, the buttons centred.
             GlassBoxCard(Modifier.width(252.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.Start) {
-                    Text(c.title, style = Type.heading, color = palette.primary, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
-                    Text(c.message, style = Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
-                    Spacer(Modifier.height(6.dp))
-                    // A destructive card opens on Cancel: a stray Select must not replace or remove anything.
-                    MenuRow(c.confirm, { close(); c.onConfirm() }, if (c.destructive) Modifier else Modifier.focusRequester(first), destructive = c.destructive, centered = true)
-                    MenuRow("Cancel", close, if (c.destructive) Modifier.focusRequester(first) else Modifier, centered = true)
-                }
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.Start, content = content)
             }
         }
     }

@@ -599,7 +599,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // The focused round button's name, shown under the round buttons (they're icons only).
     var roundLabel by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val dark = cfg.theme != ThemeMode.Light
-    val airPlay = dev.glasslauncher.system.AirPlay.rememberState(active)
+    // Null without PhairPlay: the pill never shows then. The platter and Settings read the same hub.
+    val airPlay = dev.glasslauncher.system.AirPlay.rememberAirPlay(active).takeIf { it.first.availability != dev.glasslauncher.system.AirPlayAvailability.Absent }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val rooted by produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
     var fast by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(dev.glasslauncher.system.RootFeatures.fast(context)) }
@@ -863,7 +864,15 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-platter",
             ) { showPlatter ->
             if (airplayPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-                CcAirPlayPlatter(sz, airPlay, cfg.audioOutput, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" })
+                CcAirPlayPlatter(sz, airPlay, cfg.audioOutput, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" }, onName = {
+                    val page = dev.glasslauncher.system.AirPlayPageModel.of(airPlay!!.first)
+                    closeAll()
+                    open(Overlay.TextInput("AirPlay Name", page.name, "How this TV appears in the AirPlay list, up to ${page.nameMax} characters.") { typed ->
+                        val name = typed.trim()
+                        if (name.length > page.nameMax) dev.glasslauncher.system.RemoteNotice.show(context, "A name can be up to ${page.nameMax} characters.", 3_000)
+                        else airPlay.second.setSetting(dev.glasslauncher.system.AirPlayProtocol.SettingKey.DisplayName, name)
+                    })
+                })
             } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
                 CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (!restartAsk && !agentCard) Column(
@@ -1105,7 +1114,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             "airplay" -> airPlay?.let { (state, _) ->
                                 // A menu pill, not a toggle (P129): Select opens the platter (receiver on/off, status),
                                 // like tvOS's Audio pill. The pill shows the connection, not an on/off disc.
-                                val value = when { state.sender != null -> "Connected to ${state.sender}"; state.on -> "On"; else -> "Off" }
+                                val value = when { state.sender != null -> "Connected to ${state.sender}"; state.running -> "On"; else -> "Off" }
                                 SizedRound(tile.size, w, h, "AirPlay", null, R.drawable.ic_airplay, "AirPlay, $value", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { airplayPlatter = true }) { tap { airplayPlatter = true }() }
                             }
                             "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "Fast" else "Balanced", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
@@ -1676,12 +1685,13 @@ private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> 
 @Composable
 private fun CcAirPlayPlatter(
     sz: CcSizes,
-    airPlay: Pair<dev.glasslauncher.system.AirPlay.State, (Boolean) -> Unit>?,
+    airPlay: Pair<dev.glasslauncher.system.AirPlayUi, dev.glasslauncher.system.AirPlayHub>?,
     audioOutput: dev.glasslauncher.data.AudioOutputConfig?,
     muteTv: Boolean,
     edit: ((LauncherConfig) -> LauncherConfig) -> Unit,
     active: Boolean,
     onBack: () -> Unit,
+    onName: () -> Unit,
 ) {
     val first = remember { FocusRequester() }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1699,13 +1709,25 @@ private fun CcAirPlayPlatter(
                 PillContent(R.drawable.ic_airplay, "AirPlay unavailable", "Install PhairPlay to receive AirPlay", fg, on = false, accent = fg)
             }
         } else {
-            val (state, set) = airPlay
-            CcTile("AirPlay", if (state.on) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { set(!state.on) }, modifier = Modifier.focusRequester(first), on = state.on) { fg ->
-                PillContent(R.drawable.ic_airplay, "AirPlay", if (state.on) "On" else "Off", fg, on = state.on, accent = Blue)
+            val (ui, hub) = airPlay
+            val page = dev.glasslauncher.system.AirPlayPageModel.of(ui)
+            CcTile("AirPlay", if (ui.running) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { hub.setOn(!ui.running) }, modifier = Modifier.focusRequester(first), on = ui.running) { fg ->
+                PillContent(R.drawable.ic_airplay, "AirPlay", if (ui.running) "On" else "Off", fg, on = ui.running, accent = Blue)
             }
-            state.sender?.let { sender ->
+            ui.sender?.let { sender ->
                 CcTile("Connected", sender, Shapes.pill, sz.column, sz.pill, onClick = {}) { fg ->
                     PillContent(R.drawable.ic_airplay, "Connected", sender, fg, on = true, accent = Blue)
+                }
+            }
+            // The Name and quality pills need PhairPlay's settings (protocol 2); an old one gets the switch only.
+            if (page.kind == dev.glasslauncher.system.AirPlayPageModel.Kind.Full) {
+                val name = dev.glasslauncher.system.AirPlayPageModel.nameValue(page.name)
+                CcTile("Name", name, Shapes.pill, sz.column, sz.pill, onClick = onName) { fg ->
+                    PillContent(R.drawable.ic_airplay, "Name", name, fg, on = false, accent = fg)
+                }
+                val quality = dev.glasslauncher.system.AirPlayPageModel.qualityValue(page.highQuality)
+                CcTile("Video Quality", quality, Shapes.pill, sz.column, sz.pill, onClick = { hub.setSetting(dev.glasslauncher.system.AirPlayProtocol.SettingKey.HighResolution, !page.highQuality) }) { fg ->
+                    PillContent(R.drawable.ic_airplay, "Video Quality", quality, fg, on = false, accent = fg)
                 }
             }
         }

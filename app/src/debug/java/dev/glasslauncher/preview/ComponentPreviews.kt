@@ -37,6 +37,7 @@ import dev.glasslauncher.glass.BackdropState
 import dev.glasslauncher.glass.GlassStyle
 import dev.glasslauncher.glass.LocalBackdrop
 import dev.glasslauncher.glass.glass
+import dev.glasslauncher.settings.AirPlaySettingsPage
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.GlassBox
 import dev.glasslauncher.ui.LocalPalette
@@ -266,3 +267,48 @@ fun FilesDarkPreview() = PreviewStage { FilesPage(light = false) }
 @Preview(name = "files-light", widthDp = 960, heightDp = 540)
 @Composable
 fun FilesLightPreview() = PreviewStage(light = true) { FilesPage(light = true) }
+
+private object NoLink : dev.glasslauncher.system.AirPlayLink {
+    override fun target(): android.content.ComponentName? = null
+    override fun send(intent: android.content.Intent) = false
+    override fun listen(onEvent: (dev.glasslauncher.system.AirPlayProtocol.Event) -> Unit) = Unit
+}
+
+/** Settings › AirPlay as PhairPlay's STATE would fill it (protocol 2, a Mac connected, a code required). */
+@Composable
+private fun AirPlaySettingsPreview() {
+    val hub = remember { dev.glasslauncher.system.AirPlayHub(NoLink) }
+    val ui = remember {
+        dev.glasslauncher.system.AirPlayUi(
+            availability = dev.glasslauncher.system.AirPlayAvailability.Ready, running = true, sender = "Studio Mac",
+            settings = dev.glasslauncher.system.AirPlayProtocol.Settings(displayName = "Living Room", pinAuth = true, highResolution = false, mirrorAudio = true),
+        )
+    }
+    dev.glasslauncher.home.SettingsPage(active = true) {
+        dev.glasslauncher.home.MenuList(true) { first ->
+            AirPlaySettingsPage(ui, hub, Modifier.focusRequester(first), open = {}, about = {})
+        }
+    }
+}
+
+@Preview(name = "airplay-settings-dark", widthDp = 960, heightDp = 540)
+@Composable
+fun AirPlaySettingsDarkPreview() = PreviewStage { AirPlaySettingsPreview() }
+
+@Preview(name = "airplay-settings-light", widthDp = 960, heightDp = 540)
+@Composable
+fun AirPlaySettingsLightPreview() = PreviewStage(light = true) { AirPlaySettingsPreview() }
+
+/** The pairing code card over Home's dim. */
+@Composable
+private fun AirPlayCodePreview() {
+    dev.glasslauncher.home.AirPlayCodeCard(dev.glasslauncher.home.Overlay.AirPlayCode("4821") {}, active = true, close = {})
+}
+
+@Preview(name = "airplay-code-dark", widthDp = 960, heightDp = 540)
+@Composable
+fun AirPlayCodeDarkPreview() = PreviewStage { AirPlayCodePreview() }
+
+@Preview(name = "airplay-code-light", widthDp = 960, heightDp = 540)
+@Composable
+fun AirPlayCodeLightPreview() = PreviewStage(light = true) { AirPlayCodePreview() }

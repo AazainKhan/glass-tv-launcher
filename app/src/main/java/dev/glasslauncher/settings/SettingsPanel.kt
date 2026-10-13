@@ -118,6 +118,8 @@ private sealed interface Page {
     data object Updates : Page
     data object Backup : Page
     data object Downloads : Page
+    data object AirPlay : Page
+    data object AirPlayAbout : Page
     data object DownloadCodes : Page
     data object About : Page
     data object Accessibility : Page
@@ -206,6 +208,8 @@ fun SettingsPanel(
                 Page.Backup -> BackupPage(model, f)
                 Page.Downloads -> DownloadsSettingsPage(model, cfg, f, open) { push(Page.DownloadCodes) }
                 Page.DownloadCodes -> DownloadCodesPage(model, cfg, f, open)
+                Page.AirPlay -> AirPlayPageHost(pageActive, f, open) { push(Page.AirPlayAbout) }
+                Page.AirPlayAbout -> AirPlayAboutPage(f, open)
                 Page.About -> AboutPage(model, cfg, f)
                 Page.Accessibility -> AccessibilityPage(model, cfg, f)
                 Page.RemoteButtons -> RemoteButtonsPage(cfg, f, ::push)
@@ -224,6 +228,12 @@ fun SettingsPanel(
             }
         } }
     }
+}
+
+@Composable
+private fun ColumnScope.AirPlayPageHost(active: Boolean, f: Modifier, open: (Overlay) -> Unit, about: () -> Unit) {
+    val (ui, hub) = dev.glasslauncher.system.AirPlay.rememberAirPlay(active)
+    AirPlaySettingsPage(ui, hub, f, open, about)
 }
 
 @Composable
@@ -280,6 +290,8 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     MenuRow("Root", { push(Page.RootTools) }, value = if (rooted) "Detected" else "Not detected", chevron = true)
     MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
     MenuRow("Downloads", { push(Page.Downloads) }, chevron = true)
+    val airPlay = dev.glasslauncher.system.AirPlay.rememberAirPlay(true).first
+    MenuRow("AirPlay", { push(Page.AirPlay) }, value = airPlayRowValue(airPlay).ifEmpty { null }, chevron = true)
     MenuRow("Backup & Restore", { push(Page.Backup) }, chevron = true)
     MenuRow("About", { push(Page.About) }, chevron = true)
 }
