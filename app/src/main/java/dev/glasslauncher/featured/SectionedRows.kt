@@ -70,7 +70,7 @@ internal fun SectionedRows(
     var active by remember(rows) { mutableIntStateOf(ShelfSections.rowOf(rows, selectedId)) }
     val at = remember(rows) { intArrayOf(active, 0) }
     cursor.rows = rows.size
-    androidx.compose.runtime.DisposableEffect(cursor) { onDispose { cursor.rows = 1; cursor.row = 0; cursor.focusedCard = -1L } }
+    androidx.compose.runtime.DisposableEffect(cursor) { onDispose { cursor.rows = 1; cursor.row = 0; cursor.focusedCard = -1L; cursor.enterRows = null } }
     val colState = rememberLazyListState(initialFirstVisibleItemIndex = active)
     val rowStates = remember(rows) {
         rows.mapIndexed { i, r ->
@@ -96,6 +96,9 @@ internal fun SectionedRows(
             }
         }
     }
+
+    // Down from the hero's Play and More Info lands in the first row, on the card the viewer left there (P132).
+    cursor.enterRows = { go(0); true }
 
     LazyColumn(
         state = colState,

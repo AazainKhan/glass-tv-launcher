@@ -93,4 +93,28 @@ class ShelfSectionsTest {
         assertEquals("row shrank", 4, mem.landing(1, 5, fromPosition = 0))
         assertEquals(0, mem.landing(2, 0, fromPosition = 5))
     }
+
+    // P132: Down from the hero buttons enters the first row; it only leaves from the last row.
+    private fun cursor(rows: Int, row: Int = 0, card: Long = -1L, enter: Boolean = true) = SectionCursor().also {
+        it.rows = rows; it.row = row; it.focusedCard = card; if (enter) it.enterRows = { true }
+    }
+
+    @Test fun downFromHeroButtonsEntersFirstRow() {
+        assertEquals(DownAction.EnterRows, cursor(rows = 3).down())
+    }
+
+    @Test fun downInsideRowsMovesNativelyUntilTheLast() {
+        assertEquals(DownAction.Native, cursor(3, row = 0, card = 2L).down())
+        assertEquals(DownAction.Native, cursor(3, row = 1, card = 1001L).down())
+        assertEquals(DownAction.Leave, cursor(3, row = 2, card = 2000L).down())
+    }
+
+    @Test fun plainShelfStillLeaves() {
+        assertEquals(DownAction.Leave, cursor(rows = 1, enter = false).down())
+        assertEquals(DownAction.Leave, cursor(rows = 1, card = 0L, enter = false).down())
+    }
+
+    @Test fun noEntryHookMeansLeave() {
+        assertEquals(DownAction.Leave, cursor(rows = 3, enter = false).down())
+    }
 }

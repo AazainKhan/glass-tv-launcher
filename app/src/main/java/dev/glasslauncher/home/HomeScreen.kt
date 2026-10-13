@@ -970,7 +970,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         // Down always leaves full screen, wherever focus is (even mid-transition); from the
                         // status pill it goes back down to the titles instead.
                         // A sectioned shelf moves Down to its next row first (its own handler); only the last row leaves.
-                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded && !pillFocused && sectionCursor.hasRowBelow -> false
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded && !pillFocused && sectionCursor.down() == dev.glasslauncher.featured.DownAction.Native -> false
+                        // Down from the hero's buttons enters the first row; it does not leave full screen (P132).
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded && !pillFocused && sectionCursor.down() == dev.glasslauncher.featured.DownAction.EnterRows ->
+                            sectionCursor.enterRows?.invoke() ?: false
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && expanded -> when {
                             pillFocused -> { runCatching { cardRequester.requestFocus() }; true }
                             // Focus already back on Home (a stale state): just let Down move as usual.

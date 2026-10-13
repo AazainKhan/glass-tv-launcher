@@ -86,4 +86,18 @@ class SectionCursor {
     var focusedCard = -1L
     val inRows: Boolean get() = focusedCard >= 0
     val hasRowBelow: Boolean get() = inRows && row < rows - 1
+    /** More than one headed row is showing (a plain shelf keeps rows at 1). */
+    val sectioned: Boolean get() = rows > 1
+    /** Moves focus to the first row's remembered card; set by the rows while they are composed (P132). */
+    var enterRows: (() -> Boolean)? = null
+
+    /** What Down does in full screen (the status pill aside): see [DownAction]. */
+    fun down(): DownAction = when {
+        hasRowBelow -> DownAction.Native
+        sectioned && !inRows && enterRows != null -> DownAction.EnterRows
+        else -> DownAction.Leave
+    }
 }
+
+/** Down in the full-screen shelf: let the rows move it, enter the rows from the hero buttons (P132), or leave to the tray. */
+enum class DownAction { Native, EnterRows, Leave }
