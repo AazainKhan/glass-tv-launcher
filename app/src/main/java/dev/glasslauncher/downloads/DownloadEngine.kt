@@ -76,6 +76,12 @@ class DownloadEngine(
         val probe = probe(req.url)
         val host = DownloadInput.host(probe.finalUrl).orEmpty()
         if (host != DownloadInput.host(req.url) && host !in req.allowedHosts) throw DownloadFailure.CrossHost(host)
+        if (req.guardExec) {
+            // The server can change its answer after the caller looked: judge the file it really sends.
+            val name = req.name?.let(::safeName) ?: probe.fileName?.let(::safeName) ?: nameFromUrl(probe.finalUrl)
+            if (ExecutableTypes.isExecutable(name, probe.mime) || ExecutableTypes.isExecutable(probe.fileName, null) || ExecutableTypes.isExecutable(nameFromUrl(probe.finalUrl), null))
+                throw DownloadFailure.Executable(name)
+        }
         var fresh = false
         while (true) {
             try {
@@ -268,6 +274,7 @@ class DownloadEngine(
         etag = r.header("ETag"),
         lastModified = r.header("Last-Modified"),
         fileName = fileNameOf(r.header("Content-Disposition")),
+        mime = r.header("Content-Type"),
     )
 
     @Synchronized

@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -805,7 +806,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // The hero leaving with focus inside it would leave nothing focused: back to the tray.
     LaunchedEffect(takeover == null) { if (takeover == null && heroFocused) { heroFocused = false; focusKey(firstKey()) } }
     // The Glass Browser (a separate app) asks for the keyboard or a download card; Home shows it and the browser comes back after.
-    LaunchedEffect(Unit) { dev.glasslauncher.downloads.browser.BrowserLink.asks.collect { open(it.overlay()) } }
+    val downloadsNow by rememberUpdatedState(cfg.downloads)
+    LaunchedEffect(Unit) { dev.glasslauncher.downloads.browser.BrowserLink.asks.collect { it.run(context, downloadsNow, ::open) } }
     LaunchedEffect(Unit) {
         homePresses.collect { request ->
             moving = null

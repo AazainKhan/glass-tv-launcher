@@ -78,6 +78,8 @@ import dev.glasslauncher.ui.Type
 import dev.glasslauncher.system.PhoneField
 import dev.glasslauncher.system.PhoneSetupServer
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.launch
@@ -334,11 +336,12 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
             runCatching { editRow.requestFocus() }
         }
     }
+    DisposableEffect(overlay) { onDispose { overlay.onClosed?.invoke() } }
     var submitted by remember { mutableStateOf(false) }
     fun submit() {
         if (submitted) return
         submitted = true
-        keyboard?.hide(); close(); overlay.onDone(text.trim())
+        keyboard?.hide(); close(); overlay.onDone(if (overlay.isPassword) text else text.trim())
     }
     MenuList(active && !editing) { _ ->
         PanelTitle(overlay.title)
@@ -349,7 +352,8 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
                 singleLine = true,
                 textStyle = Type.heading.copy(color = palette.primary),
                 cursorBrush = SolidColor(palette.primary),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                visualTransformation = if (overlay.isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+                keyboardOptions = KeyboardOptions(keyboardType = if (overlay.isPassword) KeyboardType.Password else KeyboardType.Uri, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { submit() }, onNext = { submit() }, onGo = { submit() }, onSearch = { submit() }, onSend = { submit() }),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -366,7 +370,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
             )
         } else {
             MenuRow(
-                title = text.ifEmpty { "Empty" },
+                title = if (text.isEmpty()) "Empty" else if (overlay.isPassword) "\u2022".repeat(text.length) else text,
                 onClick = { editing = true },
                 modifier = Modifier.focusRequester(editRow).testTag("text-value"),
                 value = "Edit",
@@ -381,7 +385,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
             }, modifier = Modifier.testTag("text-paste"))
         }
         Spacer(Modifier.height(8.dp))
-        MenuRow("Type on Your Phone", {
+        if (!overlay.isPassword) MenuRow("Type on Your Phone", {
             open(Overlay.PhoneSetup(overlay.title, listOf(PhoneField("value", overlay.title, text, overlay.hint))) { values ->
                 values["value"]?.takeIf { it.isNotBlank() }?.let { text = it; submit() }
             })

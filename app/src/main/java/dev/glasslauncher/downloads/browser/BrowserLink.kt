@@ -12,9 +12,11 @@ import android.os.Messenger
 import android.os.SystemClock
 import dev.glasslauncher.browserlink.Link
 import dev.glasslauncher.browserlink.Msg
+import dev.glasslauncher.data.DownloadsConfig
+import dev.glasslauncher.downloads.DownloadPlanner
 import dev.glasslauncher.downloads.Downloads
+import dev.glasslauncher.downloads.Plan
 import dev.glasslauncher.home.Overlay
-import dev.glasslauncher.system.RemoteNotice
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -28,8 +30,8 @@ object BrowserLink {
     private val component = ComponentName(Link.BROWSER_PACKAGE, Link.BROWSER_ACTIVITY)
     private const val TEXT_TTL_MS = 60_000L
 
-    /** An overlay Home should open for the browser (the keyboard, or a confirm card). */
-    class Ask(val overlay: () -> Overlay)
+    /** Something for Home to do for the browser: it has the settings and the overlay stack. */
+    fun interface Ask { suspend fun run(context: Context, downloads: DownloadsConfig, open: (Overlay) -> Unit) }
 
     private val _asks = MutableSharedFlow<Ask>(extraBufferCapacity = 4)
     /** Collected by Home; with no collector a request is dropped, since nothing could show it. */
@@ -38,8 +40,7 @@ object BrowserLink {
     // Main thread only (the handler's looper).
     private var app: Context? = null
     private val approved = HashSet<String>()
-    private var pendingText: Long? = null
-    private var pendingAt = 0L
+    private val gate = TextGate(TEXT_TTL_MS)
     private val handler = Handler(Looper.getMainLooper()) { m -> handle(m); true }
     private val messenger = Messenger(handler)
 
@@ -65,8 +66,12 @@ object BrowserLink {
 
     private fun trusted(c: Context, m: Message): Boolean {
         val pm = c.packageManager
-        val uid = runCatching { pm.getPackageUid(Link.BROWSER_PACKAGE, 0) }.getOrNull() ?: return false
-        return m.sendingUid == uid && pm.checkPermission(Link.PERMISSION, Link.BROWSER_PACKAGE) == PackageManager.PERMISSION_GRANTED
+        val uid = runCatching { pm.getPackageUid(Link.BROWSER_PACKAGE, 0) }.getOrNull()
+        return Link.trusted(
+            m.sendingUid, uid,
+            pm.checkPermission(Link.PERMISSION, Link.BROWSER_PACKAGE) == PackageManager.PERMISSION_GRANTED,
+            pm.checkSignatures(c.packageName, Link.BROWSER_PACKAGE) == PackageManager.SIGNATURE_MATCH,
+        )
     }
 
     private fun handle(m: Message) {
@@ -76,7 +81,7 @@ object BrowserLink {
         when (msg) {
             is Msg.Download -> download(c, msg, m.replyTo)
             is Msg.TextRequest -> text(c, msg, m.replyTo)
-            Msg.Closed -> pendingText = null
+            Msg.Closed -> gate.clear()
             else -> Unit
         }
     }
@@ -87,44 +92,56 @@ object BrowserLink {
         runCatching { to?.send(m) }
     }
 
-    /** Emits [ask] and tells the browser to bring Glass forward; false when Home isn't there to show it. */
-    private fun show(ask: Ask, to: Messenger?): Boolean {
-        if (_asks.subscriptionCount.value == 0 || !_asks.tryEmit(ask)) return false
-        reply(to, Msg.ShowGlass)
-        return true
+    /** Hands [ask] to Home; false when Home isn't there to run it. The browser is told, so it never reports a success that didn't happen. */
+    private fun post(ask: Ask, to: Messenger?, showGlass: Boolean): Boolean {
+        val ok = _asks.subscriptionCount.value > 0 && _asks.tryEmit(ask)
+        if (!ok) reply(to, Msg.Notice("Glass can't show that right now"))
+        else if (showGlass) reply(to, Msg.ShowGlass)
+        return ok
     }
 
     private fun download(c: Context, d: Msg.Download, to: Messenger?) {
-        fun queue(url: String, name: String?) {
-            runCatching { Downloads.queue(c).add(url, name) }
-                .onSuccess { RemoteNotice.show(c, "Downloading ${name ?: "file"}") }
-                .onFailure { RemoteNotice.show(c, it.message ?: "Couldn't start that download") }
+        // Like a download from the manager: the planner's link rules, then the user's settings (Downloads.start).
+        suspend fun queue(context: Context, cfg: DownloadsConfig, url: String, name: String?, guard: Boolean) {
+            val plan = DownloadPlanner.plan(url, emptyList(), cfg.acceptedUrls) { emptyList() }
+            if (plan !is Plan.Start) { reply(to, Msg.Notice((plan as Plan.Refuse).message)); return }
+            runCatching { Downloads.start(context, cfg, plan.url, name, guardExec = guard) }
+                .onSuccess { reply(to, Msg.Notice("Downloading ${name ?: "the file"}")) }
+                .onFailure { reply(to, Msg.Notice(it.message ?: "Couldn't start that download")) }
         }
         when (val r = BrowserDownload.decide(d, approved)) {
-            is BrowserDownload.Queue -> queue(r.url, r.name)
-            is BrowserDownload.Ask -> show(Ask {
+            is BrowserDownload.Queue -> if (!post({ ctx, cfg, _ -> queue(ctx, cfg, r.url, r.name, r.guard) }, to, showGlass = false)) {
+                runCatching { Downloads.start(c, DownloadsConfig(), r.url, r.name, guardExec = r.guard) }
+            }
+            is BrowserDownload.Ask -> post({ ctx, cfg, open ->
                 val from = if (r.referrer.isNotEmpty() && r.referrer != r.host) " (from a page on ${r.referrer})" else ""
-                Overlay.Confirm("Download an app file?", "${r.host} is offering ${r.name ?: "a file"}$from. Only keep files from sites you trust.", "Download") {
+                open(Overlay.Confirm("Download an app file?", "${r.host} is offering ${r.name ?: "a file"}$from. Only keep files from sites you trust.", "Download") {
                     approved += r.key
-                    queue(r.url, r.name)
-                    backToBrowser(c)
-                }
-            }, to)
-            is BrowserDownload.Refuse -> RemoteNotice.show(c, r.reason)
+                    handler.post {
+                        runCatching { Downloads.start(ctx, cfg, r.url, r.name) }
+                            .onFailure { reply(to, Msg.Notice(it.message ?: "Couldn't start that download")) }
+                        backToBrowser(c)
+                    }
+                })
+            }, to, showGlass = true)
+            is BrowserDownload.Refuse -> reply(to, Msg.Notice(r.reason))
         }
     }
 
     private fun text(c: Context, r: Msg.TextRequest, to: Messenger?) {
-        val live = pendingText != null && SystemClock.elapsedRealtime() - pendingAt < TEXT_TTL_MS
         val prompt = TextPrompt.of(r)
-        if (live || prompt == null) return
-        val shown = show(Ask {
-            Overlay.TextInput(prompt.title, prompt.initial, prompt.hint) { typed ->
-                if (pendingText == r.id) pendingText = null
+        if (prompt == null) { reply(to, Msg.Notice("Glass can't type into that")); return }
+        if (!gate.tryBegin(r.id, SystemClock.elapsedRealtime())) { reply(to, Msg.Notice("Glass is waiting for the last keyboard")); return }
+        val shown = post({ _, _, open ->
+            open(Overlay.TextInput(
+                prompt.title, prompt.initial, prompt.hint, isPassword = prompt.password,
+                // Closing for any reason, a cancel included, frees the next request.
+                onClosed = { gate.end(r.id) },
+            ) { typed ->
                 reply(to, Msg.TextResult(r.id, typed.take(Link.MAX_TEXT)))
                 backToBrowser(c)
-            }
-        }, to)
-        if (shown) { pendingText = r.id; pendingAt = SystemClock.elapsedRealtime() }
+            })
+        }, to, showGlass = true)
+        if (!shown) gate.end(r.id)
     }
 }

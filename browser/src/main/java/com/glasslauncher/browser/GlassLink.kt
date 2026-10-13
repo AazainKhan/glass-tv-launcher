@@ -20,9 +20,13 @@ class GlassLink(private val context: Context, private val onMsg: (Msg) -> Unit) 
     private fun glassUid(): Int? = runCatching { context.packageManager.getPackageUid(Link.GLASS_PACKAGE, 0) }.getOrNull()
 
     private fun receive(m: Message) {
-        val uid = glassUid() ?: return
-        if (m.sendingUid != uid) return
-        if (context.packageManager.checkPermission(Link.PERMISSION, Link.GLASS_PACKAGE) != PackageManager.PERMISSION_GRANTED) return
+        val pm = context.packageManager
+        val ok = Link.trusted(
+            m.sendingUid, glassUid(),
+            pm.checkPermission(Link.PERMISSION, Link.GLASS_PACKAGE) == PackageManager.PERMISSION_GRANTED,
+            pm.checkSignatures(context.packageName, Link.GLASS_PACKAGE) == PackageManager.SIGNATURE_MATCH,
+        )
+        if (!ok) return
         val msg = runCatching { Msg.decode(m.what) { m.data?.getString(it) } }.getOrNull() ?: return
         onMsg(msg)
     }

@@ -1,8 +1,11 @@
 package dev.glasslauncher.browserlink
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /** Identical in both modules: the two sides must agree on every constant and on what decode accepts. */
 class LinkTest {
@@ -12,7 +15,7 @@ class LinkTest {
         assertEquals("dev.glasslauncher.permission.BROWSER", Link.PERMISSION)
         assertEquals("com.glasslauncher.browser.BrowserActivity", Link.BROWSER_ACTIVITY)
         assertEquals("dev.glasslauncher.MainActivity", Link.GLASS_ACTIVITY)
-        assertEquals(listOf(1, 2, 3, 10, 11), listOf(Link.What.DOWNLOAD, Link.What.TEXT_REQUEST, Link.What.CLOSED, Link.What.TEXT_RESULT, Link.What.SHOW_GLASS))
+        assertEquals(listOf(1, 2, 3, 10, 11, 12), listOf(Link.What.DOWNLOAD, Link.What.TEXT_REQUEST, Link.What.CLOSED, Link.What.TEXT_RESULT, Link.What.SHOW_GLASS, Link.What.NOTICE))
         assertEquals(setOf("url", "name", "mime", "referrer"), Msg.Download("u", "n", "m", "r").fields().keys)
         assertEquals(setOf("id", "host", "hint", "password"), Msg.TextRequest(1, "h", "text", false).fields().keys)
         assertEquals(setOf("id", "text"), Msg.TextResult(1, "t").fields().keys)
@@ -22,7 +25,7 @@ class LinkTest {
         for (m in listOf(
             Msg.Download("https://example.com/a.zip", "a.zip", "application/zip", "example.com"),
             Msg.TextRequest(42, "example.com", "password", true), Msg.TextRequest(7, "", "address", false),
-            Msg.Closed, Msg.TextResult(42, "héllo \"wörld\"\n"), Msg.ShowGlass,
+            Msg.Closed, Msg.TextResult(42, "héllo \"wörld\"\n"), Msg.ShowGlass, Msg.Notice("Downloading a.zip"),
         )) assertEquals(m, roundTrip(m))
     }
 
@@ -48,5 +51,20 @@ class LinkTest {
     @Test fun labelHostIsABareHostName() {
         assertEquals("example.com", Link.labelHost("Example.com"))
         for (bad in listOf("", "a b", "evil.com: Enter your password", "a/b", "x:80", "-a", "a\n")) assertNull(bad, Link.labelHost(bad))
+    }
+
+    @Test fun aMessageIsTrustedOnlyFromTheRightUidWithPermissionAndSignature() {
+        assertTrue(Link.trusted(10050, 10050, true, true))
+        assertFalse(Link.trusted(10051, 10050, true, true))
+        assertFalse(Link.trusted(10050, null, true, true))
+        assertFalse(Link.trusted(10050, 10050, false, true))
+        assertFalse(Link.trusted(10050, 10050, true, false))
+    }
+
+    /** Link.kt is copied into both modules; nothing else keeps them equal, so this does. */
+    @Test fun bothCopiesOfLinkKtAreIdentical() {
+        val rel = "src/main/java/dev/glasslauncher/browserlink/Link.kt"
+        val own = java.io.File(rel).readText()
+        for (other in listOf("../app/$rel", "../browser/$rel").map(::File).filter { it.exists() }) assertEquals(other.path, own, other.readText())
     }
 }

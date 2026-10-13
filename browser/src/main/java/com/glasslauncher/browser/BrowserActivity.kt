@@ -46,7 +46,8 @@ class BrowserActivity : Activity() {
     private enum class Mode { Links, Pointer }
     /** What a Glass keyboard answer is for. */
     private enum class Target { Page, Address }
-    private class PendingText(val id: Long, val target: Target)
+    /** [nonce] ties a page answer to the load it was asked on. */
+    private class PendingText(val id: Long, val target: Target, val nonce: String)
 
     private val main = Handler(Looper.getMainLooper())
     private lateinit var link: GlassLink
@@ -77,6 +78,8 @@ class BrowserActivity : Activity() {
         link = GlassLink(this, ::onGlass)
         buildViews()
         if (!newWeb()) { toast("This device has no web view to browse with"); finish(); return }
+        // A previous run that was killed (low memory) never reached onDestroy: its clear-on-close is owed.
+        if (prefs().getBoolean("dirty", false)) clearData()
         handleIntent(intent)
     }
 
@@ -108,7 +111,7 @@ class BrowserActivity : Activity() {
         modeButton = button("Pointer", 0f) { toggleMode() }
         val clear = button("Clear Data", 0f) { clearData(); toast("Browsing data cleared") }
         closeButton = button(closeLabel(), 0f) {
-            getSharedPreferences("browser", MODE_PRIVATE).edit().putBoolean("clearOnClose", !clearOnClose()).apply()
+            prefs().edit().putBoolean("clearOnClose", !clearOnClose()).apply()
             closeButton.text = closeLabel()
         }
         listOf(addressButton, modeButton, clear, closeButton).forEach { bar.addView(it) }
@@ -119,7 +122,8 @@ class BrowserActivity : Activity() {
         setContentView(root)
     }
 
-    private fun clearOnClose() = getSharedPreferences("browser", MODE_PRIVATE).getBoolean("clearOnClose", false)
+    private fun prefs() = getSharedPreferences("browser", MODE_PRIVATE)
+    private fun clearOnClose() = prefs().getBoolean("clearOnClose", false)
     private fun closeLabel() = "Clear on close: " + if (clearOnClose()) "On" else "Off"
 
     private inner class PointerView(c: Context) : View(c) {
@@ -170,6 +174,8 @@ class BrowserActivity : Activity() {
             }
             override fun onPageStarted(view: WebView, u: String, favicon: Bitmap?) {
                 url = u; script = PageScript(newNonce()); busy = false; showUrl()
+                if (pending?.target == Target.Page) pending = null
+                if (clearOnClose()) prefs().edit().putBoolean("dirty", true).apply()
             }
             override fun onPageFinished(view: WebView, u: String) { url = u; showUrl(); scanPage() }
         }
@@ -177,7 +183,7 @@ class BrowserActivity : Activity() {
             if (Link.httpsHost(dlUrl) == null) { toast("Downloads need an https link"); return@setDownloadListener }
             val name = URLUtil.guessFileName(dlUrl, disposition, mime).take(Link.MAX_NAME)
             val sent = link.send(Msg.Download(dlUrl, name, mime.orEmpty().take(127), BrowserRules.host(url).orEmpty()))
-            toast(if (sent) "Sent to Glass Downloads" else "Glass isn't listening; open the browser from Glass Downloads")
+            if (!sent) toast("Glass isn't listening; open the browser from Glass Downloads")
         }
         stage.addView(w, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         if (pointerView.parent == null) stage.addView(pointerView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -321,9 +327,10 @@ class BrowserActivity : Activity() {
     /** Asks Glass for its keyboard; the answer comes back as TextResult. The field's current value is never sent. */
     private fun askText(kind: String, target: Target) {
         val id = ++seq
-        val host = if (target == Target.Address) "" else BrowserRules.host(url).orEmpty()
+        // The committed page's host (web.url), not the last load that merely started: a navigation that never commits must not lend its host.
+        val host = if (target == Target.Address) "" else BrowserRules.host(web?.url.orEmpty()).orEmpty()
         if (!link.send(Msg.TextRequest(id, host, kind, kind == "password"))) { toast("Glass isn't listening; open the browser from Glass Downloads"); return }
-        pending = PendingText(id, target)
+        pending = PendingText(id, target, script.nonce)
         main.removeCallbacks(dropPending); main.postDelayed(dropPending, 120_000)
     }
 
@@ -336,13 +343,14 @@ class BrowserActivity : Activity() {
                 val p = pending?.takeIf { it.id == msg.id } ?: return
                 pending = null
                 when (p.target) {
-                    Target.Page -> js(script.setText(msg.text))
+                    Target.Page -> if (p.nonce == script.nonce) js(script.setText(msg.text))
                     Target.Address -> when (val a = BrowserRules.address(msg.text)) {
                         is Address.Go -> web?.loadUrl(a.url)
                         is Address.Refused -> toast(a.message)
                     }
                 }
             }
+            is Msg.Notice -> toast(msg.text)
             else -> Unit
         }
     }
@@ -350,6 +358,7 @@ class BrowserActivity : Activity() {
     // ---- data, lifecycle
 
     private fun clearData() {
+        prefs().edit().putBoolean("dirty", false).apply()
         val cookies = CookieManager.getInstance()
         // removeAllCookies is async: persist only once it is done.
         cookies.removeAllCookies { cookies.flush() }
@@ -360,6 +369,34 @@ class BrowserActivity : Activity() {
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+
+    /** Hidden for a while, or the system wants memory: give the WebView (and its renderer) back, and rebuild it on return. */
+    private val release = Runnable { releaseWeb() }
+    private var releasedUrl: String? = null
+
+    private fun releaseWeb() {
+        val w = web ?: return
+        releasedUrl = url.takeIf { it.isNotEmpty() }
+        pending = null
+        w.stopLoading(); stage.removeView(w); w.destroy()
+        web = null
+    }
+
+    override fun onStart() {
+        super.onStart()
+        main.removeCallbacks(release)
+        if (web == null && newWeb()) { releasedUrl?.let { web?.loadUrl(it) }; releasedUrl = null }
+    }
+
+    override fun onStop() {
+        main.postDelayed(release, 120_000)
+        super.onStop()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_UI_HIDDEN && !hasWindowFocus()) releaseWeb()
+    }
 
     override fun onResume() {
         super.onResume()

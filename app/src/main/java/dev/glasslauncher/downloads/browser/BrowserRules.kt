@@ -3,56 +3,70 @@ package dev.glasslauncher.downloads.browser
 import dev.glasslauncher.browserlink.Link
 import dev.glasslauncher.browserlink.Msg
 import dev.glasslauncher.downloads.DownloadEngine
-import java.util.Locale
+import dev.glasslauncher.downloads.ExecutableTypes
 
 /** What Glass does with a download the browser asked for. The browser is not trusted: every field is checked again here. */
 sealed interface BrowserDownload {
-    data class Queue(val url: String, val name: String?) : BrowserDownload
+    /** [guard]: the engine re-checks the type after its probe, because the server may send something else than the browser saw. */
+    data class Queue(val url: String, val name: String?, val guard: Boolean = true) : BrowserDownload
     /** An executable type not yet allowed from this host: show the confirm card first; [key] is what a yes is stored under. */
     data class Ask(val url: String, val name: String?, val host: String, val referrer: String, val key: String) : BrowserDownload
     data class Refuse(val reason: String) : BrowserDownload
 
     companion object {
-        private val EXECUTABLE_EXT = setOf("apk", "xapk", "apks", "apkm", "exe", "msi", "bat", "cmd", "sh", "jar", "dex", "scr", "com", "vbs", "ps1", "dmg", "pkg")
-        private val EXECUTABLE_MIME = setOf(
-            "application/vnd.android.package-archive", "application/x-msdownload", "application/x-msdos-program",
-            "application/x-sh", "application/java-archive", "application/x-apple-diskimage",
-        )
-
         private fun extension(name: String?, url: String): String =
-            (name?.takeIf { it.contains('.') } ?: url.substringBefore('?').substringBefore('#').substringAfterLast('/'))
-                .substringAfterLast('.', "").lowercase(Locale.ROOT).take(10)
-
-        private fun mime(raw: String) = raw.substringBefore(';').trim().lowercase(Locale.ROOT)
+            ExecutableTypes.extension(name?.takeIf { it.contains('.') } ?: url.substringBefore('?').substringBefore('#').substringAfterLast('/'))
 
         /** [approved] holds "host|ext" keys the user already allowed (kept for this Glass process). */
         fun decide(d: Msg.Download, approved: Set<String>): BrowserDownload {
             val host = Link.httpsHost(d.url) ?: return Refuse("Downloads need an https link")
             val name = d.suggestedName.takeIf { it.isNotBlank() }?.let { DownloadEngine.safeName(it).take(120) }
             val ext = extension(name, d.url)
-            val type = mime(d.mimeType)
-            if (ext !in EXECUTABLE_EXT && type !in EXECUTABLE_MIME) return Queue(d.url, name)
+            val type = ExecutableTypes.mime(d.mimeType)
+            if (!ExecutableTypes.isExecutable("x.$ext", type)) return Queue(d.url, name)
             val key = "$host|${ext.ifEmpty { type }}"
-            return if (key in approved) Queue(d.url, name) else Ask(d.url, name, host, Link.labelHost(d.referrerHost).orEmpty(), key)
+            return if (key in approved) Queue(d.url, name, guard = false) else Ask(d.url, name, host, Link.labelHost(d.referrerHost).orEmpty(), key)
         }
     }
 }
 
 /** What the on-screen keyboard shows for a text request: its own wording, plus the page's host. Never page-supplied text. */
-data class TextPrompt(val title: String, val hint: String, val initial: String) {
+data class TextPrompt(val title: String, val hint: String, val initial: String, val password: Boolean) {
     companion object {
         private val WORDS = mapOf(
             "text" to "Enter text", "password" to "Enter password", "search" to "Search", "email" to "Enter email",
             "number" to "Enter a number", "url" to "Enter a web address", "tel" to "Enter a phone number", "address" to "Web address",
         )
 
-        /** Null for a request with a malformed host label. */
+        /** A host for a title: long ones are shortened in the middle; one that is no plain host name (IPv6, underscores) is "this site". */
+        fun siteLabel(raw: String): String {
+            val h = Link.labelHost(raw) ?: return "this site"
+            return if (h.length > 40) h.take(20) + "..." + h.takeLast(17) else h
+        }
+
+        /** Null for a request that names an unknown kind, or an address-bar request that names a page host. */
         fun of(r: Msg.TextRequest): TextPrompt? {
             val word = WORDS[r.fieldHint] ?: return null
-            if (r.fieldHint == "address") return if (r.hostLabel.isEmpty()) TextPrompt("Browser: $word", "A web address, or words to search for.", "https://") else null
-            val host = Link.labelHost(r.hostLabel) ?: return null
-            val hint = if (r.isPassword || r.fieldHint == "password") "This is a password field. It is shown as you type." else "Typed on this screen for the page."
-            return TextPrompt("$host: $word", hint, "")
+            if (r.fieldHint == "address") return if (r.hostLabel.isEmpty()) TextPrompt("Browser: $word", "A web address, or words to search for.", "https://", false) else null
+            val password = r.isPassword || r.fieldHint == "password"
+            val hint = if (password) "This is a password field." else "Typed on this screen for the page."
+            return TextPrompt("${siteLabel(r.hostLabel)}: $word", hint, "", password)
         }
     }
+}
+
+/** Allows one keyboard request at a time, per request id, and lets a stale one lapse. */
+class TextGate(private val ttlMs: Long) {
+    private var id: Long? = null
+    private var at = 0L
+
+    fun tryBegin(newId: Long, now: Long): Boolean {
+        if (id != null && now - at < ttlMs) return false
+        id = newId; at = now
+        return true
+    }
+
+    /** The keyboard closed (done, cancelled or the browser closed): only that request's own end frees the gate. */
+    fun end(endedId: Long) { if (id == endedId) id = null }
+    fun clear() { id = null }
 }

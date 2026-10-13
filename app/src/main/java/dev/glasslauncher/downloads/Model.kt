@@ -26,6 +26,7 @@ data class Probe(
     val etag: String?,
     val lastModified: String?,
     val fileName: String?,
+    val mime: String? = null,
 )
 
 data class DownloadRequest(
@@ -37,6 +38,8 @@ data class DownloadRequest(
     val segments: Int = DEFAULT_SEGMENTS,
     /** Hosts the final URL may be on besides the entry URL's own; anything else stops the download. */
     val allowedHosts: Set<String> = emptySet(),
+    /** Stop if the server turns out to send an executable type, which the caller did not expect. */
+    val guardExec: Boolean = false,
 )
 
 data class Progress(val downloaded: Long, val size: Long, val bytesPerSecond: Long, val restarted: Boolean)
@@ -55,6 +58,8 @@ sealed class DownloadFailure(message: String, cause: Throwable? = null) : Except
         DownloadFailure("SHA-256 does not match (expected $expected, got $actual)")
 
     class CrossHost(val host: String) : DownloadFailure("Redirected to $host")
+
+    class Executable(val name: String) : DownloadFailure("$name is an app file")
 
     class Network(detail: String, cause: Throwable? = null) : DownloadFailure("Network error: $detail", cause)
 }
@@ -82,6 +87,10 @@ data class DownloadItem(
     val allowedHosts: Set<String> = emptySet(),
     /** Set when the download stopped at a redirect to another host, so the manager can ask. */
     val blockedHost: String? = null,
+    /** Checked again after the probe: stop if the server sends an executable type the user was not asked about. */
+    val guardExec: Boolean = false,
+    /** Set when the download stopped because it turned out to be an executable file (its name), so the manager can ask. */
+    val blockedExec: String? = null,
     /** The server could not continue a partial file, so it started over. */
     val restarted: Boolean = false,
 )

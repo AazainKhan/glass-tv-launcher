@@ -68,11 +68,7 @@ fun DownloadsPage(
     val apk = rememberApkFlow(cfg.downloads.keepInstalledApks, open)
 
     fun begin(plan: Plan.Start) {
-        val d = config.downloads
-        if (queue.items.value.none { it.state != DownloadState.Failed }) Downloads.askNotifications(context)
-        queue.setSegments(d.segments)
-        queue.setConcurrency(d.concurrent)
-        runCatching { queue.add(plan.url, plan.name, plan.sha256) }
+        runCatching { Downloads.start(context, config.downloads, plan.url, plan.name, plan.sha256) }
             .onSuccess { RemoteNotice.show(context, "Downloading ${plan.name ?: DownloadText.name(DownloadItem("", plan.url))}") }
             .onFailure { RemoteNotice.show(context, it.message ?: "Couldn't start that download") }
     }
@@ -204,7 +200,10 @@ private fun ProgressCapsule(fraction: Float) {
 /** Continues a download; one that stopped at a redirect to another site asks first, naming the site. */
 private fun retry(queue: dev.glasslauncher.downloads.DownloadQueue, item: DownloadItem, open: (Overlay) -> Unit) {
     val host = item.blockedHost
-    if (item.state == DownloadState.Failed && host != null) {
+    val exec = item.blockedExec
+    if (item.state == DownloadState.Failed && exec != null) {
+        open(Overlay.Confirm("Download an app file?", "The site is sending $exec, which runs code. Only keep files from sites you trust.", "Download") { queue.allowExecutable(item.id) })
+    } else if (item.state == DownloadState.Failed && host != null) {
         open(Overlay.Confirm("Continue to $host?", "The link you gave sends this download to a different site.", "Continue") { queue.allowRedirect(item.id, host) })
     } else queue.resume(item.id)
 }

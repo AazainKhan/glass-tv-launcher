@@ -20,6 +20,15 @@ object Downloads {
     fun folder(context: Context): File =
         context.getExternalFilesDir("Downloads") ?: File(context.filesDir, "Downloads").also { it.mkdirs() }
 
+    /** Starts a download the way the manager does: the user's segment and concurrency settings, and the notification ask. */
+    fun start(context: Context, d: dev.glasslauncher.data.DownloadsConfig, url: String, name: String?, sha256: String? = null, guardExec: Boolean = false): String {
+        val q = queue(context)
+        if (q.items.value.none { it.state != DownloadState.Failed }) askNotifications(context)
+        q.setSegments(d.segments)
+        q.setConcurrency(d.concurrent)
+        return q.add(url, name, sha256, guardExec = guardExec)
+    }
+
     /** Set when the system refused a foreground start from the background; tried again once Glass is on screen. */
     @Volatile internal var retryInForeground = false
 

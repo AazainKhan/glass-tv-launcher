@@ -51,6 +51,16 @@ class DownloadEngineTest {
         assertFalse(File(tmp.root, "a.part").exists() || File(tmp.root, "a.part.json").exists())
     }
 
+    @Test fun guardedDownloadStopsWhenTheFileTurnsOutToBeExecutable() = runBlocking {
+        val s = serve(testBytes(1000))
+        try {
+            engine().download(request(s).copy(name = "photo.apk", guardExec = true)) {}
+            fail("an app file must stop the guarded download")
+        } catch (e: DownloadFailure.Executable) { assertEquals("photo.apk", e.name) }
+        assertEquals("photo.apk", engine().download(request(s, id = "b").copy(name = "photo.apk", guardExec = false)) {}.file.name)
+        assertEquals("file.bin", engine().download(request(s, id = "c").copy(guardExec = true)) {}.file.name)
+    }
+
     @Test fun serverWithoutRangesUsesOneStream() = runBlocking {
         val data = testBytes(2 * 1024 * 1024)
         val s = serve(data, ranges = false)

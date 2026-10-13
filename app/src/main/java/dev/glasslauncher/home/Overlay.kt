@@ -63,6 +63,10 @@ sealed interface Overlay {
         val suggestions: List<String> = emptyList(),
         /** A "Paste" row; Select calls this for the text (the clipboard is read then, not when the row is drawn). Null: no row. */
         val paste: (() -> String?)? = null,
+        /** Typed text is hidden (dots), never trimmed, and is not offered to the phone over the LAN, which is plain http. */
+        val isPassword: Boolean = false,
+        /** Runs when the panel goes away for any reason: Done, Cancel or Back. */
+        val onClosed: (() -> Unit)? = null,
         val onDone: (String) -> Unit,
     ) : Overlay
     data object Settings : Overlay

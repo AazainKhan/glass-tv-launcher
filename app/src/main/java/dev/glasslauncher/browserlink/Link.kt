@@ -23,6 +23,7 @@ object Link {
     const val MAX_URL = 2048
     const val MAX_NAME = 255
     const val MAX_TEXT = 4096
+    const val MAX_NOTICE = 160
 
     private val HOST = Regex("^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
 
@@ -43,7 +44,12 @@ object Link {
         const val CLOSED = 3
         const val TEXT_RESULT = 10
         const val SHOW_GLASS = 11
+        const val NOTICE = 12
     }
+
+    /** Whether a message may be believed: it came from the peer's uid, which holds the permission and shares Glass's signing key. */
+    fun trusted(sendingUid: Int, peerUid: Int?, hasPermission: Boolean, sameSignature: Boolean): Boolean =
+        peerUid != null && sendingUid == peerUid && hasPermission && sameSignature
 
     /** Field kinds the browser may name; Glass maps each to its own wording, never page text. */
     val KINDS = setOf("text", "password", "search", "email", "number", "url", "tel", "address")
@@ -77,6 +83,12 @@ sealed interface Msg {
     /** Glass to browser: "bring Glass forward, it has something to show" (a download to confirm, a keyboard). */
     data object ShowGlass : Msg { override val what get() = Link.What.SHOW_GLASS }
 
+    /** Glass to browser: the outcome of a request, in Glass's words, for the browser to show. */
+    data class Notice(val text: String) : Msg {
+        override val what get() = Link.What.NOTICE
+        override fun fields() = mapOf("text" to text.take(Link.MAX_NOTICE))
+    }
+
     companion object {
         fun decode(what: Int, get: (String) -> String?): Msg? {
             fun s(k: String, max: Int): String? = get(k)?.takeIf { it.length <= max }
@@ -93,6 +105,7 @@ sealed interface Msg {
                 Link.What.CLOSED -> Closed
                 Link.What.TEXT_RESULT -> TextResult(s("id", 20)?.toLongOrNull() ?: return null, s("text", Link.MAX_TEXT) ?: return null)
                 Link.What.SHOW_GLASS -> ShowGlass
+                Link.What.NOTICE -> Notice(s("text", Link.MAX_NOTICE) ?: return null)
                 else -> null
             }
         }

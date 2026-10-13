@@ -28,7 +28,7 @@ class BrowserRulesTest {
         assertEquals("files.example.com", ask.host)
         assertEquals("files.example.com|apk", ask.key)
         assertEquals("example.com", ask.referrer)
-        assertEquals(BrowserDownload.Queue("https://files.example.com/app.apk", "app.apk"), BrowserDownload.decide(dl("https://files.example.com/app.apk", "app.apk"), setOf("files.example.com|apk")))
+        assertEquals(BrowserDownload.Queue("https://files.example.com/app.apk", "app.apk", guard = false), BrowserDownload.decide(dl("https://files.example.com/app.apk", "app.apk"), setOf("files.example.com|apk")))
         // another extension on an approved host still asks
         assertTrue(BrowserDownload.decide(dl("https://files.example.com/setup.exe", "setup.exe"), setOf("files.example.com|apk")) is BrowserDownload.Ask)
         // the type counts even with a harmless name or none at all
@@ -52,10 +52,42 @@ class BrowserRulesTest {
         assertEquals("https://", TextPrompt.of(Msg.TextRequest(2, "", "address", false))!!.initial)
     }
 
-    @Test fun keyboardPromptsRefuseAnythingTheBrowserCouldUseToSpoof() {
-        for (host in listOf("", "evil.com: Enter your bank password", "a b", "x/y", "a\n")) assertNull(host, TextPrompt.of(Msg.TextRequest(1, host, "text", false)))
+    @Test fun hostsThatAreNoPlainHostNameGetAFallbackLabel() {
+        for (host in listOf("", "[2001:db8::1]", "my_host.example.com", "evil.com: Enter your bank password", "a b", "x/y", "a\n")) {
+            assertEquals(host, "this site: Enter text", TextPrompt.of(Msg.TextRequest(1, host, "text", false))!!.title)
+        }
+        val long = "a".repeat(30) + "." + "b".repeat(30) + ".com"
+        val title = TextPrompt.of(Msg.TextRequest(1, long, "text", false))!!.title
+        assertTrue(title, title.length < 60 && title.contains("..."))
+    }
+
+    @Test fun passwordsAreFlagged() {
+        assertTrue(TextPrompt.of(Msg.TextRequest(1, "example.com", "password", true))!!.password)
+        assertTrue(TextPrompt.of(Msg.TextRequest(1, "example.com", "password", false))!!.password)
+        assertTrue(TextPrompt.of(Msg.TextRequest(1, "example.com", "text", true))!!.password)
+        assertTrue(!TextPrompt.of(Msg.TextRequest(1, "example.com", "text", false))!!.password)
+    }
+
+    @Test fun addressAndUnknownKindsAreRefused() {
         assertNull(TextPrompt.of(Msg.TextRequest(1, "example.com", "address", false)))   // the address bar has no page host
         assertNull(TextPrompt.of(Msg.TextRequest(1, "evil.com", "address", false)))
         assertNull(TextPrompt.of(Msg.TextRequest(1, "example.com", "<b>", false)))
+    }
+
+    @Test fun queuedDownloadsAreRecheckedByTheEngineUnlessTheUserApprovedThem() {
+        assertTrue((BrowserDownload.decide(dl("https://e.com/a.zip", "a.zip"), emptySet()) as BrowserDownload.Queue).guard)
+        assertTrue(!(BrowserDownload.decide(dl("https://e.com/a.apk", "a.apk"), setOf("e.com|apk")) as BrowserDownload.Queue).guard)
+    }
+
+    @Test fun oneKeyboardRequestAtATimeAndACancelFreesIt() {
+        val g = TextGate(60_000)
+        assertTrue(g.tryBegin(1, 0))
+        assertTrue(!g.tryBegin(2, 1_000))          // busy
+        g.end(2); assertTrue(!g.tryBegin(3, 2_000)) // another request's end does not free it
+        g.end(1)                                    // cancelled or done
+        assertTrue(g.tryBegin(4, 3_000))
+        assertTrue(!g.tryBegin(5, 4_000))
+        assertTrue(g.tryBegin(6, 70_000))           // a request that never closed lapses
+        g.clear(); assertTrue(g.tryBegin(7, 70_001))
     }
 }
