@@ -94,7 +94,8 @@ internal object AddonHost {
         val out = parse(AddonClient.call(context, now, code, AddonCodec.encodeRequest(request)))
         // Cold start (process launch plus bind) must stay well inside the 2 s budget.
         Log.i(TAG, "${info.pkg} call=$code ${SystemClock.elapsedRealtime() - t0} ms ok=${out != null}")
-        if (policy.report(info.pkg, out != null)) shown.failPkg(info.pkg, true)
+        // Listing reads (the picker) do not count toward muting; real calls do.
+        if (AddonNotices.countsTowardMute(code) && policy.report(info.pkg, out != null)) shown.failPkg(info.pkg, true)
         out
     }
 
@@ -112,16 +113,28 @@ internal object AddonHost {
         }
     }
 
+    private val actionGate = ActionGate()
+
     /**
      * A remote button mapped to an add-on action was pressed: the add-on must be installed, the same service, compatible, switched
-     * on with its current certificate and declare `actions`; then the usual budget applies (1 call per second per action, 2 s, one call
-     * at a time, mute). Returns the add-on's notice (maybe empty), or null when nothing ran (absent, refused or failed). Glass runs nothing for it.
+     * on with its current certificate and declare `actions`; then the usual budget applies (2 s, one call at a time, mute). A press
+     * within the 1 s rate window waits for it and runs once more (one pending press per action; more are dropped). Glass runs nothing for the add-on.
      */
-    suspend fun runAction(context: Context, snap: AddonSnapshot, ref: AddonActionRef): String? = withContext(Dispatchers.IO) {
-        val info = AddonScanner.scan(context, ref.pkg).firstOrNull() ?: return@withContext null
-        if (info.service != ref.service || AddonPoint.ACTIONS !in info.points) return@withContext null
-        if (!policy.tryAcquire(ref.pkg, "action:${ref.id}")) return@withContext null
-        invoke(context, info, AddonApi.ON_ACTION, AddonRequest(action = ref.id), snap.enabled, AddonReplies::actionNotice)
+    suspend fun runAction(context: Context, snap: AddonSnapshot, ref: AddonActionRef): ActionOutcome = withContext(Dispatchers.IO) {
+        val key = "${ref.pkg}/${ref.id}"
+        if (!actionGate.enter(key)) return@withContext ActionOutcome.Dropped
+        try {
+            val info = AddonScanner.scan(context, ref.pkg).firstOrNull() ?: return@withContext ActionOutcome.Unavailable(null)
+            if (info.service != ref.service || AddonPoint.ACTIONS !in info.points || policy.isMuted(ref.pkg)) return@withContext ActionOutcome.Unavailable(info.title)
+            val wait = policy.nextAllowedIn(ref.pkg, "action:${ref.id}")
+            if (wait > 0) kotlinx.coroutines.delay(wait)
+            if (!policy.tryAcquire(ref.pkg, "action:${ref.id}")) return@withContext ActionOutcome.Unavailable(info.title)
+            val notice = invoke(context, info, AddonApi.ON_ACTION, AddonRequest(action = ref.id), snap.enabled, AddonReplies::actionNotice)
+                ?: return@withContext ActionOutcome.Unavailable(info.title)
+            ActionOutcome.Done(AddonNotices.success(info.title, notice))
+        } finally {
+            actionGate.exit(key)
+        }
     }
 
     /**

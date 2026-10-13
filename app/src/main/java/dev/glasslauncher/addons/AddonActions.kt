@@ -7,7 +7,8 @@ data class AddonActionRef(val pkg: String, val service: String, val id: String) 
 
 object AddonActionId {
     private val PKG = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
-    private val CLASS = Regex("[A-Za-z_.][A-Za-z0-9_.$]{0,199}")
+    /** A Java class name as `Class.getName()` gives it: dotted identifiers, `$` for a nested class; no leading, trailing or doubled dots. */
+    private val CLASS = Regex("[A-Za-z_][A-Za-z0-9_$]*(\\.[A-Za-z_][A-Za-z0-9_$]*)*")
     private val ID = Regex("[A-Za-z0-9_.-]{1,40}")
 
     /** Null for anything that is not exactly three valid parts (a malformed stored key is simply not an add-on action). */
@@ -16,7 +17,7 @@ object AddonActionId {
         val parts = key.removePrefix("addon:").split('/')
         if (parts.size != 3) return null
         val (pkg, service, id) = parts
-        return if (PKG.matches(pkg) && CLASS.matches(service) && ID.matches(id)) AddonActionRef(pkg, service, id) else null
+        return if (PKG.matches(pkg) && service.length <= 200 && CLASS.matches(service) && ID.matches(id)) AddonActionRef(pkg, service, id) else null
     }
 }
 

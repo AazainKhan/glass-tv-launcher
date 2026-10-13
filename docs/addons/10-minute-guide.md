@@ -60,8 +60,8 @@ provider call in `ProviderRequest.values` (keyed by field id): that is how you r
 for fields you stop declaring, and for an uninstalled add-on, are deleted.
 
 **Remote action** (service, `actions()` / `onAction(id)`): up to 12 `ActionInfo(id, label)`, listed in the button picker as
-"<label> · via <your add-on>". `onAction` may return a short notice (60 characters) that Glass shows. The mapping is stored as
-`addon:<package>/<service>/<id>`; if you disappear it shows as unavailable and does nothing. Choosing it is the user's consent.
+"<label> · via <your add-on>". `onAction` may return a short notice (60 characters) that Glass shows as "<your add-on>: <notice>". If the add-on is unavailable, muted or fails, Glass says "<your add-on> unavailable". A second press inside the one-second rate window waits and runs once more; further presses are dropped. The mapping is stored as
+`addon:<package>/<service>/<id>`; if you disappear it shows as unavailable in the picker and a press says so. Choosing it is the user's consent.
 
 **Images** (`image`, `logo`): `https` only, a public host name (no localhost, local-network names or IP addresses; DNS answers that point
 inside the network are refused), JPEG, PNG or static WebP (no GIF, animated WebP or APNG), **at most 1280 px on the long side**, under
@@ -87,8 +87,8 @@ what is on screen. Your content is marked as add-on content ("· via <add-on>", 
 
 - **Only Glass can talk to you.** `BIND_ADDON` is a signature-level permission Glass declares; your service and provider require it, so no
   other app can bind or query them. Your base classes check it again on every call.
-- **You are off until the user turns you on**, per package **and signing certificate**. Glass re-checks the package and the certificate
-  before every call. Re-sign with another key (or rotate it) and you are switched off; the user must confirm after seeing the old and new
+- **You are off until the user turns you on**, per package **and signing certificate**. Glass re-checks the package, the certificate and
+  that the provider is still yours (and guarded) before every call, on the service path and the provider path alike. Re-sign with another key (or rotate it) and you are switched off; the user must confirm after seeing the old and new
   fingerprints. Glass pins the current signing certificate only, on purpose.
 - **Glass renders, you supply data.** No code is loaded into Glass, no custom drawing surface. Glass builds every Intent itself from the
   links you give: https or market links, or your own package's activity. It never targets Glass or another app and never grants URI

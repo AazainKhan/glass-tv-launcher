@@ -100,6 +100,9 @@ class AddonPolicy(private val now: () -> Long, private val minGapMs: Long = 1_00
         return n >= failsToMute && muted.add(pkg)
     }
 
+    /** How long until a call to [pkg]'s [tile] is allowed again (0 = now). Used to queue one pending press instead of dropping it. */
+    @Synchronized fun nextAllowedIn(pkg: String, tile: String): Long = last["$pkg/$tile"]?.let { (minGapMs - (now() - it)).coerceAtLeast(0) } ?: 0L
+
     @Synchronized fun isMuted(pkg: String) = pkg in muted
     @Synchronized fun resume(pkg: String) { muted.remove(pkg); fails.remove(pkg) }
 }
@@ -184,4 +187,35 @@ class RefreshGate(private val now: () -> Long, private val ttlMs: Long = 30_000)
     @Synchronized fun due(k: Any) = !marked || key != k || now() - at >= ttlMs
     @Synchronized fun mark(k: Any) { key = k; at = now(); marked = true }
     @Synchronized fun reset() { marked = false }
+}
+
+/** At most one running and one pending press per action: a third (a key held down, mashed) is dropped, so the queue stays bounded. */
+class ActionGate(private val slots: Int = 2) {
+    private val counts = HashMap<String, Int>()
+    @Synchronized fun enter(key: String): Boolean { val n = counts[key] ?: 0; if (n >= slots) return false; counts[key] = n + 1; return true }
+    @Synchronized fun exit(key: String) { val n = (counts[key] ?: 1) - 1; if (n <= 0) counts.remove(key) else counts[key] = n }
+}
+
+/** What a pressed add-on button says on screen: always attributed to the add-on, so a notice cannot pass as Glass's own. */
+object AddonNotices {
+    /** "<add-on>: <notice>" (the name kept whole, the notice cut); null when the add-on said nothing. */
+    fun success(title: String, notice: String): String? {
+        val text = AddonText.clean(notice, 90)
+        if (text.isEmpty()) return null
+        val prefix = AddonText.clean(title, 32) + ": "
+        return prefix + text.take((90 - prefix.length).coerceAtLeast(1))
+    }
+
+    /** The add-on failed, is muted, absent or refused: say so ([title] when known). */
+    fun failure(title: String?): String = AddonText.clean(title, 32).let { if (it.isEmpty()) "Add-on unavailable" else "$it unavailable" }
+
+    /** Reads that list things (the button picker) must not count toward muting: only real calls do. */
+    fun countsTowardMute(code: Int) = code != dev.glasslauncher.addon.AddonApi.GET_ACTIONS
+}
+
+/** What a mapped button press came to. */
+sealed interface ActionOutcome {
+    data class Done(val notice: String?) : ActionOutcome
+    data object Dropped : ActionOutcome
+    data class Unavailable(val title: String?) : ActionOutcome
 }

@@ -189,12 +189,15 @@ class RemoteKeysService : AccessibilityService() {
         }
     }
 
-    /** Binds the add-on off the main thread, with the add-on call budget; a notice it returns is shown, an absent add-on does nothing. */
+    /** Binds the add-on off the main thread, with the add-on call budget; its notice is shown as "<add-on>: <notice>"; a failed or absent add-on says "<add-on> unavailable". */
     private fun runAddonAction(a: RemoteAction.AddonAction) {
         val snap = app.config.config.value.let { dev.glasslauncher.addons.AddonSnapshot(it.addonsEnabled, it.addonSettings) }
         app.scope.launch {
-            val notice = dev.glasslauncher.addons.AddonHost.runAction(applicationContext, snap, dev.glasslauncher.addons.AddonActionRef(a.pkg, a.service, a.id))
-            if (!notice.isNullOrEmpty()) RemoteNotice.show(applicationContext, notice, 3_000)
+            when (val r = dev.glasslauncher.addons.AddonHost.runAction(applicationContext, snap, dev.glasslauncher.addons.AddonActionRef(a.pkg, a.service, a.id))) {
+                is dev.glasslauncher.addons.ActionOutcome.Done -> r.notice?.let { RemoteNotice.show(applicationContext, it, 3_000) }
+                is dev.glasslauncher.addons.ActionOutcome.Unavailable -> RemoteNotice.show(applicationContext, dev.glasslauncher.addons.AddonNotices.failure(r.title), 3_000)
+                dev.glasslauncher.addons.ActionOutcome.Dropped -> Unit
+            }
         }
     }
 

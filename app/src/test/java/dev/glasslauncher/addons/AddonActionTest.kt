@@ -22,7 +22,7 @@ class AddonActionTest {
     @Test fun idsRoundTripAndMalformedOnesAreRejected() {
         assertEquals("addon:dev.x.sample/dev.x.sample.Svc\$Inner/increment", ref.key)
         assertEquals(ref, AddonActionId.decode(ref.key))
-        for (bad in listOf("app:com.x", "addon:", "addon:a.b/S", "addon:a.b/S/x/y", "addon:nodot/S/x", "addon:a.b//x", "addon:a.b/S/", "addon:a.b/S/bad id", "addon:a.b/S/" + "x".repeat(41), "addon:a.b/S S/x"))
+        for (bad in listOf("app:com.x", "addon:", "addon:a.b/S", "addon:a.b/S/x/y", "addon:nodot/S/x", "addon:a.b//x", "addon:a.b/S/", "addon:a.b/S/bad id", "addon:a.b/S/" + "x".repeat(41), "addon:a.b/S S/x", "addon:a.b/.S/x", "addon:a.b/a..b/x", "addon:a.b/a./x", "addon:a.b/1a/x"))
             assertNull(bad, AddonActionId.decode(bad))
     }
 
@@ -97,5 +97,42 @@ class AddonActionTest {
         repeat(3) { p.report("a.b", false) } // timeouts and errors count like tile calls
         t = 10_000; assertFalse(p.tryAcquire("a.b", "action:go")) // muted: a pressed button does nothing, never stalls
         assertTrue(p.tryAcquire("c.d", "action:go"))
+    }
+
+    @Test fun aPressThatFailsSaysSoWithTheAddonNameWhenKnown() {
+        assertEquals("Sample Add-on unavailable", AddonNotices.failure("Sample Add-on"))
+        assertEquals("Add-on unavailable", AddonNotices.failure(null))
+        assertEquals("Add-on unavailable", AddonNotices.failure("\u200B\u202E"))
+        assertEquals("Evil unavailable", AddonNotices.failure("Evil\u202E"))
+    }
+
+    @Test fun noticesAreAttributedToTheAddonAndTheNameSurvivesCutting() {
+        assertEquals("Sample: Counter: 3", AddonNotices.success("Sample", "Counter: 3"))
+        assertNull(AddonNotices.success("Sample", "")); assertNull(AddonNotices.success("Sample", "\u200B"))
+        val long = AddonNotices.success("N".repeat(32), "x".repeat(200))!!
+        assertTrue(long.startsWith("N".repeat(32) + ": ") && long.length <= 90)
+    }
+
+    @Test fun oneRunningAndOnePendingPressPerActionThenDrop() {
+        val g = ActionGate()
+        assertTrue(g.enter("a/x")); assertTrue(g.enter("a/x")) // the running one and the queued one
+        assertFalse(g.enter("a/x")) // a third is dropped: bounded
+        assertTrue(g.enter("a/y")) // other actions are independent
+        g.exit("a/x"); assertTrue(g.enter("a/x")) // a slot frees when one finishes
+        g.exit("a/x"); g.exit("a/x"); g.exit("a/x"); assertTrue(g.enter("a/x"))
+    }
+
+    @Test fun aPressInsideTheRateWindowWaitsForItInsteadOfBeingDropped() {
+        var t = 0L
+        val p = AddonPolicy({ t })
+        assertEquals(0L, p.nextAllowedIn("a", "action:x"))
+        assertTrue(p.tryAcquire("a", "action:x"))
+        t = 300; assertEquals(700L, p.nextAllowedIn("a", "action:x")) // queued press waits 700 ms
+        t = 1_000; assertEquals(0L, p.nextAllowedIn("a", "action:x")); assertTrue(p.tryAcquire("a", "action:x"))
+    }
+
+    @Test fun listingReadsNeverCountTowardMuting() {
+        assertFalse(AddonNotices.countsTowardMute(AddonApi.GET_ACTIONS))
+        for (c in listOf(AddonApi.GET_TILES, AddonApi.ON_TAP, AddonApi.ON_ACTION)) assertTrue(AddonNotices.countsTowardMute(c))
     }
 }
