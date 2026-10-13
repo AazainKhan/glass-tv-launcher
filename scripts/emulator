@@ -31,18 +31,24 @@ for a in "$@"; do [ "$a" = --twin ] && TWIN=1; done
 [ "$TWIN" = 1 ] && { CONSOLE=5610; ADBPORT=5611; AVD=$TWIN_AVD; MEM=1700; }
 EADB=(env ANDROID_ADB_SERVER_PORT=$SERVER adb -s "emulator-$CONSOLE")
 
+# The default adb server must be up (and own the USB stick) BEFORE anything talks to the private 5038 server, probes
+# included: any adb call to 5038 auto-starts it, and a 5038 server that starts first grabs the stick away from everyone.
+# This only starts the default server (sends nothing to the stick); the env -u keeps a pasted `env` export from
+# turning it into a 5038 start. Never kill the default server.
+case "${1:-}" in start|install|mirror|stop) env -u ANDROID_ADB_SERVER_PORT adb start-server >/dev/null 2>&1 || true ;; esac
+# A real device on the private server (stick missing elsewhere): hand it back and stop.
+foreign_check() {
+  if ANDROID_ADB_SERVER_PORT=$SERVER adb devices | awk 'NR>1 && NF && $1 !~ /^emulator-/' | grep -q .; then
+    echo "a non-emulator device is on the emulator's adb server; releasing it (scripts/emulator release-usb) and stopping." >&2
+    "$0" release-usb >&2; exit 4; fi
+}
+
 case "${1:-}" in
   start)
     if "${EADB[@]}" get-state >/dev/null 2>&1; then echo "already running"; exit 0; fi
     window=(-no-window); twin=$TWIN
     for a in "${@:2}"; do [ "$a" = --window ] && window=(); done
     [ "$twin" = 1 ] && "$0" create-twin >/dev/null
-    # Both adb servers scan USB, and a USB device belongs to whichever server opens it first. Make sure
-    # the default server is up (and owns the stick) before the emulator's private server starts, or the
-    # stick vanishes from every other session's `adb devices`. Never kill the default server while the
-    # emulator runs; `scripts/emulator release-usb` fixes it if it happens.
-    # (The twin skips that: it never touches the default server.)
-    [ "$twin" = 1 ] || adb start-server >/dev/null 2>&1
     mkdir -p "$ROOT/build"
     # The emulator registers with the adb server named in its own environment: keep it off the default one.
     # The emulator announces itself to adb (server port and discovery files under $HOME). Give it its
@@ -52,13 +58,12 @@ case "${1:-}" in
       nohup "$SDK/emulator/emulator" -avd "$AVD" -ports "$CONSOLE,$ADBPORT" "${window[@]}" \
       -no-snapshot-save -no-boot-anim -gpu host -memory $MEM >"$ROOT/build/emulator-$CONSOLE.log" 2>&1 &
     for _ in $(seq 1 120); do
+      foreign_check
       [ "$("${EADB[@]}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break
       sleep 2
     done
     "${EADB[@]}" shell settings put global window_animation_scale 0.5 >/dev/null
-    # Never leave a real device on the private server: stop and report if one shows up.
-    if ANDROID_ADB_SERVER_PORT=$SERVER adb devices | awk 'NR>1 && NF && $1 !~ /^emulator-/' | grep -q .; then
-      echo "a non-emulator device is on the emulator's adb server; stopping. Run: scripts/emulator release-usb" >&2; exit 4; fi
+    foreign_check
     echo "emulator up: eval \"\$(scripts/emulator env)\"" ;;
   install)
     variant="${2:-debug}"
@@ -95,28 +100,41 @@ case "${1:-}" in
       [ -n "$STICK_SERIAL" ] || { echo "mirror: export STICK_SERIAL=<the stick's adb serial>." >&2; exit 3; }
       ( ANDROID_SERIAL="$STICK_SERIAL"; export ANDROID_SERIAL; source "$ROOT/scripts/lib/device.sh"; require_device_access
         o="$(lock_owner)"; [ -n "$o" ] && [ "$o" = "${TV_OWNER:-}" ] || { echo "mirror: hold the stick lock (scripts/stick-lock take \"<who>\"; export TV_OWNER)." >&2; exit 3; } ) || exit 3
+      # Read-only allowlist: anything else is refused, whatever the caller asks for.
+      case "$*" in
+        "shell pm list packages -3 --show-versioncode"|"exec-out run-as dev.glasslauncher tar cf - shared_prefs files"|"exec-out su -c tar cf - -C /data/data/dev.glasslauncher shared_prefs files") ;;
+        "shell pm path "*) [[ "$4" =~ ^[A-Za-z0-9_.]+$ && $# = 4 ]] || { echo "mirror: refused stick call: $*" >&2; exit 3; } ;;
+        "pull "*) [[ $# = 3 && "$2" =~ ^/[A-Za-z0-9_./=~-]+\.apk$ && "$2" != *..* ]] || { echo "mirror: refused stick call: $*" >&2; exit 3; } ;;
+        *) echo "mirror: refused stick call (read-only allowlist): $*" >&2; exit 3 ;;
+      esac
       env -u ANDROID_ADB_SERVER_PORT adb -s "$STICK_SERIAL" "$@"
     }
     glassdata=1; [ "${2:-}" = --skip-glass-data ] && glassdata=0
-    M="${MIRROR_DIR:-$ROOT/build/mirror}"; mkdir -p "$M/apks"; : > "$M/summary.txt"; touch "$M/installed.txt"
-    pkgs="$(stick_adb shell pm list packages -3 | tr -d '\r' | sed 's/^package://' | sort)" || exit 3
-    for pkg in $pkgs; do
+    umask 077   # pulled APKs and Glass's prefs stay private
+    M="${MIRROR_DIR:-$ROOT/build/mirror}"; mkdir -p "$M/apks"; M="$(cd "$M" && pwd -P)"
+    case "$M" in "$(cd "$ROOT" && pwd -P)/build"|"$(cd "$ROOT" && pwd -P)/build/"*) ;; "$(cd "$ROOT" && pwd -P)"/*|"$(cd "$ROOT" && pwd -P)")
+      echo "mirror: MIRROR_DIR must be outside the repo or under build/ (it holds private data)." >&2; exit 2 ;; esac
+    : > "$M/summary.txt"; touch "$M/installed.txt"
+    list="$(stick_adb shell pm list packages -3 --show-versioncode | tr -d '\r' | sed -n 's/^package:\([A-Za-z0-9_.]*\) versionCode:\([0-9]*\).*/\1 \2/p' | sort)" || exit 3
+    while read -r pkg ver <&3; do
       [ "$pkg" = dev.glasslauncher ] && continue
-      grep -qx "$pkg" "$M/installed.txt" && { echo "done    $pkg" >> "$M/summary.txt"; continue; }
-      d="$M/apks/$pkg"; mkdir -p "$d"
-      for path in $(stick_adb shell pm path "$pkg" | tr -d '\r' | sed 's/^package://'); do
-        [ -s "$d/$(basename "$path")" ] || stick_adb pull "$path" "$d/$(basename "$path")" >/dev/null || rm -f "$d/$(basename "$path")"
-      done
+      key="$pkg-$ver"   # a new versionCode on the stick means a fresh pull
+      if grep -qx "$key" "$M/installed.txt"; then echo "done    $key" >> "$M/summary.txt"; continue; fi
+      d="$M/apks/$key"; mkdir -p "$d"
+      while read -r path; do
+        [ -n "$path" ] || continue
+        [ -s "$d/$(basename "$path")" ] || stick_adb pull "$path" "$d/$(basename "$path")" >/dev/null </dev/null || rm -f "$d/$(basename "$path")"
+      done <<< "$(stick_adb shell pm path "$pkg" </dev/null | tr -d '\r' | sed 's/^package://')"
       set -- "$d"/*.apk
-      [ -e "$1" ] || { echo "skipped $pkg: pull failed" >> "$M/summary.txt"; continue; }
+      [ -e "$1" ] || { echo "skipped $key: pull failed" >> "$M/summary.txt"; continue; }
       # 32-bit-only: native libs for armeabi* but none for arm64-v8a (the twin has no AArch32).
       libs="$(for f in "$d"/*.apk; do unzip -Z1 "$f" 'lib/*' 2>/dev/null || true; done)"
-      if echo "$libs" | grep -q '^lib/armeabi' && ! echo "$libs" | grep -q '^lib/arm64-v8a'; then
-        echo "skipped $pkg: 32-bit-only (no arm64 lib)" >> "$M/summary.txt"; continue; fi
+      if grep -q '^lib/armeabi' <<< "$libs" && ! grep -q '^lib/arm64-v8a' <<< "$libs"; then
+        echo "skipped $key: 32-bit-only (no arm64 lib)" >> "$M/summary.txt"; continue; fi
       if [ $# -gt 1 ]; then cmd=install-multiple; else cmd=install; fi
-      if "${EADB[@]}" "$cmd" -r "$@" >/dev/null 2>&1; then echo "$pkg" >> "$M/installed.txt"; echo "installed $pkg ($# apk)" >> "$M/summary.txt"
-      else echo "skipped $pkg: twin install failed" >> "$M/summary.txt"; fi
-    done
+      if "${EADB[@]}" "$cmd" -r "$@" >/dev/null 2>&1 </dev/null; then echo "$key" >> "$M/installed.txt"; echo "installed $key ($# apk)" >> "$M/summary.txt"
+      else echo "skipped $key: twin install failed" >> "$M/summary.txt"; fi
+    done 3<<< "$list"
     if [ "$glassdata" = 1 ]; then
       # Glass's prefs and config: run-as for a debug build, else root (Magisk su). Read-only tar to stdout.
       T="$M/glass-data.tar"
@@ -135,7 +153,8 @@ case "${1:-}" in
       [ -n "$STICK_SERIAL" ] || { echo "deploy-stick --stick: export STICK_SERIAL=<the stick's adb serial>." >&2; exit 3; }
       # Both opt-ins, checked before anything builds. scripts/build --device then re-checks and installs.
       ( ANDROID_SERIAL="$STICK_SERIAL"; export ANDROID_SERIAL; source "$ROOT/scripts/lib/device.sh"; require_device_write ) || exit 3
-      exec "${GLASS_BUILD:-$ROOT/scripts/build}" "$variant" --device
+      # Aim at the stick explicitly: an `env --twin` export in this shell would otherwise point the build at the emulator.
+      exec env -u ANDROID_ADB_SERVER_PORT ANDROID_SERIAL="$STICK_SERIAL" "${GLASS_BUILD:-$ROOT/scripts/build}" "$variant" --device
     fi
     "${GLASS_BUILD:-$ROOT/scripts/build}" "$variant"   # build only: no adb, no privapp-check
     "$0" install "$variant" --twin ;;
@@ -148,8 +167,9 @@ case "${1:-}" in
     echo "export ANDROID_ADB_SERVER_PORT=$SERVER ANDROID_SERIAL=emulator-$CONSOLE" ;;
   stop)
     "${EADB[@]}" emu kill >/dev/null 2>&1 || "${EADB[@]}" shell reboot -p >/dev/null 2>&1 || true
-    # The twin shares the private server with the GlassTV emulator: leave it running.
-    [ "$TWIN" = 1 ] || ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
+    # The private server is shared by both emulators: kill it only when no emulator is left on it.
+    for _ in 1 2 3 4 5 6 7 8; do ANDROID_ADB_SERVER_PORT=$SERVER adb devices | grep -q "^emulator-$CONSOLE" || break; sleep 1; done
+    ANDROID_ADB_SERVER_PORT=$SERVER adb devices | grep -q '^emulator-' || ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
     echo "stopped" ;;
   *) sed -n '2,24p' "$0"; exit 2 ;;
 esac

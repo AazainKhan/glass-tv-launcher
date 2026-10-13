@@ -20,11 +20,12 @@ tar cf "$T/fx/glass.tar" -C "$T/fx/glass" shared_prefs files
 cat > "$T/bin/adb" <<SHIM
 #!/usr/bin/env bash
 echo "\$ANDROID_ADB_SERVER_PORT|\$*" >> "$T/calls.log"
+if [ "\$1" = start-server ]; then [ -z "\$ANDROID_ADB_SERVER_PORT" ] && exit 0; echo "VIOLATION start-server on port \$ANDROID_ADB_SERVER_PORT" >> "$T/violations.log"; exit 99; fi
 [ "\$1" = -s ] || { echo "VIOLATION no -s: \$*" >> "$T/violations.log"; exit 99; }
 case "\$2" in emulator-*) exec "\$REAL_ADB" "\$@" ;; esac
 shift 2
 case "\$*" in
-  "shell pm list packages -3") printf 'package:com.fake.one\r\npackage:com.fake.split\r\npackage:com.fake.arm32\r\n' ;;
+  "shell pm list packages -3 --show-versioncode") printf 'package:com.fake.one versionCode:1\r\npackage:com.fake.split versionCode:7\r\npackage:com.fake.arm32 versionCode:3\r\n' ;;
   "shell pm path com.fake.one") echo package:/data/app/one/base.apk ;;
   "shell pm path com.fake.split") printf 'package:/data/app/split/base.apk\npackage:/data/app/split/split_cfg.apk\n' ;;
   "shell pm path com.fake.arm32") echo package:/data/app/arm32/base.apk ;;
@@ -32,7 +33,8 @@ case "\$*" in
   "pull /data/app/split/base.apk "*) cp "$T/fx/split-base.apk" "\$3" ;;
   "pull /data/app/split/split_cfg.apk "*) cp "$T/fx/split-cfg.apk" "\$3" ;;
   "pull /data/app/arm32/base.apk "*) cp "$T/fx/arm32.apk" "\$3" ;;
-  "exec-out run-as dev.glasslauncher tar cf - shared_prefs files") cat "$T/fx/glass.tar" ;;
+  "exec-out run-as dev.glasslauncher tar cf - shared_prefs files") [ -e "$T/runas_fail" ] || cat "$T/fx/glass.tar" ;;
+  "exec-out su -c tar cf - -C /data/data/dev.glasslauncher shared_prefs files") cat "$T/fx/glass.tar" ;;
   *) echo "VIOLATION stick call: \$*" >> "$T/violations.log"; exit 99 ;;
 esac
 SHIM
@@ -52,23 +54,32 @@ echo "$(( $(date +%s) + 600 )) someone-else" > "$T/locks/$S.lock"
 expect "mirror refuses when another session holds the lock" 3 env GLASS_STICK=1 TV_OWNER=tester "$E" mirror
 echo "$(( $(date +%s) + 600 )) tester" > "$T/locks/$S.lock"
 export GLASS_STICK=1 TV_OWNER=tester
+pkgs_now() { "$REAL_ADB" -s emulator-5610 shell pm list packages -3 | tr -d '\r' | sort; }
+before_pkgs="$(pkgs_now)"
 expect "mirror runs with lock" 0 "$E" mirror
-grep -q "installed com.fake.one" "$T/mirror/summary.txt" && ok "single APK installed on twin" || bad "single APK not installed"
-grep -q "skipped com.fake.arm32: 32-bit-only" "$T/mirror/summary.txt" && ok "32-bit-only skipped" || bad "arm32 not skipped"
-grep -q "com.fake.split" "$T/mirror/summary.txt" && grep -q "install-multiple" "$T/calls.log" && ok "split used install-multiple" || bad "split path"
+grep -q "installed com.fake.one-1" "$T/mirror/summary.txt" && ok "single APK installed on twin" || bad "single APK not installed"
+grep -q "skipped com.fake.arm32-3: 32-bit-only" "$T/mirror/summary.txt" && ok "32-bit-only skipped" || bad "arm32 not skipped"
+grep -q "com.fake.split-7" "$T/mirror/summary.txt" && grep -q "install-multiple" "$T/calls.log" && ok "split used install-multiple" || bad "split path"
 grep -q "glass-data: .*twin needs a debug" "$T/mirror/summary.txt" && ok "glass data pulled, restore limit reported" || bad "glass data line"
 expect "mirror resumes" 0 "$E" mirror
-# only the not-yet-installed packages (split, which fails on the twin, and arm32) may be pulled again; com.fake.one must not be
+# com.fake.one is installed, so it must not be pulled again
 [ "$(grep -c 'pull /data/app/one/' "$T/calls.log")" = 1 ] && ok "resume skips finished apps" || bad "resume re-pulled com.fake.one"
-"$REAL_ADB" -s emulator-5610 shell pm list packages -3 | tr -d '\r' | sed 's/^package://' | grep -v '^dev.glasslauncher$' |
-  while read -r p; do "$REAL_ADB" -s emulator-5610 uninstall "$p" >/dev/null 2>&1; done
+# su fallback (run-as unreadable) in a fresh mirror dir; a MIRROR_DIR inside the repo is refused
+touch "$T/runas_fail"; MIRROR_DIR="$T/mirror2" expect "mirror falls back to su tar" 0 "$E" mirror
+grep -q 'exec-out su -c tar' "$T/calls.log" && grep -q "glass-data: pulled" "$T/mirror2/summary.txt" && ok "su fallback used" || bad "su fallback"
+MIRROR_DIR="$ROOT/docs" expect "mirror refuses a MIRROR_DIR inside the repo" 2 "$E" mirror
+# remove only what this test installed on the twin
+comm -13 <(echo "$before_pkgs") <(pkgs_now) | sed 's/^package://' | while read -r p; do "$REAL_ADB" -s emulator-5610 uninstall "$p" >/dev/null 2>&1; done
 unset GLASS_STICK
 expect "deploy-stick --stick refuses without GLASS_DEVICE" 3 env GLASS_BUILD=/bin/false "$E" deploy-stick --stick
 expect "deploy-stick --stick refuses with GLASS_DEVICE but no lock" 3 env GLASS_DEVICE=1 TV_OWNER=nobody GLASS_BUILD=/bin/false "$E" deploy-stick --stick
-printf '#!/bin/sh\necho "$@" > "%s/build.args"\n' "$T" > "$T/stubbuild"; chmod +x "$T/stubbuild"
-expect "deploy-stick --stick delegates when both opt-ins hold" 0 env GLASS_DEVICE=1 GLASS_BUILD="$T/stubbuild" "$E" deploy-stick debug --stick
+printf '#!/bin/sh\necho "$@" > "%s/build.args"; echo "${ANDROID_SERIAL:-}|${ANDROID_ADB_SERVER_PORT:-}" > "%s/build.env"\n' "$T" "$T" > "$T/stubbuild"; chmod +x "$T/stubbuild"
+expect "deploy-stick --stick delegates when both opt-ins hold" 0 env ANDROID_SERIAL=emulator-5610 GLASS_DEVICE=1 GLASS_BUILD="$T/stubbuild" "$E" deploy-stick debug --stick
 [ "$(cat "$T/build.args")" = "debug --device" ] && ok "delegated to build --device" || bad "delegation args: $(cat "$T/build.args" 2>/dev/null)"
+[ "$(cat "$T/build.env")" = "FAKESTICK0001|" ] && ok "stick build ignores the emulator's ANDROID_SERIAL/port" || bad "build env: $(cat "$T/build.env")"
 GLASS_BUILD="$T/stubbuild" "$E" deploy-stick debug >/dev/null 2>&1
 [ "$(cat "$T/build.args")" = "debug" ] && ok "twin deploy builds without --device" || bad "twin deploy args"
+grep -q '^|-s FAKESTICK0001' "$T/calls.log" && ! grep -q '^5038|-s FAKESTICK0001' "$T/calls.log" && ok "stick calls use the default server port" || bad "stick calls on wrong port"
+! grep -q '^[^|]*|-s emulator' "$T/calls.log" || ! grep -v '^5038|' "$T/calls.log" | grep -q '^[^|]*|-s emulator' && ok "emulator calls use 5038" || bad "emulator call off 5038"
 [ ! -s "$T/violations.log" ] && ok "no default-server or non-read-only stick calls" || { bad "violations"; cat "$T/violations.log"; }
 exit $fail
