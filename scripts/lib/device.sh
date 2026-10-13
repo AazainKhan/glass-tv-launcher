@@ -11,7 +11,7 @@ if [ -z "${ANDROID_SERIAL:-}" ]; then
   [ -n "$ANDROID_SERIAL" ] || ANDROID_SERIAL="$( (adb devices || true) | awk 'NR>1 && $2=="device" {print $1; exit}')"
   export ANDROID_SERIAL
 fi
-TV_LOCK_DIR="${HOME}/.cache/glass-tv"
+TV_LOCK_DIR="${TV_LOCK_DIR:-${HOME}/.cache/glass-tv}"
 
 lock_owner() {  # prints the current holder of this device's lock, if any and unexpired
   local f="$TV_LOCK_DIR/$ANDROID_SERIAL.lock"

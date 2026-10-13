@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # An Android TV emulator for functional/focus work in parallel with the real stick.
 #
-#   scripts/emulator start [--window]   boot GlassTV_API31 headless (or with a window)
+#   scripts/emulator start [--twin] [--window]   boot GlassTV_API31 (or the Fire twin GlassFire_API30) headless
+#   scripts/emulator create-twin         create the Fire twin AVD (API 30 AOSP arm64, 1080p @320dpi, 1.7 GB, heap 384m); idempotent
+#   scripts/emulator mirror [--skip-glass-data]   copy the stick's user apps + Glass prefs onto the twin (stick READ-ONLY,
+#                                        needs GLASS_STICK=1 and the stick lock); resumable via build/mirror/
+#   scripts/emulator deploy-stick [debug|release] [--stick]   build once, install on the twin; --stick delegates to
+#                                        scripts/build --device (needs GLASS_DEVICE=1 and the stick lock)
 #   scripts/emulator install [debug|release]   build-free install of the last built APK, set as Home
 #   scripts/emulator env                 print the exports that point scripts at the emulator
 #   scripts/emulator stop
@@ -15,19 +20,29 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="$(grep sdk.dir "$ROOT/local.properties" | cut -d= -f2)"
-AVD=GlassTV_API31
+AVD=GlassTV_API31; MEM=2048
+TWIN_AVD=GlassFire_API30; TWIN_IMG="system-images;android-30;default;arm64-v8a"
+STICK_SERIAL="${STICK_SERIAL:-}"   # mirror/deploy-stick --stick: the stick's adb serial (export it)
 CONSOLE=5600; ADBPORT=5601; SERVER=5038
+# The twin has its own console/adb ports (5610/5611) so it can run beside the GlassTV_API31 emulator; mirror and
+# deploy-stick always act on it. Pass --twin to start/install/stop/env to address it.
+TWIN=0; case "${1:-}" in mirror|deploy-stick) TWIN=1 ;; esac
+for a in "$@"; do [ "$a" = --twin ] && TWIN=1; done
+[ "$TWIN" = 1 ] && { CONSOLE=5610; ADBPORT=5611; AVD=$TWIN_AVD; MEM=1700; }
 EADB=(env ANDROID_ADB_SERVER_PORT=$SERVER adb -s "emulator-$CONSOLE")
 
 case "${1:-}" in
   start)
     if "${EADB[@]}" get-state >/dev/null 2>&1; then echo "already running"; exit 0; fi
-    window=(-no-window); [ "${2:-}" = --window ] && window=()
+    window=(-no-window); twin=$TWIN
+    for a in "${@:2}"; do [ "$a" = --window ] && window=(); done
+    [ "$twin" = 1 ] && "$0" create-twin >/dev/null
     # Both adb servers scan USB, and a USB device belongs to whichever server opens it first. Make sure
     # the default server is up (and owns the stick) before the emulator's private server starts, or the
     # stick vanishes from every other session's `adb devices`. Never kill the default server while the
     # emulator runs; `scripts/emulator release-usb` fixes it if it happens.
-    adb start-server >/dev/null 2>&1
+    # (The twin skips that: it never touches the default server.)
+    [ "$twin" = 1 ] || adb start-server >/dev/null 2>&1
     mkdir -p "$ROOT/build"
     # The emulator registers with the adb server named in its own environment: keep it off the default one.
     # The emulator announces itself to adb (server port and discovery files under $HOME). Give it its
@@ -35,12 +50,15 @@ case "${1:-}" in
     EHOME="$HOME/.cache/glass-tv/emulator-home"; mkdir -p "$EHOME"
     AVDDIR="$HOME/.android/avd"; HOME="$EHOME" ANDROID_AVD_HOME="$AVDDIR" ANDROID_SDK_ROOT="$SDK" ANDROID_ADB_SERVER_PORT=$SERVER \
       nohup "$SDK/emulator/emulator" -avd "$AVD" -ports "$CONSOLE,$ADBPORT" "${window[@]}" \
-      -no-snapshot-save -no-boot-anim -gpu host -memory 2048 >"$ROOT/build/emulator.log" 2>&1 &
+      -no-snapshot-save -no-boot-anim -gpu host -memory $MEM >"$ROOT/build/emulator-$CONSOLE.log" 2>&1 &
     for _ in $(seq 1 120); do
       [ "$("${EADB[@]}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break
       sleep 2
     done
     "${EADB[@]}" shell settings put global window_animation_scale 0.5 >/dev/null
+    # Never leave a real device on the private server: stop and report if one shows up.
+    if ANDROID_ADB_SERVER_PORT=$SERVER adb devices | awk 'NR>1 && NF && $1 !~ /^emulator-/' | grep -q .; then
+      echo "a non-emulator device is on the emulator's adb server; stopping. Run: scripts/emulator release-usb" >&2; exit 4; fi
     echo "emulator up: eval \"\$(scripts/emulator env)\"" ;;
   install)
     variant="${2:-debug}"
@@ -55,6 +73,72 @@ case "${1:-}" in
     "${EADB[@]}" shell cmd package set-home-activity dev.glasslauncher/.MainActivity >/dev/null
     "${EADB[@]}" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity >/dev/null
     echo "installed $variant on the emulator" ;;
+  create-twin)
+    # Fire TV Stick 4K 2nd Gen look-alike: Android 11 / API 30, 1920x1080 @ 320 dpi (ro.sf.lcd_density), 60 Hz,
+    # ~1.7 GB RAM, VM heap 384m (dalvik.vm.heapsize). Fire's 32-bit userspace can't boot on Apple silicon, so this is
+    # the AOSP (no Google apps, like Fire) arm64 API 30 image: no android-tv arm64 image exists for API 30.
+    ini="$HOME/.android/avd/$TWIN_AVD.avd/config.ini"
+    if [ ! -f "$ini" ]; then
+      export ANDROID_SDK_ROOT="$SDK"
+      [ -d "$SDK/system-images/android-30/default/arm64-v8a" ] || { yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" "$TWIN_IMG" >/dev/null; }
+      echo no | "$SDK/cmdline-tools/latest/bin/avdmanager" create avd -n "$TWIN_AVD" -k "$TWIN_IMG" -d tv_1080p -f >/dev/null
+    fi
+    setcfg() { grep -q "^$1=" "$ini" && sed -i.bak "s|^$1=.*|$1=$2|" "$ini" || echo "$1=$2" >> "$ini"; }
+    setcfg hw.lcd.width 1920; setcfg hw.lcd.height 1080; setcfg hw.lcd.density 320; setcfg hw.lcd.vsync 60
+    setcfg hw.ramSize 1700; setcfg vm.heapSize 384M; setcfg hw.initialOrientation landscape; setcfg showDeviceFrame no
+    rm -f "$ini.bak"; echo "twin AVD $TWIN_AVD ready (scripts/emulator start --twin)" ;;
+  mirror)
+    # Copies from the stick, read-only: user-installed APKs (+ splits) and Glass's own prefs. Everything stick-facing goes
+    # through stick_adb, which refuses unless GLASS_STICK=1 and you hold the stick lock.
+    stick_adb() {
+      [ "${GLASS_STICK:-0}" = 1 ] || { echo "mirror: reads the real stick; set GLASS_STICK=1." >&2; exit 3; }
+      [ -n "$STICK_SERIAL" ] || { echo "mirror: export STICK_SERIAL=<the stick's adb serial>." >&2; exit 3; }
+      ( ANDROID_SERIAL="$STICK_SERIAL"; export ANDROID_SERIAL; source "$ROOT/scripts/lib/device.sh"; require_device_access
+        o="$(lock_owner)"; [ -n "$o" ] && [ "$o" = "${TV_OWNER:-}" ] || { echo "mirror: hold the stick lock (scripts/stick-lock take \"<who>\"; export TV_OWNER)." >&2; exit 3; } ) || exit 3
+      env -u ANDROID_ADB_SERVER_PORT adb -s "$STICK_SERIAL" "$@"
+    }
+    glassdata=1; [ "${2:-}" = --skip-glass-data ] && glassdata=0
+    M="${MIRROR_DIR:-$ROOT/build/mirror}"; mkdir -p "$M/apks"; : > "$M/summary.txt"; touch "$M/installed.txt"
+    pkgs="$(stick_adb shell pm list packages -3 | tr -d '\r' | sed 's/^package://' | sort)" || exit 3
+    for pkg in $pkgs; do
+      [ "$pkg" = dev.glasslauncher ] && continue
+      grep -qx "$pkg" "$M/installed.txt" && { echo "done    $pkg" >> "$M/summary.txt"; continue; }
+      d="$M/apks/$pkg"; mkdir -p "$d"
+      for path in $(stick_adb shell pm path "$pkg" | tr -d '\r' | sed 's/^package://'); do
+        [ -s "$d/$(basename "$path")" ] || stick_adb pull "$path" "$d/$(basename "$path")" >/dev/null || rm -f "$d/$(basename "$path")"
+      done
+      set -- "$d"/*.apk
+      [ -e "$1" ] || { echo "skipped $pkg: pull failed" >> "$M/summary.txt"; continue; }
+      # 32-bit-only: native libs for armeabi* but none for arm64-v8a (the twin has no AArch32).
+      libs="$(for f in "$d"/*.apk; do unzip -Z1 "$f" 'lib/*' 2>/dev/null || true; done)"
+      if echo "$libs" | grep -q '^lib/armeabi' && ! echo "$libs" | grep -q '^lib/arm64-v8a'; then
+        echo "skipped $pkg: 32-bit-only (no arm64 lib)" >> "$M/summary.txt"; continue; fi
+      if [ $# -gt 1 ]; then cmd=install-multiple; else cmd=install; fi
+      if "${EADB[@]}" "$cmd" -r "$@" >/dev/null 2>&1; then echo "$pkg" >> "$M/installed.txt"; echo "installed $pkg ($# apk)" >> "$M/summary.txt"
+      else echo "skipped $pkg: twin install failed" >> "$M/summary.txt"; fi
+    done
+    if [ "$glassdata" = 1 ]; then
+      # Glass's prefs and config: run-as for a debug build, else root (Magisk su). Read-only tar to stdout.
+      T="$M/glass-data.tar"
+      if ! { stick_adb exec-out run-as dev.glasslauncher tar cf - shared_prefs files > "$T" 2>/dev/null && [ -s "$T" ]; }; then
+        stick_adb exec-out su -c 'tar cf - -C /data/data/dev.glasslauncher shared_prefs files' > "$T" 2>/dev/null || true; fi
+      if [ -s "$T" ]; then
+        if "${EADB[@]}" shell "run-as dev.glasslauncher tar xf -" < "$T" >/dev/null 2>&1; then echo "glass-data: restored on twin" >> "$M/summary.txt"
+        else echo "glass-data: pulled, NOT restored (twin needs a debug Glass build: run-as)" >> "$M/summary.txt"; fi
+      else echo "glass-data: not readable on the stick (neither run-as nor su)" >> "$M/summary.txt"; fi
+    fi
+    cat "$M/summary.txt" ;;
+  deploy-stick)
+    variant=debug; stick=0
+    for a in "${@:2}"; do case "$a" in --stick) stick=1 ;; debug|release) variant=$a ;; *) echo "usage: deploy-stick [debug|release] [--stick]" >&2; exit 2 ;; esac; done
+    if [ "$stick" = 1 ]; then
+      [ -n "$STICK_SERIAL" ] || { echo "deploy-stick --stick: export STICK_SERIAL=<the stick's adb serial>." >&2; exit 3; }
+      # Both opt-ins, checked before anything builds. scripts/build --device then re-checks and installs.
+      ( ANDROID_SERIAL="$STICK_SERIAL"; export ANDROID_SERIAL; source "$ROOT/scripts/lib/device.sh"; require_device_write ) || exit 3
+      exec "${GLASS_BUILD:-$ROOT/scripts/build}" "$variant" --device
+    fi
+    "${GLASS_BUILD:-$ROOT/scripts/build}" "$variant"   # build only: no adb, no privapp-check
+    "$0" install "$variant" --twin ;;
   release-usb)
     # The private server grabbed a real device (stick missing from `adb devices`): hand it back.
     ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
@@ -64,7 +148,8 @@ case "${1:-}" in
     echo "export ANDROID_ADB_SERVER_PORT=$SERVER ANDROID_SERIAL=emulator-$CONSOLE" ;;
   stop)
     "${EADB[@]}" emu kill >/dev/null 2>&1 || "${EADB[@]}" shell reboot -p >/dev/null 2>&1 || true
-    ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
+    # The twin shares the private server with the GlassTV emulator: leave it running.
+    [ "$TWIN" = 1 ] || ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
     echo "stopped" ;;
-  *) sed -n '2,14p' "$0"; exit 2 ;;
+  *) sed -n '2,24p' "$0"; exit 2 ;;
 esac
