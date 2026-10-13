@@ -15,6 +15,7 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -26,17 +27,20 @@ class DownloadQueueTest {
     private val state get() = File(tmp.root, "state/queue.json")
     private val dir get() = File(tmp.root, "files")
 
-    private fun queue() = DownloadQueue(scope, DownloadEngine(backoffMs = { 0 }), dir, state)
+    private var worked = 0
+    private fun queue(cleartext: Boolean = true) =
+        DownloadQueue(scope, DownloadEngine(backoffMs = { 0 }, keepFreeBytes = 0), dir, state, onWork = { worked++ }, saveDelayMs = 0, allowCleartext = cleartext)
 
     @After fun stop() = scope.cancel()
 
-    @Test fun queueSurvivesARestart() {
+    @Test fun queueSurvivesARestart() = runBlocking {
         val a = queue()
         val one = a.add("http://localhost/one.bin", name = "one.bin", sha256 = "ab".repeat(32), paused = true)
         a.add("http://localhost/two.bin", paused = true)
         a.setConcurrency(3); a.setSegments(6)
         a.moveToTop(a.items.value[1].id)
 
+        a.flush()
         val b = queue()
         b.load()
         assertEquals(a.items.value, b.items.value)
@@ -45,12 +49,74 @@ class DownloadQueueTest {
         assertEquals(DownloadState.Paused, b.items.value.first().state)
     }
 
+    @Test fun onlyHttpsLinksCanBeAdded() {
+        val q = queue(cleartext = false)
+        for (bad in listOf("http://example.com/a.bin", "ftp://example.com/a", "not a url")) {
+            try { q.add(bad, paused = true); fail("accepted $bad") } catch (e: IllegalArgumentException) { /* expected */ }
+        }
+        q.add("https://example.com/a.bin", paused = true)
+        assertEquals(1, q.items.value.size)
+    }
+
+    @Test fun pauseAllLeavesTheNextOneAlone() {
+        val server = MockWebServer().also { it.start() }
+        server.enqueue(MockResponse.Builder().onRequestStart(SocketEffect.Stall).build())
+        val q = queue().also { it.setConcurrency(1) }
+        q.add(server.url("/a").toString())
+        q.add(server.url("/b").toString())
+        assertEquals(listOf(DownloadState.Active, DownloadState.Queued), q.items.value.map { it.state })
+        assertEquals(1, worked)
+        q.pauseAll()
+        assertEquals(listOf(DownloadState.Paused, DownloadState.Paused), q.items.value.map { it.state })
+        assertEquals(1, worked) // the second was never started, so no service start came from a paused queue
+        server.close()
+    }
+
+    @Test fun aFinishedFileIsKeptEvenIfPauseWonTheRace() {
+        val q = queue()
+        val id = q.add("https://example.com/a.bin", paused = true)
+        q.finish(id, Finished(File(dir, "a.bin"), 5, null, "https://example.com/a.bin", false))
+        val item = q.items.value.single()
+        assertEquals(DownloadState.Done, item.state)
+        assertEquals("a.bin", item.file)
+        assertEquals(5L, item.downloaded)
+    }
+
+    @Test fun removeFinishedDropsDoneAndFailedAndTheirFiles() = runBlocking {
+        val server = FileServer(testBytes(20_000))
+        val q = queue()
+        q.add(server.url("/one.bin")); q.add(server.url("/two.bin"))
+        val done = withTimeout(20_000) { q.items.first { list -> list.size == 2 && list.all { it.state == DownloadState.Done } } }
+        val files = done.map { File(dir, it.file!!) }
+        val running = q.add("https://example.com/later.bin", paused = true)
+        q.removeFinished(deleteFiles = true)
+        assertEquals(listOf(running), q.items.value.map { it.id })
+        withTimeout(5_000) { while (files.any { it.exists() }) delay(20) }
+        server.stop()
+    }
+
+    @Test fun crossHostRedirectWaitsForTheUserThenContinues() = runBlocking {
+        val target = FileServer(testBytes(30_000))
+        val origin = FileServer(ByteArray(0)).also {
+            it.redirectTo = target.server.url("/f.bin").newBuilder().host("127.0.0.1").build().toString()
+        }
+        val q = queue()
+        val id = q.add(origin.url())
+        val stopped = withTimeout(20_000) { q.items.first { it.single().state == DownloadState.Failed } }.single()
+        assertEquals("127.0.0.1", stopped.blockedHost)
+        q.allowRedirect(id, "127.0.0.1")
+        val done = withTimeout(20_000) { q.items.first { it.single().state == DownloadState.Done } }.single()
+        assertEquals(30_000L, File(dir, done.file!!).length())
+        origin.stop(); target.stop()
+    }
+
     @Test fun runningDownloadsComeBackQueued() {
         val server = MockWebServer().also { it.start() }
         server.enqueue(MockResponse.Builder().onRequestStart(SocketEffect.Stall).build())
         val a = queue()
         a.add(server.url("/x").toString())
         assertEquals(DownloadState.Active, a.items.value.single().state)
+        runBlocking { a.flush() }
         val b = queue()
         b.load()
         assertEquals(DownloadState.Queued, b.items.value.single().state)

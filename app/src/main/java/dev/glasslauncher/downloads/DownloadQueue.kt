@@ -1,7 +1,11 @@
 package dev.glasslauncher.downloads
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +30,10 @@ class DownloadQueue(
     private val engine: DownloadEngine,
     private val dir: File,
     private val stateFile: File,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val saveDelayMs: Long = 300,
+    /** Tests serve from a local http server; the app never does. */
+    private val allowCleartext: Boolean = false,
     /** Called whenever a download starts, so the foreground service can come up. */
     private val onWork: () -> Unit = {},
 ) {
@@ -38,6 +46,8 @@ class DownloadQueue(
         private set
 
     private val jobs = HashMap<String, Job>()
+    private var saving: Job? = null
+    private val fileLock = Any()
 
     /** Reads the saved queue. Downloads that were running are queued again; nothing starts until [startPending]. */
     @Synchronized
@@ -46,6 +56,8 @@ class DownloadQueue(
         concurrency = saved.concurrency.coerceIn(1, 4)
         segments = saved.segments.coerceIn(1, 8)
         _items.value = saved.items.map { if (it.state == DownloadState.Active) it.copy(state = DownloadState.Queued, bytesPerSecond = 0) else it }
+        val known = _items.value.map { it.id }.toSet()
+        scope.launch(io) { DownloadEngine.sweep(dir, known) }
     }
 
     /** Starts whatever is waiting (after [load], or when the service is restarted). */
@@ -54,7 +66,8 @@ class DownloadQueue(
 
     @Synchronized
     fun add(url: String, name: String? = null, sha256: String? = null, paused: Boolean = false): String {
-        require(url.toHttpUrlOrNull() != null) { "Not an http(s) URL: $url" }
+        val parsed = url.toHttpUrlOrNull()
+        require(parsed != null && (parsed.isHttps || allowCleartext)) { "Downloads need an https link" }
         val item = DownloadItem(
             UUID.randomUUID().toString(), url, name, sha256,
             state = if (paused) DownloadState.Paused else DownloadState.Queued,
@@ -80,8 +93,29 @@ class DownloadQueue(
         pump()
     }
 
+    /** Marks everything paused first, so cancelling one run cannot let the scheduler start the next. */
     @Synchronized
-    fun pauseAll() = _items.value.forEach { pause(it.id) }
+    fun pauseAll() {
+        val waiting = _items.value.filter { it.state == DownloadState.Active || it.state == DownloadState.Queued }.map { it.id }.toSet()
+        if (waiting.isEmpty()) return
+        _items.update { list -> list.map { if (it.id in waiting) it.copy(state = DownloadState.Paused, bytesPerSecond = 0) else it } }
+        waiting.forEach { jobs[it]?.cancel() }
+        pump()
+    }
+
+    /** Takes the finished and failed downloads off the list; [deleteFiles] also deletes the files. */
+    @Synchronized
+    fun removeFinished(deleteFiles: Boolean) {
+        _items.value.filter { it.state == DownloadState.Done || it.state == DownloadState.Failed }.forEach { remove(it.id, deleteFiles) }
+    }
+
+    /** Lets a download that stopped at a redirect continue to [host]. */
+    @Synchronized
+    fun allowRedirect(id: String, host: String) {
+        if (state(id) != DownloadState.Failed) return
+        set(id) { it.copy(allowedHosts = it.allowedHosts + host, blockedHost = null) }
+        resume(id)
+    }
 
     @Synchronized
     fun moveToTop(id: String) {
@@ -134,18 +168,19 @@ class DownloadQueue(
         val previous = jobs[item.id]
         jobs[item.id] = scope.launch {
             previous?.join() // a paused run may still be writing its sidecar
+            if (state(item.id) != DownloadState.Active) return@launch // the old run finished it, or it was paused again
             try {
-                val done = engine.download(DownloadRequest(item.id, item.url, dir, item.name, item.expectedSha256, segments)) { p ->
+                val done = engine.download(DownloadRequest(item.id, item.url, dir, item.name, item.expectedSha256, segments, item.allowedHosts), onFinished = { finish(item.id, it) }) { p ->
                     patch(item.id) { it.copy(downloaded = p.downloaded, size = p.size, bytesPerSecond = p.bytesPerSecond, restarted = it.restarted || p.restarted) }
                 }
-                finish(item.id) {
-                    it.copy(state = DownloadState.Done, file = done.file.name, size = done.size, downloaded = done.size, bytesPerSecond = 0,
-                        sha256 = done.sha256, finalUrl = done.finalUrl, restarted = it.restarted || done.restarted, error = null)
-                }
+                finish(item.id, done)
             } catch (e: CancellationException) {
                 throw e // pause and remove already set the state
             } catch (e: Exception) {
-                finish(item.id) { it.copy(state = DownloadState.Failed, bytesPerSecond = 0, error = e.message ?: e.javaClass.simpleName) }
+                finish(item.id) {
+                    it.copy(state = DownloadState.Failed, bytesPerSecond = 0, error = e.message ?: e.javaClass.simpleName,
+                        blockedHost = (e as? DownloadFailure.CrossHost)?.host)
+                }
             }
         }
     }
@@ -161,13 +196,36 @@ class DownloadQueue(
         pump()
     }
 
+    /** A file that finished is kept even if Pause arrived first: the part file is gone, so it cannot be resumed. */
+    @Synchronized
+    internal fun finish(id: String, done: Finished) {
+        val s = state(id)
+        if (s != DownloadState.Active && s != DownloadState.Paused) return
+        set(id) {
+            it.copy(state = DownloadState.Done, file = done.file.name, size = done.size, downloaded = done.size, bytesPerSecond = 0,
+                sha256 = done.sha256, finalUrl = done.finalUrl, restarted = it.restarted || done.restarted, error = null, blockedHost = null)
+        }
+        pump()
+    }
+
+    // Many state changes come in a burst; one write after a short quiet beats a disk write on Main for each.
     private fun save() {
+        if (saving?.isActive == true) return
+        saving = scope.launch(io) { delay(saveDelayMs); write() }
+    }
+
+    /** Writes the list now; for tests and for a clean exit. */
+    internal suspend fun flush() = withContext(io) { saving?.cancel(); write() }
+
+    private fun write() {
         val data = QueueFile(concurrency, segments, _items.value)
-        runCatching {
-            stateFile.parentFile?.mkdirs()
-            val tmp = File(stateFile.path + ".tmp")
-            tmp.writeText(json.encodeToString(QueueFile.serializer(), data))
-            tmp.renameTo(stateFile)
+        synchronized(fileLock) {
+            runCatching {
+                stateFile.parentFile?.mkdirs()
+                val tmp = File(stateFile.path + ".tmp")
+                tmp.writeText(json.encodeToString(QueueFile.serializer(), data))
+                tmp.renameTo(stateFile)
+            }
         }
     }
 

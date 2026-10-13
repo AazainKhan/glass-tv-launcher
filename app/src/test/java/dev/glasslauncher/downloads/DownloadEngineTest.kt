@@ -264,7 +264,7 @@ class DownloadEngineTest {
         }
         withTimeout(10_000) { started.await() }
         try {
-            shared.download(request(b, id = "small"), {})
+            shared.download(request(b, id = "small")) {}
             fail("the big download still has bytes to write")
         } catch (e: DownloadFailure.NoSpace) { /* expected */ }
         first.cancelAndJoin()

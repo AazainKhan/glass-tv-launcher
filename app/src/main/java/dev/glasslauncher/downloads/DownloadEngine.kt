@@ -70,14 +70,15 @@ class DownloadEngine(
         }
     }
 
-    suspend fun download(req: DownloadRequest, onProgress: (Progress) -> Unit): Finished {
+    /** [onFinished] runs as soon as the file is in place, even if the caller was cancelled a moment before (Pause racing the last byte). */
+    suspend fun download(req: DownloadRequest, onFinished: (Finished) -> Unit = {}, onProgress: (Progress) -> Unit): Finished {
         val probe = probe(req.url)
         val host = DownloadInput.host(probe.finalUrl).orEmpty()
         if (host != DownloadInput.host(req.url) && host !in req.allowedHosts) throw DownloadFailure.CrossHost(host)
         var fresh = false
         while (true) {
             try {
-                return attempt(req, probe, fresh, onProgress)
+                return attempt(req, probe, fresh, onFinished, onProgress)
             } catch (e: Restart) {
                 if (fresh) throw DownloadFailure.Network("the server keeps refusing to continue")
                 fresh = true
@@ -85,7 +86,7 @@ class DownloadEngine(
         }
     }
 
-    private suspend fun attempt(req: DownloadRequest, probe: Probe, fresh: Boolean, onProgress: (Progress) -> Unit): Finished =
+    private suspend fun attempt(req: DownloadRequest, probe: Probe, fresh: Boolean, onFinished: (Finished) -> Unit, onProgress: (Progress) -> Unit): Finished =
         withContext(io) {
             val part = File(req.dir, "${req.id}.part")
             val metaFile = File(req.dir, "${req.id}.part.json")
@@ -161,7 +162,7 @@ class DownloadEngine(
             }
             val target = claim(part, req.dir, req.name?.let(::safeName) ?: probe.fileName?.let(::safeName) ?: nameFromUrl(probe.finalUrl))
             metaFile.delete()
-            Finished(target, target.length(), actual, probe.finalUrl, restarted)
+            Finished(target, target.length(), actual, probe.finalUrl, restarted).also(onFinished)
         }
 
     private fun plan(probe: Probe, n: Int): List<Segment> {
