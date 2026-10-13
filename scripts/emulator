@@ -166,9 +166,26 @@ case "${1:-}" in
   env)
     echo "export ANDROID_ADB_SERVER_PORT=$SERVER ANDROID_SERIAL=emulator-$CONSOLE" ;;
   stop)
-    "${EADB[@]}" emu kill >/dev/null 2>&1 || "${EADB[@]}" shell reboot -p >/dev/null 2>&1 || true
+    # `emu kill` only works with the console auth token, which lives under the emulator's own HOME (start runs it with
+    # HOME=$EHOME), so a plain adb/console call from your HOME is refused ("KO: unknown command"). Try, in order:
+    # adb emu kill as that HOME; the console over nc with that token; SIGTERM then SIGKILL of the matching qemu process.
+    EHOME="$HOME/.cache/glass-tv/emulator-home"
+    pat="qemu-system.* -avd $AVD .*-ports $CONSOLE,$ADBPORT"
+    alive() { pgrep -f "$pat" >/dev/null 2>&1; }
+    gone() {  # process exited and the private server no longer lists the device; waits up to $1 s
+      for _ in $(seq 1 "$1"); do
+        alive || ANDROID_ADB_SERVER_PORT=$SERVER adb devices | grep -q "^emulator-$CONSOLE" || return 0; sleep 1; done; return 1; }
+    if alive; then
+      HOME="$EHOME" "${EADB[@]}" emu kill >/dev/null 2>&1 || true
+      gone 6 || {
+        tok="$(cat "$EHOME/.emulator_console_auth_token" 2>/dev/null || true)"
+        [ -n "$tok" ] && { printf 'auth %s\nkill\n' "$tok"; sleep 1; } | nc 127.0.0.1 "$CONSOLE" >/dev/null 2>&1 || true
+      }
+      gone 6 || { pkill -TERM -f "$pat" || true; gone 15 || { pkill -KILL -f "$pat" || true; gone 5; }; } || true
+    fi
+    if alive || ANDROID_ADB_SERVER_PORT=$SERVER adb devices | grep -q "^emulator-$CONSOLE"; then
+      echo "stop: emulator-$CONSOLE is still running" >&2; exit 1; fi
     # The private server is shared by both emulators: kill it only when no emulator is left on it.
-    for _ in 1 2 3 4 5 6 7 8; do ANDROID_ADB_SERVER_PORT=$SERVER adb devices | grep -q "^emulator-$CONSOLE" || break; sleep 1; done
     ANDROID_ADB_SERVER_PORT=$SERVER adb devices | grep -q '^emulator-' || ANDROID_ADB_SERVER_PORT=$SERVER adb kill-server >/dev/null 2>&1 || true
     echo "stopped" ;;
   *) sed -n '2,24p' "$0"; exit 2 ;;
