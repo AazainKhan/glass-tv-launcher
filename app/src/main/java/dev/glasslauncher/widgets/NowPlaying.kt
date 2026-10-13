@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadata
+import android.media.Rating
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
@@ -41,6 +42,10 @@ data class NowPlaying(
     val speed: Float,
     val playing: Boolean,
     val controller: Controls,
+    /** The session accepts ACTION_SEEK_TO and the item has a length: the scrubber shows. */
+    val canSeek: Boolean = false,
+    /** The like control the session offers (hidden when [Like.None]) and its state. */
+    val like: Like = Like.None,
 ) {
     /** What play/pause and skip do: a media session's controls, or AirPlay's transport. */
     interface Controls {
@@ -48,6 +53,12 @@ data class NowPlaying(
         fun pause()
         fun next()
         fun previous()
+        fun seekTo(positionMs: Long) {}
+        /** Heart rating (true) or its removal. */
+        fun setHeart(liked: Boolean) {}
+        /** Thumb-up rating (true) or clearing it. */
+        fun setThumbUp(liked: Boolean) {}
+        fun customAction(id: String) {}
     }
 
     fun positionNow(now: Long = SystemClock.elapsedRealtime()): Long =
@@ -56,6 +67,22 @@ data class NowPlaying(
     fun playPause() = if (playing) controller.pause() else controller.play()
     fun next() = controller.next()
     fun previous() = controller.previous()
+
+    /** Seeks [deltaMs] from where the bar is now, clamped to 0..duration. No-op unless the session can seek. */
+    fun seekBy(deltaMs: Long) {
+        if (!canSeek || durationMs <= 0) return
+        controller.seekTo((positionNow() + deltaMs).coerceIn(0, durationMs))
+    }
+
+    /** Flips the like through whichever mechanism the session offers. No-op without one. */
+    fun toggleLike() {
+        when (val l = like) {
+            Like.None -> Unit
+            is Like.Heart -> controller.setHeart(!l.liked)
+            is Like.ThumbUpDown -> controller.setThumbUp(!l.liked)
+            is Like.Custom -> controller.customAction(l.id)
+        }
+    }
 
     /** Identity of the track and its state, for animations and backdrop keys (not the per-update position). */
     val key: String get() = "$packageName|$title|$artist|$album"
@@ -66,6 +93,11 @@ private class SessionControls(private val t: MediaController.TransportControls) 
     override fun pause() = t.pause()
     override fun next() = t.skipToNext()
     override fun previous() = t.skipToPrevious()
+    override fun seekTo(positionMs: Long) = t.seekTo(positionMs)
+    override fun setHeart(liked: Boolean) = t.setRating(Rating.newHeartRating(liked))
+    override fun setThumbUp(liked: Boolean) =
+        t.setRating(if (liked) Rating.newThumbRating(true) else Rating.newUnratedRating(Rating.RATING_THUMB_UP_DOWN))
+    override fun customAction(id: String) = t.sendCustomAction(id, null)
 }
 
 object NowPlayingSource {
@@ -101,19 +133,29 @@ object NowPlayingSource {
                     art = raw?.let { scaled(it) }
                 }
                 val state = c.playbackState
+                val now = SystemClock.elapsedRealtime()
+                val duration = NowPlayingCaps.duration(meta.getLong(MediaMetadata.METADATA_KEY_DURATION))
+                val actions = state?.actions ?: 0L
+                val userRating = runCatching { meta.getRating(MediaMetadata.METADATA_KEY_USER_RATING) }.getOrNull()
+                val userLiked = userRating?.takeIf { it.isRated }?.let { r ->
+                    when (r.ratingStyle) { Rating.RATING_HEART -> r.hasHeart(); Rating.RATING_THUMB_UP_DOWN -> r.isThumbUp; else -> null }
+                }
+                val custom = state?.customActions.orEmpty().map { it.action to it.name }
                 trySend(
                     NowPlaying(
-                        title = title,
-                        artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE),
-                        album = meta.getString(MediaMetadata.METADATA_KEY_ALBUM),
+                        title = NowPlayingCaps.text(title) ?: run { trySend(null); return },
+                        artist = NowPlayingCaps.text(meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)),
+                        album = NowPlayingCaps.text(meta.getString(MediaMetadata.METADATA_KEY_ALBUM)),
                         packageName = c.packageName,
                         art = art,
-                        durationMs = meta.getLong(MediaMetadata.METADATA_KEY_DURATION),
-                        positionMs = state?.position ?: 0,
-                        positionAt = state?.lastPositionUpdateTime?.takeIf { it > 0 } ?: SystemClock.elapsedRealtime(),
-                        speed = state?.playbackSpeed?.takeIf { it > 0f } ?: 1f,
+                        durationMs = duration,
+                        positionMs = NowPlayingCaps.position(state?.position ?: 0, duration),
+                        positionAt = NowPlayingCaps.updatedAt(state?.lastPositionUpdateTime ?: 0, now),
+                        speed = NowPlayingCaps.speed(state?.playbackSpeed ?: 1f),
                         playing = state?.state == PlaybackState.STATE_PLAYING,
                         controller = SessionControls(c.transportControls),
+                        canSeek = NowPlayingCaps.canSeek(actions, duration),
+                        like = NowPlayingCaps.like(actions, c.ratingType, userLiked, custom),
                     ),
                 )
             }
@@ -144,7 +186,7 @@ object NowPlayingSource {
                 watched.forEach { (c, cb) -> c.unregisterCallback(cb) }
             }
         }.distinctUntilChanged { a, b ->
-            a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs
+            sameState(a, b)
         }
     }
 
@@ -204,10 +246,15 @@ class NowPlayingRepository(context: Context, scope: CoroutineScope) {
     val state: StateFlow<NowPlaying?> = kotlinx.coroutines.flow.combine(NowPlayingSource.flow(context.applicationContext), hub.ui) { media, air ->
         air.track?.let { airPlayNowPlaying(it, air.sender, SystemClock.elapsedRealtime()) { _ -> hub.playPause() } } ?: media
     }.distinctUntilChanged { a, b ->
-        a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs
+        sameState(a, b)
     // Stays warm for ten minutes behind an app, so a Home press already knows what is playing on its first frame (P142).
     }.stateIn(scope, SharingStarted.WhileSubscribed(10 * 60_000), null)
 }
+
+/** Whether two items need no re-publish: same track and the same play, position, length, seek and like state. */
+internal fun sameState(a: NowPlaying?, b: NowPlaying?) =
+    a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs &&
+        a?.canSeek == b?.canSeek && a?.like == b?.like
 
 /** Test seam: screenshot tests put a fixed now-playing state here; null (always, in the app) uses the real repository. */
 object NowPlayingFixture {
