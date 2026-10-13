@@ -102,13 +102,14 @@ object BrowserLink {
         return ok
     }
 
-    /** Plans (the manager's link rules) and starts one browser download with the user's settings; tells the browser how it went. */
-    private suspend fun startPlanned(context: Context, cfg: DownloadsConfig, to: Messenger?, url: String, name: String?, execOk: String) {
+    /** Plans (the manager's link rules) and starts one browser download with the user's settings; tells the browser how it went. True when the plan was accepted. */
+    private suspend fun startPlanned(context: Context, cfg: DownloadsConfig, to: Messenger?, url: String, name: String?, execOk: String): Boolean {
         val plan = DownloadPlanner.plan(url, emptyList(), cfg.acceptedUrls) { emptyList() }
-        if (plan !is Plan.Start) { reply(to, Msg.Notice((plan as Plan.Refuse).message)); return }
+        if (plan !is Plan.Start) { reply(to, Msg.Notice((plan as Plan.Refuse).message)); return false }
         runCatching { Downloads.start(context, cfg, plan.url, name, guardExec = true, execOk = execOk) }
             .onSuccess { reply(to, Msg.Notice("Downloading ${name ?: "the file"}")) }
             .onFailure { reply(to, Msg.Notice(it.message ?: "Couldn't start that download")) }
+        return true
     }
 
     private fun download(c: Context, d: Msg.Download, to: Messenger?) {
@@ -118,8 +119,8 @@ object BrowserLink {
             is BrowserDownload.Ask -> post({ _, cfg, open ->
                 val from = if (r.referrer.isNotEmpty() && r.referrer != r.host) " (from a page on ${r.referrer})" else ""
                 open(Overlay.Confirm("Download an app file?", "${r.host} is offering ${r.name ?: "a file"}$from. Only keep files from sites you trust.", "Download") {
-                    approved += r.key
-                    MainScope().launch { startPlanned(c, cfg, to, r.url, r.name, r.allow); backToBrowser(c) }
+                    // Remembered only for a link the planner accepted: a refused one earns no approval.
+                    MainScope().launch { if (startPlanned(c, cfg, to, r.url, r.name, r.allow)) approved += r.key; backToBrowser(c) }
                 })
             }, to, showGlass = true)
             is BrowserDownload.Refuse -> reply(to, Msg.Notice(r.reason))

@@ -43,9 +43,7 @@ import java.security.SecureRandom
  * writes no files; downloads and the on-screen keyboard are requests to Glass over [GlassLink].
  */
 class BrowserActivity : Activity() {
-    private companion object { const val HANDOFF_MS = 300_000L }
-
-    private enum class Mode { Links, Pointer }
+        private enum class Mode { Links, Pointer }
     /** What a Glass keyboard answer is for. */
     private enum class Target { Page, Address }
     /** [nonce] ties a page answer to the load it was asked on. */
@@ -71,7 +69,10 @@ class BrowserActivity : Activity() {
     private var seq = 0L
     private val random = SecureRandom()
     private val resetBusy = Runnable { busy = false }
-    private val dropPending = Runnable { pending = null }
+    private val dropPending = Runnable {
+        pending?.let { expired.addLast(it.id); while (expired.size > 8) expired.removeFirst() }
+        pending = null
+    }
 
     private fun newNonce() = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
 
@@ -79,7 +80,7 @@ class BrowserActivity : Activity() {
         super.onCreate(savedInstanceState)
         link = GlassLink(this, ::onGlass)
         buildViews()
-        if (!newWeb()) { toast("This device has no web view to browse with"); finish(); return }
+        if (!newWeb()) { toast("This device has no web view to browse with"); finishAndRemoveTask(); return }
         // A previous run that was killed (low memory) never reached onDestroy: its clear-on-close is owed.
         if (prefs().getBoolean("dirty", false)) clearData()
         handleIntent(intent)
@@ -118,7 +119,7 @@ class BrowserActivity : Activity() {
         }
         listOf(addressButton, modeButton, clear, closeButton).forEach { bar.addView(it) }
         stage = FrameLayout(this).apply { isFocusable = true; isFocusableInTouchMode = true }
-        pointerView = PointerView(this)
+        pointerView = PointerView(this).apply { visibility = View.GONE }
         root.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         root.addView(stage, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
         setContentView(root)
@@ -170,16 +171,16 @@ class BrowserActivity : Activity() {
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 if (view !== web) return true
-                if (detail.didCrash()) { toast("The web page crashed"); finish() }
+                if (detail.didCrash()) { toast("The web page crashed"); finishAndRemoveTask() }
                 else { val back = url; replaceWeb(); if (back.isNotEmpty()) web?.loadUrl(back) }
                 return true
             }
             override fun onPageStarted(view: WebView, u: String, favicon: Bitmap?) {
-                url = u; script = PageScript(newNonce()); busy = false; showUrl()
+                url = u; script = PageScript(newNonce()); busy = false; loading = true; showUrl()
                 if (pending?.target == Target.Page) pending = null
                 if (clearOnClose()) prefs().edit().putBoolean("dirty", true).apply()
             }
-            override fun onPageFinished(view: WebView, u: String) { url = u; showUrl(); scanPage() }
+            override fun onPageFinished(view: WebView, u: String) { url = u; loading = false; pagesShown++; showUrl(); scanPage() }
         }
         w.setDownloadListener { dlUrl, _, disposition, mime, _ ->
             if (Link.httpsHost(dlUrl) == null) { toast("Downloads need an https link"); return@setDownloadListener }
@@ -223,7 +224,11 @@ class BrowserActivity : Activity() {
     override fun dispatchKeyEvent(ev: KeyEvent): Boolean {
         val down = ev.action == KeyEvent.ACTION_DOWN
         if (ev.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (ev.action == KeyEvent.ACTION_UP) { if (web?.canGoBack() == true) web?.goBack() else finish() }
+            if (ev.action == KeyEvent.ACTION_UP) when (BackPolicy.act(web?.canGoBack() == true, loading, pagesShown)) {
+                BackPolicy.Act.GoBack -> web?.goBack()
+                BackPolicy.Act.CancelLoad -> web?.stopLoading()
+                BackPolicy.Act.Close -> finishAndRemoveTask()
+            }
             return true
         }
         if (!stage.isFocused) {
@@ -251,13 +256,14 @@ class BrowserActivity : Activity() {
 
     private fun toggleMode() {
         mode = if (mode == Mode.Links) Mode.Pointer else Mode.Links
+        pointerView.visibility = if (mode == Mode.Pointer) View.VISIBLE else View.GONE
         modeButton.text = if (mode == Mode.Links) "Pointer" else "Links"
         if (mode == Mode.Links) scanPage()
         pointerView.invalidate()
     }
 
     private fun toPointer(why: String) {
-        mode = Mode.Pointer; modeButton.text = "Links"; pointerView.invalidate(); toast(why)
+        mode = Mode.Pointer; pointerView.visibility = View.VISIBLE; modeButton.text = "Links"; pointerView.invalidate(); toast(why)
     }
 
     private fun moveLinks(dir: Dir) {
@@ -343,7 +349,8 @@ class BrowserActivity : Activity() {
             ) }
             is Msg.TextResult -> {
                 val p = pending
-                val route = TextRouting.route(p?.id, p?.nonce, msg.id, script.nonce)
+                val route = TextRouting.route(p?.id, p?.nonce, msg.id, script.nonce, expired.toSet())
+                if (route == TextRouting.Route.DropLate) { toast("That took too long, so the text wasn't entered"); return }
                 if (route == TextRouting.Route.Ignore || p == null) return
                 pending = null
                 if (route == TextRouting.Route.DropStale) { toast("The page changed, so the text wasn't entered"); return }
@@ -377,10 +384,13 @@ class BrowserActivity : Activity() {
 
     /** Hidden for a while, or the system wants memory: give the WebView (and its renderer) back, and rebuild it on return. */
     private val release: Runnable = Runnable { if (mayRelease()) releaseWeb() else main.postDelayed(release, 60_000) }
-    private var handoffAt = -HANDOFF_MS
+    private var handoffAt = -ReleasePolicy.HANDOFF_MS
+    private val expired = ArrayDeque<Long>()
+    private var loading = false
+    private var pagesShown = 0
 
     /** Never while Glass holds a request of ours (a typed answer, a download card): the page, form and back stack must survive it. */
-    private fun mayRelease() = pending == null && SystemClock.elapsedRealtime() - handoffAt > HANDOFF_MS
+    private fun mayRelease() = ReleasePolicy.mayRelease(pending != null, SystemClock.elapsedRealtime(), handoffAt)
     private var releasedUrl: String? = null
 
     private fun releaseWeb() {
@@ -409,6 +419,7 @@ class BrowserActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        handoffAt = -ReleasePolicy.HANDOFF_MS   // back from Glass: nothing is in flight any more
         web?.onResume(); web?.resumeTimers()
     }
 
@@ -423,7 +434,8 @@ class BrowserActivity : Activity() {
         if (clearOnClose()) clearData()
         link.send(Msg.Closed)
         link.dispose()
-        web?.let { it.stopLoading(); stage.removeView(it); it.destroy() }
+        // Give the renderer back at once, so the closed browser does not sit in the cache holding 100 MB.
+        web?.let { it.stopLoading(); it.loadUrl("about:blank"); it.onPause(); it.pauseTimers(); stage.removeView(it); it.destroy() }
         web = null
         super.onDestroy()
     }

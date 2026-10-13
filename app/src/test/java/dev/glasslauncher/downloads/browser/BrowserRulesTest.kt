@@ -87,6 +87,8 @@ class BrowserRulesTest {
         assertTrue(x.offends(listOf("a.apk"), null, ""))
         assertTrue(x.offends(listOf("a.apk", "b.exe"), null, "apk"))      // a different type behind the approved one
         assertTrue(x.offends(listOf("a.zip"), "application/vnd.android.package-archive", "apk"))   // an app disguised by name
+        assertTrue(x.offends(listOf("x.apk"), "application/x-sh", "apk"))          // the type must fit the approved extension too
+        assertTrue(!x.offends(listOf("x.apk"), "application/octet-stream", "apk"))
         assertTrue(!x.offends(listOf("dl"), "application/vnd.android.package-archive", "application/vnd.android.package-archive"))
     }
 

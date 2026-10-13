@@ -149,6 +149,25 @@ class WebTest {
         assertEquals(TextRouting.Route.Deliver, TextRouting.route(5, null, 5, "n2"))     // the address bar is not tied to a page
         assertEquals(TextRouting.Route.Ignore, TextRouting.route(5, "n1", 6, "n1"))
         assertEquals(TextRouting.Route.Ignore, TextRouting.route(null, null, 5, "n1"))
-        assertEquals(3, r.size)
+        assertEquals(TextRouting.Route.DropLate, TextRouting.route(null, null, 7, "n1", setOf(7L)))
+        assertEquals(TextRouting.Route.DropLate, TextRouting.route(9, "n1", 7, "n1", setOf(7L)))
+        assertEquals(TextRouting.Route.Ignore, TextRouting.route(null, null, 8, "n1", setOf(7L)))
+        assertEquals(4, r.size)
+    }
+
+    @Test fun theStopTimerAndTrimNeverReleaseAPageWithAHandoffOpen() {
+        val m = ReleasePolicy.HANDOFF_MS
+        assertTrue(ReleasePolicy.mayRelease(false, 10 * m, -m))
+        assertFalse(ReleasePolicy.mayRelease(true, 10 * m, -m))
+        assertFalse(ReleasePolicy.mayRelease(false, 1000 + m / 2, 1000))     // a card left open for a while
+        assertTrue(ReleasePolicy.mayRelease(false, 1000 + m + 1, 1000))
+    }
+
+    @Test fun backStepsBackCancelsALoadAndClosesOnlyFromTheFirstPage() {
+        assertEquals(BackPolicy.Act.GoBack, BackPolicy.act(true, false, 2))
+        assertEquals(BackPolicy.Act.GoBack, BackPolicy.act(true, true, 2))
+        assertEquals(BackPolicy.Act.CancelLoad, BackPolicy.act(false, true, 1))   // page 2 still loading: keep page 1
+        assertEquals(BackPolicy.Act.Close, BackPolicy.act(false, true, 0))        // the first page is still loading
+        assertEquals(BackPolicy.Act.Close, BackPolicy.act(false, false, 1))
     }
 }

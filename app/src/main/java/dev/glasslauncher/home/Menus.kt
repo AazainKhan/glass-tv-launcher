@@ -624,16 +624,21 @@ private fun PhoneSetupBody(overlay: Overlay.PhoneSetup, active: Boolean, close: 
     var url by remember { mutableStateOf<String?>(null) }
     var qr by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var status by remember { mutableStateOf("Starting…") }
+    var closed by remember { mutableStateOf(false) }
+    fun closeOnce() { if (!closed) { closed = true; close() } }
     val server = remember {
         PhoneSetupServer(overlay.title, overlay.fields) { values ->
             status = "Received ✓"
             overlay.onSubmit(values)
             kotlinx.coroutines.delay(900)
-            close()
+            closeOnce()
         }
     }
     // The form is open on the LAN only briefly.
-    LaunchedEffect(server) { kotlinx.coroutines.delay(PHONE_SETUP_MAX_MS); close() }
+    var expired by remember { mutableStateOf(false) }
+    LaunchedEffect(server) { kotlinx.coroutines.delay(PHONE_SETUP_MAX_MS); expired = true }
+    // Closing pops the top panel: only when this one is on top, so a card opened over it is never the one that goes.
+    LaunchedEffect(expired, active) { if (expired && active) closeOnce() }
     DisposableEffect(server) {
         scope.launch {
             val u = server.start(scope)
@@ -659,7 +664,7 @@ private fun PhoneSetupBody(overlay: Overlay.PhoneSetup, active: Boolean, close: 
         }
         url?.let { Text(it, style = Type.caption, color = palette.secondary, modifier = Modifier.padding(horizontal = 18.dp)) }
         Text(status, style = Type.body, color = palette.primary, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp).testTag("phone-status"))
-        MenuRow("Done", close, Modifier.focusRequester(first))
+        MenuRow("Done", { closeOnce() }, Modifier.focusRequester(first))
     }
 }
 

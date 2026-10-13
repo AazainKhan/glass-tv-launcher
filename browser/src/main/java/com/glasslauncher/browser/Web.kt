@@ -235,13 +235,33 @@ object BrowserRules {
 
 /** Where a keyboard answer from Glass goes. */
 object TextRouting {
-    enum class Route { Deliver, DropStale, Ignore }
+    enum class Route { Deliver, DropStale, DropLate, Ignore }
 
     /** [pendingId]/[pendingNonce]: the request being waited on (nonce is null for the address bar); [currentNonce]: the page now showing. */
-    fun route(pendingId: Long?, pendingNonce: String?, answerId: Long, currentNonce: String): Route = when {
+    fun route(pendingId: Long?, pendingNonce: String?, answerId: Long, currentNonce: String, expired: Set<Long> = emptySet()): Route = when {
+        (pendingId == null || pendingId != answerId) && answerId in expired -> Route.DropLate
         pendingId == null || pendingId != answerId -> Route.Ignore
         pendingNonce != null && pendingNonce != currentNonce -> Route.DropStale
         else -> Route.Deliver
+    }
+}
+
+/** When the page may be given up to free memory. */
+object ReleasePolicy {
+    const val HANDOFF_MS = 30 * 60_000L
+
+    /** Never while a request is pending, nor while a hand-off to Glass (keyboard, download card) may still be open. */
+    fun mayRelease(pending: Boolean, nowMs: Long, handoffAtMs: Long): Boolean = !pending && nowMs - handoffAtMs > HANDOFF_MS
+}
+
+/** What Back does: step back in history, cancel a page that is still loading, close only from the first page. */
+object BackPolicy {
+    enum class Act { GoBack, CancelLoad, Close }
+
+    fun act(canGoBack: Boolean, loading: Boolean, pagesShown: Int): Act = when {
+        canGoBack -> Act.GoBack
+        loading && pagesShown > 0 -> Act.CancelLoad   // the next page has not committed yet: Back keeps the one on screen
+        else -> Act.Close
     }
 }
 

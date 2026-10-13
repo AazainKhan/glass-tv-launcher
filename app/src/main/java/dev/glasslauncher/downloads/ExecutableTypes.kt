@@ -10,6 +10,15 @@ object ExecutableTypes {
         "application/x-sh", "application/java-archive", "application/x-apple-diskimage",
     )
 
+    private val MIME_FOR = mapOf(
+        "apk" to setOf("application/vnd.android.package-archive"),
+        "sh" to setOf("application/x-sh"),
+        "jar" to setOf("application/java-archive"),
+        "exe" to setOf("application/x-msdownload", "application/x-msdos-program"),
+        "msi" to setOf("application/x-msdownload"),
+        "dmg" to setOf("application/x-apple-diskimage"),
+    )
+
     fun extension(name: String): String = name.substringAfterLast('.', "").lowercase(Locale.ROOT).take(10)
 
     fun mime(raw: String?): String = raw?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
@@ -22,7 +31,8 @@ object ExecutableTypes {
         if (names.any { isExecutable(it, null) && extension(it) != allowed }) return true
         val type = mime(mime)
         if (type !in MIME) return false
-        return !(type == allowed || names.any { extension(it) == allowed && allowed in EXT })
+        // A type must fit the approved extension too: x.apk served as a shell script is not the apk that was approved.
+        return !(type == allowed || names.any { extension(it) == allowed && type in (MIME_FOR[allowed] ?: emptySet()) })
     }
 
     fun isExecutable(name: String?, mime: String?): Boolean =
