@@ -120,14 +120,14 @@ fun DownloadsPage(
         if (text.isBlank()) return
         scope.launch {
             val d = config.downloads
-            val plan = DownloadPlanner.plan(text, d.codes, d.acceptedHosts) { CodeIndex.forApp(context).load() }
+            val plan = DownloadPlanner.plan(text, d.codes, d.acceptedUrls) { CodeIndex.forApp(context).load() }
             when (plan) {
                 is Plan.Refuse -> RemoteNotice.show(context, plan.message, 4_000)
                 is Plan.Start -> {
                     model.edit { it.copy(downloads = it.downloads.copy(history = dev.glasslauncher.downloads.DownloadInput.pushHistory(it.downloads.history, text))) }
                     if (plan.confirmHost == null) begin(plan) else open(
-                        Overlay.Confirm("Download from ${plan.confirmHost}?", "Code “${plan.code}” points to ${plan.url}. Glass asks once for each site.", "Download") {
-                            model.edit { it.copy(downloads = it.downloads.copy(acceptedHosts = dev.glasslauncher.downloads.DownloadInput.acceptHost(it.downloads.acceptedHosts, plan.url))) }
+                        Overlay.Confirm("Download from ${plan.confirmHost}?", "Code “${plan.code}” points to ${plan.url}. Glass asks once for each link.", "Download") {
+                            model.edit { it.copy(downloads = it.downloads.copy(acceptedUrls = dev.glasslauncher.downloads.DownloadInput.accept(it.downloads.acceptedUrls, plan.url))) }
                             begin(plan)
                         },
                     )
@@ -144,7 +144,7 @@ fun DownloadsPage(
         onSelect = { item ->
             when (item.state) {
                 DownloadState.Active, DownloadState.Queued -> queue.pause(item.id)
-                DownloadState.Paused, DownloadState.Failed -> queue.resume(item.id)
+                DownloadState.Paused, DownloadState.Failed -> retry(queue, item, open)
                 DownloadState.Done -> {
                     val file = File(Downloads.folder(context), item.file ?: return@DownloadsList)
                     when {
@@ -225,6 +225,14 @@ private fun ProgressCapsule(fraction: Float) {
     }
 }
 
+/** Continues a download; one that stopped at a redirect to another site asks first, naming the site. */
+private fun retry(queue: dev.glasslauncher.downloads.DownloadQueue, item: DownloadItem, open: (Overlay) -> Unit) {
+    val host = item.blockedHost
+    if (item.state == DownloadState.Failed && host != null) {
+        open(Overlay.Confirm("Continue to $host?", "The link you gave sends this download to a different site.", "Continue") { queue.allowRedirect(item.id, host) })
+    } else queue.resume(item.id)
+}
+
 /** The app-menu key's list on one download: what can be done depends on where it is. */
 @Composable
 internal fun DownloadMenuBody(id: String, active: Boolean, open: (Overlay) -> Unit, close: () -> Unit) {
@@ -238,7 +246,7 @@ internal fun DownloadMenuBody(id: String, active: Boolean, open: (Overlay) -> Un
         fun f(): Modifier = firstRow.also { firstRow = Modifier }
         PanelTitle(DownloadText.name(item))
         val waiting = item.state == DownloadState.Active || item.state == DownloadState.Queued || item.state == DownloadState.Paused
-        if (item.state == DownloadState.Failed) MenuRow("Retry", { queue.resume(id); close() }, f())
+        if (item.state == DownloadState.Failed) MenuRow("Retry", { retry(queue, item, open); close() }, f())
         if (waiting) MenuRow("Move to Top", { queue.moveToTop(id); close() }, f())
         if (waiting) MenuRow("Cancel Download", { queue.remove(id, deleteFile = true); close() }, f(), destructive = true)
         if (!waiting) MenuRow("Remove from List", { queue.remove(id, deleteFile = false); close() }, f())

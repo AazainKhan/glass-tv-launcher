@@ -46,11 +46,14 @@ class DownloadInputTest {
         assertEquals("site11.com", h.last())
     }
 
-    @Test fun aHostIsConfirmedOncePerHost() {
+    @Test fun aLinkIsConfirmedOncePerLinkNotPerSite() {
         var accepted = emptySet<String>()
-        assertTrue(DownloadInput.needsHostConfirm("https://Example.com/a", accepted))
-        accepted = DownloadInput.acceptHost(accepted, "https://Example.com/a")
-        assertFalse(DownloadInput.needsHostConfirm("https://example.com/other", accepted))
-        assertTrue(DownloadInput.needsHostConfirm("https://other.org/a", accepted))
+        assertTrue(DownloadInput.needsConfirm("https://Example.com/a", accepted))
+        accepted = DownloadInput.accept(accepted, "https://Example.com/a")
+        assertFalse(DownloadInput.needsConfirm("https://example.com/a", accepted))
+        assertFalse(DownloadInput.needsConfirm("https://example.com/a#frag", accepted))
+        assertTrue(DownloadInput.needsConfirm("https://example.com/other", accepted)) // same site, other file
+        assertTrue(DownloadInput.needsConfirm("https://example.com/a?x=1", accepted))
+        assertTrue(DownloadInput.needsConfirm("https://other.org/a", accepted))
     }
 }

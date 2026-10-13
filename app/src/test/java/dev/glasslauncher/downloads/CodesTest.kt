@@ -40,12 +40,19 @@ class CodesTest {
         assertNull(Codes.resolve("nope", emptyList(), index))
     }
 
-    @Test fun plannerStartsACodeAfterConfirmingItsHostOnce() = runBlocking {
+    @Test fun plannerAsksAgainForAnotherLinkOnTheSameHost() = runBlocking {
+        val other = listOf(MyCode("gh", "https://github.com/someone/other/releases/download/v1/a.zip", ""))
+        val accepted = setOf(DownloadInput.acceptKey("https://github.com/me/mine/releases/download/v1/a.zip"))
+        val plan = DownloadPlanner.plan("gh", other, accepted) { index } as Plan.Start
+        assertEquals("github.com", plan.confirmHost)
+    }
+
+    @Test fun plannerStartsACodeAfterConfirmingItsLinkOnce() = runBlocking {
         val start = DownloadPlanner.plan("tv", emptyList(), emptySet()) { index } as Plan.Start
         assertEquals("https://example.com/tv.apk", start.url)
         assertEquals("example.com", start.confirmHost)
         assertEquals(sha, start.sha256)
-        val again = DownloadPlanner.plan("TV", emptyList(), setOf("example.com")) { index } as Plan.Start
+        val again = DownloadPlanner.plan("TV", emptyList(), setOf(DownloadInput.acceptKey("https://example.com/tv.apk"))) { index } as Plan.Start
         assertNull(again.confirmHost)
     }
 

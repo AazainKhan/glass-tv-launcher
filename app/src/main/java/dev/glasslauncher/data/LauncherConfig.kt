@@ -80,8 +80,8 @@ data class DownloadsConfig(
     val keepInstalledApks: Boolean = false,
     /** What was typed into the URL entry, newest first, at most 20. */
     val history: List<String> = emptyList(),
-    /** Hosts the user already accepted for a download that started from a code. */
-    val acceptedHosts: Set<String> = emptySet(),
+    /** Full links the user already accepted for a download that started from a code (not whole sites: one link on a shared host proves nothing about the next). */
+    val acceptedUrls: Set<String> = emptySet(),
     val codes: List<MyCode> = emptyList(),
 )
 

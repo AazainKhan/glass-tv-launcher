@@ -43,17 +43,20 @@ object DownloadInput {
         return (listOf(t) + history.filter { it != t }).take(HISTORY_MAX)
     }
 
-    /** Whether a download from a code must show its host first: once per host. */
-    fun needsHostConfirm(url: String, accepted: Set<String>): Boolean = host(url)?.lowercase() !in accepted
+    /** What a yes is stored under: the whole link, so a later code that points elsewhere on the same site asks again. */
+    fun acceptKey(url: String): String = url.toHttpUrlOrNull()?.newBuilder()?.fragment(null)?.build()?.toString() ?: url
 
-    fun acceptHost(accepted: Set<String>, url: String): Set<String> = host(url)?.lowercase()?.let { accepted + it } ?: accepted
+    /** Whether a download from a code must show its link first: once per link. */
+    fun needsConfirm(url: String, accepted: Set<String>): Boolean = acceptKey(url) !in accepted
+
+    fun accept(accepted: Set<String>, url: String): Set<String> = accepted + acceptKey(url)
 
     private val SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.-]*)://")
 }
 
 /** What pressing Done on the URL entry should do. */
 sealed interface Plan {
-    /** [confirmHost]: the host to show on a confirm card first (a code's target the user hasn't accepted yet). */
+    /** [confirmHost]: the host to show on a confirm card first (a code's link the user hasn't accepted yet). */
     data class Start(val url: String, val name: String?, val sha256: String?, val code: String?, val confirmHost: String?) : Plan
     data class Refuse(val message: String) : Plan
 }
@@ -71,7 +74,7 @@ object DownloadPlanner {
                 when {
                     hit == null -> Plan.Refuse("No download is saved under “${e.code}”.")
                     url == null -> Plan.Refuse(DownloadInput.NEEDS_HTTPS)
-                    else -> Plan.Start(url, hit.name, hit.sha256, e.code, DownloadInput.host(url)?.takeIf { DownloadInput.needsHostConfirm(url, accepted) })
+                    else -> Plan.Start(url, hit.name, hit.sha256, e.code, DownloadInput.host(url)?.takeIf { DownloadInput.needsConfirm(url, accepted) })
                 }
             }
         }
