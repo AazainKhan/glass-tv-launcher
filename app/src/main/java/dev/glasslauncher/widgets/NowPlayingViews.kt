@@ -3,7 +3,10 @@ package dev.glasslauncher.widgets
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import android.graphics.Bitmap
 import android.os.SystemClock
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.LaunchedEffect
@@ -211,16 +214,45 @@ private fun SeekableProgress(
     }
 }
 
+/**
+ * The cover. A new picture (the URI fetch landing, the next track) fades in over the old one in about 230 ms and never
+ * snaps; the old one stays fully opaque beneath, so no frame is see-through. Until there is art, the neutral tile.
+ */
 @Composable
 private fun Artwork(item: NowPlaying, size: Dp, radius: Dp) {
-    val art = remember(item.art) { item.art?.asImageBitmap() }
+    val blend = remember { ArtBlend<Bitmap>(initial = item.art) }
+    var base by remember { mutableStateOf(item.art) }
+    var top by remember { mutableStateOf<Bitmap?>(null) }
+    var fading by remember { mutableStateOf(false) }
+    var alpha by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    LaunchedEffect(item.art) {
+        val t0 = androidx.compose.runtime.withFrameNanos { it / 1_000_000 }
+        if (!blend.retarget(item.art, t0)) return@LaunchedEffect
+        base = blend.shown; top = blend.incoming; fading = true; alpha = 0f
+        while (true) {
+            val t = androidx.compose.runtime.withFrameNanos { it / 1_000_000 }
+            alpha = blend.alpha(t)
+            if (blend.settle(t)) break
+        }
+        base = blend.shown; top = null; fading = false; alpha = 1f
+    }
     Box(
         Modifier.size(size).shadow(radius / 2, RoundedCornerShape(radius)).clip(RoundedCornerShape(radius)).background(Color(0xFF2A2C33)),
         contentAlignment = Alignment.Center,
     ) {
-        if (art != null) Image(art, null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
-        else Image(painterResource(R.drawable.ic_music_note), null, colorFilter = ColorFilter.tint(Color.White.copy(alpha = 0.6f)), modifier = Modifier.size(size * 0.4f))
+        ArtLayer(base, size)
+        if (fading) Box(Modifier.size(size).graphicsLayer { this.alpha = alpha }, contentAlignment = Alignment.Center) {
+            // The incoming picture (or, fading back to nothing, the tile itself) over the old one.
+            if (top == null) Box(Modifier.size(size).background(Color(0xFF2A2C33)), contentAlignment = Alignment.Center) { ArtLayer(null, size) } else ArtLayer(top, size)
+        }
     }
+}
+
+@Composable
+private fun ArtLayer(bitmap: Bitmap?, size: Dp) {
+    val image = remember(bitmap) { bitmap?.asImageBitmap() }
+    if (image != null) Image(image, null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
+    else Image(painterResource(R.drawable.ic_music_note), null, colorFilter = ColorFilter.tint(Color.White.copy(alpha = 0.6f)), modifier = Modifier.size(size * 0.4f))
 }
 
 /**

@@ -431,7 +431,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     )
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
-    val takeoverArt = takeover?.art
+    // The app's own icon (no cover published) is no backdrop: it would bake a big blurred logo (Spotify: green).
+    val takeoverArt = takeover?.takeIf { !it.artIsIcon }?.art
     // An expanded shelf of square covers (Spotify's albums and playlists) is a Cover Flow (P33): its background is
     // the focused cover, softly blurred and glossy, not the art drawn sharp.
     val coverShelf = expanded && feed != null && dev.glasslauncher.featured.CardShape.square(feed.items)

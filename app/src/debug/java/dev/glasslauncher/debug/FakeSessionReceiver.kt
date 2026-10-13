@@ -31,6 +31,9 @@ class FakeSessionReceiver : BroadcastReceiver() {
             pos = intent.getIntExtra("pos", 62_000).toLong(),
             dur = intent.getIntExtra("dur", 214_000).toLong(),
             playing = intent.getBooleanExtra("playing", true),
+            art = intent.getStringExtra("art") ?: "none",
+            artDelay = intent.getIntExtra("delay", 2_000).toLong(),
+            track = intent.getStringExtra("track") ?: "Fake Song",
         )
     }
 }
@@ -44,8 +47,11 @@ private object FakeSession {
     private var pos = 0L
     private var dur = 0L
     private var playing = true
+    private var art = "none"
+    private var track = "Fake Song"
 
-    fun start(context: Context, seek: Boolean, like: String, pos: Long, dur: Long, playing: Boolean) {
+    fun start(context: Context, seek: Boolean, like: String, pos: Long, dur: Long, playing: Boolean, art: String = "none", artDelay: Long = 2_000, track: String = "Fake Song") {
+        this.art = art; this.track = track; FakeArtProvider.delayMs = artDelay
         this.seek = seek; this.like = like; this.pos = pos; this.dur = dur; this.playing = playing; liked = false
         val s = session ?: MediaSession(context, "GlassFakeSession").also { session = it }
         s.setCallback(object : MediaSession.Callback() {
@@ -63,8 +69,8 @@ private object FakeSession {
         })
         s.setRatingType(if (like == "heart") Rating.RATING_HEART else Rating.RATING_NONE)
         s.setMetadata(
-            MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, "Fake Song").putString(MediaMetadata.METADATA_KEY_ARTIST, "Fake Artist")
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, dur).also { if (like == "heart") it.putRating(MediaMetadata.METADATA_KEY_USER_RATING, Rating.newHeartRating(liked)) }.build(),
+            MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, track).putString(MediaMetadata.METADATA_KEY_ARTIST, "Fake Artist")
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, dur).also { addArt(it) }.also { if (like == "heart") it.putRating(MediaMetadata.METADATA_KEY_USER_RATING, Rating.newHeartRating(liked)) }.build(),
         )
         s.isActive = true
         publish()
@@ -80,9 +86,20 @@ private object FakeSession {
         if (like == "custom") b.addCustomAction(if (liked) "com.fake.action.unlike" else "com.fake.action.like", if (liked) "Remove from Liked Songs" else "Add to Liked Songs", android.R.drawable.btn_star)
         s.setPlaybackState(b.setActions(actions).build())
         if (like == "heart") s.setMetadata(
-            MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, "Fake Song").putString(MediaMetadata.METADATA_KEY_ARTIST, "Fake Artist")
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, dur).putRating(MediaMetadata.METADATA_KEY_USER_RATING, Rating.newHeartRating(liked)).build(),
+            MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, track).putString(MediaMetadata.METADATA_KEY_ARTIST, "Fake Artist")
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, dur).also { addArt(it) }.putRating(MediaMetadata.METADATA_KEY_USER_RATING, Rating.newHeartRating(liked)).build(),
         )
+    }
+
+    /** art=uri: a cover by content URI only; art=logo: Spotify's way (a green logo as DISPLAY_ICON plus the cover URI); art=bitmap: the cover as a bitmap. */
+    private fun addArt(b: MediaMetadata.Builder) {
+        val uri = "content://dev.glasslauncher.debug.art/" + track.replace(' ', '-')
+        val logo = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888).also { it.eraseColor(android.graphics.Color.rgb(30, 215, 96)) }
+        when (art) {
+            "uri" -> b.putString(MediaMetadata.METADATA_KEY_ART_URI, uri)
+            "logo" -> { b.putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, logo); b.putString(MediaMetadata.METADATA_KEY_ART_URI, uri) }
+            "logo-only" -> b.putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, logo)
+        }
     }
 
     fun stop() { session?.release(); session = null }

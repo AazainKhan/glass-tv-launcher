@@ -16,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
@@ -46,6 +47,8 @@ data class NowPlaying(
     val canSeek: Boolean = false,
     /** The like control the session offers (hidden when [Like.None]) and its state. */
     val like: Like = Like.None,
+    /** [art] is the app's own icon (no cover was published): fine in the art slot, never baked into Home's backdrop. */
+    val artIsIcon: Boolean = false,
 ) {
     /** What play/pause and skip do: a media session's controls, or AirPlay's transport. */
     interface Controls {
@@ -116,6 +119,26 @@ object NowPlayingSource {
             // (by its text), not per object: otherwise every pause re-scaled it and re-baked Home's backdrop.
             var artFor: String? = null
             var art: Bitmap? = null
+            // Cover URIs in flight, and ones that failed (retried after a minute): the fetch starts when the metadata
+            // arrives, off the main thread, and publishes again when it lands.
+            var republish: () -> Unit = {}
+            val inflight = HashSet<String>()
+            val failedAt = HashMap<String, Long>()
+            fun fetchArt(uri: String) {
+                if (!inflight.add(uri)) return
+                val began = SystemClock.elapsedRealtime()
+                val (flight, mine) = ArtStore.begin(uri)
+                launch(kotlinx.coroutines.Dispatchers.IO) {
+                    if (mine) ArtStore.finish(uri, flight, ArtFetcher.fetch(context.applicationContext, uri))
+                    val bmp = flight.await()
+                    handler.post {
+                        inflight.remove(uri)
+                        if (bmp == null) failedAt[uri] = SystemClock.elapsedRealtime()
+                        android.util.Log.i("GlassNowPlaying", "art ${if (bmp != null) "ok" else "failed"} in ${SystemClock.elapsedRealtime() - began} ms")
+                        republish()
+                    }
+                }
+            }
 
             fun publish() {
                 // Playing first; else a paused session (so it can be resumed from Control Center).
@@ -125,12 +148,24 @@ object NowPlayingSource {
                 val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
                 if (c == null || meta == null || title == null) { trySend(null); return }
                 val track = "${c.packageName}|$title|${meta.getString(MediaMetadata.METADATA_KEY_ARTIST)}|${meta.getString(MediaMetadata.METADATA_KEY_ALBUM)}"
-                if (track != artFor || art == null) {
-                    artFor = track
-                    val raw = meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
-                        ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-                        ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
-                    art = raw?.let { scaled(it) }
+                val pick = ArtPick.pick(
+                    meta.getBitmap(MediaMetadata.METADATA_KEY_ART), meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART), meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON),
+                    meta.getString(MediaMetadata.METADATA_KEY_ART_URI), meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI), meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+                )
+                var artIsIcon = pick.isIcon
+                val shownArt: Bitmap?
+                if (pick.uri != null) {
+                    val uri = pick.uri
+                    val hit = ArtStore.cache.get(uri)
+                    val failed = failedAt[uri]?.let { SystemClock.elapsedRealtime() - it < 60_000 } == true
+                    if (hit == null && !failed) fetchArt(uri)
+                    // Until the cover lands: the neutral placeholder (never the app's logo, unless the fetch failed).
+                    shownArt = hit ?: pick.fallback?.takeIf { failed }?.let { scaled(it) }.also { if (it != null) artIsIcon = true }
+                } else {
+                    // The same kind of source for the same track keeps the scaled copy (a pause hands back a new metadata object).
+                    val sourceKey = "$track|${if (pick.bitmap == null) "none" else if (pick.isIcon) "icon" else "art"}"
+                    if (sourceKey != artFor || (art == null && pick.bitmap != null)) { artFor = sourceKey; art = pick.bitmap?.let { scaled(it) } }
+                    shownArt = art
                 }
                 val state = c.playbackState
                 val now = SystemClock.elapsedRealtime()
@@ -147,7 +182,7 @@ object NowPlayingSource {
                         artist = NowPlayingCaps.text(meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)),
                         album = NowPlayingCaps.text(meta.getString(MediaMetadata.METADATA_KEY_ALBUM)),
                         packageName = c.packageName,
-                        art = art,
+                        art = shownArt,
                         durationMs = duration,
                         positionMs = NowPlayingCaps.position(state?.position ?: 0, duration),
                         positionAt = NowPlayingCaps.updatedAt(state?.lastPositionUpdateTime ?: 0, now),
@@ -156,9 +191,12 @@ object NowPlayingSource {
                         controller = SessionControls(c.transportControls),
                         canSeek = NowPlayingCaps.canSeek(actions, duration),
                         like = NowPlayingCaps.like(actions, c.ratingType, userLiked, custom),
+                        artIsIcon = artIsIcon && shownArt != null,
                     ),
                 )
             }
+
+            republish = ::publish
 
             fun watch(controllers: List<MediaController>?) {
                 watched.forEach { (c, cb) -> c.unregisterCallback(cb) }
@@ -254,7 +292,7 @@ class NowPlayingRepository(context: Context, scope: CoroutineScope) {
 /** Whether two items need no re-publish: same track and the same play, position, length, seek and like state. */
 internal fun sameState(a: NowPlaying?, b: NowPlaying?) =
     a?.key == b?.key && a?.playing == b?.playing && a?.positionMs == b?.positionMs && a?.durationMs == b?.durationMs &&
-        a?.canSeek == b?.canSeek && a?.like == b?.like
+        a?.canSeek == b?.canSeek && a?.like == b?.like && a?.art === b?.art && a?.artIsIcon == b?.artIsIcon
 
 /** Test seam: screenshot tests put a fixed now-playing state here; null (always, in the app) uses the real repository. */
 object NowPlayingFixture {

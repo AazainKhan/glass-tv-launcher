@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
@@ -170,6 +172,27 @@ class NowPlayingControlsTest {
         state = item(Spy(), false, Like.Heart(false))
         compose.waitForIdle()
         compose.onNode(androidx.compose.ui.test.isFocused()).assertExists()
+    }
+
+    /** P147: the cover arriving later fades in over the placeholder: no cut, never see-through, the art alone at the end. */
+    @Test fun coverFadesInOverThePlaceholder() {
+        val spy = Spy()
+        val red = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).also { it.eraseColor(android.graphics.Color.rgb(255, 0, 0)) }
+        shown = item(spy, false, Like.None)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { Box(Modifier.size(780.dp, 250.dp).background(Color(0xFF2E2230)).padding(24.dp).testTag("shot")) { shown?.let { NowPlayingHero(it, false, remember { FocusRequester() }, remember { FocusRequester() }) } } }
+        compose.mainClock.advanceTimeBy(100)
+        fun redAtCover(): Int {
+            val b = compose.onNodeWithTag("shot").captureToImage().asAndroidBitmap()
+            return android.graphics.Color.red(b.getPixel(30, 30)) // inside the 200 dp art slot, off the note glyph
+        }
+        val before = redAtCover()
+        shown = item(spy, false, Like.None).copy(art = red)
+        val reds = ArrayList<Int>()
+        repeat(24) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle(); reds += redAtCover() }
+        assertTrue("monotonic (never see-through, never snaps back): $reds", reds.zipWithNext().all { (a, b) -> b >= a })
+        assertTrue("a blend, not a cut: $reds", reds.count { it > before + 8 && it < 247 } >= 3)
+        assertEquals("art alone at the end: $reds", 255, reds.last())
     }
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTagCount(tag: String, n: Int) =

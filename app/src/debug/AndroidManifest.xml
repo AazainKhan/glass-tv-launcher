@@ -27,5 +27,6 @@
         </receiver>
         <!-- P145: fake media session for checking Now Playing's seek and like (explicit-component broadcasts only). -->
         <receiver android:name=".debug.FakeSessionReceiver" android:exported="true" />
+        <provider android:name=".debug.FakeArtProvider" android:authorities="dev.glasslauncher.debug.art" android:exported="false" />
     </application>
 </manifest>
