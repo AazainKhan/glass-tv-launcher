@@ -38,6 +38,7 @@ import dev.glasslauncher.downloads.DownloadState
 import dev.glasslauncher.downloads.DownloadText
 import dev.glasslauncher.downloads.Downloads
 import dev.glasslauncher.downloads.Plan
+import dev.glasslauncher.downloads.browser.BrowserLink
 import dev.glasslauncher.downloads.forApp
 import dev.glasslauncher.app
 import dev.glasslauncher.system.RemoteNotice
@@ -62,6 +63,8 @@ fun DownloadsPage(
     val items by queue.items.collectAsState()
     val scope = rememberCoroutineScope()
     val config by rememberUpdatedState(cfg)
+    // Only when the Glass Browser APK is installed and Glass holds its permission (the AirPlay row's rule); else no row.
+    val browserInstalled = remember(active) { BrowserLink.available(context) }
     val apk = rememberApkFlow(cfg.downloads.keepInstalledApks, open)
 
     fun begin(plan: Plan.Start) {
@@ -121,6 +124,7 @@ fun DownloadsPage(
             })
         },
         onFiles = { open(Overlay.Files) },
+        onBrowser = if (browserInstalled) ({ BrowserLink.open(context) }) else null,
     ) }
 }
 
@@ -136,6 +140,8 @@ internal fun DownloadsList(
     /** Null: no bulk-delete row (the previews). */
     onDeleteFinished: (() -> Unit)? = null,
     onFiles: () -> Unit = {},
+    /** Null: no "Open Browser" row (not installed, and the previews). */
+    onBrowser: (() -> Unit)? = null,
 ) {
     // Rows carry a progress bar and a status: this page uses the whole width, with no icon column.
     val sink = LocalTitleSink.current
@@ -148,6 +154,7 @@ internal fun DownloadsList(
         PanelTitle("Downloads")
         MenuRow("Add Download", onAdd, Modifier.focusRequester(first).testTag("dl-add"), chevron = true)
         MenuRow("Files", onFiles, Modifier.testTag("dl-files"), chevron = true)
+        onBrowser?.let { MenuRow("Open Browser", it, Modifier.testTag("dl-browser"), chevron = true) }
         if (items.isEmpty()) Hint("Nothing downloaded yet. Add a link, or a code you saved in Settings.")
         val running = items.filter { it.state == DownloadState.Active || it.state == DownloadState.Queued || it.state == DownloadState.Paused }
         val finished = items.filter { it.state == DownloadState.Done || it.state == DownloadState.Failed }

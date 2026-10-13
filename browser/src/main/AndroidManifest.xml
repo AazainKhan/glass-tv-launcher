@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No launcher entry on purpose: Glass starts the browser by component (Downloads > Open Browser). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="MissingLeanbackLauncher">
+
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- All this app may do: reach the web. No storage, no package list, no root. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Declared by Glass too (same pattern as com.phairplay.permission.CONTROL): only apps signed with Glass's key can open the browser or take its messages. -->
+    <permission
+        android:name="dev.glasslauncher.permission.BROWSER"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="dev.glasslauncher.permission.BROWSER" />
+
+    <!-- Glass's uid, to check who is sending messages (package visibility, API 30). -->
+    <queries>
+        <package android:name="dev.glasslauncher" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <!-- No launcher intent filter: Glass starts it by component, and the signature permission refuses anyone else. -->
+        <activity
+            android:name=".BrowserActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:enableOnBackInvokedCallback="false"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:permission="dev.glasslauncher.permission.BROWSER"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+    </application>
+</manifest>

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# The Glass Browser: a separate, unprivileged app (module :browser, package com.glasslauncher.browser) that Glass opens
+# from Downloads > Open Browser. It is its own APK so a WebView bug never runs with Glass's privileges or su grant.
+# It is signed with the same key as Glass (the local debug key unless RELEASE_KEYSTORE is set, exactly as :app), which is
+# what lets the signature permission dev.glasslauncher.permission.BROWSER match on both sides.
+#   scripts/browser build [debug|release]     build only (release by default, like scripts/build)
+#   scripts/browser install [debug|release]   build and install
+#   scripts/browser status                    installed version and whether Glass holds the permission
+#   scripts/browser uninstall
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PKG=com.glasslauncher.browser
+VARIANT="${2:-release}"
+case "$VARIANT" in debug) TASK=assembleDebug ;; release) TASK=assembleRelease ;; *) echo "usage: scripts/browser build|install [debug|release] | status | uninstall" >&2; exit 2 ;; esac
+export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 21)}"
+cd "$ROOT"
+build() { ./gradlew ":browser:$TASK" --console=plain -q; ls -t "browser/build/outputs/apk/$VARIANT/"*.apk | head -1; }
+case "${1:-status}" in
+  build) build ;;
+  install)
+    source "$ROOT/scripts/lib/device.sh"; require_device_access
+    APK="$(build)"
+    adb install -r "$APK"
+    # Glass declares the permission too; if Glass went in first, the grant is there already. If not, reinstall Glass.
+    adb shell dumpsys package dev.glasslauncher | grep -q "dev.glasslauncher.permission.BROWSER: granted=true" \
+      || echo "Note: reinstall Glass (scripts/build) so it's granted dev.glasslauncher.permission.BROWSER."
+    echo "Glass Browser installed. Open it from Downloads > Open Browser."
+    ;;
+  status)
+    source "$ROOT/scripts/lib/device.sh"; require_device_access
+    adb shell dumpsys package "$PKG" | grep -m1 versionName || { echo "Glass Browser isn't installed"; exit 0; }
+    adb shell dumpsys package dev.glasslauncher | grep "dev.glasslauncher.permission.BROWSER" | head -2 || true
+    ;;
+  uninstall)
+    source "$ROOT/scripts/lib/device.sh"; require_device_access
+    adb uninstall "$PKG"
+    ;;
+  *) echo "usage: scripts/browser build|install [debug|release] | status | uninstall" >&2; exit 2 ;;
+esac

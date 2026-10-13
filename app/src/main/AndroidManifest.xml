@@ -61,6 +61,15 @@
     <uses-permission android:name="com.phairplay.permission.CONTROL" />
 
     <!--
+        Glass Browser (a separate, unprivileged APK built by scripts/browser). Declared here too, like the one above;
+        only apps signed with Glass's key can be opened by Glass, be talked to, or send it a download or keyboard request.
+    -->
+    <permission
+        android:name="dev.glasslauncher.permission.BROWSER"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="dev.glasslauncher.permission.BROWSER" />
+
+    <!--
         Other apps' TV channels (Continue Watching). Only granted when Glass runs as a privileged system
         app (Settings › Root › System App); as a normal app these are simply not granted.
     -->
@@ -83,6 +92,7 @@
         </intent>
         <package android:name="com.phairplay.firetv" />
         <package android:name="com.phairplay.googletv" />
+        <package android:name="com.glasslauncher.browser" />
         <package android:name="com.amazon.vizzini" />
         <intent>
             <action android:name="android.intent.action.MAIN" />

@@ -804,6 +804,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // The hero leaving with focus inside it would leave nothing focused: back to the tray.
     LaunchedEffect(takeover == null) { if (takeover == null && heroFocused) { heroFocused = false; focusKey(firstKey()) } }
+    // The Glass Browser (a separate app) asks for the keyboard or a download card; Home shows it and the browser comes back after.
+    LaunchedEffect(Unit) { dev.glasslauncher.downloads.browser.BrowserLink.asks.collect { open(it.overlay()) } }
     LaunchedEffect(Unit) {
         homePresses.collect { request ->
             moving = null
