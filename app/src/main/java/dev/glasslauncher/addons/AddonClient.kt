@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
@@ -46,8 +47,11 @@ internal class AddonCall(private val timeoutMs: Long, private val scope: Corouti
         return try {
             withTimeoutOrNull(timeoutMs) { job.await() }
         } catch (e: CancellationException) {
-            job.cancel() // the caller gave up (not a timeout): stop connecting too; never swallowed, not an add-on failure
-            throw e
+            // The caller gave up (not a timeout): stop connecting too, and wait briefly for the slot to be given back, so the next
+            // call is not refused by a call nobody is waiting for. A call stuck in the add-on (not cancellable) is not waited for.
+            job.cancel()
+            withContext(NonCancellable) { withTimeoutOrNull(200) { job.join() } }
+            throw e // never swallowed, not an add-on failure
         } catch (_: Exception) {
             null
         }
