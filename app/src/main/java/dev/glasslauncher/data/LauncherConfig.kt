@@ -71,6 +71,8 @@ data class LauncherConfig(
     val screensaverDuringMusic: Boolean = false,
     /** Settings › Downloads. */
     val downloads: DownloadsConfig = DownloadsConfig(),
+    /** Control Center › AirPlay › Audio Output: the chosen Sonos speaker; null = this TV. */
+    val audioOutput: AudioOutputConfig? = null,
 ) {
     /** Minutes of idle Home before Aerials start (when Aerials is the screensaver); 0 stored means the default. */
     val aerialsIdleMinutes: Int get() = aerialsOnIdleMinutes.takeIf { it > 0 } ?: 5
@@ -176,3 +178,7 @@ enum class UiFont(val label: String) {
     Condensed("Condensed"),
     Serif("Serif"),
 }
+
+/** A Sonos speaker chosen as the audio output: its address and room name. */
+@Serializable
+data class AudioOutputConfig(val host: String, val room: String)

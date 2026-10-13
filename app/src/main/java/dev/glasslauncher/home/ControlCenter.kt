@@ -863,7 +863,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-platter",
             ) { showPlatter ->
             if (airplayPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-                CcAirPlayPlatter(sz, airPlay, onBack = { airplayPlatter = false; pendingFocus = "airplay" })
+                CcAirPlayPlatter(sz, airPlay, cfg.audioOutput, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" })
             } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
                 CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (!restartAsk && !agentCard) Column(
@@ -1674,8 +1674,22 @@ private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> 
  * PhairPlay is installed: [airPlay] is null without it).
  */
 @Composable
-private fun CcAirPlayPlatter(sz: CcSizes, airPlay: Pair<dev.glasslauncher.system.AirPlay.State, (Boolean) -> Unit>?, onBack: () -> Unit) {
+private fun CcAirPlayPlatter(
+    sz: CcSizes,
+    airPlay: Pair<dev.glasslauncher.system.AirPlay.State, (Boolean) -> Unit>?,
+    audioOutput: dev.glasslauncher.data.AudioOutputConfig?,
+    edit: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    active: Boolean,
+    onBack: () -> Unit,
+) {
     val first = remember { FocusRequester() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Discovery runs only while this platter is on screen: the cached speakers at once, then one refresh (at most one
+    // scan per 10 s, off Main). No network or no speakers leaves "This TV" alone.
+    val found by produceState(dev.glasslauncher.sonos.SonosScan.get(context).cached, active) {
+        if (active) value = dev.glasslauncher.sonos.SonosScan.get(context).refresh()
+    }
+    val rows = remember(found, audioOutput) { dev.glasslauncher.sonos.AudioOutputs.rows(found, audioOutput) }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag("cc-airplay")) {
         Text("AirPlay", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
@@ -1692,6 +1706,17 @@ private fun CcAirPlayPlatter(sz: CcSizes, airPlay: Pair<dev.glasslauncher.system
                 CcTile("Connected", sender, Shapes.pill, sz.column, sz.pill, onClick = {}) { fg ->
                     PillContent(R.drawable.ic_airplay, "Connected", sender, fg, on = true, accent = Blue)
                 }
+            }
+        }
+        Text("Audio Output", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+        for (row in rows) {
+            val sub = row.subtitle
+            CcTile(row.title, sub, Shapes.pill, sz.column, sz.pill, onClick = {
+                // Stores the choice only: no SetVolume, no playback (TODO(P121): the audio source starts an AudioRoute).
+                edit { it.copy(audioOutput = dev.glasslauncher.sonos.AudioOutputs.choice(row)) }
+                dev.glasslauncher.sonos.AudioOutputs.notice(row)?.let { dev.glasslauncher.system.RemoteNotice.show(context, it, 4_000) }
+            }, modifier = Modifier.testTag("cc-audio-" + row.key), on = row.selected) { fg ->
+                PillContent(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, if (row.selected) row.title + " \u2713" else row.title, sub, fg, on = row.selected, accent = Blue)
             }
         }
         CcTile("Back", null, Shapes.pill, sz.column, sz.pill, onClick = onBack) { fg ->
