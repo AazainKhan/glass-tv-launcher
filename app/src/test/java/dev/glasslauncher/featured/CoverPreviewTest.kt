@@ -62,4 +62,15 @@ class CoverPreviewTest {
         assertEquals(0, pool.bytes)
         assertEquals(null, pool.get("u4"))
     }
+
+    /** P165: the caption sits centred under the centred cover (Apple's Cover Flow), not pinned to the left. */
+    @Test fun theCaptionIsCentredUnderTheCentreCover() {
+        expand = 0f
+        compose.setContent { CoverPreview(feed, index = 4, expand = { expand }, restCentreY = 130.dp, caption = true, trayTop = 260.dp) }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(800)
+        val cover = compose.onNodeWithTag("preview-cover:4").fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithTag("cover-preview-title").fetchSemanticsNode().boundsInRoot
+        assertEquals("title centre ${title.center.x} vs cover centre ${cover.center.x}", cover.center.x, title.center.x, 2f * compose.density.density)
+    }
 }

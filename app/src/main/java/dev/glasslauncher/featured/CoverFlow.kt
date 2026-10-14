@@ -371,17 +371,18 @@ fun CoverPreview(
         val m = dev.glasslauncher.ui.LocalMetrics.current
         val item = feed.items[index.coerceIn(0, feed.items.lastIndex)]
         // The album or playlist's name alone, one line, large, in the open space between the covers' reflections and the
-        // tray, from the first tile's left edge (P123, the user's red box): centred in that gap, not tucked into the corner.
+        // tray, centred under the centred cover as Apple's Cover Flow and the expanded flow have it (P165; it was pinned
+        // to the first tile's left edge, P123). A change crossfades, as before.
         // The reflection ends at the covers' bottom (cover height with its reflection, about the box centre less the
         // 24 dp lift) scaled by the preview's rest scale; the tray top is [trayTop].
         val reflectionBottom = restCentreY + ((COVER_DP * (1f + CoverReflection.HEIGHT)) / 2f - 24f).dp * REST_SCALE
         val gap = (trayTop - reflectionBottom).coerceAtLeast(24.dp)
-        Box(Modifier.offset(y = reflectionBottom).fillMaxWidth().height(gap), contentAlignment = Alignment.CenterStart) {
+        Box(Modifier.offset(y = reflectionBottom).fillMaxWidth().height(gap), contentAlignment = Alignment.Center) {
             Crossfade(
                 item.title, animationSpec = tween(220), label = "cover-preview-caption",
                 modifier = Modifier
-                    .padding(start = m.inset)
-                    .widthIn(max = (screenW * 0.46f).dp)
+                    .padding(horizontal = m.inset)
+                    .widthIn(max = (screenW * 0.6f).dp)
                     .graphicsLayer {
                         alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f)
                         // One line of text: no offscreen layer needed for the fade.
@@ -391,9 +392,9 @@ fun CoverPreview(
             ) { title ->
                 androidx.compose.foundation.text.BasicText(
                     title,
-                    style = Type.title.copy(color = Color.White.copy(alpha = 0.92f)),
+                    style = Type.title.copy(color = Color.White.copy(alpha = 0.92f), textAlign = androidx.compose.ui.text.style.TextAlign.Center),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("cover-preview-title"),
+                    modifier = Modifier.fillMaxWidth().testTag("cover-preview-title"),
                 )
             }
         }
