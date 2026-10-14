@@ -264,16 +264,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val idle = rememberIdleState(cfg.idleFadeMinutes)
     // What follows the focused item (backdrop, title, synopsis) is the settled one: while a key is held it waits for the repeats to
     // stop, so a long scroll bakes and swaps once, not per item (P158). A single press settles in the same frame.
-    var settledIndex by remember(stateFeed?.items?.firstOrNull()?.id) { mutableIntStateOf(heroIndex) }
-    // A press is not a hold: then the focus index is used as it is, and settledIndex is not even read here, so writing it (below) cannot
-    // recompose Home a second time one frame after the press (the dock route's late hero write, P158 regression). Only during a hold does
-    // Home read it, and its write then is the one recomposition that swaps the hero.
+    val heroSettle = remember(stateFeed?.items?.firstOrNull()?.id) { dev.glasslauncher.featured.HeroSettle(heroIndex) }
+    // A press is not a hold: then the focus index is used as it is, with no state written, no effect launched and nothing read that a
+    // later write could invalidate (the dock route's autoplay steps are presses). Only during a hold does Home read the settled index,
+    // and the timer's single write after the repeats rest is the one recomposition that swaps the hero (P158).
     val heldKey = dev.glasslauncher.featured.HoldSettle.holding(idle.millisSinceRepeat())
-    val shownIndex = if (heldKey) settledIndex else heroIndex
-    LaunchedEffect(heroIndex) {
-        val wait = dev.glasslauncher.featured.HoldSettle.delayMs(idle.millisSinceRepeat())
-        if (wait > 0) delay(wait)
-        settledIndex = heroIndex
+    val shownIndex = heroSettle.shown(heldKey, heroIndex)
+    if (heldKey) LaunchedEffect(heroIndex) {
+        delay(dev.glasslauncher.featured.HoldSettle.SETTLE_MS)
+        heroSettle.settle(heroIndex)
     }
     val hero = feed?.items?.getOrNull(shownIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
     val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight

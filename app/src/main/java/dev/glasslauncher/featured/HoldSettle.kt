@@ -1,5 +1,8 @@
 package dev.glasslauncher.featured
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 
 /**
@@ -40,4 +43,23 @@ class SettleCommit(
     }
 
     fun cancel() { job?.cancel(); job = null }
+}
+
+/**
+ * The index the hero follows (P158): the focus index, except while a key is held, when it stays on the last settled one until the repeats
+ * rest. It costs a press nothing: outside a hold [shown] is a plain field write, [tick] is not read (so Home is not subscribed to it) and
+ * nothing is launched or written to state; only a hold reads [tick] and only [settle] (the timer after the last repeat) writes it, which is
+ * the one recomposition that swaps the hero. Pure apart from [tick], so it is unit-tested.
+ */
+class HeroSettle(initial: Int) {
+    /** The last index the hero showed (plain, not state). */
+    var last = initial
+        private set
+    /** Bumped by [settle]; read only while held, so only a hold recomposes on it. */
+    var tick by mutableIntStateOf(0)
+        private set
+
+    fun shown(held: Boolean, focus: Int): Int = if (held) { if (tick >= 0) last else last } else { last = focus; focus }
+
+    fun settle(focus: Int) { last = focus; tick++ }
 }

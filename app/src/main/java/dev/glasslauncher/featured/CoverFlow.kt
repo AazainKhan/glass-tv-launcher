@@ -178,6 +178,8 @@ fun CoverFlow(
                     item = items[i],
                     coversAlpha = { coversAlpha() * swap.value },
                     tag = if (preview) "preview-cover:$i" else "cover:$i",
+                    // The resting preview is the dock route's: its art snaps in as it always did, no per-cover animation state (P158).
+                    fade = !preview,
                     modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp),
                 )
             }
@@ -193,7 +195,7 @@ fun CoverFlow(
 }
 
 @Composable
-private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx: Float, art: ImageBitmap?, item: FeaturedItem, coversAlpha: () -> Float, tag: String, modifier: Modifier) {
+private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx: Float, art: ImageBitmap?, item: FeaturedItem, coversAlpha: () -> Float, tag: String, modifier: Modifier, fade: Boolean = true) {
     val density = LocalDensity.current
     Box(
         modifier
@@ -218,28 +220,37 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
             .testTag(tag),
     ) {
         val bitmap = art
-        // The art crossfades in over the tint when it arrives after the cover was drawn (never a snap, P158); art that is already
-        // there (a cached cover, scrolling back) is shown at once.
-        val arrived = remember { androidx.compose.animation.core.Animatable(if (bitmap != null) 1f else 0f) }
-        // Whether the tint is still under the art: a state flipped once the fade is over. The fade itself is read in the layer phase only
-        // (never in composition: that recomposed the cover every frame of the fade).
-        var fadeDone by remember { androidx.compose.runtime.mutableStateOf(bitmap != null) }
-        LaunchedEffect(bitmap != null) {
-            if (bitmap != null) { if (!fadeDone) { arrived.animateTo(1f, tween(ART_FADE_MS)); fadeDone = true } } else { arrived.snapTo(0f); fadeDone = false }
-        }
-        if (bitmap == null || !fadeDone) {
-            // Until the art is there (and if it never comes): the title on a tint, never a plain dark square (P63).
-            dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
-        }
-        // A cover whose art was there at once (a cached one, the usual case) is a plain Image: no layer, no animation. Only a late arrival
-        // fades, with ModulateAlpha so the fade is not an offscreen layer per cover (the stick's first-use flush cost).
-        if (bitmap != null) {
-            if (fadeDone) Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-            else Image(
-                bitmap, null, contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = arrived.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha },
-            )
-        }
+        if (!fade) {
+            if (bitmap != null) Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
+            else dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
+        } else FadingArt(bitmap, item)
+    }
+}
+
+/** A cover's art that fades in over its tint when it arrives late (the full flow only; see [Cover]'s `fade`). */
+@Composable
+private fun FadingArt(bitmap: ImageBitmap?, item: FeaturedItem) {
+    // The art crossfades in over the tint when it arrives after the cover was drawn (never a snap, P158); art that is already
+    // there (a cached cover, scrolling back) is shown at once.
+    val arrived = remember { androidx.compose.animation.core.Animatable(if (bitmap != null) 1f else 0f) }
+    // Whether the tint is still under the art: a state flipped once the fade is over. The fade itself is read in the layer phase only
+    // (never in composition: that recomposed the cover every frame of the fade).
+    var fadeDone by remember { androidx.compose.runtime.mutableStateOf(bitmap != null) }
+    LaunchedEffect(bitmap != null) {
+        if (bitmap != null) { if (!fadeDone) { arrived.animateTo(1f, tween(ART_FADE_MS)); fadeDone = true } } else { arrived.snapTo(0f); fadeDone = false }
+    }
+    if (bitmap == null || !fadeDone) {
+        // Until the art is there (and if it never comes): the title on a tint, never a plain dark square (P63).
+        dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
+    }
+    // A cover whose art was there at once (a cached one, the usual case) is a plain Image: no layer, no animation. Only a late arrival
+    // fades, with ModulateAlpha so the fade is not an offscreen layer per cover (the stick's first-use flush cost).
+    if (bitmap != null) {
+        if (fadeDone) Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
+        else Image(
+            bitmap, null, contentScale = ContentScale.FillBounds,
+            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = arrived.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha },
+        )
     }
 }
 
