@@ -1186,6 +1186,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         feed = feed,
                         index = heroIndex,
                         settledIndex = settledIndex,
+                        holding = { dev.glasslauncher.featured.HoldSettle.holding(idle.millisSinceRepeat()) },
                         progress = { expand.value },
                         firstCard = cardRequester,
                         onIndex = { heroIndex = it },

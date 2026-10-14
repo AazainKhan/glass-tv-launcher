@@ -40,8 +40,30 @@ class HoldSettleTest {
     }
 
     @Test fun aSlowRepeatStillCountsAsHeld() {
-        assertTrue(HoldSettle.holding(80)); assertTrue(HoldSettle.holding(HoldSettle.HOLD_WINDOW_MS - 1))
+        assertTrue(HoldSettle.holding(50)); assertTrue(HoldSettle.holding(HoldSettle.HOLD_WINDOW_MS - 1))
         assertFalse(HoldSettle.holding(HoldSettle.HOLD_WINDOW_MS))
         assertFalse(HoldSettle.holding(Long.MAX_VALUE / 2))
+    }
+
+    @Test fun aHeldRowWritesItsIndexOnceWhenTheKeyRests() {
+        val written = java.util.Collections.synchronizedList(mutableListOf<Int>())
+        var held = true
+        kotlinx.coroutines.runBlocking {
+            val c = SettleCommit(this, { held }, settleMs = 60) { written += it }
+            // 20 ticks of a held key, 5 ms apart: nothing is written while it moves.
+            for (i in 1..20) { c.move(i); kotlinx.coroutines.delay(5) }
+            assertTrue("nothing written mid-hold: $written", written.isEmpty())
+            kotlinx.coroutines.delay(150)
+        }
+        assertEquals("one write, the item the hold rests on", listOf(20), written)
+    }
+
+    @Test fun aPressWritesAtOnce() {
+        val written = mutableListOf<Int>()
+        kotlinx.coroutines.runBlocking {
+            val c = SettleCommit(this, { false }, settleMs = 60) { written += it }
+            c.move(3); c.move(4)
+        }
+        assertEquals(listOf(3, 4), written)
     }
 }

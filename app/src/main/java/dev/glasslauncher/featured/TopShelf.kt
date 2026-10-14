@@ -157,6 +157,8 @@ fun ExpandedShelf(
     index: Int,
     /** The item the title, synopsis and Cover Flow caption show: [index] once a held key has stopped repeating (P158). */
     settledIndex: Int = index,
+    /** True while a D-pad key is held: the card row then reports its focus only once the key rests (P158). */
+    holding: () -> Boolean = { false },
     progress: () -> Float,
     firstCard: FocusRequester,
     onIndex: (Int) -> Unit,
@@ -182,6 +184,11 @@ fun ExpandedShelf(
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onSheet(false) } }
     // A shelf of square covers (Spotify's albums and playlists) is a Cover Flow, not the wordmark, buttons and card row.
     val coverFlow = remember(feed) { CardShape.square(feed.items) }
+    val onIndexNow by androidx.compose.runtime.rememberUpdatedState(onIndex)
+    val holdingNow by androidx.compose.runtime.rememberUpdatedState(holding)
+    val rowScope = androidx.compose.runtime.rememberCoroutineScope()
+    val rowIndex = remember { SettleCommit(rowScope, { holdingNow() }) { onIndexNow(it) } }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { rowIndex.cancel() } }
     Box(
         modifier.graphicsLayer {
             // Starts after the small title has faded, so the title never shows twice.
@@ -231,7 +238,7 @@ fun ExpandedShelf(
             if (feed.sections.size >= 2) {
                 SectionedRows(
                     rows = remember(feed) { ShelfSections.rows(feed) }, selectedId = item.id, firstCard = firstCard,
-                    onSelect = { c -> feed.items.indexOfFirst { it.id == c.id }.takeIf { it >= 0 }?.let(onIndex) },
+                    onSelect = { c -> feed.items.indexOfFirst { it.id == c.id }.takeIf { it >= 0 }?.let(rowIndex::move) },
                     onOpen = { it.open(context) },
                     onExitDown = onExitDown,
                     onUp = { runCatching { playRequester.requestFocus() }.isSuccess },
@@ -282,7 +289,7 @@ fun ExpandedShelf(
                             // The cards are a fixed size, so their corners are too: not scaled with text size like Home's tiles.
                             shape = RoundedCornerShape(Metrics().tileRadius),
                             edgeLight = true,
-                            onFocusChange = { cardFocused = it; if (it) onIndex(i) },
+                            onFocusChange = { cardFocused = it; if (it) rowIndex.move(i) },
                             modifier = Modifier
                                 .width(cardWidth)
                                 .height(cardHeight)
