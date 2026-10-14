@@ -74,6 +74,10 @@ Pushes to the public repo happen only with the user's OK, relayed by Agent Manag
 6. Yin merges.
 7. Agent Manager gets the user's OK and pushes.
 
+## Every install mode, every device
+
+Each feature defines its behaviour for the plain APK (no root), Glass Pro (rooted, Magisk) and Glass OS (ROM): full where possible, a clean fallback where not. It must also work on any Android TV or Google TV device, not just the Fire TV Stick. Root and system features (memory tuning, remote keys, Bluetooth, privileged permissions) detect what the device has at runtime: props, sysfs paths, packages, keycodes. Never hardcode Fire or karat values. Fire-specific code runs only behind a detection check, with a generic default. Yin rejects merges that assume root or Fire with no fallback.
+
 ## Build and run
 
 - **Needs JDK 17 or 21.** The system default is JDK 25, which AGP rejects. `scripts/build` picks 21 automatically. For raw Gradle: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
