@@ -1895,7 +1895,16 @@ private fun CcAirPlayPlatter(
     val found by produceState(dev.glasslauncher.sonos.SonosScan.get(context).cached, active) {
         if (active) value = dev.glasslauncher.sonos.SonosScan.get(context).refresh()
     }
-    val rows = remember(found, audioOutput) { dev.glasslauncher.sonos.AudioOutputs.rows(found, audioOutput) }
+    // Paired Bluetooth audio devices and which one is the system's A2DP sink: local reads, polled only while this platter is shown.
+    val bt by produceState(emptyList<dev.glasslauncher.sonos.BtOutput>(), active) {
+        while (active) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { dev.glasslauncher.system.BtOutputs.read(context) }
+            kotlinx.coroutines.delay(3_000)
+        }
+    }
+    val rows = remember(found, audioOutput, bt) { dev.glasslauncher.sonos.OutputPicker.build(found, audioOutput, bt) }
+    val canBtRoute = remember { dev.glasslauncher.system.BtRoute.canRoute(context) }
+    val pickScope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     // More rows than the screen holds (receiver controls, speakers, a volume row): scrolls like the grid, edges faded.
@@ -1929,13 +1938,14 @@ private fun CcAirPlayPlatter(
                 }
             }
         }
-        // The tvOS picker (TVSSAudioRoutingPanelPlatterController): the title, This TV, then a "Speakers" section. A click
-        // toggles the row and applies at once; the selected speaker has its volume row (and the mute rule) under it.
+        // The tvOS picker (TVSSAudioRoutingPanelPlatterController): one list grouped by what a device is: This TV, Headphones,
+        // Speakers (network speakers and paired Bluetooth speakers together). A click applies at once; the selected network
+        // speaker has its volume row (and the mute rule) under it. Bluetooth is one sink at a time, set through the system's A2DP.
         Text("Audio Output", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
         val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
-        fun pick(row: dev.glasslauncher.sonos.AudioOutputRow) {
-            val change = dev.glasslauncher.sonos.OutputToggle.click(audioOutput, row)
+        fun pickNetwork(row: dev.glasslauncher.sonos.PickerRow) {
+            val change = dev.glasslauncher.sonos.OutputToggle.click(audioOutput, dev.glasslauncher.sonos.AudioOutputRow(row.network, row.title, row.subtitle, row.selected))
             edit { it.copy(audioOutput = change.choice) }
             for (c in change.commands) when (c) {
                 dev.glasslauncher.sonos.OutputCommand.Stop -> dev.glasslauncher.sonos.SonosRoutes.stop(context)
@@ -1943,11 +1953,42 @@ private fun CcAirPlayPlatter(
                 is dev.glasslauncher.sonos.OutputCommand.Start -> dev.glasslauncher.sonos.SonosRoutes.start(context, c.speaker, muteTv && canMute)
             }
         }
-        for ((i, row) in rows.withIndex()) {
-            if (i == 1) Text("Speakers", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+        fun pickBluetooth(row: dev.glasslauncher.sonos.PickerRow) {
+            when (val a = dev.glasslauncher.sonos.OutputPicker.click(row, rows, canBtRoute)) {
+                null -> Unit
+                dev.glasslauncher.sonos.BtAction.OpenSettings -> {
+                    dev.glasslauncher.system.RemoteNotice.show(context, "Connect it in Bluetooth settings", 4_000)
+                    dev.glasslauncher.system.SystemControls.openBluetooth(context)
+                }
+                else -> pickScope.launch {
+                    if (!dev.glasslauncher.system.BtRoute.run(context, a)) dev.glasslauncher.system.RemoteNotice.show(context, "Couldn't switch the Bluetooth output", 4_000)
+                }
+            }
+        }
+        fun pick(row: dev.glasslauncher.sonos.PickerRow) {
+            when {
+                row.bt != null -> pickBluetooth(row)
+                row.section == dev.glasslauncher.sonos.OutputSection.ThisTv -> {
+                    pickNetwork(row)
+                    // This TV takes the sound back: a connected Bluetooth sink is let go where Glass may do that.
+                    val live = rows.mapNotNull { it.bt }.filter { it.connected }
+                    if (live.isNotEmpty()) {
+                        if (canBtRoute) pickScope.launch { for (d in live) dev.glasslauncher.system.BtRoute.run(context, dev.glasslauncher.sonos.BtAction.Disconnect(d)) }
+                        else dev.glasslauncher.system.RemoteNotice.show(context, "Disconnect the Bluetooth device in Settings to hear the TV", 4_000)
+                    }
+                }
+                else -> pickNetwork(row)
+            }
+        }
+        var lastSection: dev.glasslauncher.sonos.OutputSection? = null
+        for (row in rows) {
+            if (row.section != lastSection && row.section != dev.glasslauncher.sonos.OutputSection.ThisTv) {
+                Text(if (row.section == dev.glasslauncher.sonos.OutputSection.Headphones) "Headphones" else "Speakers", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
+            }
+            lastSection = row.section
             Column {
-                CcRouteRow(sz, row, dev.glasslauncher.sonos.AudioOutputs.subtitle(row, route)) { pick(row) }
-                val speaker = row.speaker
+                CcRouteRow(sz, row, if (row.network != null) dev.glasslauncher.sonos.AudioOutputs.subtitle(dev.glasslauncher.sonos.AudioOutputRow(row.network, row.title, row.subtitle, row.selected), route) else row.subtitle) { pick(row) }
+                val speaker = row.network
                 if (speaker != null) androidx.compose.animation.AnimatedVisibility(
                     visible = row.selected,
                     enter = if (reduceMotion) androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)) else androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(TOGGLE_FADE_MS)),
@@ -1973,27 +2014,32 @@ private fun CcAirPlayPlatter(
                 }
             }
         }
+        // Pairing stays in Settings (tvOS: Remotes and Devices > Bluetooth); the picker only selects among paired devices.
+        CcRouteRow(sz, dev.glasslauncher.sonos.PickerRow("pair", dev.glasslauncher.sonos.OutputSection.ThisTv, "Pair a device…", "Opens Bluetooth settings", dev.glasslauncher.sonos.OutputGlyph.Tv, false),
+            "Opens Bluetooth settings", glyphRes = R.drawable.ic_bluetooth, mark = false) { dev.glasslauncher.system.SystemControls.openBluetooth(context) }
     }
 }
 
 /** One picker row (TVSSAudioRouteRenderer, format 8): glyph, name, a one-line subtitle, and checkmark.circle.fill or circle. */
 @Composable
-private fun CcRouteRow(sz: CcSizes, row: dev.glasslauncher.sonos.AudioOutputRow, subtitle: String?, onClick: () -> Unit) {
+private fun CcRouteRow(sz: CcSizes, row: dev.glasslauncher.sonos.PickerRow, subtitle: String?, glyphRes: Int? = null, mark: Boolean = true, onClick: () -> Unit) {
     CcTile(row.title, listOfNotNull(subtitle, if (row.selected) "selected" else null).joinToString(", ").ifEmpty { null }, Shapes.pill, sz.column, sz.pill, onClick = onClick,
         modifier = Modifier.testTag("cc-audio-" + row.key), on = false) { fg ->
         val focused = LocalCcTileFocused.current
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = 2.dp, end = 12.dp)) {
             // Format 8 (FW): the device's own glyph at tvOS's 42 pt in the 43 dp column, no disc.
             Box(Modifier.width(sz.leadColumn).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                Glyph(if (row.speaker == null) R.drawable.ic_tv else R.drawable.ic_airplay, fg, Modifier.size(sz.pillGlyph))
+                Glyph(glyphRes ?: when (row.glyph) { dev.glasslauncher.sonos.OutputGlyph.Tv -> R.drawable.ic_tv; dev.glasslauncher.sonos.OutputGlyph.Headphones -> R.drawable.ic_headphones; dev.glasslauncher.sonos.OutputGlyph.Speaker -> R.drawable.ic_speaker }, fg, Modifier.size(sz.pillGlyph))
             }
             Column(Modifier.weight(1f)) {
                 PillText(row.title, CcPillTitle, fg, lines = if (subtitle == null) 2 else 1)
                 subtitle?.let { PillText(it, CcPillValue, fg.copy(alpha = 0.7f)) }
             }
-            // The mark changes over 0.25 s (tvOS's row property animator), never pops.
-            androidx.compose.animation.Crossfade(row.selected, animationSpec = androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "route-mark") { sel ->
-                Glyph(if (sel) R.drawable.ic_check_circle_fill else R.drawable.ic_circle, if (sel && !focused) inkAccent(Blue) else fg, Modifier.size(20.dp))
+            if (mark) {
+                // The mark changes over 0.25 s (tvOS's row property animator), never pops.
+                androidx.compose.animation.Crossfade(row.selected, animationSpec = androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "route-mark") { sel ->
+                    Glyph(if (sel) R.drawable.ic_check_circle_fill else R.drawable.ic_circle, if (sel && !focused) inkAccent(Blue) else fg, Modifier.size(20.dp))
+                }
             }
         }
     }

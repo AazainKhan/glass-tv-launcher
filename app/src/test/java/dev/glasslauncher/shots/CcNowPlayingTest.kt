@@ -108,4 +108,32 @@ class CcNowPlayingTest {
             }
         } finally { flow.value = dev.glasslauncher.sonos.RouteState.Idle }
     }
+
+    /** P148: the unified picker: This TV, Headphones (a connected pair), Speakers (a Bluetooth speaker), "Pair a device…" last. */
+    @Test fun platterWithBluetoothDevices() {
+        NowPlayingFixture.state = MutableStateFlow(track)
+        hubField().set(null, dev.glasslauncher.system.AirPlayHub(Link(), background = { it.run() }, main = { it.run() }))
+        dev.glasslauncher.system.BtOutputs.reader = {
+            listOf(
+                dev.glasslauncher.sonos.BtOutput("AA:01", "Pixel Buds", dev.glasslauncher.sonos.BtRole.Headphones, connected = true, battery = 72),
+                dev.glasslauncher.sonos.BtOutput("AA:02", "JBL Flip", dev.glasslauncher.sonos.BtRole.Speaker, connected = false, battery = null),
+            )
+        }
+        TvHarness.setUp()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome()
+                compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+                compose.waitForTag("control-center")
+                compose.settle()
+                compose.press(Button.Down, Button.Down, Button.Right)
+                check(compose.focused()?.startsWith("cc-tile:airplay") == true) { "focus ${compose.focused()}" }
+                compose.press(Button.Select)
+                compose.waitForTag("cc-airplay")
+                compose.settle()
+                for (tag in listOf("cc-audio-bt:AA:01", "cc-audio-bt:AA:02", "cc-audio-pair")) compose.onNodeWithTag(tag, useUnmergedTree = true).assertExists()
+                compose.onRoot().captureRoboImage(shot("cc-output-picker"))
+            }
+        } finally { dev.glasslauncher.system.BtOutputs.reader = { emptyList() } }
+    }
 }
