@@ -21,7 +21,7 @@ object CloseSnapshot {
     private const val FRESH_MS = 3_000L
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "glass-close-snapshot") }
 
-    private class Shot(val pkg: String, val image: ImageBitmap, val at: Long)
+    private class Shot(val pkg: String, val image: ImageBitmap, val at: Long, val preview: Boolean = false)
 
     /** Compose state: a close already playing picks the snapshot up as soon as it lands. */
     private var latest by mutableStateOf<Shot?>(null)
@@ -52,14 +52,14 @@ object CloseSnapshot {
         worker.execute {
             val b = runCatching { android.graphics.BitmapFactory.decodeFile(file.path) }.getOrNull() ?: return@execute
             val hw = b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b
-            android.os.Handler(android.os.Looper.getMainLooper()).post { if (peek(pkg) == null) latest = Shot(pkg, hw.asImageBitmap(), at) }
+            android.os.Handler(android.os.Looper.getMainLooper()).post { if (peek(pkg) == null) latest = Shot(pkg, hw.asImageBitmap(), at, preview = true) }
         }
     }
 
     /** The snapshot of [pkg] if one is fresh (reads Compose state, so a draw that calls it redraws when it lands). */
     fun peek(pkg: String): ImageBitmap? {
         val s = latest ?: return null
-        return s.image.takeIf { s.pkg == pkg && android.os.SystemClock.uptimeMillis() - s.at < FRESH_MS }
+        return s.image.takeIf { s.pkg == pkg && (s.preview || android.os.SystemClock.uptimeMillis() - s.at < FRESH_MS) }
     }
 
     /** Drops the snapshot (the close has played, or Home was left another way). */

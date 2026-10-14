@@ -75,6 +75,8 @@ class AppTransition(
     val coverAlpha = Animatable(0f)
     var window by mutableStateOf<LaunchWindow?>(null); private set
     var closing by mutableStateOf(false); private set
+    /** Home is hidden behind the app it launched: its window shows the app's preview, for the system's snapshot of Home. */
+    var returning by mutableStateOf(false); private set
     /** Open: 0 = tile, 1 = full screen. Close: 1 = full screen, 0 = landed (slightly large). */
     val progress = Animatable(0f)
     /** 0 = the tile art, 1 = launch colour and glyph. */
@@ -138,6 +140,7 @@ class AppTransition(
             val color = background.await() ?: artColor
             val w = LaunchWindow(app, from, art, color, glyph)
             closing = false
+            returning = false
             cover = captured
             coverAlpha.snapTo(1f)
             // Already moving on its first frame, as Apple's is (about a quarter of the way at 0 ms).
@@ -309,6 +312,9 @@ class AppTransition(
         // Left full screen on purpose: Home's first frames when it comes back then match the snapshot
         // the system shows meanwhile (the launch window), instead of dipping to black.
         if (last != null) {
+            // Home's last frame (which the system shows as Home comes back) is the app's preview when there is one.
+            dev.glasslauncher.system.CloseSnapshot.preferPreview(context, last!!.app.packageName)
+            returning = true
             scope.launch { progress.snapTo(1f); fill.snapTo(1f); coverAlpha.snapTo(1f) }
         } else {
             window = null
@@ -338,6 +344,7 @@ class AppTransition(
             try {
             cover = coverImage
             closing = true
+            returning = false
             window = w
             coverAlpha.snapTo(1f)
             progress.snapTo(1f)
@@ -364,9 +371,18 @@ class AppTransition(
                 val snapshot = fadeIn || dev.glasslauncher.system.CloseSnapshot.peek(w.app.packageName) != null || i >= 12
                 if (steady && snapshot && host?.get()?.hasWindowFocus() != false) break
             }
-            // The tile art is back by about half size, so you see where it's going.
-            launch { fill.animateTo(0f, tween(CLOSE_FADE_MS, delayMillis = 30)) }
-            progress.animateTo(0f, tween(CLOSE_MS, easing = FastOutSlowInEasing))
+            // Its own clock, at most 20 ms a frame: Home's first frames back stall (the app is still letting go), and a
+            // tween timed by the wall clock then skipped most of the shrink in one frame (90% to 30% size, P149).
+            var t = 0f
+            var prev = withFrameNanos { it }
+            while (t < CLOSE_MS) {
+                val now = withFrameNanos { it }
+                t = (t + ((now - prev) / 1_000_000f).coerceAtMost(MAX_STEP_MS)).coerceAtMost(CLOSE_MS.toFloat())
+                prev = now
+                // The tile art is back by about half size, so you see where it's going.
+                fill.snapTo(1f - ((t - 30f) / CLOSE_FADE_MS).coerceIn(0f, 1f))
+                progress.snapTo(1f - FastOutSlowInEasing.transform(t / CLOSE_MS))
+            }
             // Home starts sharpening as the tile settles, so there's no blurred pause after landing; the
             // window (exactly the real tile by then) goes once Home is clear.
             launch { settle.animateTo(0f, tween(LAND_MS, easing = FastOutSlowInEasing)) }
@@ -388,6 +404,7 @@ class AppTransition(
 
     private fun reset() {
         window = null
+        returning = false
         closing = false
         scope.launch { coverAlpha.snapTo(0f) }
         cover = null
@@ -410,6 +427,8 @@ class AppTransition(
         const val PAGE_CLOSE_FADE_MS = 100
         const val PAGE_CLOSE_HOLD_MS = 120L
         const val CLOSE_MS = 300
+        /** The close advances at most this much per frame, so a stalled frame slows it instead of skipping it. */
+        const val MAX_STEP_MS = 20f
         const val CLOSE_FADE_MS = 110
         const val LAND_MS = 125
         const val UNBLUR_MS = 120
@@ -484,7 +503,7 @@ fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
             }
         }
         // Closing an app: its own last frame shrinks into the tile when there is one (P147), not a flat colour.
-        val snapshot = if (t.closing) dev.glasslauncher.system.CloseSnapshot.peek(w.app.packageName) else null
+        val snapshot = if (t.closing || t.returning) dev.glasslauncher.system.CloseSnapshot.peek(w.app.packageName) else null
         if (f > 0f && snapshot != null) {
             val sx = rect.width / snapshot.width
             val sy = rect.height / snapshot.height
