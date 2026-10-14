@@ -445,6 +445,21 @@ fun FeaturedItem.open(context: Context): Boolean {
 }
 
 /**
+ * Resume (P160): opens the item like [open], then asks Glass's accessibility service for the one key that starts playback (see
+ * [ResumePlayback]). Without that service (APK mode, it is off) the page opens and a one-line hint says why nothing plays.
+ */
+fun FeaturedItem.resume(context: Context): Boolean {
+    val pm = context.packageManager
+    val target = owner ?: packages.firstOrNull { pm.getLaunchIntentForPackage(it) != null || pm.getLeanbackLaunchIntentForPackage(it) != null }
+    val opened = open(context)
+    if (!opened || target == null) return opened
+    val service = dev.glasslauncher.system.RemoteKeysService.instance
+    if (service != null) service.autoPlay(ResumePlayback.Request(target, android.os.SystemClock.uptimeMillis()))
+    else dev.glasslauncher.system.RemoteNotice.show(context, "Turn on Glass remote keys in Settings to resume playing automatically.")
+    return true
+}
+
+/**
  * JustWatch's popular titles for one streaming service, with the service's own Android TV deep link per
  * title (Netflix, Prime Video, Disney+…): the shelf for apps that publish nothing to the TV themselves.
  * JustWatch's public GraphQL API is unofficial, so failures fall back to the default source.

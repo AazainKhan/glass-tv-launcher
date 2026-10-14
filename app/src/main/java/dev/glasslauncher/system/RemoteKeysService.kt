@@ -265,9 +265,61 @@ class RemoteKeysService : AccessibilityService() {
         }
     }
 
+    // ── Resume (P160) ───────────────────────────────────────────────────────────────────────────────
+
+    private var resumeRequest: dev.glasslauncher.featured.ResumePlayback.Request? = null
+    /** Uptime when the resumed app's window first showed, null until it does. */
+    private var resumeWindowAt: Long? = null
+
+    /** After Resume launched an app: watches for its window and media session, then sends the one key that starts playback (or none). */
+    fun autoPlay(request: dev.glasslauncher.featured.ResumePlayback.Request) {
+        handler.post {
+            handler.removeCallbacks(resumeTick)
+            resumeRequest = request; resumeWindowAt = null
+            handler.postDelayed(resumeTick, RESUME_POLL_MS)
+        }
+    }
+
+    private val resumeTick = object : Runnable {
+        override fun run() {
+            val r = resumeRequest ?: return
+            val now = android.os.SystemClock.uptimeMillis()
+            val np = app.nowPlaying.state.value
+            val session = when {
+                np == null || np.packageName != r.pkg -> dev.glasslauncher.featured.ResumePlayback.Session.None
+                np.playing -> dev.glasslauncher.featured.ResumePlayback.Session.Playing
+                else -> dev.glasslauncher.featured.ResumePlayback.Session.Paused
+            }
+            val decision = dev.glasslauncher.featured.ResumePlayback.decide(now - r.launchedAt, resumeWindowAt?.let { it - r.launchedAt }, session)
+            when (decision) {
+                dev.glasslauncher.featured.ResumePlayback.Decision.Wait -> { handler.postDelayed(this, RESUME_POLL_MS); return }
+                dev.glasslauncher.featured.ResumePlayback.Decision.MediaPlay -> sendMediaPlay()
+                dev.glasslauncher.featured.ResumePlayback.Decision.Select -> clickFocused()
+                else -> Unit
+            }
+            Log.i(TAG, "resume ${r.pkg}: $decision after ${now - r.launchedAt} ms")
+            resumeRequest = null
+        }
+    }
+
+    private fun sendMediaPlay() {
+        val audio = getSystemService(android.media.AudioManager::class.java) ?: return
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+    }
+
+    /** Select on the focused control of the app in front: what DPAD_CENTER would do, without injecting a key (no root). */
+    private fun clickFocused() {
+        val root = rootInActiveWindow ?: return
+        val node = root.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: root.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_ACCESSIBILITY) ?: return
+        node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
+        if (resumeWindowAt == null && resumeRequest?.pkg == pkg) resumeWindowAt = android.os.SystemClock.uptimeMillis()
         if (dev.glasslauncher.BuildConfig.DEBUG && pkg != packageName) Log.i(TAG, "window state: $pkg (gate launching=${LaunchGate.launching(android.os.SystemClock.uptimeMillis())})")
         // Glass's own windows other than Home (the Control Center overlay itself) aren't an app change.
         val glassHome = pkg == packageName && event.className?.toString() == MainActivity::class.java.name
@@ -307,6 +359,7 @@ class RemoteKeysService : AccessibilityService() {
         /** The connected service, for Glass to open Control Center as an overlay. */
         @Volatile var instance: RemoteKeysService? = null
             private set
+        private const val RESUME_POLL_MS = 250L
         private const val PREVIEW_FIRST_MS = 3_000L
         private const val PREVIEW_EVERY_MS = 30_000L
         const val ESCAPE_HOLD_MS = 1_500L

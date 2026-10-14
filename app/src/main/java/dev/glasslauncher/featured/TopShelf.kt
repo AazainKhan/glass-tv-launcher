@@ -228,7 +228,7 @@ fun ExpandedShelf(
                 }
                 // tvOS: Play (Resume when started) and More Info above the row; Up from the row reaches them.
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
-                    ShelfButton(if (item.progress != null) "Resume" else "Play", { item.open(context) }, Modifier.testTag("shelf-play").focusRequester(playRequester), progress = item.progress, play = true)
+                    ShelfButton(if (item.progress != null) "Resume" else "Play", { if (item.progress != null) item.resume(context) else item.open(context) }, Modifier.testTag("shelf-play").focusRequester(playRequester), progress = item.progress, play = true)
                     ShelfButton("More Info", { info = item }, Modifier.testTag("shelf-info").focusRequester(infoRequester).focusProperties { right = FocusRequester.Cancel }, round = true)
                 }
                 // No page dots: the row below is the position (the dots stopped at 12 while the cards didn't).

@@ -44,3 +44,25 @@ Order: published intent/URI, then (non-TV-row items) the existing VIEW chain, th
 or an action in the app's own package; carry package or component only equal to the item's package; use scheme http, https, market or a
 custom scheme (never file, content, javascript, intent, android-app); never grant URI permissions. The intent is forced to
 `setPackage(item package)`, and `resolveActivity` must succeed. Rows for Glass's own package are refused.
+
+## P160: Resume presses one key after the launch
+
+The Resume button (a card with progress) opens the item as before, then `RemoteKeysService.autoPlay` waits for the app's window and
+its media session and sends ONE key (`ResumePlayback.decide`, tested): session playing -> no key; session paused -> `KEYCODE_MEDIA_PLAY`
+through `AudioManager.dispatchMediaKeyEvent`; window up and no session after 1.9 s -> ACTION_CLICK on the focused node (what DPAD_CENTER
+does, no root); 4 s with nothing -> give up, no key. The tile click and the Play button of an item with no progress still only open the
+page. No Glass remote-keys service (APK mode with it off): the page opens and a one-line hint says to turn it on.
+
+Per-app result. The Fire TV twin has none of these apps installed (only fillers), so none of the rows below could be run in this
+session: the "expected" column is the code path each app should take, and Yin's stick run fills in "result".
+
+| App | Page the published intent opens | Expected key | Result on the stick |
+|---|---|---|---|
+| Stremio | detail page (no player route) | no media session until playing: Select on the focused control (its Play button, if it is focused) | to verify |
+| Netflix | title page or player, depends on the row | session appears when playing; paused session: MEDIA_PLAY | to verify |
+| Prime Video | title page | usually no session on the page: Select on the focused control | to verify |
+| YouTube / TizenTube | the video | session paused after load: MEDIA_PLAY | to verify |
+| Plex | title page | no session: Select | to verify |
+
+Limits that remain: Select presses whatever the app focused on first, which is its Play button only on some title pages; where it is not, one wrong
+click can happen (never a second key). Apps that publish no row cannot resume at all.
