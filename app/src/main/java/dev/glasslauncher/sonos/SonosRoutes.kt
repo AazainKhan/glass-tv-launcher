@@ -21,7 +21,7 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 
 /**
- * Plays Glass's audio (captured from other apps) on one Sonos speaker. Order: consent, capture, SonosSession.start.
+ * Plays Glass's audio (captured from other apps) on one or several Sonos speakers. Order: consent, capture, SonosSession.start.
  * Consent is asked every session in every install mode (no appops grant, no root shortcut). The speaker volume is
  * never touched. All of the lifecycle lives in [RouteRunner]; this object wires it to Android.
  */
@@ -58,8 +58,8 @@ object SonosRoutes {
     fun recoverMute(context: Context) = runner(context).recoverMute()
 
     /** Asks for consent (RECORD_AUDIO, then the projection dialog); everything else follows from the result. */
-    fun start(context: Context, speaker: AudioOutputConfig, muteTvWhilePlaying: Boolean) {
-        if (!runner(context).begin(speaker, muteTvWhilePlaying)) return
+    fun start(context: Context, speakers: List<AudioOutputConfig>, muteTvWhilePlaying: Boolean) {
+        if (!runner(context).begin(speakers, muteTvWhilePlaying)) return
         ConsentGate.begin(android.os.SystemClock.uptimeMillis())
         // Pro (su): pre-grant first so the system skips the projection dialog (P135). The plain APK has no su and keeps it.
         scope.launch {
@@ -67,6 +67,11 @@ object SonosRoutes {
             Handler(Looper.getMainLooper()).post { context.startActivity(consentIntent(context)) }
         }
     }
+
+    /** Adds a speaker to a route that plays; the consent already given covers it. */
+    fun addSpeaker(context: Context, speaker: AudioOutputConfig) { runner(context).addSpeaker(speaker) }
+
+    fun removeSpeaker(context: Context, host: String) = runner(context).removeSpeaker(host)
 
     /** Applies the mute toggle to a route that is already running. */
     fun setMuteTv(context: Context, enabled: Boolean) = runner(context).setMuteTv(enabled)

@@ -183,4 +183,94 @@ class RouteRunnerTest {
         assertTrue(LocalNet.sameSubnet(ip("10.0.1.2"), ip("10.0.200.9"), 16))
         assertFalse(LocalNet.sameSubnet(ip("10.0.1.2"), ip("10.1.200.9"), 16))
     }
+
+    // --- P148: several network speakers at once -------------------------------------------------------------------
+
+    private class FailSpk : SpeakerSession {
+        override val ring: PcmRingBuffer? = null
+        val stopped = AtomicInteger()
+        override suspend fun start() { error("speaker unreachable") }
+        override suspend fun stop() { stopped.incrementAndGet() }
+        override suspend fun isPlaying() = false
+    }
+
+    private val den = AudioOutputConfig("192.168.1.6", "Den")
+    private val bedroom = AudioOutputConfig("192.168.1.7", "Bedroom")
+
+    private fun multi(sessions: Map<String, SpeakerSession>) =
+        RouteRunner(scope, Muter(), Flag(), { sessions.getValue(it.host) }, { null }, { tornDown.incrementAndGet() }, checkEveryMs = 20, transportEveryMs = 40)
+
+    private fun RouteRunner.goAll(vararg speakers: AudioOutputConfig, cap: PcmCapture = Cap()) {
+        assertTrue(begin(speakers.toList(), false)); consentGranted(); run(cap)
+    }
+
+    @Test fun twoSpeakersBothStartAndBothGetTheSamePcm() {
+        val a = Spk(); val b = Spk()
+        val r = multi(mapOf(room.host to a, den.host to b))
+        r.goAll(room, den)
+        r.await { it == RouteState.Playing }
+        waitUntil { a.ring.available() > 0 && b.ring.available() > 0 }
+        r.stop()
+        waitUntil { a.stopped.get() >= 1 && b.stopped.get() >= 1 }
+        assertEquals(RouteState.Idle, r.state.value)
+    }
+
+    @Test fun oneSpeakerThatCannotStartDoesNotStopTheOthers() {
+        val ok = Spk(); val bad = FailSpk()
+        val r = multi(mapOf(room.host to ok, den.host to bad))
+        r.goAll(room, den)
+        r.await { it == RouteState.Playing }
+        waitUntil { ok.ring.available() > 0 && bad.stopped.get() >= 1 }
+        r.stop()
+    }
+
+    @Test fun noSpeakerStartingFailsTheRouteWithTheReason() {
+        val r = multi(mapOf(room.host to FailSpk(), den.host to FailSpk()))
+        r.goAll(room, den)
+        val failed = r.await { it is RouteState.Failed } as RouteState.Failed
+        assertTrue(failed.reason, failed.reason.contains("unreachable"))
+    }
+
+    @Test fun aSpeakerCanBeAddedWhilePlayingAndRemovedWithoutStoppingTheRoute() {
+        val a = Spk(); val b = Spk()
+        val r = multi(mapOf(room.host to a, den.host to b))
+        r.goAll(room)
+        r.await { it == RouteState.Playing }
+        assertTrue(r.addSpeaker(den))
+        assertFalse("already there", r.addSpeaker(den))
+        waitUntil { b.started.get() == 1 && b.ring.available() > 0 }
+        r.removeSpeaker(den.host)
+        waitUntil { b.stopped.get() == 1 }
+        assertEquals(RouteState.Playing, r.state.value)
+        assertEquals("the first speaker was not touched", 0, a.stopped.get())
+        r.stop()
+    }
+
+    @Test fun removingTheLastSpeakerStopsTheRoute() {
+        val a = Spk()
+        val r = multi(mapOf(room.host to a))
+        r.goAll(room)
+        r.await { it == RouteState.Playing }
+        r.removeSpeaker(room.host)
+        r.await { it == RouteState.Idle }
+        waitUntil { a.stopped.get() >= 1 && tornDown.get() >= 1 }
+    }
+
+    @Test fun addingWhenNothingPlaysIsRefused() {
+        val r = multi(mapOf(room.host to Spk()))
+        assertFalse(r.addSpeaker(room))
+    }
+
+    @Test fun aSpeakerThatStopsPlayingIsDroppedAndTheRouteContinuesUntilNoneIsLeft() {
+        val a = Spk(); val b = Spk()
+        val r = multi(mapOf(room.host to a, den.host to b))
+        r.goAll(room, den)
+        r.await { it == RouteState.Playing }
+        a.playing = false
+        waitUntil { a.stopped.get() >= 1 }
+        assertEquals("the other one keeps playing", RouteState.Playing, r.state.value)
+        b.playing = false
+        val failed = r.await { it is RouteState.Failed } as RouteState.Failed
+        assertEquals("speaker stopped", failed.reason)
+    }
 }

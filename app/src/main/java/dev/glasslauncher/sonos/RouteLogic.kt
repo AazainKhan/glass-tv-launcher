@@ -164,6 +164,13 @@ data class AirPlayPill(val speaker: Boolean, val title: String) {
     companion object {
         const val AUDIO = "Audio"
 
+        /** One speaker: its room; several: the first and a count; none: null. */
+        fun roomLabel(speakers: List<dev.glasslauncher.data.AudioOutputConfig>): String? = when (speakers.size) {
+            0 -> null
+            1 -> speakers[0].room
+            else -> "${speakers[0].room} +${speakers.size - 1}"
+        }
+
         /** Anything but Idle and Failed is routed to [room]; otherwise the pill is the plain Audio pill on This TV. */
         fun of(route: RouteState, room: String?): AirPlayPill =
             if (route == RouteState.Idle || route is RouteState.Failed) AirPlayPill(false, AUDIO)

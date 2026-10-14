@@ -982,7 +982,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-platter",
             ) { showPlatter ->
             if (airplayPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-                CcAirPlayPlatter(sz, airPlay, cfg.audioOutput, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" }, onName = {
+                CcAirPlayPlatter(sz, airPlay, cfg.speakers, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" }, onName = {
                     val page = dev.glasslauncher.system.AirPlayPageModel.of(airPlay!!.first)
                     closeAll()
                     open(Overlay.TextInput("AirPlay Name", page.name, "How this TV appears in the AirPlay list, up to ${page.nameMax} characters.") { typed ->
@@ -1259,7 +1259,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 val value = when { state.sender != null -> "Connected to ${state.sender}"; state.running -> "On"; else -> "Off" }
                                 // P141: while audio goes to a Sonos speaker the control wears its glyph (solid blue) and room name, as tvOS's Audio pill does.
                                 val route by remember { dev.glasslauncher.sonos.SonosRoutes.state(context) }.collectAsStateWithLifecycle()
-                                val pill = dev.glasslauncher.sonos.AirPlayPill.of(route, cfg.audioOutput?.room)
+                                val pill = dev.glasslauncher.sonos.AirPlayPill.of(route, dev.glasslauncher.sonos.AirPlayPill.roomLabel(cfg.speakers))
                                 androidx.compose.runtime.CompositionLocalProvider(LocalRouteInk provides inkAccent(Blue)) {
                                     SizedRound(tile.size, w, h, pill.title, null, if (pill.speaker) R.drawable.ic_speaker else R.drawable.ic_airplay, if (pill.speaker) pill.title else "AirPlay, $value", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "airplay"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "airplay"; airplayPlatter = true }) { tap { platterSource.id = "airplay"; airplayPlatter = true }() }
                                 }
@@ -1881,7 +1881,7 @@ private fun CcControllersPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: ()
 private fun CcAirPlayPlatter(
     sz: CcSizes,
     airPlay: Pair<dev.glasslauncher.system.AirPlayUi, dev.glasslauncher.system.AirPlayHub>?,
-    audioOutput: dev.glasslauncher.data.AudioOutputConfig?,
+    speakers: List<dev.glasslauncher.data.AudioOutputConfig>,
     muteTv: Boolean,
     edit: ((LauncherConfig) -> LauncherConfig) -> Unit,
     active: Boolean,
@@ -1902,7 +1902,7 @@ private fun CcAirPlayPlatter(
             kotlinx.coroutines.delay(3_000)
         }
     }
-    val rows = remember(found, audioOutput, bt) { dev.glasslauncher.sonos.OutputPicker.build(found, audioOutput, bt) }
+    val rows = remember(found, speakers, bt) { dev.glasslauncher.sonos.OutputPicker.build(found, speakers, bt) }
     val canBtRoute = remember { dev.glasslauncher.system.BtRoute.canRoute(context) }
     val pickScope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
@@ -1939,18 +1939,20 @@ private fun CcAirPlayPlatter(
             }
         }
         // The tvOS picker (TVSSAudioRoutingPanelPlatterController): one list grouped by what a device is: This TV, Headphones,
-        // Speakers (network speakers and paired Bluetooth speakers together). A click applies at once; the selected network
-        // speaker has its volume row (and the mute rule) under it. Bluetooth is one sink at a time, set through the system's A2DP.
+        // Speakers (network speakers and paired Bluetooth speakers together). A click applies at once; network speakers
+        // multi-select, each selected one with its volume row (and the mute rule) under it. Bluetooth is one sink at a time, set through the system's A2DP.
         Text("Audio Output", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
         val canMute = remember { dev.glasslauncher.sonos.SonosRoutes.canMuteTv(context) }
         fun pickNetwork(row: dev.glasslauncher.sonos.PickerRow) {
-            val change = dev.glasslauncher.sonos.OutputToggle.click(audioOutput, dev.glasslauncher.sonos.AudioOutputRow(row.network, row.title, row.subtitle, row.selected))
-            edit { it.copy(audioOutput = change.choice) }
+            val change = dev.glasslauncher.sonos.OutputToggle.click(speakers, row.network)
+            edit { it.copy(audioOutputs = change.choice, audioOutput = null) }
             for (c in change.commands) when (c) {
                 dev.glasslauncher.sonos.OutputCommand.Stop -> dev.glasslauncher.sonos.SonosRoutes.stop(context)
-                // Consent is asked every time; the speaker's volume is never set here.
-                is dev.glasslauncher.sonos.OutputCommand.Start -> dev.glasslauncher.sonos.SonosRoutes.start(context, c.speaker, muteTv && canMute)
+                // Consent is asked every time a route starts; the speaker's volume is never set here.
+                is dev.glasslauncher.sonos.OutputCommand.Start -> dev.glasslauncher.sonos.SonosRoutes.start(context, c.speakers, muteTv && canMute)
+                is dev.glasslauncher.sonos.OutputCommand.Add -> dev.glasslauncher.sonos.SonosRoutes.addSpeaker(context, c.speaker)
+                is dev.glasslauncher.sonos.OutputCommand.Remove -> dev.glasslauncher.sonos.SonosRoutes.removeSpeaker(context, c.host)
             }
         }
         fun pickBluetooth(row: dev.glasslauncher.sonos.PickerRow) {
@@ -1987,7 +1989,7 @@ private fun CcAirPlayPlatter(
             }
             lastSection = row.section
             Column {
-                CcRouteRow(sz, row, if (row.network != null) dev.glasslauncher.sonos.AudioOutputs.subtitle(dev.glasslauncher.sonos.AudioOutputRow(row.network, row.title, row.subtitle, row.selected), route) else row.subtitle) { pick(row) }
+                CcRouteRow(sz, row, dev.glasslauncher.sonos.AudioOutputs.subtitle(row, route)) { pick(row) }
                 val speaker = row.network
                 if (speaker != null) androidx.compose.animation.AnimatedVisibility(
                     visible = row.selected,
@@ -1996,21 +1998,23 @@ private fun CcAirPlayPlatter(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.padding(top = sz.gap)) {
                         CcVolumeRow(sz, speaker)
-                        val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
-                        // HDMI is a fixed-volume output on Fire TV: Android ignores a local mute there (the TV owns its volume over
-                        // CEC), so a toggle would promise something it can't do. Offer it only where a local mute works.
-                        if (canMute) {
-                            CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
-                                modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
-                                PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
-                            }
-                        } else if (busy) {
-                            CcTile("Use your TV remote to mute the TV", null, Shapes.pill, sz.column, sz.pill, onClick = {},
-                                modifier = Modifier.testTag("cc-audio-mute-note"), on = false) { fg ->
-                                PillContent(R.drawable.ic_tv, "TV sound", "Use your TV remote to mute", fg, on = false, accent = fg)
-                            }
-                        }
                     }
+                }
+            }
+        }
+        if (rows.any { it.network != null && it.selected }) Column {
+            val busy = route != dev.glasslauncher.sonos.RouteState.Idle && route !is dev.glasslauncher.sonos.RouteState.Failed
+            // HDMI is a fixed-volume output on Fire TV: Android ignores a local mute there (the TV owns its volume over
+            // CEC), so a toggle would promise something it can't do. Offer it only where a local mute works.
+            if (canMute) {
+                CcTile("Mute TV while playing on Sonos", if (muteTv) "On" else "Off", Shapes.pill, sz.column, sz.pill, onClick = { edit { it.copy(muteTvOnSonos = !muteTv) }; dev.glasslauncher.sonos.SonosRoutes.setMuteTv(context, !muteTv) },
+                    modifier = Modifier.testTag("cc-audio-mute"), on = muteTv) { fg ->
+                    PillContent(R.drawable.ic_tv, "Mute TV while playing on Sonos", if (muteTv) "On" else "Off", fg, on = muteTv, accent = Blue)
+                }
+            } else if (busy) {
+                CcTile("Use your TV remote to mute the TV", null, Shapes.pill, sz.column, sz.pill, onClick = {},
+                    modifier = Modifier.testTag("cc-audio-mute-note"), on = false) { fg ->
+                    PillContent(R.drawable.ic_tv, "TV sound", "Use your TV remote to mute", fg, on = false, accent = fg)
                 }
             }
         }

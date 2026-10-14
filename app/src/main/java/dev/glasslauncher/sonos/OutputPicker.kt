@@ -48,16 +48,16 @@ object OutputPicker {
     /**
      * This TV first, then Headphones (paired Bluetooth headsets), then Speakers: the network speakers and the paired Bluetooth
      * speakers together, by name. This TV is checked only while nothing else is (a connected Bluetooth sink takes the system audio).
-     * A stored network choice the scan did not find stays listed ("Not found") so it can still be cleared.
+     * Stored network choices the scan did not find stay listed ("Not found") so they can still be cleared; several network speakers can be checked.
      */
-    fun build(found: List<SonosSpeaker>, selected: AudioOutputConfig?, bt: List<BtOutput>): List<PickerRow> {
+    fun build(found: List<SonosSpeaker>, selected: List<AudioOutputConfig>, bt: List<BtOutput>): List<PickerRow> {
         val network = found.distinctBy { it.host }.map {
             PickerRow("net:" + it.host, OutputSection.Speakers, it.roomName.ifBlank { it.host }, it.modelName.ifBlank { null }, OutputGlyph.Speaker,
-                it.host == selected?.host, network = AudioOutputConfig(it.host, it.roomName))
+                selected.any { c -> c.host == it.host }, network = AudioOutputConfig(it.host, it.roomName))
         }
-        val missing = if (selected != null && network.none { it.selected }) listOf(
-            PickerRow("net:" + selected.host, OutputSection.Speakers, selected.room.ifBlank { selected.host }, "Not found", OutputGlyph.Speaker, true, network = selected),
-        ) else emptyList()
+        val missing = selected.filter { c -> network.none { it.network?.host == c.host } }.map {
+            PickerRow("net:" + it.host, OutputSection.Speakers, it.room.ifBlank { it.host }, "Not found", OutputGlyph.Speaker, true, network = it)
+        }
         val devices = bt.distinctBy { it.address }.map {
             PickerRow("bt:" + it.address, if (it.role == BtRole.Headphones) OutputSection.Headphones else OutputSection.Speakers, it.name.ifBlank { it.address },
                 btSubtitle(it), if (it.role == BtRole.Headphones) OutputGlyph.Headphones else OutputGlyph.Speaker, it.connected, bt = it)

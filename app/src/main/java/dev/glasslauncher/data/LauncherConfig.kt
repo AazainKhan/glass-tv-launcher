@@ -71,11 +71,16 @@ data class LauncherConfig(
     val screensaverDuringMusic: Boolean = false,
     /** Settings › Downloads. */
     val downloads: DownloadsConfig = DownloadsConfig(),
-    /** Control Center › AirPlay › Audio Output: the chosen Sonos speaker; null = this TV. */
+    /** Read-only legacy (one speaker): the picker now stores [audioOutputs]; this is read by [speakers] until the first change. */
     val audioOutput: AudioOutputConfig? = null,
+    /** Control Center › AirPlay › Audio Output: the chosen network speakers (several play at once); empty = this TV. */
+    val audioOutputs: List<AudioOutputConfig> = emptyList(),
     /** Mute the TV's music stream while playing on Sonos (restored on stop). Off by default. */
     val muteTvOnSonos: Boolean = false,
 ) {
+    /** The speakers chosen for audio: [audioOutputs], else the single legacy [audioOutput]. */
+    val speakers: List<AudioOutputConfig> get() = audioOutputs.ifEmpty { listOfNotNull(audioOutput) }
+
     /** Minutes of idle Home before Aerials start (when Aerials is the screensaver); 0 stored means the default. */
     val aerialsIdleMinutes: Int get() = aerialsOnIdleMinutes.takeIf { it > 0 } ?: 5
 }

@@ -21,13 +21,13 @@ class OutputPickerTest {
     }
 
     @Test fun groupsAreThisTvThenHeadphonesThenSpeakersWithNetworkAndBluetoothSpeakersTogether() {
-        val rows = OutputPicker.build(listOf(kitchen), null, listOf(jbl, buds))
+        val rows = OutputPicker.build(listOf(kitchen), emptyList(), listOf(jbl, buds))
         assertEquals(listOf("This TV", "Pixel Buds", "JBL Flip", "Kitchen"), rows.map { it.title })
         assertEquals(listOf(OutputSection.ThisTv, OutputSection.Headphones, OutputSection.Speakers, OutputSection.Speakers), rows.map { it.section })
     }
 
     @Test fun glyphIsPerDeviceNotPerTransport() {
-        val rows = OutputPicker.build(listOf(kitchen), null, listOf(jbl, buds)).associateBy { it.title }
+        val rows = OutputPicker.build(listOf(kitchen), emptyList(), listOf(jbl, buds)).associateBy { it.title }
         assertEquals(OutputGlyph.Tv, rows.getValue("This TV").glyph)
         assertEquals(OutputGlyph.Headphones, rows.getValue("Pixel Buds").glyph)
         assertEquals(OutputGlyph.Speaker, rows.getValue("JBL Flip").glyph)
@@ -35,11 +35,11 @@ class OutputPickerTest {
     }
 
     @Test fun thisTvIsCheckedOnlyWhileNothingElseIs() {
-        assertTrue(OutputPicker.build(listOf(kitchen), null, listOf(buds)).first().selected)
-        val withBt = OutputPicker.build(listOf(kitchen), null, listOf(buds.copy(connected = true)))
+        assertTrue(OutputPicker.build(listOf(kitchen), emptyList(), listOf(buds)).first().selected)
+        val withBt = OutputPicker.build(listOf(kitchen), emptyList(), listOf(buds.copy(connected = true)))
         assertFalse(withBt.first().selected)
         assertTrue(withBt.first { it.title == "Pixel Buds" }.selected)
-        val withNet = OutputPicker.build(listOf(kitchen), AudioOutputConfig("10.0.0.5", "Kitchen"), listOf(buds))
+        val withNet = OutputPicker.build(listOf(kitchen), listOf(AudioOutputConfig("10.0.0.5", "Kitchen")), listOf(buds))
         assertFalse(withNet.first().selected)
         assertTrue(withNet.first { it.title == "Kitchen" }.selected)
     }
@@ -52,19 +52,25 @@ class OutputPickerTest {
     }
 
     @Test fun storedNetworkChoiceThatIsNotFoundStaysListedAndChecked() {
-        val rows = OutputPicker.build(emptyList(), AudioOutputConfig("10.0.0.9", "Bedroom"), emptyList())
+        val rows = OutputPicker.build(emptyList(), listOf(AudioOutputConfig("10.0.0.9", "Bedroom")), emptyList())
         assertEquals(listOf("This TV" to false, "Bedroom" to true), rows.map { it.title to it.selected })
         assertEquals("Not found", rows[1].subtitle)
     }
 
+    @Test fun severalNetworkSpeakersCanBeCheckedAtOnce() {
+        val den = SonosSpeaker("10.0.0.6", "Den", "Sonos Beam")
+        val rows = OutputPicker.build(listOf(kitchen, den), listOf(AudioOutputConfig("10.0.0.5", "Kitchen"), AudioOutputConfig("10.0.0.6", "Den")), emptyList())
+        assertEquals(listOf("This TV" to false, "Den" to true, "Kitchen" to true), rows.map { it.title to it.selected })
+    }
+
     @Test fun noBluetoothAndNoSpeakersLeavesOnlyThisTv() {
-        val rows = OutputPicker.build(emptyList(), null, emptyList())
+        val rows = OutputPicker.build(emptyList(), emptyList(), emptyList())
         assertEquals(listOf("This TV"), rows.map { it.title })
         assertTrue(rows.single().selected)
     }
 
     @Test fun connectingReplacesTheCurrentSinkBecauseBluetoothIsOneAtATime() {
-        val rows = OutputPicker.build(emptyList(), null, listOf(buds.copy(connected = true), jbl))
+        val rows = OutputPicker.build(emptyList(), emptyList(), listOf(buds.copy(connected = true), jbl))
         val click = OutputPicker.click(rows.first { it.title == "JBL Flip" }, rows, canRoute = true) as BtAction.Connect
         assertEquals(jbl, click.device)
         assertEquals(listOf(buds.copy(connected = true)), click.replacing)
@@ -72,17 +78,17 @@ class OutputPickerTest {
 
     @Test fun clickingTheConnectedDeviceDisconnectsIt() {
         val on = buds.copy(connected = true)
-        val rows = OutputPicker.build(emptyList(), null, listOf(on))
+        val rows = OutputPicker.build(emptyList(), emptyList(), listOf(on))
         assertEquals(BtAction.Disconnect(on), OutputPicker.click(rows.first { it.title == "Pixel Buds" }, rows, canRoute = true))
     }
 
     @Test fun aPlainApkOpensSettingsInsteadOfRouting() {
-        val rows = OutputPicker.build(emptyList(), null, listOf(buds))
+        val rows = OutputPicker.build(emptyList(), emptyList(), listOf(buds))
         assertEquals(BtAction.OpenSettings, OutputPicker.click(rows.first { it.title == "Pixel Buds" }, rows, canRoute = false))
     }
 
     @Test fun networkAndThisTvRowsAreNotBluetoothActions() {
-        val rows = OutputPicker.build(listOf(kitchen), null, emptyList())
+        val rows = OutputPicker.build(listOf(kitchen), emptyList(), emptyList())
         assertNull(OutputPicker.click(rows.first(), rows, canRoute = true))
         assertNull(OutputPicker.click(rows.last(), rows, canRoute = true))
     }

@@ -16,30 +16,34 @@ import java.util.Collections
 class OutputToggleTest {
     private val kitchen = AudioOutputConfig("10.0.0.5", "Kitchen")
     private val den = AudioOutputConfig("10.0.0.6", "Den")
-    private fun row(s: AudioOutputConfig?, selected: Boolean = false) = AudioOutputRow(s, s?.room ?: "This TV", null, selected)
 
-    @Test fun selectingASpeakerStartsTheRoute() =
-        assertEquals(OutputChange(kitchen, listOf(OutputCommand.Start(kitchen))), OutputToggle.click(null, row(kitchen)))
+    @Test fun selectingTheFirstSpeakerStartsTheRoute() =
+        assertEquals(OutputChange(listOf(kitchen), listOf(OutputCommand.Start(listOf(kitchen)))), OutputToggle.click(emptyList(), kitchen))
 
-    @Test fun selectingTheSelectedSpeakerStopsAndReturnsToThisTv() =
-        assertEquals(OutputChange(null, listOf(OutputCommand.Stop)), OutputToggle.click(kitchen, row(kitchen, true)))
+    @Test fun selectingAnotherSpeakerJoinsTheRouteWithoutRestartingIt() =
+        assertEquals(OutputChange(listOf(kitchen, den), listOf(OutputCommand.Add(den))), OutputToggle.click(listOf(kitchen), den))
 
-    @Test fun switchingStopsThenStartsTheOtherSpeaker() =
-        assertEquals(OutputChange(den, listOf(OutputCommand.Stop, OutputCommand.Start(den))), OutputToggle.click(kitchen, row(den)))
+    @Test fun deselectingOneOfSeveralTakesOnlyThatOneOff() =
+        assertEquals(OutputChange(listOf(den), listOf(OutputCommand.Remove(kitchen.host))), OutputToggle.click(listOf(kitchen, den), kitchen))
 
-    @Test fun thisTvStopsAnyRoute() =
-        assertEquals(OutputChange(null, listOf(OutputCommand.Stop)), OutputToggle.click(kitchen, row(null)))
+    @Test fun deselectingTheLastSpeakerStopsTheRoute() =
+        assertEquals(OutputChange(emptyList(), listOf(OutputCommand.Stop)), OutputToggle.click(listOf(kitchen), kitchen))
+
+    @Test fun thisTvStopsAnyRouteAndClearsEverySpeaker() =
+        assertEquals(OutputChange(emptyList(), listOf(OutputCommand.Stop)), OutputToggle.click(listOf(kitchen, den), null))
 
     @Test fun thisTvWhileOnThisTvDoesNothing() =
-        assertEquals(OutputChange(null, emptyList()), OutputToggle.click(null, row(null, true)))
+        assertEquals(OutputChange(emptyList(), emptyList()), OutputToggle.click(emptyList(), null))
 
-    @Test fun neverMoreThanOneSelected() {
-        var current: AudioOutputConfig? = null
-        for (r in listOf(row(kitchen), row(den), row(den), row(kitchen), row(null))) {
-            current = OutputToggle.click(current, r).choice
-            assertTrue(AudioOutputs.rows(listOf(SonosSpeaker(kitchen.host, "Kitchen", ""), SonosSpeaker(den.host, "Den", "")), current).count { it.selected } == 1)
+    @Test fun networkSpeakersMultiSelectAndEveryCheckedOneShowsInThePicker() {
+        var current = emptyList<AudioOutputConfig>()
+        for (t in listOf(kitchen, den, den, kitchen, null)) {
+            current = OutputToggle.click(current, t).choice
+            val rows = OutputPicker.build(listOf(SonosSpeaker(kitchen.host, "Kitchen", ""), SonosSpeaker(den.host, "Den", "")), current, emptyList())
+            assertEquals(current.size, rows.count { it.network != null && it.selected })
+            assertEquals(current.isEmpty(), rows.first().selected)
         }
-        assertNull(current)
+        assertTrue(current.isEmpty())
     }
 
     @Test fun loadingTheVolumeNeverSends() {

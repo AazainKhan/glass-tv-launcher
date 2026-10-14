@@ -8,63 +8,42 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** One line of the platter's Audio Output list. [speaker] is null for "This TV". */
-data class AudioOutputRow(val speaker: AudioOutputConfig?, val title: String, val subtitle: String?, val selected: Boolean) {
-    val key: String get() = speaker?.host ?: THIS_TV_KEY
-
-    companion object { const val THIS_TV_KEY = "this-tv" }
-}
-
 object AudioOutputs {
-    const val THIS_TV = "This TV"
-
-    /**
-     * "This TV" first, then the speakers found, ordered by room name. A stored choice the scan did not find (the
-     * speaker is off or the network is down) stays listed so it still shows its checkmark and can be cleared.
-     */
-    fun rows(found: List<SonosSpeaker>, selected: AudioOutputConfig?): List<AudioOutputRow> {
-        val speakers = found.distinctBy { it.host }.sortedBy { it.roomName.lowercase() }
-            .map { AudioOutputRow(AudioOutputConfig(it.host, it.roomName), it.roomName.ifBlank { it.host }, it.modelName.ifBlank { null }, it.host == selected?.host) }
-        val missing = if (selected != null && speakers.none { it.selected }) {
-            listOf(AudioOutputRow(selected, selected.room.ifBlank { selected.host }, "Not found", true))
-        } else emptyList()
-        return listOf(AudioOutputRow(null, THIS_TV, null, selected == null)) + missing + speakers
-    }
-
     /** How the volume row reads a speaker's volume (GetVolume). Screenshot tests replace it; nothing else does. */
     @Volatile var volumeReader: suspend (host: String) -> Int = { host -> SonosControl("http://$host:1400").getVolume() }
 
-    /** A row's one-line subtitle: the selected speaker shows the route's state ("Connecting…", an opt-out) when there is one. */
-    fun subtitle(row: AudioOutputRow, route: RouteState): String? =
-        if (row.selected && row.speaker != null) RouteLifecycle.label(route) ?: row.subtitle else row.subtitle
-
-    /** The choice a row stores: null for "This TV". Nothing here touches the speaker, least of all its volume. */
-    fun choice(row: AudioOutputRow): AudioOutputConfig? = row.speaker
+    /** A row's one-line subtitle: a selected speaker shows the route's state ("Connecting…", an opt-out) when there is one. */
+    fun subtitle(row: PickerRow, route: RouteState): String? =
+        if (row.selected && row.network != null) RouteLifecycle.label(route) ?: row.subtitle else row.subtitle
 }
 
 /** What a click on a row asks the route to do. There is no volume command: selecting never sets a volume. */
 sealed interface OutputCommand {
     data object Stop : OutputCommand
-    data class Start(val speaker: AudioOutputConfig) : OutputCommand
+    /** The first speaker(s): asks for consent, then streams. */
+    data class Start(val speakers: List<AudioOutputConfig>) : OutputCommand
+    /** Another speaker on a route that already plays (no new consent). */
+    data class Add(val speaker: AudioOutputConfig) : OutputCommand
+    data class Remove(val host: String) : OutputCommand
 }
 
-/** The new stored choice (null = This TV) and the route commands to run, in order. */
-data class OutputChange(val choice: AudioOutputConfig?, val commands: List<OutputCommand>)
+/** The new stored choice (empty = This TV) and the route commands to run, in order. */
+data class OutputChange(val choice: List<AudioOutputConfig>, val commands: List<OutputCommand>)
 
 /**
- * tvOS's picker (rendererWasSelected): a click toggles the row, applied at once, one output at a time (no multi-select).
- * A speaker starts the capture route, the selected speaker again stops it and returns to This TV, This TV stops any
- * route, and another speaker replaces the current one (stop, then start).
+ * tvOS's picker (rendererWasSelected toggles membership): a click on a network speaker adds it or takes it off, several at once
+ * (multi-room). The first one starts the capture route, the others join it, the last one off stops it; This TV stops any
+ * route. Bluetooth is not here: it is one sink at a time, through the system's A2DP route.
  */
 object OutputToggle {
-    fun click(current: AudioOutputConfig?, row: AudioOutputRow): OutputChange {
-        val target = row.speaker
-        return when {
-            target == null -> if (current == null) OutputChange(null, emptyList()) else OutputChange(null, listOf(OutputCommand.Stop))
-            current?.host == target.host -> OutputChange(null, listOf(OutputCommand.Stop))
-            current == null -> OutputChange(target, listOf(OutputCommand.Start(target)))
-            else -> OutputChange(target, listOf(OutputCommand.Stop, OutputCommand.Start(target)))
+    fun click(current: List<AudioOutputConfig>, target: AudioOutputConfig?): OutputChange = when {
+        target == null -> if (current.isEmpty()) OutputChange(emptyList(), emptyList()) else OutputChange(emptyList(), listOf(OutputCommand.Stop))
+        current.any { it.host == target.host } -> {
+            val rest = current.filter { it.host != target.host }
+            OutputChange(rest, listOf(if (rest.isEmpty()) OutputCommand.Stop else OutputCommand.Remove(target.host)))
         }
+        current.isEmpty() -> OutputChange(listOf(target), listOf(OutputCommand.Start(listOf(target))))
+        else -> OutputChange(current + target, listOf(OutputCommand.Add(target)))
     }
 }
 

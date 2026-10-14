@@ -136,4 +136,25 @@ class CcNowPlayingTest {
             }
         } finally { dev.glasslauncher.system.BtOutputs.reader = { emptyList() } }
     }
+
+    /** P148: network speakers multi-select: two checked at once, each with its own volume row. */
+    @Test fun platterWithTwoNetworkSpeakers() {
+        NowPlayingFixture.state = MutableStateFlow(track)
+        hubField().set(null, dev.glasslauncher.system.AirPlayHub(Link(), background = { it.run() }, main = { it.run() }))
+        dev.glasslauncher.sonos.AudioOutputs.volumeReader = { 35 }
+        TvHarness.setUp(config = { it.copy(audioOutputs = listOf(dev.glasslauncher.data.AudioOutputConfig("10.0.0.5", "Kitchen"), dev.glasslauncher.data.AudioOutputConfig("10.0.0.6", "Den"))) })
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            compose.press(Button.Down, Button.Down, Button.Right)
+            check(compose.focused()?.startsWith("cc-tile:airplay") == true) { "focus ${compose.focused()}" }
+            compose.press(Button.Select)
+            compose.waitForTag("cc-airplay")
+            compose.settle()
+            check(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("cc-audio-volume")).fetchSemanticsNodes().size == 2) { "one volume row per checked speaker" }
+            compose.onRoot().captureRoboImage(shot("cc-output-picker-two-speakers"))
+        }
+    }
 }
