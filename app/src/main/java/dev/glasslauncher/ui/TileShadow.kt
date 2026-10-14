@@ -65,10 +65,14 @@ object TileShadow {
      * the main thread; null until it is ready (the caller draws nothing meanwhile, and redraws: [ready] is state).
      */
     fun shaped(kind: Kind, aspect: Float, radiusFrac: Float): ImageBitmap? {
+        // A control mid-emerge can measure 0 wide (aspect infinite or NaN): such a bake asked for an 8 GB bitmap and
+        // took Glass down (P152). Only sane shapes are baked; anything else draws no shadow that frame.
+        if (!(aspect in MIN_ASPECT..MAX_ASPECT) || !(radiusFrac in 0f..1f)) return null
         val key = ShapeKey(kind, (aspect * 100).roundToInt(), (radiusFrac * 100).roundToInt())
         shapes[key]?.let { return it }
         if (pending.add(key)) baker.execute {
-            shapes[key] = bakeShaped(kind, key.aspect / 100f, key.radius / 100f)
+            // A failed bake never crashes Glass: that shape just has no shadow.
+            shapes[key] = runCatching { bakeShaped(kind, key.aspect / 100f, key.radius / 100f) }.getOrNull() ?: return@execute
             android.os.Handler(android.os.Looper.getMainLooper()).post { ready++ }
         }
         // Reading the state here makes the draw that asked come back once the bake lands.
@@ -93,6 +97,8 @@ object TileShadow {
         return Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     }
 
+    private const val MIN_ASPECT = 0.2f
+    private const val MAX_ASPECT = 5f
     private data class ShapeKey(val kind: Kind, val aspect: Int, val radius: Int)
     private val shapes = java.util.concurrent.ConcurrentHashMap<ShapeKey, ImageBitmap>()
     private val pending: MutableSet<ShapeKey> = java.util.concurrent.ConcurrentHashMap.newKeySet()

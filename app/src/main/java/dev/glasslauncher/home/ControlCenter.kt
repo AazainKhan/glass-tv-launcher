@@ -1097,15 +1097,16 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 pendingFocus = id
             }
 
-            // Edit mode's wobble: ONE infinite transition for the whole grid, rotationZ only (+/-0.8 degrees, 190 ms half
-            // period, each tile out of phase), read in the layer phase: nothing recomposes or re-layouts per frame.
+            // Edit mode's jiggle (P152, tvOS): only the lifted tile, +/-1.62 degrees over 0.325 s, rotationZ read in the layer
+            // phase. Every tile used to wobble on a layer of its own, and those layers dropped the glass for a frame as
+            // focus left a tile (the dark flash in edit mode).
             val wobbleOn = false
-            val wobbling = editing && !reduceMotion
+            val wobbling = editing && lifted != null && !reduceMotion
             // Only while editing is there a clock at all: outside edit mode nothing here ticks (the open/close is
             // GPU-bound on this stick, and an idle infinite transition kept frames coming).
             val wobbleClock: androidx.compose.runtime.State<Float> = if (wobbling) androidx.compose.animation.core.rememberInfiniteTransition(label = "cc-wobble").animateFloat(
                 initialValue = 0f, targetValue = 1f,
-                animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.LinearEasing)),
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(325, easing = androidx.compose.animation.core.LinearEasing)),
                 label = "cc-wobble-t",
             ) else remember { androidx.compose.runtime.mutableStateOf(0f) }
             LaunchedEffect(agents.result) { if (agents.result != null) { kotlinx.coroutines.delay(2_000); agents.result = null } }
@@ -1203,10 +1204,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             .offset { off }
                             .size(w, h)
                             .zIndex(if (isLifted) 2f else if (focusedId == id) 1f else 0f)
-                            // No layer of its own at rest: only while editing, lifting or settling a lift.
-                            .then(if (editing || liftScale != 1f) Modifier.graphicsLayer {
+                            // A layer only for the lifted tile (or one settling a lift): the rest draw as they do outside edit mode.
+                            .then(if (isLifted || liftScale != 1f) Modifier.graphicsLayer {
                                 scaleX = liftScale; scaleY = liftScale
-                                if (wobbling && id != ADD_TILE) rotationZ = 0.8f * kotlin.math.sin(((wobbleClock.value + pl.row * 0.13f + pl.col * 0.29f) * 2f * Math.PI).toFloat())
+                                if (wobbling && isLifted) rotationZ = 1.62f * kotlin.math.sin((wobbleClock.value * 2f * Math.PI).toFloat())
                             } else Modifier)
                             .testTag(if (id == ADD_TILE) "cc-add" else "cc-tile:$id"),
                     ) {

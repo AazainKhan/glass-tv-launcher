@@ -1243,7 +1243,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         if (heldForCc) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(if (prefs.reduceMotion) 1 else 160),
                         label = "cc-return",
                     )
-                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (heldForCc) 0f else (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
+                    // Edit Layout (P152a): Settings fades out under Control Center as it opens, instead of vanishing in the frame
+                    // of Select (which showed bare Home for a frame: the flash). tvOS's edit is a state change, not a cut.
+                    val underCcEdit = !top && !leaving && overlay == Overlay.Settings && CcEditEntry.fromSettings &&
+                        overlays.lastOrNull() == Overlay.ControlCenter
+                    val editFade by androidx.compose.animation.core.animateFloatAsState(
+                        if (underCcEdit) 0f else 1f,
+                        if (underCcEdit) androidx.compose.animation.core.tween(if (prefs.reduceMotion) 1 else 220) else androidx.compose.animation.core.snap(),
+                        label = "cc-edit-entry",
+                    )
+                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (heldForCc) 0f else if (underCcEdit) editFade else (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
                             OverlayContent(
                                 overlay = overlay,

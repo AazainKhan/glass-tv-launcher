@@ -243,4 +243,10 @@ class TileShadowTest {
         val corner = a.sample(c + half + d, c - half - d)
         assertTrue("side $side should be well darker than the square's corner $corner", side > 0.05f && corner < side * 0.05f)
     }
+
+    /** P152: a control measured 0 wide mid-emerge asked for an absurd bake (8 GB) and crashed Glass. */
+    @Test fun anAbsurdShapeIsNeverBaked() {
+        for (aspect in listOf(Float.POSITIVE_INFINITY, Float.NaN, 0f, -1f, 1000f)) assertEquals(null, TileShadow.shaped(Kind.Contact, aspect, 0.5f))
+        assertEquals(null, TileShadow.shaped(Kind.Contact, 1f, Float.NaN))
+    }
 }
