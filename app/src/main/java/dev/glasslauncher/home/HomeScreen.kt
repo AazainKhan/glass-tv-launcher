@@ -724,14 +724,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // A TV app's shelf (Spotify's Cover Flow) stays current (P153): re-read when Home comes back, when the app publishes new rows
     // (a content observer, settled for 3 s), and every five minutes while Home is up. The repository only fetches when its copy is
     // older than five minutes, so none of these can run more often than that. Without the EPG permission the observer is empty.
-    LaunchedEffect(homeVisible, featuredCfg) {
-        val fc = featuredCfg ?: return@LaunchedEffect
-        if (!homeVisible || fc.source != dev.glasslauncher.data.FeaturedSourceId.TvApp) return@LaunchedEffect
-        val snap = dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)
-        graph.featured.refresh(fc, addons = snap)
+    // One observer and one timer per time Home is up, not per focused app: keyed on the focused app they were torn down and rebuilt
+    // (content-provider binder calls) on every dock move, which the dock route paid per press.
+    val tvShelfCfg by androidx.compose.runtime.rememberUpdatedState(featuredCfg?.takeIf { it.source == dev.glasslauncher.data.FeaturedSourceId.TvApp })
+    val addonSnapNow by androidx.compose.runtime.rememberUpdatedState(dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings))
+    LaunchedEffect(homeVisible) {
+        if (!homeVisible) return@LaunchedEffect
+        suspend fun reread() { tvShelfCfg?.let { graph.featured.refresh(it, addons = addonSnapNow) } }
+        reread()
         kotlinx.coroutines.coroutineScope {
-            launch { dev.glasslauncher.featured.TvRows.changes(context).collectLatest { delay(3_000); graph.featured.refresh(fc, addons = snap) } }
-            launch { while (true) { delay(dev.glasslauncher.featured.FeaturedRepository.TV_MAX_AGE_MS); graph.featured.refresh(fc, addons = snap) } }
+            launch { dev.glasslauncher.featured.TvRows.changes(context).collectLatest { delay(3_000); reread() } }
+            launch { while (true) { delay(dev.glasslauncher.featured.FeaturedRepository.TV_MAX_AGE_MS); reread() } }
         }
     }
     LaunchedEffect(homeVisible, homeScene) { ControlCenterWindow.homeBackdrop = homeScene.takeIf { homeVisible } }
