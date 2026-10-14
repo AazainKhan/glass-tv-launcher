@@ -14,7 +14,7 @@ class CcLayoutTest {
     private fun t(id: String, s: CcSize = S1x1) = CcTile(id, s)
     private fun at(p: List<CcPlaced>, id: String) = p.first { it.tile.id == id }.let { it.row to it.col }
 
-    @Test fun theDefaultFirstPageIsExactlyFourByFour() {
+    @Test fun theDefaultPageStartsWithTheFourByFourBlockAndHoldsEveryDefault() {
         val p = CcPacking.pack(CcLayout.default().page("controls")!!.tiles)
         assertEquals(0 to 0, at(p, "fire_settings"))
         assertEquals(0 to 2, at(p, "wifi"))
@@ -22,12 +22,15 @@ class CcLayoutTest {
         // F01: Sleep Timer, Clean Up and Restart are 2x1 pills; AirPlay and Theme are circles.
         assertEquals(listOf(2 to 0, 2 to 2, 3 to 0), listOf("sleep_timer", "cleanup", "restart").map { at(p, it) })
         assertEquals(listOf(3 to 2, 3 to 3), listOf("airplay", "appearance").map { at(p, it) })
-        assertEquals("four rows, no scroll at rest", 4, p.maxOf { it.row + it.tile.size.h })
+        assertEquals("the first four rows are the old first page", listOf("fire_settings", "wifi", "bluetooth", "sleep_timer", "cleanup", "restart", "airplay", "appearance"),
+            p.filter { it.row < 4 }.map { it.tile.id })
+        assertEquals("every default control is on this one page and it fits the panel's rows", 7, p.maxOf { it.row + it.tile.size.h })
+        assertTrue(p.maxOf { it.row + it.tile.size.h } <= CcControls.MAX_ROWS)
     }
 
     @Test fun performanceIsAToggleSoItNeverStaysACircle() {
         assertEquals(listOf(S2x1, S2x2), CcControls.sizes("performance"))
-        assertEquals(S2x1, CcLayout.default().page("more")!!.tiles.first { it.id == "performance" }.size)
+        assertEquals(S2x1, CcLayout.default().page("controls")!!.tiles.first { it.id == "performance" }.size)
         // A layout saved when it was a 1x1 circle loads with the pill.
         val old = CcLayout(listOf(CcPage("more", "more", listOf(CcTile("performance", S1x1), CcTile("wifi", S1x1))))).toJson()
         val back = CcLayout.fromJson(old)!!.page("more")!!.tiles
@@ -35,11 +38,28 @@ class CcLayoutTest {
         assertEquals("a size the control allows is kept", S1x1, back.first { it.id == "wifi" }.size)
     }
 
-    @Test fun theSecondDefaultPageIsMore() {
-        val more = CcLayout.default().page("more")!!
-        assertEquals(listOf("screensaver", "switcher", "launcher", "controllers", "remotes", "performance", "vpn"), more.tiles.map { it.id })
-        assertEquals(CcSize.S2x1, more.tiles.last().size)
-        assertEquals(listOf("controls", "more", "alexa"), CcLayout.default().pages.map { it.id })
+    @Test fun theDefaultIsOnePageAndASecondOnlyComesFromThePlus() {
+        val d = CcLayout.default()
+        assertEquals(listOf("controls", "alexa"), d.pages.map { it.id })
+        assertEquals(CcControls.DEFAULT_CONTROLS.map { it.id } + CcControls.DEFAULT_MORE.map { it.id }, d.page("controls")!!.tiles.map { it.id })
+        assertEquals(CcSize.S2x1, d.page("controls")!!.tiles.last().size)
+        assertEquals(null, d.page("more"))
+    }
+
+    @Test fun aLayoutSavedWithTheOldMorePageGetsOnePageOnce() {
+        val saved = CcLayout(listOf(
+            CcPage("controls", "grid", listOf(CcTile("wifi", S2x1), CcTile("launcher", S1x1))),
+            CcPage("more", "more", listOf(CcTile("controllers", S1x1), CcTile("launcher", S1x1), CcTile("vpn", S2x1))),
+            CcPage("page2-123", "auto", listOf(CcTile("downloads", S1x1))),
+            CcPage("alexa", "alexa", emptyList()),
+        )).toJson().replace("\"v\":3", "\"v\":2")
+        val l = CcLayout.fromJson(saved)!!
+        assertEquals(listOf("controls", "page2-123", "alexa"), l.pages.map { it.id })
+        assertEquals("More's tiles follow, none twice", listOf("wifi", "launcher", "controllers", "vpn"), l.page("controls")!!.tiles.map { it.id })
+        assertEquals("a page the user made stays", listOf("downloads"), l.page("page2-123")!!.tiles.map { it.id })
+        // Saved again it is the current version: a page the user makes with the + and calls "more" is not folded.
+        val again = l.copy(pages = l.pages + CcPage("more", "auto", listOf(CcTile("x", S1x1))))
+        assertEquals(listOf("controls", "page2-123", "alexa", "more"), CcLayout.fromJson(again.toJson())!!.pages.map { it.id })
     }
 
     @Test fun freeMemoryIsNowCleanUp() {
@@ -90,7 +110,7 @@ class CcLayoutTest {
         l = l.resize("controls", "wifi"); assertEquals(S2x2, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
         l = l.resize("controls", "wifi"); assertEquals("wraps to the pill", S2x1, l.page("controls")!!.tiles.first { it.id == "wifi" }.size)
         assertEquals(l, l.resize("controls", "fire_settings"))
-        assertEquals("1x1 -> 4x1 (wraps)", S4x1, CcLayout.default().resize("more", "launcher").page("more")!!.tiles.first { it.id == "launcher" }.size)
+        assertEquals("1x1 -> 4x1 (wraps)", S4x1, CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("launcher", S1x1))))).resize("controls", "launcher").page("controls")!!.tiles.first { it.id == "launcher" }.size)
     }
 
     @Test fun fireSettingsCannotBeRemovedOthersCan() {
@@ -212,14 +232,13 @@ class CcAddFittingTest {
                 CcTile("appearance", S1x1), CcTile("screensaver", S1x1), CcTile("switcher", S1x1), CcTile("launcher", S1x1),
             )),
             CcPage("more", "more", listOf(CcTile("controllers", S1x1))),
-        )).toJson().replace("\"v\":2", "\"v\":1")
+        )).toJson().replace("\"v\":3", "\"v\":1")
         val migrated = CcLayout.fromJson(old)!!
         val controls = migrated.page("controls")!!.tiles
         assertEquals(listOf(S2x1, S2x1, S2x1), listOf("sleep_timer", "cleanup", "restart").map { id -> controls.first { it.id == id }.size })
-        assertEquals("page 1 stays four rows", 4, CcPacking.rows(controls))
-        assertTrue("what fell off moves to the front of More, in order",
-            migrated.page("more")!!.tiles.map { it.id }.take(3) == listOf("screensaver", "switcher", "launcher"))
-        // Stored again it is v2: loading it does not touch a size the user then chose.
+        assertEquals("the old More page is folded in (v3), so one page holds everything", null, migrated.page("more"))
+        assertEquals(listOf("airplay", "appearance", "screensaver", "switcher", "launcher", "controllers"), controls.map { it.id }.drop(6))
+        // Stored again it is the current version: loading it does not touch a size the user then chose.
         val chosen = migrated.resize("controls", "cleanup").toJson()
         assertEquals("a choice sticks after the migration", S1x1, CcLayout.fromJson(chosen)!!.page("controls")!!.tiles.first { it.id == "cleanup" }.size)
     }

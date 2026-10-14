@@ -168,6 +168,19 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         })
     }
 
+    /**
+     * One-time (the stored version): the built-in "More" page (the old default's nine-dot page) is folded into the first page, its
+     * tiles after the ones already there, so a layout saved before the single default page has no page the user never made. Pages the
+     * user made (ids from the + in edit mode) are never touched. An empty "More" is just dropped.
+     */
+    internal fun withoutMorePage(): CcLayout {
+        val more = page("more") ?: return this
+        val first = pages.firstOrNull { it.id != "more" && it.id != "alexa" } ?: return this
+        val have = first.tiles.map { it.id }.toSet()
+        val moved = more.tiles.filter { it.id !in have || CcControls.repeatable(it.id) }
+        return copy(pages = pages.filter { it.id != "more" }.map { if (it.id == first.id) it.copy(tiles = it.tiles + moved) else it })
+    }
+
     fun toJson(): String = JSON.encodeToString(Dto.serializer(), Dto(
         v = VERSION,
         pages = pages.map { p -> PageDto(p.id, p.icon, p.tiles.map { TileDto(it.id, it.size.key) }) },
@@ -204,7 +217,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
     }
 
     companion object {
-        const val VERSION = 2
+        const val VERSION = 3
         private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
         /** What a stored value says; null for none or an unreadable one (the caller then uses [default]). */
@@ -227,7 +240,8 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
                 autoAdded = dto.autoAdded,
             )
             // A layout saved before sizes were free (v1) gets the new pill defaults once (F01); never again after.
-            return if (dto.v < 2) read.withPillDefaults() else read
+            val pilled = if (dto.v < 2) read.withPillDefaults() else read
+            return if (dto.v < 3) pilled.withoutMorePage() else pilled
         }
 
         /** Today's Control Center (the ids of CONTROL_CENTER_TILES), minus what the user had turned off ([hidden], the old ccHidden). */
@@ -235,9 +249,9 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
             val off = hidden.map { CcControls.canonical(it) }.toSet()
             fun tiles(list: List<CcTile>) = list.filter { it.id !in off }
             val pages = buildList {
-                add(CcPage("controls", "grid", tiles(CcControls.DEFAULT_CONTROLS)))
-                // More: what doesn't fit the 4x4 first page (VPN shows only when a VPN app is installed).
-                add(CcPage("more", "more", tiles(CcControls.DEFAULT_MORE)))
+                // One page holds every default control and fills the panel (VPN shows only when a VPN app is installed). A second
+                // page exists only when the user makes one with + in edit mode (tvOS has one grid of controls).
+                add(CcPage("controls", "grid", tiles(CcControls.DEFAULT_CONTROLS + CcControls.DEFAULT_MORE)))
                 // Alexa is a page of its own today (a menu-bar icon); the spec's page model keeps it that way until the pages work lands.
                 if ("alexa" !in hidden) add(CcPage("alexa", "alexa", emptyList()))
             }
@@ -277,7 +291,7 @@ object CcControls {
 
     /** Rows a page holds without scrolling: tvOS's panel is about 867 px tall at 1080p and a row pitch is 112 px. */
     const val MAX_ROWS = 7
-    /** The rows the first page shows with no scroll (the panel's viewport: four rows). */
+    /** Rows of the old four-row first page; only the one-time v1 pill migration ([CcLayout.withPillDefaults]) still reads it. */
     const val PAGE_ROWS = 4
 
     /** Built-ins given once to a layout saved before they existed, and what each goes after (the More page: Controls is a full 4x4). */
@@ -301,7 +315,7 @@ object CcControls {
         CcTile("appearance", CcSize.S1x1),
     )
 
-    /** The default second page. */
+    /** The rest of the default page, after [DEFAULT_CONTROLS] (once a separate second page). */
     val DEFAULT_MORE = listOf(
         CcTile("screensaver", CcSize.S1x1), CcTile("switcher", CcSize.S1x1), CcTile("launcher", CcSize.S1x1), CcTile("controllers", CcSize.S1x1),
         CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S2x1), CcTile("vpn", CcSize.S2x1),

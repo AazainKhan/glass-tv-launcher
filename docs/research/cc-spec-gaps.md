@@ -152,3 +152,7 @@ Rule: **every pill (device, info, action) is the full column wide; no Back butto
 | L11 | App-switcher glyph | done in P138 (two overlapping rectangles, `rectangle.on.rectangle`-like, `ic_app_switcher`); confirmed on the twin's More page | done |
 
 Tests: `CcDevicePlatterTest` asserts, for Remotes-style and Controllers-style content and for the empty state, that the device pill is the full column wide and the two actions are side by side on one row, equal halves, one gap apart, spanning the column, with the label whole.
+
+## P151: one default page
+
+The default Control Center is one page (`controls`) holding every default control (`DEFAULT_CONTROLS` + `DEFAULT_MORE`, 7 rows packed, inside the panel's `MAX_ROWS`); there is no built-in "More" (nine-dot) page. A second page exists only when the user makes one with + in edit mode, and the page icons come from the pages that exist. Layout version 3 folds a saved built-in "More" page into the first page once (its tiles after the existing ones, none twice); pages the user made are untouched. The Alexa page stays a menu-bar module of its own (tvOS's Home/Audio modules are the same kind of thing).

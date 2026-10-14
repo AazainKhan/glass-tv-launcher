@@ -17,7 +17,6 @@ class CcFocusFitTest {
     private fun tiles(): List<List<CcTile>> = listOf(
         // Every size beside every other, several rows: the default page, and a page of each size mixed.
         CcLayout.default().page("controls")!!.tiles,
-        CcLayout.default().page("more")!!.tiles,
         listOf(CcTile("a", CcSize.S1x1), CcTile("b", CcSize.S1x1), CcTile("c", CcSize.S2x1), CcTile("d", CcSize.S2x2), CcTile("e", CcSize.S2x1),
             CcTile("f", CcSize.S4x1), CcTile("g", CcSize.S1x1), CcTile("h", CcSize.S2x1), CcTile("i", CcSize.S1x1)),
         listOf(CcTile("a", CcSize.S2x2), CcTile("b", CcSize.S2x2), CcTile("c", CcSize.S4x1), CcTile("d", CcSize.S1x1), CcTile("e", CcSize.S1x1), CcTile("f", CcSize.S2x1)),
