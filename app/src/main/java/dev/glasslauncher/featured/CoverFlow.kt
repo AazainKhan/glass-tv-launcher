@@ -339,6 +339,9 @@ internal object CoverArtCache {
  * exactly the pose of [ExpandedShelf]'s flow and fades as that one fades in, so it is one carousel gaining focus.
  * Nothing is baked or drawn per frame beyond the cover layers the flow already has.
  */
+/** The tray's chevron and its margin, which the centred caption stays above (P165). */
+private val CHEVRON_ROOM = 26.dp
+
 @Composable
 fun CoverPreview(
     feed: FeaturedFeed, index: Int, expand: () -> Float, restCentreY: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
@@ -376,7 +379,8 @@ fun CoverPreview(
         // The reflection ends at the covers' bottom (cover height with its reflection, about the box centre less the
         // 24 dp lift) scaled by the preview's rest scale; the tray top is [trayTop].
         val reflectionBottom = restCentreY + ((COVER_DP * (1f + CoverReflection.HEIGHT)) / 2f - 24f).dp * REST_SCALE
-        val gap = (trayTop - reflectionBottom).coerceAtLeast(24.dp)
+        // Centred, it sits over the Top Shelf's chevron (28 x 9 dp, 14 dp above the tray): the gap ends above it.
+        val gap = (trayTop - CHEVRON_ROOM - reflectionBottom).coerceAtLeast(24.dp)
         Box(Modifier.offset(y = reflectionBottom).fillMaxWidth().height(gap), contentAlignment = Alignment.Center) {
             Crossfade(
                 item.title, animationSpec = tween(220), label = "cover-preview-caption",
