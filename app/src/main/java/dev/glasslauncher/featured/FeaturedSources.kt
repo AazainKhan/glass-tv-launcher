@@ -47,6 +47,8 @@ data class FeaturedItem(
     val progress: Float? = null,
     /** The art's width / height when the source says (TV rows do: Spotify's covers are 1:1); null is 16:9. */
     val aspect: Float? = null,
+    /** "Movie" or "TV Show" when the source says (search results; the info line reads it from Cinemeta otherwise). */
+    val type: String? = null,
 ) {
     /**
      * The hero's info line in tvOS's order (P156): kind · genre · genre · year · episode · runtime. [extra] fills what the row lacks
