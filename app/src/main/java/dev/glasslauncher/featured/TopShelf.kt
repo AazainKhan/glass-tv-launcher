@@ -155,6 +155,8 @@ internal fun Modifier.heroScrim(): Modifier = drawWithCache {
 fun ExpandedShelf(
     feed: FeaturedFeed,
     index: Int,
+    /** The item the title, synopsis and Cover Flow caption show: [index] once a held key has stopped repeating (P158). */
+    settledIndex: Int = index,
     progress: () -> Float,
     firstCard: FocusRequester,
     onIndex: (Int) -> Unit,
@@ -189,7 +191,7 @@ fun ExpandedShelf(
     ) {
         if (coverFlow) {
             CoverFlow(
-                items = feed.items, index = index, onIndex = onIndex,
+                items = feed.items, index = index, settledIndex = settledIndex, onIndex = onIndex,
                 onOpen = { it.open(context) }, onExit = onExitDown,
                 label = feed.heading, focusRequester = firstCard, upTo = upTo,
                 // The preview's covers morph into this pose and stay until they are there (CoverPreview); these take
@@ -205,7 +207,7 @@ fun ExpandedShelf(
                 .fillMaxWidth(),
         ) {
             Column(Modifier.padding(start = m.inset).widthIn(max = 640.dp)) {
-                Crossfade(item, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
+                Crossfade(feed.items.getOrElse(settledIndex) { item }, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
                     Column {
                         Wordmark(shown, height = 76.dp)
                         shown.metaLine()?.let {

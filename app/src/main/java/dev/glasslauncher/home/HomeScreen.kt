@@ -260,7 +260,16 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // The preview's stepping direction (back and forth, never a sweep from the last cover to the first).
     var coverDir by remember { mutableIntStateOf(1) }
-    val hero = feed?.items?.getOrNull(heroIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
+    val idle = rememberIdleState(cfg.idleFadeMinutes)
+    // What follows the focused item (backdrop, title, synopsis) is the settled one: while a key is held it waits for the repeats to
+    // stop, so a long scroll bakes and swaps once, not per item (P158). A single press settles in the same frame.
+    var settledIndex by remember(stateFeed?.items?.firstOrNull()?.id) { mutableIntStateOf(heroIndex) }
+    LaunchedEffect(heroIndex) {
+        val wait = dev.glasslauncher.featured.HoldSettle.delayMs(idle.millisSinceRepeat())
+        if (wait > 0) delay(wait)
+        settledIndex = heroIndex
+    }
+    val hero = feed?.items?.getOrNull(settledIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
     val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
 
     val scope = rememberCoroutineScope()
@@ -314,7 +323,6 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // The Now Playing scrubber (above the buttons) has focus: Down goes to the buttons, not on to the tray.
     var heroScrubFocused by remember { mutableStateOf(false) }
     val pillRequester = remember { FocusRequester() }
-    val idle = rememberIdleState(cfg.idleFadeMinutes)
 
     // Now Playing takes over the top shelf while music plays: the artwork becomes the backdrop (baked
     // like any slide) and the track replaces the shelf title. A pause or gap shorter than 3 s doesn't
@@ -961,6 +969,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 .onPreviewKeyEvent { ev ->
                     val e = ev.nativeKeyEvent
                     idle.touch()
+                    if (e.action == AndroidKeyEvent.ACTION_DOWN) idle.noteKey(e.repeatCount)
                     if (e.action == AndroidKeyEvent.ACTION_DOWN) when (e.keyCode) {
                         AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { KeyDirection.dx = -1; KeyDirection.dy = 0 }
                         AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> { KeyDirection.dx = 1; KeyDirection.dy = 0 }
@@ -1162,6 +1171,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     ExpandedShelf(
                         feed = feed,
                         index = heroIndex,
+                        settledIndex = settledIndex,
                         progress = { expand.value },
                         firstCard = cardRequester,
                         onIndex = { heroIndex = it },

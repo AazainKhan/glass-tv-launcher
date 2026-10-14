@@ -34,6 +34,14 @@ class IdleState(val fadeMs: Long) {
 
     fun millisSinceInput() = SystemClock.uptimeMillis() - lastInput
 
+    private var lastRepeat = Long.MIN_VALUE / 2
+
+    /** A key event arrived: its repeat count says whether a key is being held (P158). */
+    fun noteKey(repeatCount: Int) { if (repeatCount > 0) lastRepeat = SystemClock.uptimeMillis() }
+
+    /** Milliseconds since the last key repeat (huge when none). */
+    fun millisSinceRepeat(): Long = SystemClock.uptimeMillis() - lastRepeat
+
     fun touch() {
         lastInput = SystemClock.uptimeMillis()
         if (idle) {

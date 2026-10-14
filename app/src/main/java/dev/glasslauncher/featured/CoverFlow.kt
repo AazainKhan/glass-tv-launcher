@@ -62,6 +62,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+/** The cover art's fade-in over its tint when it arrives late. */
+private const val ART_FADE_MS = 180
+
 /** A cover's width in dp: the centre cover, about 560 px of a 1080p screen. */
 private const val COVER_DP = 280
 
@@ -75,6 +78,8 @@ private const val COVER_DP = 280
 fun CoverFlow(
     items: List<FeaturedItem>,
     index: Int,
+    /** The cover whose title and subtitle show under the flow: [index] once a held key has stopped repeating (P158). */
+    settledIndex: Int = index,
     onIndex: (Int) -> Unit,
     onOpen: (FeaturedItem) -> Unit,
     onExit: () -> Unit,
@@ -100,6 +105,7 @@ fun CoverFlow(
     // next recomposition are two steps, not one.
     var target by remember { androidx.compose.runtime.mutableIntStateOf(current) }
     LaunchedEffect(current) { target = current }
+    var lastStepAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val position = remember { Animatable(current.toFloat()) }
     LaunchedEffect(current, reduceMotion) {
         if (reduceMotion) position.snapTo(current.toFloat())
@@ -125,9 +131,12 @@ fun CoverFlow(
             .onPreviewKeyEvent { e ->
                 val k = e.nativeKeyEvent
                 if (k.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                // A held key steps at a steady pace, not at the repeat rate (P158): the extra repeats are swallowed.
+                val now = android.os.SystemClock.uptimeMillis()
+                val steps = HoldSettle.acceptStep(k.repeatCount, now - lastStepAt)
                 when (k.keyCode) {
-                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { if (target > 0) { target--; onIndex(target) }; true }
-                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> { if (target < last) { target++; onIndex(target) }; true }
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { if (steps && target > 0) { target--; lastStepAt = now; onIndex(target) }; true }
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> { if (steps && target < last) { target++; lastStepAt = now; onIndex(target) }; true }
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN -> { onExit(); true }
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> { onOpen(shown); true }
                     else -> false
@@ -167,7 +176,7 @@ fun CoverFlow(
             }
         }
         // Title and subtitle of the centre cover, under it.
-        if (!preview) Crossfade(shown, animationSpec = tween(220), label = "cover-title", modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { it ->
+        if (!preview) Crossfade(items[settledIndex.coerceIn(0, last)], animationSpec = tween(220), label = "cover-title", modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { it ->
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
                 Text(it.title, Modifier.testTag("cover-title"), heading = true)
                 it.subtitle?.let { sub -> Text(sub, Modifier.padding(top = 4.dp).testTag("cover-subtitle")) }
@@ -202,12 +211,15 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
             .testTag(tag),
     ) {
         val bitmap = art
-        if (bitmap != null) {
-            Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-        } else {
+        // The art crossfades in over the tint when it arrives after the cover was drawn (never a snap, P158); art that is already
+        // there (a cached cover, scrolling back) is shown at once.
+        val arrived = remember { androidx.compose.animation.core.Animatable(if (bitmap != null) 1f else 0f) }
+        LaunchedEffect(bitmap != null) { if (bitmap != null) arrived.animateTo(1f, tween(ART_FADE_MS)) else arrived.snapTo(0f) }
+        if (bitmap == null || arrived.value < 1f) {
             // Until the art is there (and if it never comes): the title on a tint, never a plain dark square (P63).
             dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
         }
+        if (bitmap != null) Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = arrived.value })
     }
 }
 
