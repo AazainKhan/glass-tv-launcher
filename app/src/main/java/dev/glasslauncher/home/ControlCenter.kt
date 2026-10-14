@@ -202,6 +202,34 @@ private class PlatterSource {
     }
 }
 
+/**
+ * A platter grows out of the tile that opened it and goes back into it (tvOS pushPlatterController, P151b): one position
+ * and scale morph from that tile's rect to the platter's own, on the platter spring (150/20), driven by the content's
+ * enter/exit so Back mid-way reverses from where it is. The fade is the AnimatedContent's (0.25 s). Reduce Motion: none.
+ */
+@Composable
+private fun Modifier.platterMorph(scope: androidx.compose.animation.AnimatedVisibilityScope, source: PlatterSource, reduceMotion: Boolean): Modifier {
+    if (reduceMotion) return this
+    val p by scope.transition.animateFloat(
+        transitionSpec = { androidx.compose.animation.core.spring(PLATTER_DAMPING, PLATTER_STIFFNESS) }, label = "platter-morph",
+    ) { if (it == androidx.compose.animation.EnterExitState.Visible) 1f else 0f }
+    val own = remember { arrayOfNulls<androidx.compose.ui.geometry.Rect>(1) }
+    return this
+        .onGloballyPositioned { own[0] = it.boundsInWindow() }
+        .graphicsLayer {
+            // Read first: a block that returned before reading it was never re-run (the morph didn't play).
+            val k = p
+            val to = own[0] ?: return@graphicsLayer
+            val from = source.pills[source.id] ?: return@graphicsLayer
+            if (to.width <= 0f || to.height <= 0f) return@graphicsLayer
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+            scaleX = androidx.compose.ui.util.lerp(from.width / to.width, 1f, k)
+            scaleY = androidx.compose.ui.util.lerp(from.height / to.height, 1f, k)
+            translationX = androidx.compose.ui.util.lerp(from.left - to.left, 0f, k)
+            translationY = androidx.compose.ui.util.lerp(from.top - to.top, 0f, k)
+        }
+}
+
 private fun Modifier.platterAnchor(source: PlatterSource, id: String): Modifier =
     onGloballyPositioned { source.pills[id] = it.boundsInWindow() }
 
@@ -952,34 +980,38 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // pill it came from and zooms back into it on pop. Spring mass 1, stiffness 150, damping 20 (ratio 0.8165), rows
             // and fades 0.25 s. Reduce Motion: a plain cross-fade, nothing scales. Never a cut either way.
             androidx.compose.animation.AnimatedContent(
-                targetState = remotesPlatter || airplayPlatter || controllersPlatter,
+                // Which platter, not just whether one: the leaving content is drawn from its own state, so a closing
+                // Game Controllers platter no longer turned into Remotes as its flag cleared (P151b).
+                targetState = when { airplayPlatter -> "airplay"; controllersPlatter -> "controllers"; remotesPlatter -> "remotes"; else -> null },
                 modifier = Modifier.weight(1f, fill = remotesPlatter || airplayPlatter || controllersPlatter).onGloballyPositioned {
                     platterSource.box = it.boundsInWindow()
                     contentBottom[0] = it.boundsInWindow().bottom
                     syncMotionPanel()
                 },
                 transitionSpec = {
-                    val push = targetState
+                    val push = targetState != null
                     val fade = androidx.compose.animation.core.tween<Float>(TOGGLE_FADE_MS)
                     if (reduceMotion) androidx.compose.animation.ContentTransform(
                         targetContentEnter = androidx.compose.animation.fadeIn(fade),
                         initialContentExit = androidx.compose.animation.fadeOut(fade),
                         sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.tween(TOGGLE_FADE_MS) },
                     ) else {
-                        val zoom = androidx.compose.animation.core.spring<Float>(PLATTER_DAMPING, PLATTER_STIFFNESS)
-                        val origin = platterSource.origin()
+                        // Fades only here: the platter itself morphs from the tile's rect to its own ([platterMorph], P151b). A
+                        // height SizeTransform used to dominate (the platter grew from the bottom up) and the scale's origin
+                        // fell back to top-centre; the container now takes the new size at once, under the fades.
                         androidx.compose.animation.ContentTransform(
-                            targetContentEnter = if (push) androidx.compose.animation.scaleIn(zoom, PLATTER_FROM_SCALE, origin) + androidx.compose.animation.fadeIn(fade) else androidx.compose.animation.fadeIn(fade),
-                            initialContentExit = if (push) androidx.compose.animation.fadeOut(fade) else androidx.compose.animation.scaleOut(zoom, PLATTER_FROM_SCALE, origin) + androidx.compose.animation.fadeOut(fade),
+                            targetContentEnter = androidx.compose.animation.fadeIn(fade),
+                            initialContentExit = androidx.compose.animation.fadeOut(fade),
                             // The platter is always the one on top: arriving over the grid, leaving over it.
                             targetContentZIndex = if (push) 1f else -1f,
-                            sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.spring(PLATTER_DAMPING, PLATTER_STIFFNESS, androidx.compose.ui.unit.IntSize(1, 1)) },
+                            sizeTransform = null,
                         )
                     }
                 },
                 label = "cc-platter",
-            ) { showPlatter ->
-            if (airplayPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            ) { shownPlatter ->
+            val morphScope = this
+            if (shownPlatter == "airplay") Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
                 CcAirPlayPlatter(sz, airPlay, cfg.speakers, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" }, onName = {
                     val page = dev.glasslauncher.system.AirPlayPageModel.of(airPlay!!.first)
                     closeAll()
@@ -989,11 +1021,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         else airPlay.second.setSetting(dev.glasslauncher.system.AirPlayProtocol.SettingKey.DisplayName, name)
                     })
                 })
-            } else if (showPlatter && controllersPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            } } else if (shownPlatter == "controllers") Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
                 CcControllersPlatter(sz, onSettings = { system { SystemControls.openGameControllers(context) } })
-            } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            } } else if (shownPlatter == "remotes") Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
                 CcRemotesPlatter(sz, onSettings = { system { SystemControls.openGameControllers(context) } })
-            } else if (!restartAsk && !agentCard) Column(
+            } } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
                     // The viewport starts 14 dp below the header's bottom while the tiles keep their place (content

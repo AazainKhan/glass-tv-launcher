@@ -272,7 +272,12 @@ object RootFeatures {
 
     /** Restart: root `svc power reboot`; a system app PowerManager.reboot (REBOOT); else false (the caller opens Fire's settings). */
     suspend fun reboot(context: Context): Boolean {
-        if (Root.known || Root.available()) return Root.action(context, "Restart", "svc power reboot || reboot").ok
+        if (Root.known || Root.available()) {
+            // Logged first: the reboot ends Glass before Root.action could record it, so a restart Glass asked for
+            // left no trace (P149: two unexplained "reboot,shell" restarts).
+            Root.log(context, "Restart: requested")
+            return Root.action(context, "Restart", "svc power reboot || reboot").ok
+        }
         return runCatching {
             val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
             android.os.PowerManager::class.java.getMethod("reboot", String::class.java).invoke(pm, null)
@@ -338,5 +343,5 @@ object RootFeatures {
     suspend fun setFrozen(context: Context, pkg: String, frozen: Boolean): Root.Result =
         Root.action(context, "${if (frozen) "Froze" else "Unfroze"} $pkg", if (frozen) "pm disable-user --user 0 $pkg" else "pm enable $pkg")
 
-    suspend fun restart(context: Context) { Root.action(context, "Restart", "svc power reboot || reboot") }
+    suspend fun restart(context: Context) { Root.log(context, "Restart: requested"); Root.action(context, "Restart", "svc power reboot || reboot") }
 }
