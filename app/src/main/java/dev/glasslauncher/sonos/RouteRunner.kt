@@ -69,6 +69,7 @@ class RouteRunner(
         var misses = 0
     }
     private val legs = mutableListOf<Leg>() // guarded by this
+    private var epoch = 0 // bumped when a route begins or ends, so a leg that finishes starting after that can tell it is orphaned; guarded by this
     private val adding = mutableSetOf<String>() // hosts whose add is in flight, so a double click adds once; guarded by this
 
     @Synchronized private fun dispatch(e: RouteEvent) { _state.value = RouteLifecycle.reduce(_state.value, e) }
@@ -85,6 +86,7 @@ class RouteRunner(
         val s = _state.value
         if (s != RouteState.Idle && s !is RouteState.Failed) return false
         _state.value = RouteState.Idle
+        epoch++
         targets = speakers.distinctBy { it.host }; target = targets.first(); muteTv = muteTvWhilePlaying
         dispatch(RouteEvent.Start)
         return true
@@ -142,10 +144,15 @@ class RouteRunner(
     /** Starts one speaker's session. The leg is listed before start(): cleanup must stop a half-started session. Null on success, else the reason. */
     private suspend fun startLeg(sp: AudioOutputConfig): String? {
         val leg = try { Leg(sp, sessionFor(sp)) } catch (e: Exception) { warn("session", sp.host, e); return e.message ?: e.javaClass.simpleName }
-        synchronized(this) { legs += leg }
+        val born = synchronized(this) { legs += leg; epoch }
         return try {
             leg.session.start()
-            leg.ready = true
+            // stop() or cleanup() may have run while start() was in flight: the route is gone, so this speaker must not keep playing.
+            val live = synchronized(this) { (born == epoch && leg in legs).also { if (it) leg.ready = true else legs -= leg } }
+            if (!live) {
+                runCatching { leg.session.stop() }
+                return "route stopped"
+            }
             null
         } catch (e: CancellationException) {
             throw e
@@ -230,7 +237,7 @@ class RouteRunner(
 
     /** Stops from any state. Safe to call twice and from any thread; cleanup is idempotent. */
     fun stop() {
-        val j = synchronized(this) { dispatch(RouteEvent.Stop); job }
+        val j = synchronized(this) { dispatch(RouteEvent.Stop); epoch++; job }
         j?.cancel() // its finally block runs cleanup too (a job cancelled before it started never does, hence the next line)
         scope.launch { cleanup() }
     }
@@ -238,7 +245,7 @@ class RouteRunner(
     private suspend fun cleanup() {
         val all: List<Leg>
         val c: PcmCapture?
-        synchronized(this) { all = legs.toList(); legs.clear(); c = capture; capture = null }
+        synchronized(this) { epoch++; all = legs.toList(); legs.clear(); c = capture; capture = null }
         for (leg in all) runCatching { leg.session.stop() }.onFailure { warn("session stop", leg.speaker.host, it) }
         pcmVerified = false
         guard.release()

@@ -246,6 +246,22 @@ class RouteRunnerTest {
         r.stop()
     }
 
+    @Test fun stopWhileASpeakerIsBeingAddedLeavesNoLegBehind() {
+        val gate = CompletableDeferred<Unit>()
+        val a = Spk(); val b = Spk(gate)
+        val r = multi(mapOf(room.host to a, den.host to b))
+        r.goAll(room)
+        r.await { it == RouteState.Playing }
+        assertTrue(r.addSpeaker(den))
+        waitUntil { b.started.get() == 1 }
+        r.stop()
+        waitUntil { a.stopped.get() >= 1 && tornDown.get() >= 1 }
+        val stoppedBefore = b.stopped.get()
+        gate.complete(Unit) // the add finishes after the route is gone
+        waitUntil { b.stopped.get() > stoppedBefore }
+        assertEquals(RouteState.Idle, r.state.value)
+    }
+
     @Test fun removingTheLastSpeakerStopsTheRoute() {
         val a = Spk()
         val r = multi(mapOf(room.host to a))
