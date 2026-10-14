@@ -39,10 +39,44 @@ class ShelfDetailsTest {
         assertTrue(parse("""{"name":"X","description":"y"}""").isEmpty)
     }
 
-    @Test fun theShelfsOwnFieldsAreNotRepeated() {
-        // rating, year, runtime, genre and the synopsis are on the shelf already: ShelfDetails has no place for them.
+    @Test fun theSynopsisAndRatingStayWithTheRowAndTheInfoOnlyFieldsStayEmpty() {
+        // P156: the one model now carries genres, runtime and year (the hero line); the synopsis and IMDb rating stay with the row.
         val d = parse("""{"imdbRating":"8.1","releaseInfo":"2020","runtime":"120 min","genres":["Drama"],"description":"Long."}""")
-        assertTrue(d.isEmpty)
+        assertTrue(d.cast.isEmpty() && d.directors.isEmpty() && d.awards == null && d.seasonList.isEmpty())
+        assertEquals(listOf("Drama"), d.genres); assertEquals(120, d.runtimeMin); assertEquals(2020, d.year)
+    }
+
+    @Test fun oneModelCarriesKindGenresRuntimeYearAndTheSeasons() {
+        val d = parse("""{"type":"series","genres":["Drama","Crime","Thriller","Extra"],"runtime":"1h 5min","releaseInfo":"2019–2022",
+            "videos":[{"season":0,"episode":1,"title":"Special"},
+                      {"season":2,"episode":1,"title":"Two One","overview":"o","thumbnail":"https://t/2-1.jpg","runtime":"50 min"},
+                      {"season":1,"episode":2,"title":"One Two"},{"season":1,"episode":1,"name":"One One"}]}""")
+        assertEquals("TV Show", d.type)
+        assertEquals(listOf("Drama", "Crime", "Thriller"), d.genres)
+        assertEquals(65, d.runtimeMin)
+        assertEquals(2019, d.year)
+        assertEquals("specials are left out and seasons are in order", listOf(1, 2), d.seasonList.map { it.number })
+        assertEquals(listOf("One One", "One Two"), d.seasonList[0].episodes.map { it.title })
+        assertEquals(Episode(1, "Two One", "o", "https://t/2-1.jpg", 50), d.seasonList[1].episodes.single())
+        assertEquals(2, d.seasons)
+    }
+
+    @Test fun runtimeTextInAllTheFormsCinemetaUses() {
+        assertEquals(148, ShelfDetails.runtimeMinutes("148 min"))
+        assertEquals(148, ShelfDetails.runtimeMinutes("2h 28min"))
+        assertEquals(60, ShelfDetails.runtimeMinutes("1h"))
+        assertNull(ShelfDetails.runtimeMinutes(null))
+        assertNull(ShelfDetails.runtimeMinutes("n/a"))
+    }
+
+    @Test fun theHeroLineIsTheSameShapeForEveryAppAndHidesWhatIsMissing() {
+        val extra = ShelfDetails(type = "Movie", genres = listOf("Action", "Comedy", "Drama"), runtimeMin = 92, year = 2023)
+        val bare = FeaturedItem(id = "x", title = "T")
+        assertEquals("Movie · Action · Comedy · 2023 · 1 hr 32 min", bare.heroLine(extra))
+        assertEquals("the row's own fields win", "Movie · Horror · 2020 · 45 min", bare.copy(genre = "Horror", year = 2020, durationMin = 45).heroLine(extra))
+        assertNull("nothing known: no line, no blank", bare.heroLine(null))
+        assertEquals("PG-13", bare.copy(rating = "PG-13").ratingPill())
+        assertNull(bare.ratingPill())
     }
 }
 
@@ -105,4 +139,5 @@ class CinemetaTitleMatchTest {
         assertNull(pickCinemetaMatch(m, "Fargo", 1996))
         assertEquals("series" to "tt4", pickCinemetaMatch(m, "Fargo", 2014))
     }
+
 }

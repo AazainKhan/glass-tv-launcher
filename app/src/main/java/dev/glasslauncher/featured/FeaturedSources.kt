@@ -48,6 +48,22 @@ data class FeaturedItem(
     /** The art's width / height when the source says (TV rows do: Spotify's covers are 1:1); null is 16:9. */
     val aspect: Float? = null,
 ) {
+    /**
+     * The hero's info line in tvOS's order (P156): kind · genre · genre · year · episode · runtime. [extra] fills what the row lacks
+     * (Cinemeta, matched by IMDb id or title and year); anything missing is left out, never a blank. The rating is not in it: it is
+     * its own pill after the line ([ratingPill]).
+     */
+    fun heroLine(extra: ShelfDetails? = null): String? {
+        val minutes = (durationMin ?: extra?.runtimeMin)?.takeIf { it > 0 }
+        val duration = minutes?.let { m -> if (m >= 60) "${m / 60} hr" + (if (m % 60 > 0) " ${m % 60} min" else "") else "$m min" }
+        val genres = (if (genre != null) listOf(genre) else extra?.genres.orEmpty()).take(2)
+        val parts = listOfNotNull(extra?.type) + genres + listOfNotNull(year?.toString() ?: extra?.releaseYear(), episode, duration)
+        return parts.joinToString(" · ").ifEmpty { null }
+    }
+
+    /** The age rating as the pill after the info line, or null. */
+    fun ratingPill(): String? = rating?.takeIf { it.isNotBlank() }
+
     /** The details line under the title, in tvOS's order: rating · year · episode · duration · genre. */
     fun metaLine(): String? {
         val duration = durationMin?.takeIf { it > 0 }?.let { m -> if (m >= 60) "${m / 60} hr" + (if (m % 60 > 0) " ${m % 60} min" else "") else "$m min" }

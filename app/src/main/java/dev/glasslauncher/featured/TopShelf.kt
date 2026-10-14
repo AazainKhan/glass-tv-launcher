@@ -217,9 +217,7 @@ fun ExpandedShelf(
                 Crossfade(feed.items.getOrElse(settledIndex) { item }, animationSpec = tween(SLIDE_FADE_MS), label = "shelf-details") { shown ->
                     Column {
                         Wordmark(shown, height = 76.dp)
-                        shown.metaLine()?.let {
-                            Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.68f), maxLines = 1, modifier = Modifier.padding(top = 12.dp))
-                        }
+                        HeroInfoLine(shown, Modifier.padding(top = 12.dp))
                         shown.description?.let {
                             // The whole synopsis in full screen (it was cut at two lines); five covers nearly all.
                             Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.9f), maxLines = if (feed.sections.size >= 2) 2 else 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
@@ -440,14 +438,14 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
     val context = LocalContext.current
     // null while it loads; a state with nothing in it when the title has no more to say.
     val details by androidx.compose.runtime.produceState<ShelfDetails?>(null, item.id) {
-        value = runCatching { ShelfDetails.load(context.app.http, item) }.getOrNull() ?: ShelfDetails()
+        value = runCatching { ShelfDetails.load(metaHttp, item) }.getOrNull() ?: ShelfDetails()
     }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).testTag("shelf-info-sheet"), contentAlignment = Alignment.Center) {
         Column(
             Modifier
-                .width(600.dp)
+                .width(720.dp)
                 .background(Color(0xE61C1C1E), RoundedCornerShape(28.dp))
-                .padding(32.dp)
+                .padding(28.dp)
                 .focusRequester(focus)
                 .onKeyEvent { e ->
                     val k = e.nativeKeyEvent
@@ -457,7 +455,7 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                     close
                 }
                 .focusable(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(item.title, style = Type.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val d = details
@@ -468,8 +466,10 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                     item.description?.let { Text(it, style = Type.body, color = Color.White.copy(alpha = 0.9f)) }
                 }
                 else -> {
+                    HeroInfoLine(item)
+                    item.description?.let { Text(it, style = Type.secondary, color = Color.White.copy(alpha = 0.9f), maxLines = 3, overflow = TextOverflow.Ellipsis) }
                     if (d.cast.isNotEmpty()) {
-                        Text("Cast", style = Type.secondary.copy(fontWeight = FontWeight.SemiBold), color = Color.White.copy(alpha = 0.6f))
+                        Text("starring", style = Type.caption, color = Color.White.copy(alpha = 0.55f))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             d.cast.forEach { p ->
                                 Column(Modifier.width(80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -492,11 +492,11 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                             }
                         }
                     }
-                    InfoRow("Directed by", d.directors.joinToString(", "))
-                    InfoRow("Written by", d.writers.joinToString(", "))
-                    InfoRow("Country", d.country.orEmpty())
-                    InfoRow("Seasons", d.seasons?.toString().orEmpty())
-                    InfoRow("Awards", d.awards.orEmpty())
+                    InfoRole("directors", d.directors)
+                    InfoRole("screenwriters", d.writers)
+                    InfoRow("country", d.country.orEmpty())
+                    InfoRow("awards", d.awards.orEmpty())
+                    SeasonsView(d.seasonList)
                 }
             }
         }
