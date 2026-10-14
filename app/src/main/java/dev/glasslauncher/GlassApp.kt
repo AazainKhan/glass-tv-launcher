@@ -57,7 +57,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
                     bannerService = dev.glasslauncher.system.RemoteKeysService.instance != null,
                 )
                 if (code != null && where == dev.glasslauncher.system.AirPlayCodePlacement.Where.Banner) {
-                    dev.glasslauncher.system.RemoteNotice.show(this@GlassApp, dev.glasslauncher.system.AirPlayCodePlacement.bannerText(code), (hub.pairingRemainingMs() ?: 4_000L).coerceIn(4_000L, 60_000L))
+                    dev.glasslauncher.system.RemoteNotice.show(this@GlassApp, dev.glasslauncher.system.AirPlayCodePlacement.bannerText(code), (hub.pairingRemainingMs() ?: 4_000L).coerceIn(4_000L, 60_000L), actionable = true)
                 }
             }
         }

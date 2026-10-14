@@ -88,7 +88,7 @@ object SleepTimer {
     fun cancelOnInteraction(context: Context, now: Long = System.currentTimeMillis()): Boolean {
         if (!warning(context, now)) return false
         set(context, 0)
-        runCatching { RemoteKeysService.instance?.showBanner("Sleep timer cancelled", 2_000) }
+        runCatching { RemoteKeysService.instance?.showBannerNow("Sleep timer cancelled", 2_000) }
         return true
     }
 
@@ -112,7 +112,7 @@ object SleepTimer {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == ACTION_WARN) {
                 context.getSharedPreferences(PREFS, 0).edit().putBoolean("warned", true).apply()
-                RemoteKeysService.instance?.showBanner("Going to sleep in 1 minute", WARN_MS)
+                RemoteKeysService.instance?.showBanner("Going to sleep in 1 minute", WARN_MS, actionable = true)
                 return
             }
             if (intent.action != ACTION) return

@@ -110,7 +110,7 @@ class RemotePairer(private val context: Context) {
                 Root.action(app, "Grant location for remote pairing", "pm grant ${app.packageName} android.permission.ACCESS_FINE_LOCATION")
             }
             if (hasLocation()) { Log.i(TAG, "ACCESS_FINE_LOCATION granted"); handler.post { evaluate() } }
-            else RemoteNotice.show(app, "Remote pairing needs the Location permission. Update Glass Pro, or allow Location in Glass's app settings.", 10_000)
+            else RemoteNotice.show(app, "Remote pairing needs the Location permission. Update Glass Pro, or allow Location in Glass's app settings.", 10_000, actionable = true)
         }
     }
 
@@ -195,7 +195,7 @@ class RemotePairer(private val context: Context) {
             if (hint) {
                 lastBatteryHint = now
                 Log.w(TAG, "bonded remote silent for ${(now - since) / 1000} s while scanning")
-                RemoteNotice.show(app, "The remote isn't answering. Try fresh batteries, then hold Home for 10 s.", 15_000)
+                RemoteNotice.show(app, "The remote isn't answering. Try fresh batteries, then hold Home for 10 s.", 15_000, actionable = true)
             }
             handler.postDelayed(this, 20_000)
         }
@@ -242,7 +242,7 @@ class RemotePairer(private val context: Context) {
             Log.w(TAG, "advert ${ad.address} (rssi ${r.rssi}) is a remote that kept a bond the stick lost: it must be reset first")
             if (now - lastStaleNotice >= 5 * 60_000L) {
                 lastStaleNotice = now
-                RemoteNotice.show(app, RemoteNotice.STALE_BOND, 20_000)
+                RemoteNotice.show(app, RemoteNotice.STALE_BOND, 20_000, actionable = true)
             }
             return
         }

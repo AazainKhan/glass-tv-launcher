@@ -16,10 +16,15 @@ import kotlinx.coroutines.flow.StateFlow
 object RemoteNotice {
     const val STALE_BOND = "The remote kept an old pairing. Hold Left + Menu + Back for 12 s to reset it, then hold Home for 10 s."
 
-    fun show(context: Context, text: String, forMs: Long = 4_000) {
+    /**
+     * [actionable]: the user must answer or act (pairing help, a code to type): it keeps its time and is shown even under Do Not Disturb.
+     * A plain notice is a few seconds at most and is not shown at all while Android's Do Not Disturb is on (P163); one at a time, the rest queue.
+     */
+    fun show(context: Context, text: String, forMs: Long = 4_000, actionable: Boolean = false) {
+        if (!actionable && DoNotDisturb.on(context)) return
         Handler(Looper.getMainLooper()).post {
             val banner = RemoteKeysService.instance
-            if (banner != null) banner.showBanner(text, forMs)
+            if (banner != null) banner.showBanner(text, forMs, actionable)
             else Toast.makeText(context.applicationContext, text, Toast.LENGTH_LONG).show()
         }
     }

@@ -38,15 +38,39 @@ class RemoteKeysService : AccessibilityService() {
     // ── Banner (Sleep Timer's one-minute warning) ─────────────────────────────────────────────────
 
     private var banner: android.view.View? = null
-    private val dropBanner = Runnable { hideBanner(animate = true) }
+    private val dropBanner = Runnable { hideBanner(animate = true); handler.postDelayed({ nextBanner() }, 160) }
 
     /**
      * Glass's toast (P105 #13): a capsule at the status pill's spot, top right, over any app (an accessibility overlay:
      * never takes focus or touches). It scales from 0.9 and fades in over 130 ms and leaves the same way, with a soft
      * 1 dp rim, not the hard stroke and the one-frame pop the Sleep Timer banner had; replaces Android's grey toast.
      */
-    fun showBanner(text: String, forMs: Long) {
+    fun showBanner(text: String, forMs: Long, actionable: Boolean = false) {
         handler.post {
+            when (val step = bannerQueue.offer(Notice(text, forMs, actionable))) {
+                is BannerQueue.Step.Show -> present(step.notice)
+                is BannerQueue.Step.Extend -> { handler.removeCallbacks(dropBanner); handler.postDelayed(dropBanner, step.ms) }
+                BannerQueue.Step.Wait -> Unit
+            }
+        }
+    }
+
+    /** Replaces whatever is up and queued (the sleep warning is answered by a key: "Sleep timer cancelled" takes its place at once). */
+    fun showBannerNow(text: String, forMs: Long) {
+        handler.post { bannerQueue.clear(); hideBanner(animate = false); showBanner(text, forMs) }
+    }
+
+    /** One capsule at a time (P163): the notice shown now; the others wait in [bannerQueue]. */
+    private val bannerQueue = BannerQueue()
+
+    private fun nextBanner() {
+        (bannerQueue.finished() as? BannerQueue.Step.Show)?.let { present(it.notice) }
+    }
+
+    private fun present(notice: Notice) {
+        val text = notice.text
+        val forMs = notice.shownMs
+        run {
             hideBanner(animate = false)
             val dp = resources.displayMetrics.density
             val view = android.widget.TextView(this).apply {
@@ -99,7 +123,7 @@ class RemoteKeysService : AccessibilityService() {
         // The Sleep Timer's one-minute banner is up: any key cancels the timer (the key still reaches the app).
         if (event.action == KeyEvent.ACTION_DOWN && SleepTimer.warning(this)) {
             SleepTimer.set(this, 0)
-            showBanner("Sleep timer cancelled", 2_000)
+            showBannerNow("Sleep timer cancelled", 2_000)
         }
         // "You can always back out" (P87): Back or Home while the app Glass just started hasn't drawn a window yet
         // cancels it and returns Home. The gate closes the moment any app window appears, so Back inside an app is
@@ -350,6 +374,7 @@ class RemoteKeysService : AccessibilityService() {
         controlCenter.hide()
         controlCenter.release()
         handler.removeCallbacks(capture)
+        bannerQueue.clear(); hideBanner(animate = false)
         super.onDestroy()
     }
 
