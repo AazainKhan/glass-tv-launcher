@@ -31,6 +31,8 @@ object CcCatalog {
         CcCatalogEntry("appearance", "Theme", "Switch between Dark and Light", R.drawable.ic_dark_mode),
         CcCatalogEntry("screensaver", "Screen Saver", "Start the screen saver now", R.drawable.ic_landscape),
         CcCatalogEntry("switcher", "App Switcher", "Recent apps", R.drawable.ic_app_switcher),
+        CcCatalogEntry("search", "Search", "Apps, shows and movies", R.drawable.ic_search),
+        CcCatalogEntry("accessibility", "Accessibility", "The TV's accessibility settings", R.drawable.ic_accessibility),
         CcCatalogEntry("airplay", "AirPlay", "Receive AirPlay (PhairPlay)", R.drawable.ic_airplay, app = "PhairPlay"),
         CcCatalogEntry("performance", "Performance", "Fast frees memory (closes background apps)", R.drawable.ic_speed, tier = CcTier.Root),
         CcCatalogEntry("sleep_timer", "Sleep Timer", "Pause and sleep after 15 to 90 minutes", R.drawable.ic_do_not_disturb_on),

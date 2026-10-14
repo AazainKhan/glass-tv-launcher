@@ -282,6 +282,7 @@ object CcControls {
         "cleanup" to PILL_FIRST,
         "now_playing" to listOf(CcSize.S2x2, CcSize.S2x1, CcSize.S1x1),
         "controllers" to CIRCLE_PILL, "remotes" to CIRCLE_PILL, "screensaver" to CIRCLE_PILL, "switcher" to CIRCLE_PILL,
+        "search" to CIRCLE_PILL, "accessibility" to CIRCLE_PILL,
         "appearance" to CIRCLE_PILL_BIG, "airplay" to CIRCLE_PILL_BIG,
         // A toggle shows its state as a glyph tint and a value line, which a circle never draws (P129): a pill or the big tile.
         "performance" to listOf(CcSize.S2x1, CcSize.S2x2),

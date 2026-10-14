@@ -577,7 +577,7 @@ val CONTROL_CENTER_TILES = listOf(
     "alexa" to "Alexa Page", "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
     "controllers" to "Game Controllers", "remotes" to "Remotes", "appearance" to "Theme", "screensaver" to "Screen Saver",
     "switcher" to "App Switcher", "performance" to "Performance", "sleep_timer" to "Sleep Timer", "vpn" to "VPN",
-    "cleanup" to "Clean Up", "restart" to "Restart",
+    "cleanup" to "Clean Up", "restart" to "Restart", "search" to "Search", "accessibility" to "Accessibility",
 )
 
 /**
@@ -1256,6 +1256,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             }
                             "screensaver" -> SizedRound(tile.size, w, h, "Saver", null, R.drawable.ic_landscape, "Screen Saver", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); AerialActivity.start(context) }) { tap { closeAll(); AerialActivity.start(context) }() }
                             "switcher" -> SizedRound(tile.size, w, h, "Apps", null, R.drawable.ic_app_switcher, "App Switcher", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.AppSwitcher) }) { tap { closeAll(); open(Overlay.AppSwitcher) }() }
+                            // P164: tvOS's Control Center has Search and Accessibility.
+                            "search" -> SizedRound(tile.size, w, h, "Search", null, R.drawable.ic_search, "Search", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { closeAll(); open(Overlay.Search) }) { tap { closeAll(); open(Overlay.Search) }() }
+                            "accessibility" -> SizedRound(tile.size, w, h, "Access", null, R.drawable.ic_accessibility, "Accessibility", onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { system { SystemControls.open(context, Settings.ACTION_ACCESSIBILITY_SETTINGS) } }) { tap { system { SystemControls.open(context, Settings.ACTION_ACCESSIBILITY_SETTINGS) } }() }
                             "downloads" -> {
                                 val downloads by remember { dev.glasslauncher.downloads.Downloads.queue(context).items }.collectAsState()
                                 val value = dev.glasslauncher.downloads.DownloadText.summary(downloads)
