@@ -1219,9 +1219,9 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     SectionLabel("Performance")
     MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null, enabled = on)
     MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on,
-        help = "Instant app switching (no system window animations) and higher minimum clocks. Runs warmer.")
+        help = "Closes apps running in the background to free memory. Nothing else changes: this TV already runs its processor at full speed.")
     if (dev.glasslauncher.system.DeviceProfile.memoryTuningApplies(context)) ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on,
-        help = "Keeps up to 12 apps ready to resume instead of 4 (1.2 GB compressed swap). After a restart.")
+        help = "Keeps the apps you return to ready (1.2 GB compressed swap, a gentler low-memory killer, 12 cached apps). After a restart.")
     MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)
     if (rf.freezableHere(context).isNotEmpty()) MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true, enabled = on)
     SectionLabel("Device")

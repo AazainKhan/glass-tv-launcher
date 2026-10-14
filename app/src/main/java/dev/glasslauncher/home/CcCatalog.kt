@@ -32,7 +32,7 @@ object CcCatalog {
         CcCatalogEntry("screensaver", "Screen Saver", "Start the screen saver now", R.drawable.ic_landscape),
         CcCatalogEntry("switcher", "App Switcher", "Recent apps", R.drawable.ic_app_switcher),
         CcCatalogEntry("airplay", "AirPlay", "Receive AirPlay (PhairPlay)", R.drawable.ic_airplay, app = "PhairPlay"),
-        CcCatalogEntry("performance", "Performance", "On is Fast, Off is Balanced", R.drawable.ic_speed, tier = CcTier.Root),
+        CcCatalogEntry("performance", "Performance", "Fast frees memory (closes background apps)", R.drawable.ic_speed, tier = CcTier.Root),
         CcCatalogEntry("sleep_timer", "Sleep Timer", "Pause and sleep after 15 to 90 minutes", R.drawable.ic_do_not_disturb_on),
         CcCatalogEntry("vpn", "VPN", "Shows if a VPN is on; opens its app", R.drawable.ic_vpn),
         CcCatalogEntry("restart", "Restart", "Restart Fire TV", R.drawable.ic_restart, tier = CcTier.System),

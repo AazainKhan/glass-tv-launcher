@@ -14,4 +14,7 @@ resetprop ro.lmk.swap_free_low_percentage 3
 until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 2; done
 
 stop lmkd; start lmkd
-settings put global activity_manager_constants max_cached_processes=12
+# Android 11 reads the cached-app cap from DeviceConfig; the settings-global form this used to write was ignored
+# (dumpsys showed 32). 12 vs 32 measured on the stick (P149): same warm returns, less swap.
+settings delete global activity_manager_constants
+device_config put activity_manager max_cached_processes 12

@@ -24,9 +24,9 @@ case "${1:-status}" in
     [ "${2:-}" = --reboot ] && adb reboot || true ;;
   uninstall)
     adb shell "su -c 'touch $MOD/remove'"
-    # The cached-app cap is a stored setting, not part of the module: put Fire OS's value back.
-    adb shell settings put global activity_manager_constants max_cached_processes=4
-    log "removed Magisk module glass-tuning; max_cached_processes back to 4"
+    # The cached-app cap is a stored setting, not part of the module: back to the system default.
+    adb shell "su -c 'device_config delete activity_manager max_cached_processes; settings delete global activity_manager_constants'"
+    log "removed Magisk module glass-tuning; max_cached_processes back to the system default"
     echo "Removed on next restart."
     [ "${2:-}" = --reboot ] && adb reboot || true ;;
   status)

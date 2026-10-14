@@ -189,36 +189,33 @@ object RootFeatures {
 
     // ── Performance profile ───────────────────────────────────────────────────────────────────────
 
-    private const val GPU = "/sys/class/devfreq/13000000.gpu/min_freq"
-    private const val CPU = "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq"
-
-    /** Fast: system window animations off (app switches are instant; Glass keeps its own motion) and the GPU and CPU held at higher minimum clocks. */
+    /**
+     * Fast (P149): measured on the stick, none of the old profile's writes earned a number. The CPU minimum is already
+     * pinned at its 2.0 GHz top from boot (Fast's 1.3 GHz write lowered it), the GPU minimum (850 vs 650 MHz) didn't
+     * move p99, and zeroed system animations fought Glass's own launch and close. So Fast now frees memory once (the
+     * cached apps are killed, as Free Memory does) and changes nothing that persists; Balanced does nothing.
+     */
     fun fast(context: Context): Boolean = context.getSharedPreferences(PREFS, 0).getBoolean("fast", false)
 
     suspend fun setFast(context: Context, on: Boolean): Root.Result {
         context.getSharedPreferences(PREFS, 0).edit().putBoolean("fast", on).apply()
-        return Root.action(context, if (on) "Performance: Fast" else "Performance: Balanced", profileScript(on))
+        if (on) freeMemory(context)
+        return Root.Result(0, "")
     }
 
-    /** Sysfs clocks reset at boot, so a Fast profile is re-applied when Glass starts. */
+    /** At start: the Fire OS Home-key flash off, and anything the old Fast profile left behind undone (once). */
     suspend fun reapplyAtStart(context: Context) {
         if (!Root.available()) return
         // Fire OS turns its Home-key black flash (SystemUI KeyFeedbackUI) back on at every boot; it ran
         // over Glass's app-close animation. Found by e2e/test_device_setup.py after a restart.
         // Only where the property exists (Fire OS): elsewhere it would create one nothing reads.
         Root.run("p=\"$(getprop persist.perfanimation.enabled)\"; [ -z \"\$p\" ] || [ \"\$p\" = false ] || setprop persist.perfanimation.enabled false")
-        if (fast(context)) Root.run(profileScript(true))
-    }
-
-    private fun profileScript(fast: Boolean): String {
-        val scale = if (fast) "0" else "1.0"
-        return """
-            settings put global window_animation_scale $scale
-            settings put global transition_animation_scale $scale
-            [ -w $GPU ] && echo ${if (fast) 850000000 else 650000000} > $GPU
-            [ -w $CPU ] && echo ${if (fast) 1300000 else 600000} > $CPU
-            true
-        """.trimIndent()
+        val prefs = context.getSharedPreferences(PREFS, 0)
+        if (fast(context) && !prefs.getBoolean("fastV2", false)) {
+            // The old Fast set system animations to 0; Glass's motion is tuned to 1.0. Put them back once.
+            Root.action(context, "Performance: old Fast profile undone", "settings put global window_animation_scale 1.0\nsettings put global transition_animation_scale 1.0")
+            prefs.edit().putBoolean("fastV2", true).apply()
+        }
     }
 
     fun systemAnimationsOff(context: Context): Boolean =
@@ -244,7 +241,8 @@ object RootFeatures {
             resetprop ro.lmk.swap_free_low_percentage 3
             until [ "${'$'}(getprop sys.boot_completed)" = 1 ]; do sleep 2; done
             stop lmkd; start lmkd
-            settings put global activity_manager_constants max_cached_processes=12
+            settings delete global activity_manager_constants
+            device_config put activity_manager max_cached_processes 12
             GLASSSH
             printf 'id=glass-tuning\nname=Glass Memory Tuning\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/service.sh; chmod 644 ${'$'}M/system/vendor/etc/fstab.enableswap
@@ -252,7 +250,7 @@ object RootFeatures {
         """.trimIndent().lines().joinToString("\n") { it.trimStart() })
     } else {
         Root.action(context, "Memory tuning off (module glass-tuning, on restart)",
-            "touch $TUNING_MODULE/remove 2>/dev/null; settings put global activity_manager_constants max_cached_processes=4")
+            "touch $TUNING_MODULE/remove 2>/dev/null; device_config delete activity_manager max_cached_processes; settings delete global activity_manager_constants")
     }
 
     // ── Free memory ───────────────────────────────────────────────────────────────────────────────
