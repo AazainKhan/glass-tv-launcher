@@ -116,7 +116,6 @@ fun CoverFlow(
     // next recomposition are two steps, not one.
     var target by remember { androidx.compose.runtime.mutableIntStateOf(current) }
     LaunchedEffect(current) { target = current }
-    var lastStepAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val position = remember { Animatable(current.toFloat()) }
     LaunchedEffect(current, reduceMotion) {
         if (reduceMotion) position.snapTo(current.toFloat())
@@ -142,12 +141,9 @@ fun CoverFlow(
             .onPreviewKeyEvent { e ->
                 val k = e.nativeKeyEvent
                 if (k.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
-                // A held key steps at a steady pace, not at the repeat rate (P158): the extra repeats are swallowed.
-                val now = android.os.SystemClock.uptimeMillis()
-                val steps = HoldSettle.acceptStep(k.repeatCount, now - lastStepAt)
                 when (k.keyCode) {
-                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { if (steps && target > 0) { target--; lastStepAt = now; onIndex(target) }; true }
-                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> { if (steps && target < last) { target++; lastStepAt = now; onIndex(target) }; true }
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { if (target > 0) { target--; onIndex(target) }; true }
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> { if (target < last) { target++; onIndex(target) }; true }
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN -> { onExit(); true }
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> { onOpen(shown); true }
                     else -> false

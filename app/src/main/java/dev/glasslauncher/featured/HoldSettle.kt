@@ -7,19 +7,13 @@ package dev.glasslauncher.featured
  * unit-tested with a simulated held key; Home feeds it the repeat clock.
  */
 object HoldSettle {
-    /** A key is held while repeats arrive less than this far apart (Android's repeat is ~20 to 50 ms; the first gap is ~500 ms). */
+    /** A key is held while repeats arrive less than this far apart (Fire's repeat is fixed: 400 ms to the first repeat, then 50 ms; it is not re-timed, there is no momentum and no skipping: one item per tick). */
     const val HOLD_WINDOW_MS = 600L
-    /** After the last repeat the hero settles on the focused item this much later. */
-    const val SETTLE_MS = 160L
+    /** After the last focus move the hero settles on the focused item this much later (tvOS's restartable settle timer, about 0.35 s, rom/research/tvos-fast-scroll.md). */
+    const val SETTLE_MS = 350L
 
     /** True while a held key is still repeating: the last repeat event was less than [HOLD_WINDOW_MS] ago. */
     fun holding(sinceLastRepeatMs: Long): Boolean = sinceLastRepeatMs in 0 until HOLD_WINDOW_MS
-
-    /** The Cover Flow takes at most one step per this many ms from a held key; faster repeats are dropped (the spring would only be retargeted before it moved). */
-    const val REPEAT_STEP_MS = 90L
-
-    /** A key event steps the Cover Flow: always for a press, for a repeat only when [REPEAT_STEP_MS] has passed since the last step. */
-    fun acceptStep(repeatCount: Int, sinceLastStepMs: Long): Boolean = repeatCount == 0 || sinceLastStepMs >= REPEAT_STEP_MS
 
     /** How long the settled item waits before following a focus change made now: nothing for a press, [SETTLE_MS] for a hold. */
     fun delayMs(sinceLastRepeatMs: Long): Long = if (holding(sinceLastRepeatMs)) SETTLE_MS else 0L
