@@ -301,6 +301,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val listState = rememberLazyListState()
     val layer = rememberGraphicsLayer()
     val transition = remember { AppTransition(context, scope, backdrop, model) }
+    // Read each app's starting-window colour ahead of its launch: the first read (createPackageContext) held the zoom's
+    // first frame back by up to ~350 ms on the stick (P149).
+    LaunchedEffect(layout.installed) { transition.prewarm(layout.installed) }
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     val cardRequester = remember { FocusRequester() }

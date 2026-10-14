@@ -247,6 +247,11 @@ class AppTransition(
         }
     }
 
+    /** Reads the starting-window colours of [apps] off the main thread, so a launch never waits on one. */
+    suspend fun prewarm(apps: List<AppEntry>) = withContext(Dispatchers.IO) {
+        for (app in apps) if (!startingColors.containsKey(app.packageName)) startingColor(app)
+    }
+
     /** Starting-window colour per package (themes don't change while installed; reinstall clears nothing it matters for). */
     private val startingColors = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
@@ -393,7 +398,10 @@ class AppTransition(
         const val OPEN_START = 0.12f
         const val FILL_MS = 110
         /** startActivity this far into the zoom; the app's first window fades in over the rest. */
-        const val HANDOFF_MS = 170L
+        // As the zoom lands (~97% at 420 ms): an app started earlier took the CPU from the zoom's last frames on the
+        // stick (100-270 ms gaps, then a jump to full screen, P149); a stall now holds a full-screen window, which
+        // doesn't show. tvOS fades the app in over the full-size window too.
+        const val HANDOFF_MS = 420L
         /** A page zooms to full screen in this long, then holds this long under the window while it draws. */
         const val PAGE_OPEN_MS = 260
         const val PAGE_HOLD_MS = 60L
