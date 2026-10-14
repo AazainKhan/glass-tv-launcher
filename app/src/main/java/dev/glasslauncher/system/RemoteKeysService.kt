@@ -120,6 +120,10 @@ class RemoteKeysService : AccessibilityService() {
         // A key from anything but the remote (CEC, a phone app, a controller) says the user is at the TV: the
         // fresh-batteries hint is allowed for a while after it (P98), never on a plain idle Home.
         if (event.action == KeyEvent.ACTION_DOWN) RemoteWatch.noteKey(event.device?.name)
+        // Debug builds log every key that reaches the service: the table of which remote keys an accessibility service sees (docs/research/remote-keys-plain-apk.md).
+        if (dev.glasslauncher.BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            Log.i(TAG, "key ${KeyEvent.keyCodeToString(event.keyCode)} scan=${event.scanCode} device=${event.device?.name} front=$front")
+        }
         // The Sleep Timer's one-minute banner is up: any key cancels the timer (the key still reaches the app).
         if (event.action == KeyEvent.ACTION_DOWN && SleepTimer.warning(this)) {
             SleepTimer.set(this, 0)
@@ -169,6 +173,7 @@ class RemoteKeysService : AccessibilityService() {
             escaped = false
             if (was) return true
         }
+        if (handleCcShortcut(event)) return true
         val name = KeyEvent.keyCodeToString(event.keyCode)
         val action = RemoteButtons.actionFor(name, app.config.config.value.remoteButtons, event.scanCode, event.device?.name) ?: return false
         if (dev.glasslauncher.BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN) Log.i(TAG, "$name scan=${event.scanCode} -> $action")
@@ -176,6 +181,38 @@ class RemoteKeysService : AccessibilityService() {
         // auto-repeat, and swallow every half of the press.
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) run(action)
         return true
+    }
+
+    // ── Control Center shortcut without the module (P167) ──────────────────────────────────────────
+
+    private var ccFired = false
+    private val ccHold = Runnable { ccFired = true; run(RemoteAction.ControlCenter) }
+
+    /**
+     * The chosen key opens Control Center over another app. A hold is timed from the first down; the press itself still reaches the app,
+     * and once the hold has fired its up is swallowed. A key made for settings opens it on the press. Not on Glass's own Home (Menu
+     * has its own meaning there), and never while the setting is off.
+     */
+    private fun handleCcShortcut(e: KeyEvent): Boolean {
+        val sc = CcShortcut.parse(app.config.config.value.ccShortcut)
+        if (!sc.matches(e.keyCode) || front == null) return false
+        if (!sc.hold) {
+            if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) run(RemoteAction.ControlCenter)
+            return true
+        }
+        when (e.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (e.repeatCount == 0) { ccFired = false; handler.removeCallbacks(ccHold); handler.postDelayed(ccHold, sc.holdMs) }
+                return ccFired
+            }
+            KeyEvent.ACTION_UP -> {
+                handler.removeCallbacks(ccHold)
+                val was = ccFired
+                ccFired = false
+                return was
+            }
+        }
+        return false
     }
 
     /** The screen now, for [CloseSnapshot]. The system allows about one screenshot a second; a refused one leaves the fallback. */

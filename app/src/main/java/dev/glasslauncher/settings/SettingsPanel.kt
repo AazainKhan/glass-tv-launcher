@@ -134,6 +134,7 @@ private sealed interface Page {
     data object Freezer : Page
     data object RootLog : Page
     data class ButtonAction(val id: String) : Page
+    data object CcShortcut : Page
     data class ButtonApp(val id: String) : Page
 }
 
@@ -223,6 +224,7 @@ fun SettingsPanel(
                 Page.Freezer -> FreezerPage(f)
                 Page.RootLog -> RootLogPage(f)
                 is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
+                Page.CcShortcut -> CcShortcutPage(model, cfg, f, ::pop)
                 is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); pop() }
                 is Page.Wallpapers -> Unit
             }
@@ -1110,11 +1112,30 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     others.forEach { b ->
         MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
     }
+    // Control Center over any app without the key-layout module (P167): a remote key the accessibility service sees.
+    MenuRow("Control Center Shortcut", { push(Page.CcShortcut) }, value = dev.glasslauncher.system.CcShortcut.parse(cfg.ccShortcut).label, chevron = true)
+    if (!HomeSetup.isRemoteKeysEnabled(context) && dev.glasslauncher.system.CcShortcut.parse(cfg.ccShortcut) != dev.glasslauncher.system.CcShortcut.Off) {
+        Hint("The shortcut needs Glass TV Launcher Remote Buttons turned on in the TV's Accessibility settings.")
+    }
     Hint(when {
         !active -> "Fire TV keeps these buttons to itself. On a rooted TV, run once from a computer, then restart: ${RemoteButtons.INSTALL_COMMAND}"
         !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings."
         else -> "Home, Back, volume, power, Alexa and the TV button keep working as usual."
     })
+}
+
+/** The key that opens Control Center over an app (P167): one choice, saved as it is picked. */
+@Composable
+private fun ColumnScope.CcShortcutPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, done: () -> Unit) {
+    val current = dev.glasslauncher.system.CcShortcut.parse(cfg.ccShortcut)
+    PanelTitle("Control Center Shortcut")
+    Hint("The remote key that opens Control Center over any app. A hold keeps the key's normal press for the app.")
+    dev.glasslauncher.system.CcShortcut.entries.forEachIndexed { i, o ->
+        MenuRow(if (o == dev.glasslauncher.system.CcShortcut.DEFAULT) "${o.label} (Default)" else o.label, {
+            model.edit { it.copy(ccShortcut = o.key) }
+            done()
+        }, if (i == 0) f else Modifier, value = if (o == current) "✓" else null)
+    }
 }
 
 @Composable

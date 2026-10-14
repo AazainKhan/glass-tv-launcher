@@ -65,6 +65,8 @@ data class LauncherConfig(
     val closedRecents: Map<String, Long> = emptyMap(),
     /** Remote button name (e.g. "KEYCODE_APP_1") -> action; see RemoteAction. Missing = Fire TV default. */
     val remoteButtons: Map<String, String> = emptyMap(),
+    /** The remote key that opens Control Center over any app without the key-layout module (P167); see [dev.glasslauncher.system.CcShortcut]. */
+    val ccShortcut: String = "menu_hold",
     /** Top Shelf: show the focused app's titles after a dwell (else only its hero). */
     val topShelfTitles: Boolean = true,
     /** Start the screensaver while Now Playing fills Home (off: the album art is the screensaver). */
