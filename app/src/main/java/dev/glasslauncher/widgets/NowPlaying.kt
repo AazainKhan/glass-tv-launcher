@@ -124,12 +124,12 @@ object NowPlayingSource {
             var republish: () -> Unit = {}
             val inflight = HashSet<String>()
             val failedAt = HashMap<String, Long>()
-            fun fetchArt(uri: String) {
+            fun fetchArt(uri: String, pkg: String) {
                 if (!inflight.add(uri)) return
                 val began = SystemClock.elapsedRealtime()
                 val (flight, mine) = ArtStore.begin(uri)
                 launch(kotlinx.coroutines.Dispatchers.IO) {
-                    if (mine) ArtStore.finish(uri, flight, ArtFetcher.fetch(context.applicationContext, uri))
+                    if (mine) ArtStore.finish(uri, flight, ArtFetcher.fetch(context.applicationContext, uri, pkg))
                     val bmp = flight.await()
                     handler.post {
                         inflight.remove(uri)
@@ -158,7 +158,7 @@ object NowPlayingSource {
                     val uri = pick.uri
                     val hit = ArtStore.cache.get(uri)
                     val failed = failedAt[uri]?.let { SystemClock.elapsedRealtime() - it < 60_000 } == true
-                    if (hit == null && !failed) fetchArt(uri)
+                    if (hit == null && !failed) fetchArt(uri, c.packageName)
                     // Until the cover lands: the neutral placeholder (never the app's logo, unless the fetch failed).
                     shownArt = hit ?: pick.fallback?.takeIf { failed }?.let { scaled(it) }.also { if (it != null) artIsIcon = true }
                 } else {

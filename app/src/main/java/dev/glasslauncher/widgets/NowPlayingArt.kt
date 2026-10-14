@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * Where Now Playing's cover comes from. Sessions publish it three ways (and Spotify's TV app, like most, often only
@@ -107,8 +105,29 @@ object ArtFetcher {
         return s
     }
 
-    /** Blocking. Null on any failure (offline, 404, too big, not an image, no permission for a content URI). */
-    fun fetch(context: Context, uri: String): Bitmap? = runCatching {
+    private val http by lazy { dev.glasslauncher.net.PublicHttp.client() }
+
+    /**
+     * A content URI is read only from the session's own app: Glass reads with its own (privileged) permissions, so a session
+     * must not be able to point it at another app's provider. [ownerOf] maps an authority to the package that declares it.
+     */
+    fun contentAllowed(uri: String, sessionPackage: String, ownerOf: (String) -> String?): Boolean {
+        if (!uri.startsWith("content://", ignoreCase = true)) return false
+        val authority = runCatching { java.net.URI(uri).rawAuthority }.getOrNull()?.substringAfterLast('@')?.takeIf { it.isNotEmpty() } ?: return false
+        return ownerOf(authority) == sessionPackage
+    }
+
+    /** Whether [uri] may be fetched for a session of [sessionPackage]: https to a public name (re-checked on every hop by the client), or its own content. */
+    fun allowed(uri: String, sessionPackage: String, ownerOf: (String) -> String?): Boolean = when {
+        ArtPick.safeUri(uri) == null -> false
+        uri.startsWith("content", ignoreCase = true) -> contentAllowed(uri, sessionPackage, ownerOf)
+        else -> !dev.glasslauncher.net.PublicHosts.blockedName(runCatching { java.net.URI(uri).host }.getOrNull() ?: "")
+    }
+
+    /** Blocking. Null on any failure (offline, 404, too big, not an image, refused host or provider). */
+    fun fetch(context: Context, uri: String, sessionPackage: String): Bitmap? = runCatching {
+        val pm = context.packageManager
+        if (!allowed(uri, sessionPackage) { authority -> pm.resolveContentProvider(authority, 0)?.packageName }) return null
         val bytes = read(context, uri) ?: return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -121,15 +140,12 @@ object ArtFetcher {
     }.getOrNull()
 
     private fun read(context: Context, uri: String): ByteArray? {
-        if (ArtPick.safeUri(uri) == null) return null
         if (uri.startsWith("content", ignoreCase = true)) {
             return context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readCapped() }
         }
-        val c = URL(uri).openConnection() as HttpURLConnection
-        return try {
-            c.connectTimeout = 5_000; c.readTimeout = 8_000; c.instanceFollowRedirects = true
-            if (c.responseCode != 200 || c.contentLengthLong > MAX_BYTES) null else c.inputStream.use { it.readCapped() }
-        } finally { c.disconnect() }
+        return http.newCall(okhttp3.Request.Builder().url(uri).header("Accept", "image/*").build()).execute().use { r ->
+            if (!r.isSuccessful || r.body.contentLength() > MAX_BYTES) null else dev.glasslauncher.net.PublicHttp.readCapped(r.body.source(), MAX_BYTES)
+        }
     }
 
     private fun java.io.InputStream.readCapped(): ByteArray? {

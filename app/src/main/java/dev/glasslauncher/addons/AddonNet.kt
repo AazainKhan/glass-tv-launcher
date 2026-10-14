@@ -2,6 +2,8 @@ package dev.glasslauncher.addons
 
 import android.content.Context
 import coil3.intercept.Interceptor
+import dev.glasslauncher.net.PublicHosts
+import dev.glasslauncher.net.PublicHttp
 import coil3.request.ErrorResult
 import coil3.request.ImageResult
 import kotlinx.coroutines.Dispatchers
@@ -18,42 +20,14 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/** Which hosts an add-on's art may come from: public names only. An add-on must not make Glass (on a stick that may be rooted) probe the home network. */
+/** Which hosts an add-on's art may come from: the shared public-hosts rule ([PublicHosts]). */
 object AddonHosts {
-    private val SUFFIXES = listOf(".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".intranet")
-    private val IPV4ISH = Regex("^[0-9.]+$")
-
-    /** Names that are never fetched: localhost, no dot, any IP literal (v4, v6 or odd forms), and local-network suffixes. */
-    fun blockedName(host: String): Boolean {
-        val h = host.lowercase().trimEnd('.')
-        if (h.isEmpty() || '.' !in h || ':' in h || '[' in h) return true
-        if (h == "localhost" || SUFFIXES.any { h.endsWith(it) }) return true
-        if (IPV4ISH.matches(h)) return true
-        val last = h.substringAfterLast('.')
-        return last.all { it.isDigit() } || last.startsWith("0x")
-    }
-
-    /** Loopback, any-local, link-local, multicast, RFC 1918, CGNAT 100.64/10, 0/8, and IPv6 unique-local fc00::/7 (an IPv4-mapped v6 address is judged as v4). */
-    fun isPrivate(a: InetAddress): Boolean {
-        if (a.isLoopbackAddress || a.isAnyLocalAddress || a.isLinkLocalAddress || a.isSiteLocalAddress || a.isMulticastAddress) return true
-        val b = a.address
-        if (b.size == 4) {
-            val b0 = b[0].toInt() and 0xFF; val b1 = b[1].toInt() and 0xFF
-            return b0 == 0 || (b0 == 100 && (b1 and 0xC0) == 0x40)
-        }
-        return (b[0].toInt() and 0xFE) == 0xFC
-    }
+    fun blockedName(host: String) = PublicHosts.blockedName(host)
+    fun isPrivate(a: java.net.InetAddress) = PublicHosts.isPrivate(a)
 }
 
-/** DNS for add-on art: a name that resolves to any private address is refused, on every hop (this is what stops DNS rebinding). */
-class SafeDns(private val delegate: Dns = Dns.SYSTEM) : Dns {
-    override fun lookup(hostname: String): List<InetAddress> {
-        if (AddonHosts.blockedName(hostname)) throw UnknownHostException("blocked host")
-        val all = delegate.lookup(hostname)
-        if (all.isEmpty() || all.any { AddonHosts.isPrivate(it) }) throw UnknownHostException("blocked address")
-        return all
-    }
-}
+/** DNS for add-on art: refuses any name that resolves to a private address, on every hop. */
+typealias SafeDns = dev.glasslauncher.net.SafeDns
 
 /** Static pictures only: what format and size a fetched file is, from its header, without decoding it. */
 object ArtFormat {
@@ -129,14 +103,8 @@ object ArtFormat {
     }
 }
 
-/** Reads at most [cap] bytes; null if the source has more (so a huge or endless body is never held). */
-fun readCapped(source: BufferedSource, cap: Int): ByteArray? {
-    val buf = okio.Buffer()
-    while (buf.size <= cap) {
-        if (source.read(buf, 8192L) == -1L) return buf.readByteArray()
-    }
-    return null
-}
+/** Reads at most [cap] bytes; null if the source has more. */
+fun readCapped(source: BufferedSource, cap: Int): ByteArray? = PublicHttp.readCapped(source, cap)
 
 /**
  * Fetches add-on art for Glass: its own OkHttp client (https only on every hop, no https-to-http redirects, public
@@ -145,7 +113,6 @@ fun readCapped(source: BufferedSource, cap: Int): ByteArray? {
  */
 object AddonArt {
     private const val TTL_MS = 6 * 3_600_000L
-    private const val MAX_HOPS = 3
 
     /** URLs that came from an add-on, by package (replaced on each read): the image loader sends exactly these through [fetch]. */
     private val urls = ConcurrentHashMap<String, Set<String>>()
@@ -154,23 +121,7 @@ object AddonArt {
     fun forget(pkg: String) { urls.remove(pkg) }
     fun isAddonArt(url: String) = urls.values.any { url in it }
 
-    fun client(dns: Dns = SafeDns()): OkHttpClient = OkHttpClient.Builder()
-        .dns(dns).followRedirects(true).followSslRedirects(false)
-        .connectTimeout(3, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).callTimeout(8, TimeUnit.SECONDS)
-        // Every hop, redirects included: https and a public name (an IP literal skips DNS, so it is refused here).
-        .addNetworkInterceptor { chain ->
-            val u = chain.request().url
-            if (u.scheme != "https" || AddonHosts.blockedName(u.host)) throw IOException("blocked hop")
-            chain.proceed(chain.request())
-        }
-        .addInterceptor { chain ->
-            val r = chain.proceed(chain.request())
-            var hops = 0; var p = r.priorResponse
-            while (p != null) { hops++; p = p.priorResponse }
-            if (hops > MAX_HOPS) { r.close(); throw IOException("too many redirects") }
-            r
-        }
-        .build()
+    fun client(dns: Dns = SafeDns()): OkHttpClient = PublicHttp.client(dns)
 
     private val http by lazy { client() }
 
