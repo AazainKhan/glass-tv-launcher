@@ -17,12 +17,14 @@ import dev.glasslauncher.data.folderKey
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+@androidx.compose.runtime.Immutable
 sealed interface GridItem {
     val key: String
 
@@ -69,9 +71,10 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
     /** The saved config (what is on disk or about to be), without a move's working layout. */
     val savedConfig: StateFlow<LauncherConfig> get() = store.config
 
+    // Built off Main (P159); the first value stays the unloaded HomeLayout() until a real one lands, so the `loaded` gate holds.
     val layout: StateFlow<HomeLayout> = combine(graph.apps.apps(), config) { apps, cfg ->
         buildLayout(apps, cfg)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeLayout())
+    }.flowOn(kotlinx.coroutines.Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, HomeLayout())
 
     init {
         viewModelScope.launch {

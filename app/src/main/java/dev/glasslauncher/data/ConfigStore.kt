@@ -7,7 +7,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
@@ -21,8 +23,8 @@ class ConfigStore(private val context: Context, scope: CoroutineScope) {
 
     private val flow = context.dataStore.data.map { prefs -> decode(prefs[key]) }
 
-    // Read once synchronously so the first frame already has the user's layout and wallpaper.
-    val config: StateFlow<LauncherConfig> = flow.stateIn(
+    // Read once synchronously so the first frame already has the user's layout and wallpaper; later reads decode off Main (P159).
+    val config: StateFlow<LauncherConfig> = flow.flowOn(Dispatchers.Default).stateIn(
         scope,
         SharingStarted.Eagerly,
         runBlocking { flow.first() },

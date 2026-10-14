@@ -1544,7 +1544,8 @@ private fun HomeList(
                 modifier = Modifier.onFocusChanged { if (it.hasFocus) onRowFocused(1) },
             )
         }
-        itemsIndexed(rows, key = { i, _ -> "row-$i" }) { i, row ->
+        // Keyed by the row's first cell, not its place: a row that moves keeps its composition (P159).
+        itemsIndexed(rows, key = { _, row -> "row-" + cellKey(row.first()) }) { i, row ->
             Row(
                 horizontalArrangement = Arrangement.spacedBy(m.gutter),
                 modifier = Modifier

@@ -66,6 +66,7 @@ import dev.glasslauncher.R
 import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.Type
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -82,11 +83,14 @@ private fun appName(pkg: String): String {
     return remember(pkg) { runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault("") }
 }
 
-/** Ticks once a second while playing, so progress moves without recomposing anything else. */
+/** Ticks once a second while playing and Home is resumed (P159: not while another app is in front), so progress moves without recomposing anything else. */
 @Composable
 private fun rememberPosition(item: NowPlaying): Long {
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val pos by produceState(item.positionNow(), item) {
-        while (item.playing) { value = item.positionNow(); delay(1_000L - value % 1_000L + 10) }
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            while (item.playing) { value = item.positionNow(); delay(1_000L - value % 1_000L + 10) }
+        }
         value = item.positionNow()
     }
     return pos

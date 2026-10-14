@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 
+@androidx.compose.runtime.Immutable
 data class AppEntry(
     val packageName: String,
     val label: String,

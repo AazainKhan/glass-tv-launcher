@@ -181,7 +181,7 @@ The GPU affords only about **two full-screen blended passes per frame**. Target:
 - Glass stays flat while the backdrop blurs and fades its texture back in (220 ms) after a scroll lands; blending during the scroll cost ~6% janky frames. Keep one glass node per surface and draw focus fills over it (swapping modifiers made fresh nodes that could draw unpositioned).
 - Glass is the GPU hot spot. Over a blurred backdrop (`wallpaperBlur > 0`, i.e. scrolling to or resting on the grid) it draws a flat tint and rim, no texture or gradient shaders: dock-to-grid went from 25% janky frames to ~1%. Measure with the recorder off: `scripts/perf-run --rounds 5 down up` while killing `screenrecord` (tv-live respawns it).
 - The slideshow pauses while the grid is focused and waits for 3 quiet seconds, so a slide's bake and cross-fade never land on a scroll.
-- Rendered tiles are HARDWARE bitmaps and Coil's memory cache is capped at 12%; software bitmaps cost both native heap and GPU memory.
+- Rendered tiles are HARDWARE bitmaps and Coil's memory cache is capped at 6% (GlassApp.kt); software bitmaps cost both native heap and GPU memory.
 - Blurred text shadows (`TextStyle.shadow`) are expensive when the text moves. Use them only on small static text (the clock).
 - Background load skews numbers: `installd` runs after `compile -m speed`, and AT4K burns CPU if it's running. Wait for `installd` to go idle and keep AT4K stopped before benchmarking. Current baseline in a key-every-1.4 s stress run: median 7 ms, p90 about 11 ms, 4–9% janky (transitions only), about 0% idle CPU, about 84 MB PSS.
 
