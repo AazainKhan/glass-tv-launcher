@@ -1628,6 +1628,7 @@ internal fun CcTile(
         // (zIndex) and keeps 12 dp of room above the first row inside the scroll viewport.
         focusedScale = LocalCcSizes.current.focusScale(width),
         shadow = true,
+        shapedShadow = true,
         // Grows out of its drop as Control Center opens ([CcEmerge]).
         modifier = modifier.size(width, height).ccEmerge(emerge),
     ) { focused ->

@@ -1,6 +1,8 @@
 package dev.glasslauncher.ui
 
 import android.graphics.Bitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -56,6 +58,47 @@ object TileShadow {
     val focus: ImageBitmap by lazy { bake(Kind.Focus) }
     val contact: ImageBitmap by lazy { bake(Kind.Contact) }
 
+    /**
+     * A shadow for a surface that isn't a 5:3 tile (Control Center's circles, capsules and squares, P149): the same
+     * blur and strength, baked to the surface's own aspect ([aspect] = height / width) and corner ([radiusFrac] =
+     * corner / width), so a round button casts a round shadow, not a stretched rectangle's. Baked once per shape off
+     * the main thread; null until it is ready (the caller draws nothing meanwhile, and redraws: [ready] is state).
+     */
+    fun shaped(kind: Kind, aspect: Float, radiusFrac: Float): ImageBitmap? {
+        val key = ShapeKey(kind, (aspect * 100).roundToInt(), (radiusFrac * 100).roundToInt())
+        shapes[key]?.let { return it }
+        if (pending.add(key)) baker.execute {
+            shapes[key] = bakeShaped(kind, key.aspect / 100f, key.radius / 100f)
+            android.os.Handler(android.os.Looper.getMainLooper()).post { ready++ }
+        }
+        // Reading the state here makes the draw that asked come back once the bake lands.
+        return if (ready >= 0) null else null
+    }
+
+    /** [shaped]'s bake, synchronously (tests). The corner is at most half the shorter side: a capsule or circle. */
+    internal fun bakeShaped(kind: Kind, aspect: Float, radiusFrac: Float): ImageBitmap {
+        val coreH = kind.coreW * aspect
+        return bake(kind, kind.coreW, coreH, min(kind.coreW * radiusFrac, min(kind.coreW, coreH) / 2))
+    }
+
+    /** Where to draw a [shaped] shadow: centred on the tile, [Kind.drop] u lower, core = the tile's scaled size. */
+    fun shapedRect(kind: Kind, tileW: Float, tileH: Float, scale: Float, lift: Float, k: Float): Rect {
+        if (!(k > 0f && tileW > 0f && tileH > 0f) || !k.isFinite() || !tileW.isFinite() || !tileH.isFinite()) return Rect.Zero
+        val pxPerU = if (kind == Kind.Focus) k * scale / FOCUS_SCALE else k * scale
+        val coreH = kind.coreW * ((tileH / tileW * 100).roundToInt() / 100f)
+        val w = (kind.coreW + 2 * kind.margin) * pxPerU
+        val h = (coreH + 2 * kind.margin) * pxPerU
+        val cx = tileW / 2
+        val cy = tileH / 2 + kind.drop * k * if (kind == Kind.Focus) lift else 1f
+        return Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+    }
+
+    private data class ShapeKey(val kind: Kind, val aspect: Int, val radius: Int)
+    private val shapes = java.util.concurrent.ConcurrentHashMap<ShapeKey, ImageBitmap>()
+    private val pending: MutableSet<ShapeKey> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val baker = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "glass-shadow-bake") }
+    private var ready by androidx.compose.runtime.mutableIntStateOf(0)
+
     /** The draw alpha for [kind] at focus value [lift] (0 resting, 1 focused; springs overshoot, so it is clamped). */
     fun alpha(kind: Kind, lift: Float): Float {
         val l = lift.coerceIn(0f, 1f)
@@ -88,14 +131,14 @@ object TileShadow {
      * Gaussian whose kernel reaches 3 sigma, treating everything outside the bitmap as empty. Only the rows and
      * columns the shape can reach are visited, which keeps the focus bake near 4M multiply-adds.
      */
-    private fun bake(kind: Kind): ImageBitmap {
+    private fun bake(kind: Kind, coreW: Float = kind.coreW, coreH: Float = kind.coreH, radius: Float = kind.radius): ImageBitmap {
         val upp = kind.unitsPerPx
-        val w = ((kind.coreW + 2 * kind.margin) / upp).roundToInt()
-        val h = ((kind.coreH + 2 * kind.margin) / upp).roundToInt()
+        val w = ((coreW + 2 * kind.margin) / upp).roundToInt()
+        val h = ((coreH + 2 * kind.margin) / upp).roundToInt()
         val cx = w * upp / 2
         val cy = h * upp / 2
-        val halfW = kind.coreW / 2
-        val halfH = kind.coreH / 2
+        val halfW = coreW / 2
+        val halfH = coreH / 2
 
         // The shape's pixel extent, and the kernel.
         val x0 = max(0, floor((cx - halfW) / upp).toInt())
@@ -114,15 +157,15 @@ object TileShadow {
 
         // Coverage of each pixel by the rounded rectangle, from the distance of its centre to the edge.
         val shape = FloatArray(w * h)
-        val straightX = halfW - kind.radius
-        val straightY = halfH - kind.radius
+        val straightX = halfW - radius
+        val straightY = halfH - radius
         for (y in y0 until y1) {
             val qy = abs((y + 0.5f) * upp - cy) - straightY
             for (x in x0 until x1) {
                 val qx = abs((x + 0.5f) * upp - cx) - straightX
                 val ox = max(qx, 0f)
                 val oy = max(qy, 0f)
-                val distance = sqrt(ox * ox + oy * oy) + min(max(qx, qy), 0f) - kind.radius
+                val distance = sqrt(ox * ox + oy * oy) + min(max(qx, qy), 0f) - radius
                 shape[y * w + x] = (0.5f - distance / upp).coerceIn(0f, 1f)
             }
         }

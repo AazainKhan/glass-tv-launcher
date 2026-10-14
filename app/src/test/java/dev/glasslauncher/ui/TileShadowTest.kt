@@ -229,4 +229,18 @@ class TileShadowTest {
             assertTrue("$kind at lift $lift: $alpha", alpha in 0f..kind.peak)
         }
     }
+
+    /** P149: a round Control Center button casts a round shadow, not a stretched tile's rounded rectangle. */
+    @Test fun aCircleCastsARoundShadow() {
+        val kind = Kind.Contact
+        val a = Alpha(TileShadow.bakeShaped(kind, aspect = 1f, radiusFrac = 0.5f))
+        val upp = kind.unitsPerPx
+        val c = a.w / 2f
+        val half = kind.coreW / 2 / upp
+        // The same distance out from the core, straight right of it and diagonally out of the corner of its square.
+        val d = 2f / upp
+        val side = a.sample(c + half + d, c)
+        val corner = a.sample(c + half + d, c - half - d)
+        assertTrue("side $side should be well darker than the square's corner $corner", side > 0.05f && corner < side * 0.05f)
+    }
 }

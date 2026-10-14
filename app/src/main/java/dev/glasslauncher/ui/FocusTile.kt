@@ -63,6 +63,8 @@ fun FocusTile(
     onLongClick: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = onClick,
     shadow: Boolean = true,
+    /** The shadow follows [shape] (Control Center's circles and capsules) instead of a 5:3 tile's (P149). */
+    shapedShadow: Boolean = false,
     /** tvOS 27's focus edge light: for app tiles and shelf cards only (not pills, circles or thumbnails). */
     edgeLight: Boolean = false,
     onFocusChange: (Boolean) -> Unit = {},
@@ -126,11 +128,18 @@ fun FocusTile(
                 if (shadow) {
                     val k = size.width / 250f
                     // GlassApp bakes the shadows at startup; if a tile draws first, these touch (and wait for) the same lazy bake.
-                    val focusImage = TileShadow.focus
-                    val contactImage = TileShadow.contact
+                    val aspect = size.height / size.width
+                    val radiusFrac = if (!shapedShadow) 0f else when (val o = shape.createOutline(size, layoutDirection, this)) {
+                        is androidx.compose.ui.graphics.Outline.Rounded -> o.roundRect.topLeftCornerRadius.x / size.width
+                        is androidx.compose.ui.graphics.Outline.Rectangle -> 0f
+                        else -> minOf(size.width, size.height) / 2f / size.width
+                    }
+                    val focusImage = if (shapedShadow) TileShadow.shaped(TileShadow.Kind.Focus, aspect, radiusFrac) else TileShadow.focus
+                    val contactImage = if (shapedShadow) TileShadow.shaped(TileShadow.Kind.Contact, aspect, radiusFrac) else TileShadow.contact
+                    val rectOf = if (shapedShadow) TileShadow::shapedRect else TileShadow::destRect
                     val focusAlpha = TileShadow.alpha(TileShadow.Kind.Focus, lift)
-                    if (focusAlpha > 0.002f) {
-                        val r = TileShadow.destRect(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)
+                    if (focusImage != null && focusAlpha > 0.002f) {
+                        val r = rectOf(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)
                         if (!r.isEmpty) drawImage(
                             focusImage,
                             dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
@@ -140,8 +149,8 @@ fun FocusTile(
                         )
                     }
                     val contactAlpha = TileShadow.alpha(TileShadow.Kind.Contact, lift)
-                    if (contactAlpha > 0.002f) {
-                        val r = TileShadow.destRect(TileShadow.Kind.Contact, size.width, size.height, scale, lift, k)
+                    if (contactImage != null && contactAlpha > 0.002f) {
+                        val r = rectOf(TileShadow.Kind.Contact, size.width, size.height, scale, lift, k)
                         if (!r.isEmpty) drawImage(
                             contactImage,
                             dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
