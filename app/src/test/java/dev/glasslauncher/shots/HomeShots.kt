@@ -87,8 +87,7 @@ class HomeShots {
 
     @Test fun appMenu() = home {
         compose.press(Button.Menu)
-        // Opens over a snapshot taken while Home is still settling: its glass differs faintly between runs (more with the taller menu, hence 8%).
-        capture("app-menu", tolerance = 0.08f, colourNoise = 0.03f)
+        capture("app-menu", tolerance = 0.02f, colourNoise = 0.03f)
     }
 
     @Test fun folderOpen() = home(config = { c ->
@@ -133,7 +132,7 @@ class HomeShots {
 
     @Test fun lightAppMenu() = home(config = light) {
         compose.press(Button.Menu)
-        capture("app-menu-light", tolerance = 0.08f, colourNoise = 0.03f)
+        capture("app-menu-light", tolerance = 0.02f, colourNoise = 0.03f)
     }
 
     @Test fun lightFolderOpen() = home(config = { c ->
