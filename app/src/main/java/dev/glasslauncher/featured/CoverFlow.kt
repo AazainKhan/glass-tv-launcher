@@ -221,8 +221,13 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
         // The art crossfades in over the tint when it arrives after the cover was drawn (never a snap, P158); art that is already
         // there (a cached cover, scrolling back) is shown at once.
         val arrived = remember { androidx.compose.animation.core.Animatable(if (bitmap != null) 1f else 0f) }
-        LaunchedEffect(bitmap != null) { if (bitmap != null) arrived.animateTo(1f, tween(ART_FADE_MS)) else arrived.snapTo(0f) }
-        if (bitmap == null || arrived.value < 1f) {
+        // Whether the tint is still under the art: a state flipped once the fade is over. The fade itself is read in the layer phase only
+        // (never in composition: that recomposed the cover every frame of the fade).
+        var fadeDone by remember { androidx.compose.runtime.mutableStateOf(bitmap != null) }
+        LaunchedEffect(bitmap != null) {
+            if (bitmap != null) { if (!fadeDone) { arrived.animateTo(1f, tween(ART_FADE_MS)); fadeDone = true } } else { arrived.snapTo(0f); fadeDone = false }
+        }
+        if (bitmap == null || !fadeDone) {
             // Until the art is there (and if it never comes): the title on a tint, never a plain dark square (P63).
             dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
         }

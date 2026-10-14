@@ -265,12 +265,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // What follows the focused item (backdrop, title, synopsis) is the settled one: while a key is held it waits for the repeats to
     // stop, so a long scroll bakes and swaps once, not per item (P158). A single press settles in the same frame.
     var settledIndex by remember(stateFeed?.items?.firstOrNull()?.id) { mutableIntStateOf(heroIndex) }
+    // A press is not a hold: then the focus index is used as it is, and settledIndex is not even read here, so writing it (below) cannot
+    // recompose Home a second time one frame after the press (the dock route's late hero write, P158 regression). Only during a hold does
+    // Home read it, and its write then is the one recomposition that swaps the hero.
+    val heldKey = dev.glasslauncher.featured.HoldSettle.holding(idle.millisSinceRepeat())
+    val shownIndex = if (heldKey) settledIndex else heroIndex
     LaunchedEffect(heroIndex) {
         val wait = dev.glasslauncher.featured.HoldSettle.delayMs(idle.millisSinceRepeat())
         if (wait > 0) delay(wait)
         settledIndex = heroIndex
     }
-    val hero = feed?.items?.getOrNull(settledIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
+    val hero = feed?.items?.getOrNull(shownIndex.coerceIn(0, (feed.items.size - 1).coerceAtLeast(0)))
     val wallpaper = if (dark) cfg.wallpaperDark else cfg.wallpaperLight
 
     val scope = rememberCoroutineScope()
@@ -1185,7 +1190,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     ExpandedShelf(
                         feed = feed,
                         index = heroIndex,
-                        settledIndex = settledIndex,
+                        settledIndex = shownIndex,
                         holding = { dev.glasslauncher.featured.HoldSettle.holding(idle.millisSinceRepeat()) },
                         progress = { expand.value },
                         firstCard = cardRequester,
