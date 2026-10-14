@@ -135,12 +135,12 @@ Glass tokens: caption 13 sp (the legibility floor, `ui/Theme.kt` caption). Contr
 
 ## P146: sub-panel layout consistency
 
-Rule: **DEVICE / INFO pills are the full column wide; ACTION buttons (Settings and Back style pairs) are two half-width pills on one row, one grid gap (8 dp) apart** (half = (216 - 8) / 2 = 104 dp, `CcSizes.half`). Source: the user's photo of the Remotes sub-panel (three stacked full-width pills) and tvOS's own platter rows (`defaultRowSpacing`, FW). All three cells below are Glass decisions where tvOS has no equivalent (it pops with Menu and has no Back row).
+Rule: **every pill (device, info, action) is the full column wide; no Back button (P150)**. Source: the user's photo of the Remotes sub-panel (three stacked full-width pills) and tvOS's own platter rows (`defaultRowSpacing`, FW). All three cells below are Glass decisions where tvOS has no equivalent (it pops with Menu and has no Back row).
 
 | # | Sub-panel | Finding | Status |
 |---|---|---|---|
-| L1 | Remotes | device pill full width, then Remote Settings and Back as two more full-width pills | **FIX** one `CcDevicePlatter`: device pill full width, Remote Settings + Back as a half-width pair |
-| L2 | Game Controllers | the tile opened Fire's controller settings directly; no list | **FIX** new platter with the same layout: controller pills (name, "Connected" + battery where the Bluetooth stack reports one), then Controller Settings (Fire's page, as before) + Back; empty state "No controllers connected" as a full-width info pill; zoom-pushed from the tile, Back/Menu pops (same transition as Remotes) |
+| L1 | Remotes | device pill full width, then Remote Settings and Back as two more full-width pills | **FIX** one `CcDevicePlatter`: device pill full width, Remote Settings as a full-width pill (P150: Back removed) |
+| L2 | Game Controllers | the tile opened Fire's controller settings directly; no list | **FIX** new platter with the same layout: controller pills (name, "Connected" + battery where the Bluetooth stack reports one), then Controller Settings (Fire's page, as before); empty state "No controllers connected" as a full-width info pill; zoom-pushed from the tile, Back/Menu pops (same transition as Remotes) |
 | L3 | Restart confirm card | Cancel and Restart stacked full width | **FIX** a half-width pair, Cancel left (focused first when destructive) |
 | L4 | Agent permission card | Deny and Allow once stacked | **FIX** a half-width pair, Deny left and focused first (Allow needs a deliberate Right now, not Down) |
 | L5 | AirPlay / Audio platter | all rows are device or info pills, full width; the volume row is 27 dp tall; no Back row (Menu pops, as tvOS) | consistent; no action pair to change |
@@ -148,7 +148,7 @@ Rule: **DEVICE / INFO pills are the full column wide; ACTION buttons (Settings a
 | L7 | Now Playing card | one card, its own transport buttons (round) | consistent (not a pill list) |
 | L8 | Downloads | not a platter: the tile opens the Downloads page overlay | **DEFER** (a full page, its own layout) |
 | L9 | Sonos | rows live in the AirPlay platter (L5) | consistent |
-| L10 | Remotes / Controllers: Back row | tvOS has no Back row; Glass keeps it as the user asked, AirPlay has none | **DEFER** (decide whether all platters get one) |
+| L10 | Remotes / Controllers: Back row | tvOS has no Back row; AirPlay has none | **DONE (P150, user)**: no on-screen Back button anywhere in Control Center; the remote's Back key pops. The one action (Remote Settings / Controller Settings) is a full-width pill. Confirm cards keep Cancel: it is the alert's own decision button, not navigation |
 | L11 | App-switcher glyph | done in P138 (two overlapping rectangles, `rectangle.on.rectangle`-like, `ic_app_switcher`); confirmed on the twin's More page | done |
 
 Tests: `CcDevicePlatterTest` asserts, for Remotes-style and Controllers-style content and for the empty state, that the device pill is the full column wide and the two actions are side by side on one row, equal halves, one gap apart, spanning the column, with the label whole.

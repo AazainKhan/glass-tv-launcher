@@ -20,8 +20,8 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * P146: every device platter (Remotes, Game Controllers) follows one rule: a device or info pill is the full column wide, and the
- * Settings and Back actions are a pair of half-width pills on one row, one grid gap apart.
+ * P146: every device platter (Remotes, Game Controllers) follows one rule: a device or info pill is the full column wide, and
+ * the action is a full-width pill and there is no Back button (P150).
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = TV)
@@ -30,7 +30,7 @@ class CcDevicePlatterTest {
     private val sz = CcSizes(1f)
 
     private fun show(rows: List<CcDeviceRow>, settings: String, empty: String = "Nothing here") {
-        compose.setContent { CcDevicePlatter(sz, "Test", "platter", rows, R.drawable.ic_settings_remote, empty, null, settings, {}, {}) }
+        compose.setContent { CcDevicePlatter(sz, "Test", "platter", rows, R.drawable.ic_settings_remote, empty, null, settings, {}) }
         compose.waitForIdle()
     }
 
@@ -38,20 +38,16 @@ class CcDevicePlatterTest {
     private fun dp(px: Float) = px / compose.density.density
 
     private fun check(settings: String) {
-        val settingsB = bounds("cc-action-settings"); val backB = bounds("cc-action-back")
-        assertEquals("the two actions are on one row", settingsB.top, backB.top, 0.5f)
-        assertEquals("equal half widths", settingsB.width, backB.width, 0.5f)
-        assertEquals("half width", sz.half.value, dp(settingsB.width), 0.6f)
-        assertEquals("one grid gap between them", sz.gap.value, dp(backB.left - settingsB.right), 0.6f)
-        assertTrue("Settings is the left one", settingsB.left < backB.left)
-        assertEquals("the pair spans the column", sz.column.value, dp(backB.right - settingsB.left), 0.8f)
-        // The action label fits its half pill (a title with no value wraps at its spaces, never cut).
+        val settingsB = bounds("cc-action-settings")
+        assertEquals("the action is a full-width pill", sz.column.value, dp(settingsB.width), 0.8f)
+        assertEquals("no on-screen Back button: the remote's Back key pops", 0, compose.onAllNodes(hasTestTag("cc-action-back")).fetchSemanticsNodes().size)
+        // The action label fits its pill (a title with no value wraps at its spaces, never cut).
         val cut = compose.onAllNodes(hasAnyAncestor(hasTestTag("cc-action-settings")).and(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult)), useUnmergedTree = true)
             .fetchSemanticsNodes().any { n ->
                 val rs = mutableListOf<TextLayoutResult>(); n.config[SemanticsActions.GetTextLayoutResult].action?.invoke(rs)
                 rs.firstOrNull()?.let { it.hasVisualOverflow } == true
             }
-        assertTrue("'$settings' is cut off in a half pill", !cut)
+        assertTrue("'$settings' is cut off", !cut)
     }
 
     @Test fun remotesDevicePillIsFullWidthAndTheActionsAreHalves() {

@@ -113,8 +113,6 @@ internal class CcSizes(k: Float) {
     val big = u * 2 + gap
     val bigWidth = big
     val column = u * 4 + gap * 3
-    /** Half the column, less half a gutter: the Settings and Back action pair of a device platter sits on one row at the grid's own gap (P146). */
-    val half = (column - gap) / 2
     // An off toggle's glyph sits in a disc: F27 measures the disc at 21 dp (0.44 u) and the moon in it at about 10 dp (KIT: 15 pt in 41 pt).
     val disc = u * 0.44f
     val discGlyph = u * 0.24f
@@ -992,9 +990,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     })
                 })
             } else if (showPlatter && controllersPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-                CcControllersPlatter(sz, onBack = { controllersPlatter = false; pendingFocus = "controllers" }, onSettings = { system { SystemControls.openGameControllers(context) } })
+                CcControllersPlatter(sz, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (showPlatter) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
-                CcRemotesPlatter(sz, onBack = { remotesPlatter = false; pendingFocus = "remotes" }, onSettings = { system { SystemControls.openGameControllers(context) } })
+                CcRemotesPlatter(sz, onSettings = { system { SystemControls.openGameControllers(context) } })
             } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
@@ -1822,13 +1820,13 @@ internal data class CcDeviceRow(val name: String, val line: String, val connecte
 
 /**
  * A device platter (Remotes, Game Controllers; P111, P146): pushed over the grid inside the panel, as tvOS pushes a module.
- * The layout rule for every sub-panel: a DEVICE or INFO pill is the full column wide, ACTION buttons (Settings, Back) are a pair of
- * half-width pills on one row, [CcSizes.gap] apart. Same width and pitch as the grid, so it replaces it without the panel resizing.
+ * The layout rule for every sub-panel: every pill (device, info, action) is the full column wide, and there is no Back button: the
+ * remote's Back key pops the platter, as in tvOS. Same width and pitch as the grid, so it replaces it without the panel resizing.
  */
 @Composable
 internal fun CcDevicePlatter(
     sz: CcSizes, title: String, tag: String, rows: List<CcDeviceRow>, deviceIcon: Int,
-    emptyTitle: String, emptyValue: String?, settingsLabel: String, onSettings: () -> Unit, onBack: () -> Unit,
+    emptyTitle: String, emptyValue: String?, settingsLabel: String, onSettings: () -> Unit,
 ) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
@@ -1843,34 +1841,29 @@ internal fun CcDevicePlatter(
                 PillContent(deviceIcon, r.name, r.line, fg, on = r.connected, accent = Blue)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(sz.gap)) {
-            CcTile(settingsLabel, null, Shapes.pill, sz.half, sz.pill, onClick = onSettings, modifier = Modifier.testTag("cc-action-settings")) { fg ->
-                PillContent(R.drawable.ic_tune, settingsLabel, null, fg, on = false, accent = fg)
-            }
-            CcTile("Back", null, Shapes.pill, sz.half, sz.pill, onClick = onBack, modifier = Modifier.testTag("cc-action-back")) { fg ->
-                PillContent(R.drawable.ic_home, "Back", null, fg, on = false, accent = fg)
-            }
+        CcTile(settingsLabel, null, Shapes.pill, sz.column, sz.pill, onClick = onSettings, modifier = Modifier.testTag("cc-action-settings")) { fg ->
+            PillContent(R.drawable.ic_tune, settingsLabel, null, fg, on = false, accent = fg)
         }
     }
 }
 
 @Composable
-private fun CcRemotesPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> Unit) {
+private fun CcRemotesPlatter(sz: CcSizes, onSettings: () -> Unit) {
     val context = LocalContext.current
     var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
     val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context).map { CcDeviceRow(it.name, it.line, it.line.startsWith("Connected")) } }
-    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", "Remote Settings", onSettings, onBack)
+    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", "Remote Settings", onSettings)
 }
 
 /** The Game Controllers platter (P146): the connected controllers, then Controller Settings (Fire's own page, as the tile opened before) and Back. */
 @Composable
-private fun CcControllersPlatter(sz: CcSizes, onBack: () -> Unit, onSettings: () -> Unit) {
+private fun CcControllersPlatter(sz: CcSizes, onSettings: () -> Unit) {
     val context = LocalContext.current
     var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
     val rows = remember(tick) { dev.glasslauncher.system.ControllerList.read(context).map { CcDeviceRow(it.name, it.line, true) } }
-    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "No controllers connected", null, "Controller Settings", onSettings, onBack)
+    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "No controllers connected", null, "Controller Settings", onSettings)
 }
 
 /**
