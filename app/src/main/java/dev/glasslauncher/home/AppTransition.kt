@@ -90,6 +90,8 @@ class AppTransition(
     var pageOpening by mutableStateOf(false); private set
 
     private var last: LaunchWindow? = null
+    /** Home's view, to tell when Home is really on screen again (window focus) before the close starts. */
+    private var host: java.lang.ref.WeakReference<android.view.View>? = null
     /** When [last] launched: Home leaving much later than that isn't that app opening. */
     private var lastAt = 0L
     private var job: Job? = null
@@ -121,14 +123,19 @@ class AppTransition(
 
     fun open(app: AppEntry, from: Rect?, art: ImageBitmap?, view: android.view.View) {
         if (from == null || backdrop.rootSize == IntSize.Zero) { model.launch(app, view, from); return }
+        host = java.lang.ref.WeakReference(view)
         // A new launch: nothing has been started yet, so Back can still cancel it from its very first frame.
         startRequested = false
         job?.cancel()
         job = scope.launch {
             // Glyph and colour come from the tile art in parallel with the Home capture (both ~10–30 ms).
             val look = async(Dispatchers.Default) { art?.let { a -> looks[a] ?: launchLook(a).also { looks[a] = it } } }
+            val background = async(Dispatchers.Default) { startingColor(app) }
             val captured = captureScreen(view) ?: backdrop.backdrop?.blurredSoftware
-            val (color, glyph) = look.await() ?: (Color(0xFF15161A) to null)
+            val (artColor, glyph) = look.await() ?: (Color(0xFF15161A) to null)
+            // The app's own starting window (its theme's windowBackground) is what covers the zoom once it starts:
+            // in the same colour the hand-off doesn't flash (P147). The art's colour only when the theme has none.
+            val color = background.await() ?: artColor
             val w = LaunchWindow(app, from, art, color, glyph)
             closing = false
             cover = captured
@@ -240,6 +247,35 @@ class AppTransition(
         }
     }
 
+    /** Starting-window colour per package (themes don't change while installed; reinstall clears nothing it matters for). */
+    private val startingColors = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * The launch activity's windowBackground, which Android shows as the app's starting window, when it is an opaque
+     * colour. Null for a transparent or drawable background, or when the theme can't be read. No permission needed.
+     */
+    private fun startingColor(app: AppEntry): Color? {
+        startingColors[app.packageName]?.let { return if (it == 0) null else Color(it) }
+        val argb = runCatching {
+            val intent = model.launchIntent(app) ?: return@runCatching 0
+            val info = context.packageManager.resolveActivity(intent, 0)?.activityInfo ?: return@runCatching 0
+            val theme = info.themeResource.takeIf { it != 0 } ?: info.applicationInfo.theme
+            if (theme == 0) return@runCatching 0
+            val pkg = context.createPackageContext(info.packageName, 0)
+            pkg.setTheme(theme)
+            val a = pkg.theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowBackground))
+            try {
+                val d = a.getDrawable(0)
+                val c = (d as? android.graphics.drawable.ColorDrawable)?.color
+                    ?: (d as? android.graphics.drawable.LayerDrawable)?.takeIf { it.numberOfLayers > 0 }
+                        ?.getDrawable(0)?.let { it as? android.graphics.drawable.ColorDrawable }?.color
+                if (c != null && (c ushr 24) >= 0xF0) c or (0xFF shl 24) else 0
+            } finally { a.recycle() }
+        }.getOrDefault(0)
+        startingColors[app.packageName] = argb
+        return if (argb == 0) null else Color(argb)
+    }
+
     /** Off the main thread: the binder call blocked it for ~40–60 ms, mid-zoom. */
     private suspend fun startApp(app: AppEntry): Boolean = withContext(Dispatchers.IO) {
         // Straight to the store (its own entry only bounces a request back to Home).
@@ -282,6 +318,7 @@ class AppTransition(
     fun onHomeStarted(tileBounds: (AppEntry) -> Rect?): Boolean {
         val w = last ?: return false
         last = null
+        dev.glasslauncher.system.CloseSnapshot.preferPreview(context, w.app.packageName)
         val target = tileBounds(w.app) ?: w.tile
         val coverImage = cover ?: backdrop.backdrop?.blurredSoftware ?: return false
         playClose(w.copy(tile = target), coverImage)
@@ -309,12 +346,18 @@ class AppTransition(
             } else windowAlpha.snapTo(1f)
             // Home's first frames after coming back are slow (the system shows its snapshot, the full
             // window, meanwhile): start the clock once frames are steady, or the shrink is skipped.
+            // Steady frames alone weren't enough on the stick: Home drew steadily while the system still showed its
+            // snapshot, so the first frame seen was already half way through the shrink (P147). Wait for Home's window
+            // to have focus too (it is on screen then), up to ~600 ms.
             var previous = withFrameNanos { it }
-            for (i in 0 until 12) {
+            for (i in 0 until 36) {
                 val now = withFrameNanos { it }
                 val steady = now - previous < 25_000_000L
                 previous = now
-                if (steady) break
+                // The app's snapshot (decoded in parallel) usually lands within a few frames: show the app shrinking, not
+                // its colour then the app. Without one, the colour after ~200 ms.
+                val snapshot = fadeIn || dev.glasslauncher.system.CloseSnapshot.peek(w.app.packageName) != null || i >= 12
+                if (steady && snapshot && host?.get()?.hasWindowFocus() != false) break
             }
             // The tile art is back by about half size, so you see where it's going.
             launch { fill.animateTo(0f, tween(CLOSE_FADE_MS, delayMillis = 30)) }
@@ -328,6 +371,7 @@ class AppTransition(
                 // Also when cancelled part-way: a close left behind covered Home with the launch window
                 // until the next launch. Unless a newer transition has already taken over.
                 if (job === me) {
+                    dev.glasslauncher.system.CloseSnapshot.clear()
                     window = null
                     closing = false
                     cover = null
@@ -431,7 +475,15 @@ fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
                 drawRoundRect(ShaderBrush(ImageShader(art)), size = Size(art.width.toFloat(), art.height.toFloat()), cornerRadius = CornerRadius(radius / sx, radius / sy))
             }
         }
-        if (f > 0f) {
+        // Closing an app: its own last frame shrinks into the tile when there is one (P147), not a flat colour.
+        val snapshot = if (t.closing) dev.glasslauncher.system.CloseSnapshot.peek(w.app.packageName) else null
+        if (f > 0f && snapshot != null) {
+            val sx = rect.width / snapshot.width
+            val sy = rect.height / snapshot.height
+            withTransform({ translate(rect.left, rect.top); scale(sx, sy, Offset.Zero) }) {
+                drawRoundRect(ShaderBrush(ImageShader(snapshot)), size = Size(snapshot.width.toFloat(), snapshot.height.toFloat()), cornerRadius = CornerRadius(radius / sx, radius / sy), alpha = f * t.windowAlpha.value)
+            }
+        } else if (f > 0f) {
             val wa = t.windowAlpha.value
             drawRoundRect(w.color, rect.topLeft, rect.size, CornerRadius(radius), alpha = f * wa)
             w.glyph?.let { g ->

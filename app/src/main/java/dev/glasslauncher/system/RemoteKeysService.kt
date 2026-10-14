@@ -120,6 +120,13 @@ class RemoteKeysService : AccessibilityService() {
             if (interrupted && event.action == KeyEvent.ACTION_UP) { interrupted = false; return true }
             if (interrupted) return true
         }
+        // Back in an app may be the app closing (Fire OS never passes Home to accessibility services; the close uses the
+        // app switcher's preview then): keep its last frame for Glass's close (P147), as tvOS shrinks a
+        // snapshot back into the icon. In memory only, small, and dropped once the close has played.
+        if ((event.keyCode == KeyEvent.KEYCODE_HOME || event.keyCode == KeyEvent.KEYCODE_BACK) &&
+            event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            front?.let { pkg -> snapshotForClose(pkg) }
+        }
         // Escape hatch: holding Back for 1.5 s goes Home from any app, even one that swallows Back, Home
         // and Recents (Fire TV Early Access did). The press itself still reaches the app. Timed from the
         // first down, not from key repeats: the system makes those after accessibility services have seen
@@ -145,6 +152,22 @@ class RemoteKeysService : AccessibilityService() {
         // auto-repeat, and swallow every half of the press.
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) run(action)
         return true
+    }
+
+    /** The screen now, for [CloseSnapshot]. The system allows about one screenshot a second; a refused one leaves the fallback. */
+    private fun snapshotForClose(pkg: String) {
+        if (android.os.Build.VERSION.SDK_INT < 30 || controlCenter.showing) return
+        runCatching {
+            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val bitmap = android.graphics.Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                    buffer.close()
+                    if (bitmap != null) CloseSnapshot.offer(pkg, bitmap)
+                }
+                override fun onFailure(errorCode: Int) { Log.i(TAG, "close snapshot refused: $errorCode") }
+            })
+        }.onFailure { Log.i(TAG, "close snapshot failed: $it") }
     }
 
     /** Whether a focused application window of another package exists (the launched app can take Back). */
