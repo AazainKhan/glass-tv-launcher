@@ -328,7 +328,7 @@ object CcControls {
     /** Ids with a size table (a size outside it is corrected on load). */
     val known: Set<String> get() = TABLE.keys
 
-    fun sizes(id: String): List<CcSize> = TABLE[id] ?: if (id.startsWith("addon:")) listOf(CcSize.S2x1, CcSize.S1x1) else ONE
+    fun sizes(id: String): List<CcSize> = TABLE[id] ?: if (id.startsWith("addon:") || id.startsWith("app:")) listOf(CcSize.S2x1, CcSize.S1x1) else ONE
 
     /** Fire TV Settings is the only way into Fire's own settings: it stays. */
     fun removable(id: String) = id != "fire_settings"

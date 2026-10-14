@@ -1,5 +1,6 @@
 package dev.glasslauncher.shots
 
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -94,6 +95,48 @@ class CcEditModeTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.settle()
             assertTrue("saved and left edit mode", !exists("cc-add") && exists("cc-tile:wifi"))
+        }
+    }
+
+    private fun width(id: String) = compose.onNodeWithTag("cc-tile:$id").fetchSemanticsNode().boundsInRoot.width
+
+    @Test fun menuResizesAControlWhetherOrNotItIsLifted() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            dev.glasslauncher.home.CcEditEntry.startInEdit = true
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            focusWifi()
+            val w0 = width("wifi")
+            compose.press(Button.Menu); compose.settle()
+            val w1 = width("wifi")
+            assertTrue("Menu changes Wi-Fi's size (width $w0 to $w1)", w1 != w0)
+            compose.press(Button.Select) // lift
+            compose.press(Button.Menu); compose.settle()
+            assertTrue("Menu resizes it while lifted too", width("wifi") != w1)
+            compose.press(Button.Select) // drop
+            assertTrue("the hint says how (Size), and it stays up", hints() > 0)
+        }
+    }
+
+    @Test fun theGalleryHasATitleNotTheClockAndAnAppsGroup() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            dev.glasslauncher.home.CcEditEntry.startInEdit = true
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            assertTrue("the clock heads the grid", exists("cc-clock") && !exists("cc-gallery-title"))
+            repeat(12) { if (compose.focused()?.startsWith("cc-add") != true) compose.press(Button.Down) }
+            compose.press(Button.Select)
+            compose.settle()
+            assertTrue("a section title, not the clock", exists("cc-gallery-title") && !exists("cc-clock"))
+            compose.onNodeWithTag("cc-gallery-title").assertTextEquals("Add a Control")
+            assertTrue("Apps is a group", exists("cc-gallery-group:apps"))
+            assertTrue("the grid's hints are not shown over the gallery", hints() == 0)
         }
     }
 

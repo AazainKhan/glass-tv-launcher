@@ -38,7 +38,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -140,10 +139,10 @@ private val LocalCcPageIconSize = androidx.compose.runtime.staticCompositionLoca
 /** The menu bar's controls: F27 measures circles of about 48 px (24 dp) at a 60 px (30 dp) pitch, a 6 dp gap (SK's 58 px circles at a 60 px pitch leave 1 dp and read as touching, P138 H1). */
 private val CC_PAGE_ICON = 24.dp
 
-private val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
+internal val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { CcSizes(1f) }
 
 /** Pill text is tvOS's Caption 2 (FW stylingForState: style 7 = 23 px = 11.5 sp, 15 dp lines), Medium, for the title and the value (P138 C10). */
-private val CcPillTitle @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
+internal val CcPillTitle @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
 private val CcPillValue @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
 /** A platter's section header: Caption 1 (12.5 sp). */
 private val CcSectionHeader @Composable get() = Type.caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
@@ -155,30 +154,11 @@ private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { f
  * A pill's one line of text (F05): never an ellipsis. Text that fits is as it was; text that does not fades out at its
  * right edge, and scrolls (a marquee) only while its tile has focus, as tvOS's labels do.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, modifier: Modifier = Modifier, lines: Int = 1) {
+internal fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, modifier: Modifier = Modifier, lines: Int = 1) {
     // A title with no value line under it wraps at its spaces onto a second line, as tvOS's do ("Do Not / Disturb"); never mid-word, never an ellipsis.
     if (lines > 1) { Text(text, style = style, color = color, maxLines = lines, softWrap = true, overflow = TextOverflow.Clip, modifier = modifier); return }
-    var overflows by remember(text) { androidx.compose.runtime.mutableStateOf(false) }
-    val focused = LocalCcTileFocused.current
-    Text(
-        text, style = style, color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
-        onTextLayout = { overflows = it.hasVisualOverflow },
-        modifier = modifier
-            .then(if (overflows && focused) Modifier.basicMarquee(iterations = 3, initialDelayMillis = 500, velocity = 30.dp) else Modifier)
-            .then(
-                if (overflows && !focused) Modifier
-                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            androidx.compose.ui.graphics.Brush.horizontalGradient(0.78f to Color.Black, 1f to Color.Transparent),
-                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-                        )
-                    } else Modifier,
-            ),
-    )
+    dev.glasslauncher.ui.MarqueeText(text, style, color, active = LocalCcTileFocused.current, modifier = modifier)
 }
 
 /** Platter push and pop (TVSPAnimator): spring mass 1, stiffness 150, damping 20 is a damping ratio of 20 / (2 * sqrt(150)). */
@@ -681,15 +661,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // Game Controllers is a platter like Remotes (P146): the connected controllers, then Controller Settings and Back.
     var controllersPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     val platterSource = remember { PlatterSource() }
-    // Edit mode's hint (P101): a small glass toast at the bottom centre when edit mode opens, gone after a few seconds,
-    // and back for a moment on the first key pressed in edit mode.
-    var hintKick by remember(active) { androidx.compose.runtime.mutableIntStateOf(0) }
+    // Edit mode's hint (P101): a small glass bar at the bottom centre, up while edit mode is on (P152).
     var hintShown by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
-    LaunchedEffect(editing, hintKick) {
+    LaunchedEffect(editing) {
         if (!editing) { hintShown = false; return@LaunchedEffect }
+        // Stays up for the whole of edit mode (P152): it is the only place that says Menu resizes, and it went away after 3 s.
         hintShown = true
-        kotlinx.coroutines.delay(if (hintKick == 0) 3_500L else 2_200L)
-        hintShown = false
     }
     // A control that should take focus once it is on screen (a new tile, the one a card or confirm came from).
     var pendingFocus by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
@@ -886,10 +863,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 .height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - CC_BOTTOM_INSET)
                 .padding(top = m.chromeInset, end = m.chromeInset + 14.dp - CC_BLEED)
                 .trapFocus(active)
-                .onPreviewKeyEvent { e ->
-                    if (editing && hintKick == 0 && e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) hintKick = 1
-                    false
-                }
                 .testTag("control-center"),
         ) {
             // One band above the tiles (tvOS 27): the time with seconds, the date and the weather on the
@@ -907,7 +880,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 ) {
                     // One line, small and muted, as tvOS 27's header: the time without seconds, then the weather when there is
                     // one. No date line (F03).
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // The Add a Control gallery has a section title in the header's place, never the clock (P152).
+                    if (gallery != null && !restartAsk && !agentCard) Text(
+                        ccGalleryTitle(gallery), style = headerStyle.copy(fontWeight = FontWeight.SemiBold), color = headerColor,
+                        maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-gallery-title"),
+                    ) else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(clock, style = headerStyle.copy(fontFeatureSettings = "tnum"), color = headerColor.copy(alpha = headerAlpha), maxLines = 1, softWrap = false, modifier = Modifier.testTag("cc-clock"))
                         cfg.weather?.let { dev.glasslauncher.widgets.WeatherLabel(it, headerColor.copy(alpha = headerAlpha), Type.caption) }
                     }
@@ -944,12 +921,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 }
             }
             val np by (dev.glasslauncher.widgets.NowPlayingFixture.state ?: context.app.nowPlaying.state).collectAsStateWithLifecycle()
-            if (gallery != null && !restartAsk && !agentCard) Text(
-                when (gallery) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; else -> "By App" },
-                style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = headerColor,
-                modifier = Modifier.offset(x = -CC_BLEED).width(sz.column).padding(start = 4.dp, bottom = 6.dp)
-                    .ccSurface(RoundedCornerShape(14.dp), LocalCcSheet.current).padding(horizontal = 10.dp, vertical = 5.dp),
-            )
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
             if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
@@ -1070,7 +1041,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // CcPacking (next-fit, so it reproduces the fixed layout this was). Edit mode changes a draft of it.
             val u = sz.round
             val pid = layout.page(shownPage)?.id ?: layout.pages.first().id
-            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance" -> rooted; "vpn" -> vpnApps.isNotEmpty(); else -> true } }
+            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance" -> rooted; "vpn" -> vpnApps.isNotEmpty(); else -> !CcApps.isApp(id) || CcApps.installed(context, id) } }
             // Edit mode (P101): Add a Control is a 2x1 cell of the grid itself, after the last tile (first fit, same pitch),
             // not a pill floating under it. It is not part of the layout: only drawn and focusable.
             val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) } +
@@ -1184,6 +1155,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 true
                             }
                             android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { if (down) { if (hoverPage != null) hoverPage = null else moveLifted(0, 1) }; true }
+                            // Menu resizes a lifted control too: the next size it allows, then it keeps moving.
+                            android.view.KeyEvent.KEYCODE_MENU -> { if (down) lifted?.let { id -> draft = draft?.resize(pid, id) }; true }
                             else -> false
                         } else if (k.keyCode == android.view.KeyEvent.KEYCODE_MENU) {
                             // Menu: the next size the focused control allows; neighbours repack.
@@ -1373,6 +1346,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             id, tile.size, w, h, agents, { agentCard = true }, focusMod, hold, wobbleOn, ::tap, ::playOr, label,
                         )
                         else if (id.startsWith("addon:")) AddonTile(id, tile.size, w, h, focusMod, wobbleOn, ::tap, ::playOr, label)
+                        else if (CcApps.isApp(id)) AppShortcutTile(id, tile.size, w, h, focusMod, wobbleOn, ::tap, ::playOr, label, closeAll)
                         // Edit mode's remove legend (the action is Play/Pause on the focused tile); Fire TV Settings has none.
                         if (editing && id != ADD_TILE && CcControls.removable(id)) Box(
                             Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp).size(18.dp)
@@ -1399,7 +1373,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
         }
         // Edit mode's hint (P101): one toast on the panel's own glass, at the bottom centre, never over the tiles.
-        CcEditHint(shown = hintShown, lifted = lifted != null, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp))
+        CcEditHint(shown = hintShown && gallery == null, lifted = lifted != null, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp))
         // Home's pill itself on the first frame (same glass, clock and gear, at its spot), fading as the drops form
         // and back as they merge, so neither end cuts from the pill to Control Center (tvOS: the pill fades out by
         // about 30% of the open). Drawn over the panel, so the drops stay under it until it has gone. Only over
@@ -1716,13 +1690,15 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
                 Triple("glass", "Glass", R.drawable.ic_tune),
                 Triple("addons", "Add-ons", R.drawable.ic_widgets),
                 Triple("byapp", "By App", R.drawable.ic_apps),
+                Triple("apps", "Apps", R.drawable.ic_app_switcher),
             )
             groups.forEachIndexed { i, (key, name, icon) ->
-                CcTile(name, null, Shapes.pill, sz.column, sz.pill, onClick = { setGroup(key) }, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier) { fg ->
+                CcTile(name, null, Shapes.pill, sz.column, sz.pill, onClick = { setGroup(key) }, modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("cc-gallery-group:$key")) { fg ->
                     PillContent(icon, name, null, fg, on = false, accent = fg)
                 }
             }
-        } else {
+        } else if (group == "apps") CcAppGallery(layout, sz, first, setGroup, add)
+        else {
             val entries: List<Pair<String?, CcCatalogEntry>> = when (group) {
                 "glass" -> CcCatalog.glass.map { null to it }
                 "addons" -> CcCatalog.addons.map { null to it }
@@ -1742,6 +1718,33 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
                 CcTile(e.name, line, Shapes.pill, sz.column, sz.pill, onClick = { if (added) setGroup(null) else add(e.id) },
                     modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("cc-gallery:${e.id}")) { fg ->
                     PillContent(e.icon, e.name, line, fg, on = added, accent = Blue)
+                }
+            }
+        }
+    }
+}
+
+internal fun ccGalleryTitle(group: String?): String = when (group) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; "apps" -> "Apps"; else -> "By App" }
+
+/** The Apps group (P152): every installed app with a launcher entry, each addable as a launch control. One already on the page just returns. */
+@Composable
+private fun CcAppGallery(layout: CcLayout, sz: CcSizes, first: FocusRequester, setGroup: (String?) -> Unit, add: (String) -> Unit) {
+    val context = LocalContext.current
+    val apps by remember { context.app.apps.apps() }.collectAsStateWithLifecycle(emptyList())
+    if (apps.isEmpty()) Text("No apps installed", style = Type.caption, color = LocalPalette.current.primary.copy(alpha = 0.7f), modifier = Modifier.padding(start = 4.dp))
+    apps.sortedBy { it.label.lowercase() }.forEachIndexed { i, app ->
+        val id = CcApps.id(app.packageName)
+        val added = layout.shown(id)
+        CcTile(app.label, if (added) "Added" else "Launches ${app.label}", Shapes.pill, sz.column, sz.pill, onClick = { if (added) setGroup(null) else add(id) },
+            modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("cc-gallery:$id")) { fg ->
+            val icon by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, app.packageName) { value = CcApps.icon(context.packageManager, app.packageName) }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize()) {
+                Box(Modifier.width(sz.leadColumn).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    icon?.let { Image(it, null, Modifier.size(sz.pillGlyph)) }
+                }
+                Column(Modifier.weight(1f)) {
+                    PillText(app.label, CcPillTitle, fg)
+                    PillText(if (added) "Added" else "Launches the app", CcPillValue, fg.copy(alpha = 0.7f))
                 }
             }
         }
@@ -1825,7 +1828,7 @@ private fun CcEditHint(shown: Boolean, lifted: Boolean, modifier: Modifier = Mod
         if (shown) 1f else 0f, androidx.compose.animation.core.spring(0.9f, 700f), label = "cc-hint",
     )
     if (!shown && a <= 0.01f) return
-    val items = if (lifted) listOf("Select" to "Drop", "Back" to "Cancel")
+    val items = if (lifted) listOf("Select" to "Drop", "≡" to "Size", "Back" to "Cancel")
         else listOf("Select" to "Move", "≡" to "Size", "⏯" to "Remove", "Back" to "Done")
     Row(
         horizontalArrangement = Arrangement.spacedBy(22.dp),

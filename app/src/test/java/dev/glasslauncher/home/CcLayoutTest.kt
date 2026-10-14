@@ -62,6 +62,14 @@ class CcLayoutTest {
         assertEquals(listOf("controls", "page2-123", "alexa", "more"), CcLayout.fromJson(again.toJson())!!.pages.map { it.id })
     }
 
+    @Test fun anAppShortcutIsAOneOrTwoByOneControlThatSurvivesASave() {
+        assertEquals(listOf(S2x1, S1x1), CcControls.sizes("app:com.example.tv"))
+        val l = CcLayout.default().add("controls", "app:com.example.tv")
+        assertEquals(S2x1, l.page("controls")!!.tiles.last().size)
+        val back = CcLayout.fromJson(l.toJson())!!
+        assertEquals("app:com.example.tv", back.page("controls")!!.tiles.last().id)
+    }
+
     @Test fun freeMemoryIsNowCleanUp() {
         assertTrue("memory" !in CcLayout.default().pages.flatMap { it.tiles }.map { it.id })
         val stored = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("memory", S1x1))))).toJson()
