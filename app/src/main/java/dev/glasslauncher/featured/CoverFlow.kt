@@ -231,7 +231,15 @@ private fun Cover(index: Int, position: () -> Float, stackOrder: Float, coverPx:
             // Until the art is there (and if it never comes): the title on a tint, never a plain dark square (P63).
             dev.glasslauncher.ui.ArtFallback(item.title, Modifier.size(COVER_DP.dp), seed = item.image ?: item.title, subtitle = item.subtitle)
         }
-        if (bitmap != null) Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = arrived.value })
+        // A cover whose art was there at once (a cached one, the usual case) is a plain Image: no layer, no animation. Only a late arrival
+        // fades, with ModulateAlpha so the fade is not an offscreen layer per cover (the stick's first-use flush cost).
+        if (bitmap != null) {
+            if (fadeDone) Image(bitmap, null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
+            else Image(
+                bitmap, null, contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = arrived.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha },
+            )
+        }
     }
 }
 
