@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.withContext
 
 /**
@@ -41,16 +43,17 @@ object TvRows {
     }
 
     /** One app's rows, in its own order: what tvOS shows in the top shelf when that app is focused. */
-    suspend fun appRow(context: Context, pkg: String, label: String): FeaturedFeed = withContext(Dispatchers.IO) {
+    suspend fun appRow(context: Context, pkg: String, label: String, rotation: Int = 0): FeaturedFeed = withContext(Dispatchers.IO) {
         check(available(context)) { "Turn on Settings › Root › System App to read other apps' rows" }
         val channels = query(context, CHANNELS, arrayOf("_id", "display_name"), "package_name=? AND type=?", arrayOf(pkg, "TYPE_PREVIEW")) { c ->
             c.long("_id") to (c.str("display_name") ?: "")
         }.sortedByDescending { CONTINUE.containsMatchIn(it.second) }
         // Every preview channel the app publishes, then its Watch Next entries: a row of 4 came from reading one
         // channel and de-duplicating by title alone (P89).
-        val previews = channels.flatMap { (id, _) -> previewItems(context, id) }.filterNotNull()
+        // One list per channel, then Watch Next, interleaved: a batch mixes the user's recents, the recommendations and the feed (P153).
+        val perChannel = channels.map { (id, _) -> previewItems(context, id).filterNotNull() }
         val watchNext = query(context, WATCH_NEXT, null, "package_name=?", arrayOf(pkg), "last_engagement_time_utc_millis DESC") { it.item() }.filterNotNull()
-        FeaturedFeed(channels.firstOrNull()?.second?.ifBlank { null } ?: label, assemble(previews + watchNext))
+        FeaturedFeed(channels.firstOrNull()?.second?.ifBlank { null } ?: label, assemble(interleave(perChannel + listOf(watchNext)), rotation = rotation))
     }
 
     /** How many titles a shelf row holds. */
@@ -64,11 +67,45 @@ object TvRows {
      * without (which draw a tinted title card); a shape filter ([CardShape.uniform]) only applies when it leaves a
      * real row; up to [ROW_CAP].
      */
-    fun assemble(items: List<FeaturedItem>, cap: Int = ROW_CAP): List<FeaturedItem> {
+    fun assemble(items: List<FeaturedItem>, cap: Int = ROW_CAP, rotation: Int = 0): List<FeaturedItem> {
         val distinct = items.distinctBy { it.link ?: (it.title + "|" + (it.subtitle ?: "")) }
         val ordered = distinct.sortedBy { if (it.image.isNullOrBlank()) 1 else 0 }   // stable: art first, own order kept
         val uniform = CardShape.uniform(ordered)
-        return (if (uniform.size >= MIN_UNIFORM || uniform.size == ordered.size) uniform else ordered).take(cap)
+        return window(if (uniform.size >= MIN_UNIFORM || uniform.size == ordered.size) uniform else ordered, cap, rotation)
+    }
+
+    /**
+     * [cap] items out of everything an app published: the first [cap] at rotation 0, and each later rotation steps half a window on,
+     * wrapping round, so the shelf shows new batches over time instead of the same first covers (P153). All of them when they fit.
+     */
+    fun <T> window(all: List<T>, cap: Int, rotation: Int): List<T> {
+        if (all.size <= cap) return all
+        val start = (rotation.coerceAtLeast(0).toLong() * (cap / 2).coerceAtLeast(1) % all.size).toInt()
+        return List(cap) { all[(start + it) % all.size] }
+    }
+
+    /** One item from each list in turn (round robin), so the first of every channel comes before the second of any. */
+    fun <T> interleave(lists: List<List<T>>): List<T> {
+        val out = ArrayList<T>(); var i = 0
+        while (lists.any { i < it.size }) { lists.forEach { l -> l.getOrNull(i)?.let(out::add) }; i++ }
+        return out
+    }
+
+    /**
+     * Fires when an app publishes, changes or removes a row: the TV provider's preview and Watch Next programs and channels. Empty
+     * flow without the privileged EPG permission (the plain-APK fallback keeps today's behaviour: no observer).
+     */
+    fun changes(context: Context): kotlinx.coroutines.flow.Flow<Unit> {
+        if (!available(context)) return kotlinx.coroutines.flow.emptyFlow()
+        return kotlinx.coroutines.flow.callbackFlow {
+            val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) { trySend(Unit) }
+            }
+            val uris = listOf(PREVIEW, WATCH_NEXT, CHANNELS)
+            val ok = uris.map { u -> runCatching { context.contentResolver.registerContentObserver(u, true, observer) }.isSuccess }
+            if (ok.none { it }) close()
+            awaitClose { runCatching { context.contentResolver.unregisterContentObserver(observer) } }
+        }.conflate()
     }
 
     private fun previewItems(context: Context, channelId: Long) =

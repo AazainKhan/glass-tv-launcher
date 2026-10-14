@@ -37,3 +37,18 @@ class TvRowsAssembleTest {
         assertTrue(TvRows.assemble(squares).all { it.aspect == 1f })
     }
 }
+
+class TvRowsRotationTest {
+    @org.junit.Test fun aWindowRotatesHalfAStepOverEverythingPublishedAndWraps() {
+        val all = (1..50).toList()
+        assertEquals((1..20).toList(), TvRows.window(all, 20, 0))
+        assertEquals((11..30).toList(), TvRows.window(all, 20, 1))
+        assertEquals("wraps past the end", listOf(41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), TvRows.window(all, 20, 4))
+        assertEquals("everything shows when it fits", (1..14).toList(), TvRows.window((1..14).toList(), 20, 7))
+    }
+
+    @org.junit.Test fun channelsAreInterleavedSoABatchMixesThem() {
+        val out = TvRows.interleave(listOf(listOf("r1", "r2", "r3"), listOf("m1"), listOf("f1", "f2")))
+        assertEquals(listOf("r1", "m1", "f1", "r2", "f2", "r3"), out)
+    }
+}

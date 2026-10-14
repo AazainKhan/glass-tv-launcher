@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -99,6 +100,16 @@ fun CoverFlow(
 ) {
     if (items.isEmpty()) return
     val reduceMotion = LocalUiPrefs.current.reduceMotion
+    // A new batch of covers (the feed was refreshed or rotated, P153) dissolves in: the resting preview fades its covers out,
+    // swaps them, and fades the new ones in, never a snap. The open flow keeps its covers until it is opened again.
+    var shownItems by remember { mutableStateOf(items) }
+    val swap = remember { Animatable(1f) }
+    LaunchedEffect(items.map { it.id }) {
+        if (!preview || shownItems.map { it.id } == items.map { it.id }) return@LaunchedEffect
+        if (reduceMotion) { shownItems = items; return@LaunchedEffect }
+        swap.animateTo(0f, tween(250)); shownItems = items; swap.animateTo(1f, tween(350))
+    }
+    val items = shownItems
     val last = items.lastIndex
     val current = index.coerceIn(0, last)
     // The index the next key steps from: kept here (not just the caller's state) so two quick presses before the
@@ -169,7 +180,7 @@ fun CoverFlow(
                     coverPx = coverPx,
                     art = art(items[i].image, i == current),
                     item = items[i],
-                    coversAlpha = coversAlpha,
+                    coversAlpha = { coversAlpha() * swap.value },
                     tag = if (preview) "preview-cover:$i" else "cover:$i",
                     modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp),
                 )

@@ -53,6 +53,12 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
     private var addonVersion: Any? = null
     private var addonUntil = 0L
 
+    /** How many times each TV-row shelf has been fetched: the rotation of its window over everything the app published (P153). */
+    private val rotations = HashMap<String, Int>()
+
+    /** How old a feed may be before a refresh fetches again: a TV app's rows move often, the rest rarely. */
+    private fun maxAgeMs(cfg: FeaturedConfig) = if (cfg.source == FeaturedSourceId.TvApp) TV_MAX_AGE_MS else 30 * 60_000L
+
     private suspend fun refreshAddon(cfg: FeaturedConfig, force: Boolean, addons: AddonSnapshot) {
         val key = cacheKey(cfg)
         // A setting the user changed, or the add-on switched on, is asked again at once; otherwise the add-on's interval (15 min or more) holds. Refresh Now (force) is the user's too.
@@ -80,9 +86,9 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         memory[key]?.let { (feed, at) ->
             _state.value = FeaturedState(feed, key = key, settledKey = key)
             loadedKey = key; loadedAt = at
-            if (!force && now - at < 30 * 60_000L) return@withLock
+            if (!force && now - at < maxAgeMs(cfg)) return@withLock
         }
-        val fresh = loadedKey == key && now - loadedAt < 30 * 60_000L
+        val fresh = loadedKey == key && now - loadedAt < maxAgeMs(cfg)
         if (fresh && !force) return@withLock
         // Switching source: show its cached feed if there is one; otherwise keep the current shelf up until
         // the new one arrives (blanking it would drop the backdrop to the wallpaper for a moment).
@@ -95,7 +101,10 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
         _state.value = _state.value.copy(settledKey = null)
         val result = when (cfg.source) {
             FeaturedSourceId.ContinueWatching -> runCatching { TvRows.continueWatching(app).withCinemeta(http) }
-            FeaturedSourceId.TvApp -> runCatching { TvRows.appRow(app, cfg.appPackage, appLabel(cfg.appPackage)).withCinemeta(http) }
+            FeaturedSourceId.TvApp -> runCatching {
+                val turn = rotations.merge(key, 1, Int::plus) ?: 1
+                TvRows.appRow(app, cfg.appPackage, appLabel(cfg.appPackage), rotation = turn - 1).withCinemeta(http)
+            }
             else -> {
                 val source = Sources.of(cfg.source) ?: run { _state.value = FeaturedState(); return@withLock }
                 runCatching { source.load(http, cfg) }
@@ -112,6 +121,11 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
             loadedKey = key
             loadedAt = SystemClock.elapsedRealtime() - 25 * 60_000L
         }
+    }
+
+    companion object {
+        /** A TV app's shelf is fetched again when it is this old (P153): at most every five minutes, whatever wakes it. */
+        const val TV_MAX_AGE_MS = 5 * 60_000L
     }
 
     private fun appLabel(pkg: String) = runCatching { app.packageManager.getApplicationLabel(app.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
