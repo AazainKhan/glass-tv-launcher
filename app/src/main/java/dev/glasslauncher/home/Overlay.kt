@@ -164,7 +164,7 @@ fun Modifier.trapFocus(active: Boolean): Modifier =
 
 /** Right-hand glass panel that slides in, used for menus and settings. */
 @Composable
-fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope.() -> Unit) {
+fun SidePanel(active: Boolean, width: Dp = 420.dp, compact: Boolean = false, content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter()
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     // No dimming behind it (tvOS doesn't dim for these, and a full-screen scrim is an extra GPU pass).
@@ -178,7 +178,8 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, content: @Composable BoxScope
                 .align(Alignment.CenterEnd)
                 .padding(18.dp)
                 .width(width)
-                .fillMaxHeight()
+                // A compact panel is as tall as its rows (P154: a name field is not a full-height page).
+                .then(if (compact) Modifier.wrapContentHeight() else Modifier.fillMaxHeight())
                 .graphicsLayer { translationX = OverlayMotion.slide(enter.value, reduceMotion) * 80.dp.toPx() }
                 .trapFocus(active),
             content = content,

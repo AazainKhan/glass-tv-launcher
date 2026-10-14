@@ -252,7 +252,7 @@ class CcAddFittingTest {
     }
 
     @Test fun aSizeTheUserPickedBeforeTheMigrationIsLeftAlone() {
-        val picked = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("cleanup", S2x1), CcTile("restart", S1x1))))).toJson().replace("\"v\":2", "\"v\":1")
+        val picked = CcLayout(listOf(CcPage("controls", "grid", listOf(CcTile("cleanup", S2x1), CcTile("restart", S1x1))))).toJson().replace("\"v\":3", "\"v\":1")
         val tiles = CcLayout.fromJson(picked)!!.page("controls")!!.tiles
         assertEquals(S2x1, tiles.first { it.id == "cleanup" }.size)
         assertEquals(S2x1, tiles.first { it.id == "restart" }.size)

@@ -51,7 +51,7 @@ class InstallConfirmHostTest {
     @Test fun cancelDiscards() {
         val log = mutableListOf<String>(); val s = staged()
         host(s, log)
-        compose.waitForIdle(); compose.press(Button.Down, Button.Select)
+        compose.waitForIdle(); compose.press(Button.Right, Button.Select)
         compose.waitForIdle()
         assertEquals(listOf("discard"), log)
         assertTrue(s.file.delete())

@@ -64,6 +64,22 @@ fun GlassBox(
     Box(modifier.glass(LocalBackdrop.current, shape, style), content = content)
 }
 
+/**
+ * Two action rows side by side, half width each (P154; the P146 pair pattern): an alert's or a form's Done / Cancel, instead of two long
+ * stacked buttons. Each side takes its own modifier (a focus requester) and may be destructive.
+ */
+@Composable
+fun MenuRowPair(
+    left: String, onLeft: () -> Unit, right: String, onRight: () -> Unit,
+    leftModifier: Modifier = Modifier, rightModifier: Modifier = Modifier,
+    leftDestructive: Boolean = false, rightDestructive: Boolean = false,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+        MenuRow(left, onLeft, leftModifier.weight(1f), destructive = leftDestructive, centered = true)
+        MenuRow(right, onRight, rightModifier.weight(1f), destructive = rightDestructive, centered = true)
+    }
+}
+
 /** A focusable row in the tvOS menu style: plain when idle, solid highlight with inverted text when focused. */
 @Composable
 fun MenuRow(

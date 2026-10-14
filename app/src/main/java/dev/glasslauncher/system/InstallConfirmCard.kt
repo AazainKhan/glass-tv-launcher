@@ -2,6 +2,7 @@ package dev.glasslauncher.system
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,13 +67,17 @@ fun InstallConfirmCard(info: ApkInfo, width: Dp, onCancel: () -> Unit, onConfirm
         BasicText(lines.body, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f)))
         lines.notes.forEach { BasicText(it, style = Type.caption.copy(color = Color.White.copy(alpha = 0.8f))) }
         lines.alerts.forEach { BasicText(it, style = Type.caption.copy(color = LocalPalette.current.danger), modifier = Modifier.testTag("install-warning")) }
-        CcTile("Install", null, Shapes.pill, width - 28.dp, 42.dp, onClick = onConfirm,
-            modifier = (if (destructive) Modifier else Modifier.focusRequester(first)).testTag("install-yes")) { fg ->
-            BasicText("Install", style = Type.body.copy(color = if (destructive) LocalPalette.current.danger else fg))
-        }
-        CcTile("Cancel", null, Shapes.pill, width - 28.dp, 42.dp, onClick = onCancel,
-            modifier = (if (destructive) Modifier.focusRequester(first) else Modifier).testTag("install-cancel")) { fg ->
-            BasicText("Cancel", style = Type.body.copy(color = fg))
+        // Install and Cancel side by side, half width each (P154).
+        val half = (width - 28.dp - 6.dp) / 2
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            CcTile("Install", null, Shapes.pill, half, 42.dp, onClick = onConfirm,
+                modifier = (if (destructive) Modifier else Modifier.focusRequester(first)).testTag("install-yes")) { fg ->
+                BasicText("Install", style = Type.body.copy(color = if (destructive) LocalPalette.current.danger else fg), maxLines = 1)
+            }
+            CcTile("Cancel", null, Shapes.pill, half, 42.dp, onClick = onCancel,
+                modifier = (if (destructive) Modifier.focusRequester(first) else Modifier).testTag("install-cancel")) { fg ->
+                BasicText("Cancel", style = Type.body.copy(color = fg), maxLines = 1)
+            }
         }
     }
 }

@@ -72,6 +72,19 @@ class HomeShots {
         capture("control-center")
     }
 
+    /** P154: the rename pop-up is a compact card, Done and Cancel side by side. */
+    @Test fun renameFolder() = home(config = { c ->
+        c.copy(folders = listOf(Folder("media", "Media", FOLDER_APPS)), order = listOf(folderKey("media")))
+    }) {
+        compose.focusTag(folderKey("media"))
+        compose.settle()
+        compose.press(Button.Menu)
+        compose.waitForTag("menu-header")
+        compose.press(Button.Down, Button.Select)
+        compose.waitForTag("text-value")
+        capture("rename-folder", tolerance = 0.02f, colourNoise = 0.03f)
+    }
+
     @Test fun appMenu() = home {
         compose.press(Button.Menu)
         // Opens over a snapshot taken while Home is still settling: its glass differs faintly between runs.

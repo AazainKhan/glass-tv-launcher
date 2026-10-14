@@ -72,6 +72,7 @@ import dev.glasslauncher.ui.FocusTile
 import dev.glasslauncher.ui.Hint
 import dev.glasslauncher.ui.LocalPalette
 import dev.glasslauncher.ui.MenuRow
+import dev.glasslauncher.ui.MenuRowPair
 import dev.glasslauncher.ui.SectionLabel
 import dev.glasslauncher.ui.Shapes
 import dev.glasslauncher.ui.Type
@@ -136,7 +137,7 @@ fun OverlayContent(
             }
         }
         is Overlay.IconPicker -> SidePanel(active, width = 520.dp) { IconPickerBody(overlay.app, model, active, open, closeAll) }
-        is Overlay.TextInput -> SidePanel(active) { TextInputBody(overlay, active, close, open) }
+        is Overlay.TextInput -> SidePanel(active, width = 340.dp, compact = true) { TextInputBody(overlay, active, close, open) }
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         is Overlay.Confirm -> ConfirmCard(overlay, active, close)
         is Overlay.InstallConfirm -> InstallConfirmHost(overlay, active, close)
@@ -166,7 +167,7 @@ fun OverlayContent(
 /** Scrollable column of menu rows that grabs focus whenever its overlay becomes the active one. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun MenuList(active: Boolean, content: @Composable ColumnScope.(FocusRequester) -> Unit) {
+fun MenuList(active: Boolean, compact: Boolean = false, content: @Composable ColumnScope.(FocusRequester) -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(active) {
         if (active) {
@@ -179,9 +180,9 @@ fun MenuList(active: Boolean, content: @Composable ColumnScope.(FocusRequester) 
             // tvOS 27: slim rows (about 35 dp) with a clear gap between them.
             verticalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier
-                .fillMaxSize()
+                .then(if (compact) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 22.dp),
+                .padding(horizontal = 14.dp, vertical = if (compact) 16.dp else 22.dp),
         ) { content(first) }
     }
 }
@@ -344,7 +345,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
         submitted = true
         keyboard?.hide(); close(); overlay.onDone(if (overlay.isPassword) text else text.trim())
     }
-    MenuList(active && !editing) { _ ->
+    MenuList(active && !editing, compact = true) { _ ->
         PanelTitle(overlay.title)
         if (editing) {
             BasicTextField(
@@ -391,8 +392,7 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
                 values["value"]?.takeIf { it.isNotBlank() }?.let { text = it; submit() }
             })
         }, value = "QR code")
-        MenuRow("Done", { submit() })
-        MenuRow("Cancel", { keyboard?.hide(); close() })
+        MenuRowPair("Done", { submit() }, "Cancel", { keyboard?.hide(); close() })
         if (overlay.suggestions.isNotEmpty()) {
             SectionLabel("Recent")
             overlay.suggestions.forEach { s -> MenuRow(s, { text = s; submit() }) }
@@ -692,7 +692,7 @@ private fun TipsCard(active: Boolean, dismiss: () -> Unit) {
 
 /**
  * tvOS's confirmation card (the logic, not tvOS 26's look): a compact glass card over a dim, the title and
- * what will happen, then the action first and focused (red when destructive) and Cancel under it.
+ * what will happen, then the action first and focused (red when destructive) and Cancel beside it (half-width pair, P154).
  */
 @Composable
 private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) {
@@ -704,8 +704,12 @@ private fun ConfirmCard(c: Overlay.Confirm, active: Boolean, close: () -> Unit) 
         Text(c.message, style = Type.secondary, color = palette.secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
         Spacer(Modifier.height(6.dp))
         // A destructive card opens on Cancel: a stray Select must not replace or remove anything.
-        MenuRow(c.confirm, { close(); c.onConfirm() }, if (c.destructive) Modifier else Modifier.focusRequester(first), destructive = c.destructive, centered = true)
-        MenuRow("Cancel", close, if (c.destructive) Modifier.focusRequester(first) else Modifier, centered = true)
+        MenuRowPair(
+            c.confirm, { close(); c.onConfirm() }, "Cancel", close,
+            leftModifier = if (c.destructive) Modifier else Modifier.focusRequester(first),
+            rightModifier = if (c.destructive) Modifier.focusRequester(first) else Modifier,
+            leftDestructive = c.destructive,
+        )
     }
 }
 

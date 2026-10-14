@@ -414,10 +414,11 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     MenuRow("Focused App", { setFeatured { it.copy(mode = FeaturedMode.FocusedApp, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.FocusedApp) "✓" else null,
         help = "Each app's own titles: its TV rows, its catalog, or its popular titles from JustWatch.")
     MenuRow("One Source", { setFeatured { it.copy(mode = FeaturedMode.OneSource, source = defaultSource) } }, value = if (!off && fc.mode == FeaturedMode.OneSource) "✓" else null,
-        help = "The same titles whichever app is focused, from the Default Source.")
+        help = "The same titles whichever app is focused, from the Source below.")
     MenuRow("Off", { setFeatured { it.copy(mode = FeaturedMode.Off) } }, value = if (off) "✓" else null)
     if (off) return
-    SectionLabel("Default Source")
+    // The same list does two jobs: the one source in One Source mode, and the fallback for an app with nothing to show in Focused App mode.
+    SectionLabel(if (fc.mode == FeaturedMode.OneSource) "Source" else "When an app has nothing to show")
     val tvRows = dev.glasslauncher.featured.TvRows.available(LocalContext.current)
     FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && it != FeaturedSourceId.JustWatch && it != FeaturedSourceId.Addon && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
         MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, value = if (fc.source == id) "✓" else null)
