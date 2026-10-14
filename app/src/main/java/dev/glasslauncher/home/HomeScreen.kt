@@ -1213,6 +1213,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 idle = idle,
                 focusable = expanded || feed == null || takeover != null,
                 onSelect = { openControlCenter() },
+                onSearch = { open(Overlay.Search) },
                 modifier = Modifier.align(Alignment.TopEnd).focusRequester(pillRequester).onFocusChanged { pillFocused = it.hasFocus; ControlCenterWindow.pillFocused = it.hasFocus },
                 // Control Center draws its own clock in this corner.
                 fade = { if (ControlCenterWindow.pillCovered) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },

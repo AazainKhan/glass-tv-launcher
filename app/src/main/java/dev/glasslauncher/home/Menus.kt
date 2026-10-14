@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import dev.glasslauncher.app
+import dev.glasslauncher.featured.open
 import dev.glasslauncher.apps.AppEntry
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.appKey
@@ -147,6 +148,7 @@ fun OverlayContent(
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll, close)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
+        Overlay.Search -> SearchHost(model, layout, active, closeAll)
         Overlay.Remotes -> SettingsPage(active) { RemotesPanel(active) }
         Overlay.Downloads -> SettingsPage(active) { DownloadsPage(model, cfg, active, open, close) }
         is Overlay.DownloadMenu -> SidePanel(active) { DownloadMenuBody(overlay.id, active, open, close) }
@@ -799,5 +801,49 @@ private fun RemotesPanel(active: Boolean) {
         Hint("To pair a remote: hold Home on it for 10 seconds.")
         MenuRow("Fire TV remote settings", { runCatching { dev.glasslauncher.system.SystemControls.openGameControllers(context) } }, chevron = true)
         Hint("Glass pairs a remote on its own while none is connected. If the remote still doesn't pair, hold Left + Menu + Back for 12 seconds, then hold Home for 10 seconds.")
+    }
+}
+
+/** The search page (P161): a calm full page; Select on a result opens it and leaves search, a failure says so in a capsule. */
+@Composable
+private fun SearchHost(model: HomeModel, layout: HomeLayout, active: Boolean, closeAll: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val graph = context.app
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val palette = LocalPalette.current
+    val ask = LocalConfirm.current
+    val installed by androidx.compose.runtime.rememberUpdatedState(layout.installed)
+    val searchHttp = remember { dev.glasslauncher.net.PublicHttp.client() }
+    val search = remember {
+        dev.glasslauncher.search.SearchModel(
+            scope, { installed },
+            {
+                // What Glass already knows: Continue Watching and the other apps' rows (with the system app permission), and the Top Shelf's titles.
+                val rows = if (dev.glasslauncher.featured.TvRows.available(context)) runCatching { dev.glasslauncher.featured.TvRows.continueWatching(context).items }.getOrDefault(emptyList()) else emptyList()
+                rows + graph.featured.state.value.feed?.items.orEmpty()
+            },
+            { q -> dev.glasslauncher.search.CinemetaSearch.search(searchHttp, q) },
+        )
+    }
+    FullOverlay(active, scale = false) {
+        Box(Modifier.fillMaxSize().background(if (palette.light) Color(0xFFEFEFF4) else Color(0xFF14161C))) {
+            dev.glasslauncher.search.SearchScreen(
+                search, active,
+                onOpen = { hit ->
+                    val opened = when {
+                        hit.app != null -> { model.launch(hit.app); true }
+                        hit.item != null -> hit.item.open(context)
+                        else -> false
+                    }
+                    if (opened) closeAll() else dev.glasslauncher.system.RemoteNotice.show(context, "Couldn't open ${hit.title}.")
+                },
+                askClear = { onConfirm ->
+                    ask(Overlay.Confirm(
+                        dev.glasslauncher.search.SearchText.CLEAR_TITLE, dev.glasslauncher.search.SearchText.CLEAR_MESSAGE,
+                        dev.glasslauncher.search.SearchText.CLEAR_BUTTON, destructive = true, onConfirm = onConfirm,
+                    ))
+                },
+            )
+        }
     }
 }

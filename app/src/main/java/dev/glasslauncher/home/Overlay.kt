@@ -74,6 +74,8 @@ sealed interface Overlay {
     /** AirPlay's pairing code on a card: Glass's own, so PhairPlay's screen need not be brought forward for it (P117). */
     class AirPlayCode(val code: String, val onClosed: () -> Unit) : Overlay
     data object Settings : Overlay
+    /** System search (P161): apps, the titles Glass knows, and Cinemeta's movies and shows. */
+    data object Search : Overlay
     data object Tips : Overlay
     data object ControlCenter : Overlay
     data object AppSwitcher : Overlay

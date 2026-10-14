@@ -29,6 +29,9 @@ class SearchModel(
     /** True while Cinemeta's answer for the current text is on its way. */
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
+    /** The last Cinemeta request failed (offline, a timeout): the screen says so when there is nothing else to show. */
+    private val _offline = MutableStateFlow(false)
+    val offline: StateFlow<Boolean> = _offline
     private var job: Job? = null
 
     val empty: Boolean get() = _query.value.isBlank()
@@ -36,7 +39,7 @@ class SearchModel(
     fun setQuery(text: String) {
         _query.value = text
         job?.cancel()
-        if (text.isBlank()) { _results.value = emptyList(); _busy.value = false; return }
+        if (text.isBlank()) { _results.value = emptyList(); _busy.value = false; _offline.value = false; return }
         job = scope.launch {
             val local = SearchIndex.apps(text, apps())
             val known = runCatching { SearchIndex.titles(text, titles()) }.getOrDefault(emptyList())
@@ -44,7 +47,9 @@ class SearchModel(
             _busy.value = true
             try {
                 delay(debounceMs)
-                val found = runCatching { remote(text) }.getOrDefault(emptyList())
+                val answer = runCatching { remote(text) }
+                _offline.value = answer.isFailure
+                val found = answer.getOrDefault(emptyList())
                 _results.value = SearchIndex.merge(local, known, SearchIndex.remote(text, found))
             } finally { _busy.value = false }
         }

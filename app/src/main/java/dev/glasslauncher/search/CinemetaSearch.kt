@@ -46,20 +46,22 @@ object CinemetaSearch {
         }.take(MAX_PER_KIND)
     }
 
-    /** Movies then shows for [query], both searches in parallel; an empty list on any failure (offline, a timeout). */
+    /** Movies then shows for [query], both searches in parallel. Throws when neither could be reached (the model then says "offline"). */
     suspend fun search(http: OkHttpClient, query: String): List<FeaturedItem> = withContext(Dispatchers.IO) {
         val q = java.net.URLEncoder.encode(query.trim(), "UTF-8").replace("+", "%20")
         if (q.isEmpty()) return@withContext emptyList()
-        coroutineScope {
+        val answers = coroutineScope {
             listOf("movie", "series").map { type ->
                 async {
                     runCatching {
                         http.newCall(Request.Builder().url("$BASE/$type/top/search=$q.json").build()).execute().use { r ->
-                            if (r.isSuccessful) parse(type, r.body?.string().orEmpty()) else emptyList()
+                            if (r.isSuccessful) parse(type, r.body?.string().orEmpty()) else error("HTTP ${r.code}")
                         }
-                    }.getOrDefault(emptyList())
+                    }
                 }
-            }.flatMap { it.await() }
+            }.map { it.await() }
         }
+        if (answers.all { it.isFailure }) throw java.io.IOException("Cinemeta unreachable")
+        answers.flatMap { it.getOrDefault(emptyList()) }
     }
 }

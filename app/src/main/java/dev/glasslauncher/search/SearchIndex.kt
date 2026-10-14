@@ -52,7 +52,10 @@ object SearchIndex {
     /** Titles the TV rows, Continue Watching and the Top Shelf already carry; [kind] says whether they are movies or shows when known. */
     fun titles(query: String, items: List<FeaturedItem>): List<SearchHit> = items.mapNotNull { i ->
         val s = score(query, i.title)
-        if (s == 0) null else SearchHit(SearchKind.Title, "title:${i.owner ?: ""}:${i.id}", i.title, i.subtitle ?: i.episode, i.image, s, item = i)
+        if (s == 0) null else SearchHit(
+            SearchKind.Title, "title:${i.owner ?: ""}:${i.id}", i.title,
+            listOfNotNull(i.type, i.year?.toString()).joinToString(" · ").ifEmpty { null } ?: i.subtitle ?: i.episode, i.image, s, item = i,
+        )
     }
 
     fun remote(query: String, items: List<FeaturedItem>): List<SearchHit> = items.mapNotNull { i ->
@@ -74,5 +77,22 @@ object SearchIndex {
             .sortedWith(compareByDescending<SearchHit> { it.score }.thenBy { it.kind.ordinal }.thenBy { normTitle(it.title) })
             .distinctBy { it.key }
             .take(MAX_RESULTS)
+    }
+
+    /** The segmented filter under the keyboard (tvOS: Top Results | TV Shows | Movies). */
+    enum class Filter(val label: String) { Top("Top Results"), Shows("TV Shows"), Movies("Movies") }
+
+    /** Top Results is everything (apps too); a type tab keeps only the titles of that type (a row whose type is unknown is only in Top Results). */
+    fun filter(hits: List<SearchHit>, filter: Filter): List<SearchHit> = when (filter) {
+        Filter.Top -> hits
+        Filter.Shows -> hits.filter { it.kind == SearchKind.Show || (it.kind == SearchKind.Title && it.item?.type == "TV Show") }
+        Filter.Movies -> hits.filter { it.kind == SearchKind.Movie || (it.kind == SearchKind.Title && it.item?.type == "Movie") }
+    }
+
+    /** Completion pills for the typed text: the names of the best results that begin with it (or have a word that does), at most [n]. */
+    fun suggestions(query: String, hits: List<SearchHit>, n: Int = 5): List<String> {
+        val q = normTitle(query)
+        if (q.isEmpty()) return emptyList()
+        return hits.map { it.title }.distinct().filter { t -> val nt = normTitle(t); nt.startsWith(q) || nt.split(' ').any { it.startsWith(q) } }.take(n)
     }
 }

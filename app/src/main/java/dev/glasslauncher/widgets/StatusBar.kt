@@ -2,6 +2,9 @@ package dev.glasslauncher.widgets
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +49,7 @@ import java.util.Locale
  * gear (the date and weather are in Control Center's header). It becomes focusable when nothing else is
  * above the tray, and opens Control Center.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun StatusPill(
     cfg: LauncherConfig,
@@ -54,18 +58,33 @@ fun StatusPill(
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
     fade: () -> Float = { 1f },
+    /** Opens search (P161): a glass circle left of the pill, focusable with it. Null: none. */
+    onSearch: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val m = LocalMetrics.current
     // Clear glass shows the art through it, so the text follows the art (dark on bright art).
     val onLight = LocalBackdrop.current.backdrop?.artLight(0.86f, 0.03f, 0.98f, 0.09f) == true
+    // Asking for focus on the group (Up from the shelf) lands on the pill, not on the search circle beside it: Left reaches search.
+    val pillFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier
             .padding(top = m.chromeInset, end = m.chromeInset)
-            .graphicsLayer { alpha = idle.chromeAlpha * fade() },
+            .graphicsLayer { alpha = idle.chromeAlpha * fade() }
+            .focusProperties { enter = { pillFocus } }
+            .focusGroup(),
     ) {
+        if (onSearch != null) FocusTile(
+            label = "Search",
+            onClick = onSearch,
+            onLongClick = onSearch,
+            shape = CircleShape,
+            focusedScale = 1.08f,
+            shadow = false,
+            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-search"),
+        ) { focused -> SearchFace(focused, onLight) }
         // Now Playing is a Home takeover and a Control Center card now, not a pill.
         FocusTile(
             label = "Status and Control Center",
@@ -76,7 +95,7 @@ fun StatusPill(
             // Over light art the capsule separates from it by its edge (tvOS light glass): a faint halo (below)
             // and a thin rim, not a darker fill. Dark art keeps the bare glass.
             shadow = false,
-            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-pill")
+            modifier = Modifier.focusRequester(pillFocus).focusProperties { canFocus = focusable }.testTag("status-pill")
                 .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier)
                 // Control Center grows out of exactly this capsule.
                 .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
@@ -84,6 +103,26 @@ fun StatusPill(
     }
 }
 
+
+/** The search button as drawn: a glass circle with a magnifying glass, the pill's material. */
+@Composable
+private fun SearchFace(focused: Boolean, onLight: Boolean) {
+    val palette = LocalPalette.current
+    val rest = if (onLight) Color(0xFF0E1015) else Color.White
+    Box(
+        Modifier
+            .size(32.dp)
+            .glass(LocalBackdrop.current, CircleShape, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f), edgeBand = false) else GlassStyle.shelf(palette.light).copy(edgeBand = false))
+            .then(if (focused) Modifier.background(palette.focusFill, CircleShape) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(dev.glasslauncher.R.drawable.ic_search), null,
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(if (focused) palette.onFocusFill else rest),
+            modifier = Modifier.size(17.dp),
+        )
+    }
+}
 
 /**
  * The pill as drawn: the glass capsule with the clock and the gear. Control Center draws it too, at the pill's
