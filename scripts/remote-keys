@@ -24,6 +24,7 @@ enable_service() {
 
 case "${1:-status}" in
   install)
+    adb shell test -f "$KL" || { echo "No $KL: this is not the Fire TV remote's key layout, nothing installed." >&2; exit 1; }
     tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
     # Start from the stick's own layout (the module's copy masks it) and change only these lines.
     adb shell "su -c 'cat $MOD/system/usr/keylayout/${KL##*/} 2>/dev/null || cat $KL'" > "$tmp/orig.kl"

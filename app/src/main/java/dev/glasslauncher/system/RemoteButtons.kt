@@ -65,7 +65,13 @@ object RemoteButtons {
         RemoteButton("settings", "Settings Button", emptySet(), RemoteAction.ControlCenter, scanCodes = setOf(SETTINGS_SCAN_CODE)),
     )
 
-    fun actionFor(keyName: String, config: Map<String, String>, scanCode: Int = 0): RemoteAction? {
+    /**
+     * [deviceName] is the input device that sent the key. The gamepad codes BUTTON_9..13 are what the Fire remote's app buttons are
+     * remapped to, so from any other named device (a game controller on a Google TV box) they are not remote buttons (P155); an
+     * unknown device (null) is accepted as before.
+     */
+    fun actionFor(keyName: String, config: Map<String, String>, scanCode: Int = 0, deviceName: String? = null): RemoteAction? {
+        if (deviceName != null && keyName.startsWith("KEYCODE_BUTTON_") && !RemotePairPolicy.isAmazonRemoteName(deviceName)) return null
         val button = all.firstOrNull { keyName in it.names || (keyName == "KEYCODE_UNKNOWN" && scanCode in it.scanCodes) } ?: return null
         return action(button, config)
     }

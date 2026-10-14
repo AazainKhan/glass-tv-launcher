@@ -4,6 +4,8 @@
 # layout doesn't name: it reaches Glass as KEYCODE_UNKNOWN with scan code 185.
 # The remote gets a fresh keymap whenever it reconnects (after every sleep), so this re-applies on
 # each new input device rather than polling.
+# The Fire TV remote's keymap only (P155): anywhere else the module does nothing.
+[ "$(getprop ro.product.manufacturer)" = Amazon ] || exit 0
 MODDIR=${0%/*}
 BB=/data/adb/magisk/busybox  # its inotifyd takes the :n (created) mask; toybox's rejects it
 apply() { "$MODDIR/glass-keymap" remap "Fire TV Remote" 249 185 >/dev/null 2>&1; }

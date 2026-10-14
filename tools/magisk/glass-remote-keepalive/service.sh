@@ -20,6 +20,9 @@
 #
 # Test hooks (never set on a device): KA_LOGCAT, KA_INPUT, KA_DUMPSYS, KA_DIR, KA_ONCE (exit when the stream ends).
 
+# Fire's AutoPairService only (P155): anywhere else there is no log to follow, so the module does nothing. (Test hooks skip this.)
+[ -n "$KA_LOGCAT$KA_ONCE" ] || [ "$(getprop ro.product.manufacturer)" = Amazon ] || exit 0
+
 DIR=${KA_DIR:-/data/adb/glass-keepalive}
 TAG=glass-keepalive
 PATH=/system/bin:/system/xbin:/vendor/bin:/data/adb/magisk:$PATH

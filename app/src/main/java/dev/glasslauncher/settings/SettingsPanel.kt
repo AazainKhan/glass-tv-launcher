@@ -1209,19 +1209,21 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
         dev.glasslauncher.system.RootFeatures.SystemApp.Removing -> "Off after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Off -> "Off"
     }, help = "Runs Glass as a privileged system app: it can read other apps' TV rows and is harder for the system to stop.")
-    ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on,
-        help = "Turns off Fire TV's own launcher and makes Glass the Home screen. Off brings Fire TV's back.")
+    // Rows that only mean something on some devices are not drawn on the others (P155).
+    val stockHome = remember(tick) { rf.hasStockHome(context) }
+    if (stockHome) ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on,
+        help = "Turns off the TV's own launcher and makes Glass the Home screen. Off brings the TV's back.")
     var ownPairing by remember { mutableStateOf(rf.ownRemotePairing(context)) }
-    ToggleRow("Own Remote Pairing", ownPairing, { v -> ownPairing = v; act("pairing") { rf.setOwnRemotePairing(context, v) } }, enabled = on,
+    if (dev.glasslauncher.system.HomeSetup.isFireTv) ToggleRow("Own Remote Pairing", ownPairing, { v -> ownPairing = v; act("pairing") { rf.setOwnRemotePairing(context, v) } }, enabled = on,
         help = "Turns off Fire's auto-pair, which drops a sleeping remote's pairing, and lets Glass pair the remote itself. Needs System App on, and a restart.")
     SectionLabel("Performance")
     MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null, enabled = on)
     MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on,
         help = "Instant app switching (no system window animations) and higher minimum clocks. Runs warmer.")
-    ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on,
+    if (dev.glasslauncher.system.DeviceProfile.memoryTuningApplies(context)) ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on,
         help = "Keeps up to 12 apps ready to resume instead of 4 (1.2 GB compressed swap). After a restart.")
     MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)
-    MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true, enabled = on)
+    if (rf.freezableHere(context).isNotEmpty()) MenuRow("App Freezer", { push(Page.Freezer) }, chevron = true, enabled = on)
     SectionLabel("Device")
     val ask = dev.glasslauncher.home.LocalConfirm.current
     MenuRow("Restart Now", {
@@ -1239,7 +1241,7 @@ private fun ColumnScope.FreezerPage(f: Modifier) {
     val frozen by androidx.compose.runtime.produceState<Set<String>?>(null, tick) { value = rf.frozen() }
     PanelTitle("App Freezer")
     Hint("Turned-off apps stop running and disappear until turned back on. Nothing is uninstalled.")
-    rf.freezable.forEachIndexed { i, app ->
+    rf.freezableHere(context).forEachIndexed { i, app ->
         val off = frozen?.contains(app.pkg) == true
         ToggleRow(app.label, !off, { on -> scope.launch { rf.setFrozen(context, app.pkg, !on); tick++ } }, if (i == 0) f else Modifier, enabled = frozen != null, help = app.note)
     }
@@ -1356,7 +1358,8 @@ private fun ColumnScope.ControlCenterTilesPage(model: HomeModel, cfg: LauncherCo
         openOverlay(dev.glasslauncher.home.Overlay.ControlCenter)
     }, f, chevron = true)
     Hint("Move, resize, remove and add controls. Control Center opens on the right; Done returns here.")
-    dev.glasslauncher.home.CONTROL_CENTER_TILES.forEachIndexed { i, (id, label) ->
+    val hasAlexa = dev.glasslauncher.system.DeviceProfile.hasAlexa(LocalContext.current.packageManager)
+    dev.glasslauncher.home.CONTROL_CENTER_TILES.filter { (id, _) -> id != "alexa" || hasAlexa }.forEachIndexed { i, (id, label) ->
         val layout = dev.glasslauncher.home.CcLayout.resolve(cfg.ccLayout, cfg.ccHidden)
         ToggleRow(label, layout.shown(id), { on ->
             // The old per-tile switches fold into the layout (ccHidden is read once, then cleared).

@@ -137,11 +137,21 @@ object RootFeatures {
 
     // ── Home takeover ─────────────────────────────────────────────────────────────────────────────
 
-    private val STOCK_HOME = listOf("com.amazon.tv.launcher", "com.amazon.firehomestarter")
-    private const val STOCK_HOME_ACTIVITY = "com.amazon.tv.launcher/.ui.HomeActivity_vNext"
+    // The stock Home screens are found at run time (P155): the system apps that answer the HOME intent, plus the known stock launchers
+    // (Fire's and its home starter, Google TV's, the leanback one) that are installed, since a disabled one no longer answers it.
+    private val KNOWN_STOCK_HOME = HomeSetup.STOCK_LAUNCHERS + "com.amazon.firehomestarter"
+
+    private fun stockHome(context: Context): List<String> =
+        (DeviceProfile.stockHomes(context).map { it.packageName } + DeviceProfile.present(context.packageManager, KNOWN_STOCK_HOME.toList())).distinct()
+
+    /** The shell that hands Home back to [pkg]: enable it, then ask the system which activity answers HOME for it. */
+    private fun restoreHome(pkg: String) = "pm enable $pkg\nc=$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME $pkg | tail -n 1)\n[ -n \"\$c\" ] && cmd package set-home-activity \"\$c\" || true"
+
+    /** True where there is a stock Home screen to turn off (Settings hides Home Takeover otherwise). */
+    fun hasStockHome(context: Context): Boolean = stockHome(context).isNotEmpty()
 
     fun homeTakeoverOn(context: Context): Boolean =
-        HomeSetup.isDefaultHome(context) && STOCK_HOME.none { isEnabled(context, it) }
+        HomeSetup.isDefaultHome(context) && stockHome(context).none { isEnabled(context, it) }
 
     private fun isEnabled(context: Context, pkg: String): Boolean = runCatching {
         context.packageManager.getApplicationInfo(pkg, 0).enabled
@@ -154,9 +164,9 @@ object RootFeatures {
      */
     suspend fun keepHome(context: Context) {
         if (!context.getSharedPreferences(PREFS, 0).getBoolean("takeover", true)) return
-        if (AmazonStore.isOpen(context) || STOCK_HOME.none { isEnabled(context, it) }) return
+        if (AmazonStore.isOpen(context) || stockHome(context).none { isEnabled(context, it) }) return
         if (!Root.available()) return
-        Root.action(context, "Amazon launcher was on: Glass back as Home", STOCK_HOME.joinToString("\n") { "pm disable-user --user 0 $it" } +
+        Root.action(context, "The stock launcher was on: Glass back as Home", stockHome(context).joinToString("\n") { "pm disable-user --user 0 $it" } +
             "\ncmd package set-home-activity ${context.packageName}/.MainActivity")
     }
 
@@ -170,11 +180,11 @@ object RootFeatures {
     }
 
     suspend fun setHomeTakeover(context: Context, on: Boolean): Root.Result = (if (on) {
-        Root.action(context, "Home takeover on", STOCK_HOME.joinToString("\n") { "pm disable-user --user 0 $it" } +
+        Root.action(context, "Home takeover on", stockHome(context).joinToString("\n") { "pm disable-user --user 0 $it" } +
             "\ncmd package set-home-activity ${context.packageName}/.MainActivity")
     } else {
-        Root.action(context, "Home takeover off (stock launcher back)", STOCK_HOME.joinToString("\n") { "pm enable $it" } +
-            "\ncmd package set-home-activity $STOCK_HOME_ACTIVITY")
+        Root.action(context, "Home takeover off (stock launcher back)", stockHome(context).joinToString("\n") { "pm enable $it" } +
+            (stockHome(context).firstOrNull()?.let { "\n" + restoreHome(it) } ?: ""))
     }).also { context.getSharedPreferences(PREFS, 0).edit().putBoolean("takeover", on).apply() }
 
     // ── Performance profile ───────────────────────────────────────────────────────────────────────
@@ -195,7 +205,8 @@ object RootFeatures {
         if (!Root.available()) return
         // Fire OS turns its Home-key black flash (SystemUI KeyFeedbackUI) back on at every boot; it ran
         // over Glass's app-close animation. Found by e2e/test_device_setup.py after a restart.
-        Root.run("[ \"$(getprop persist.perfanimation.enabled)\" = false ] || setprop persist.perfanimation.enabled false")
+        // Only where the property exists (Fire OS): elsewhere it would create one nothing reads.
+        Root.run("p=\"$(getprop persist.perfanimation.enabled)\"; [ -z \"\$p\" ] || [ \"\$p\" = false ] || setprop persist.perfanimation.enabled false")
         if (fast(context)) Root.run(profileScript(true))
     }
 
@@ -319,7 +330,7 @@ object RootFeatures {
 
     data class Freezable(val pkg: String, val label: String, val note: String)
 
-    /** Amazon background services that are safe to turn off (the same list as scripts/debloat). */
+    /** Fire's background services that are safe to turn off; [freezableHere] is the ones this device has. */
     val freezable = listOf(
         Freezable("com.amazon.device.software.ota", "System Updates", "OTA updates can unroot or brick a rooted stick"),
         Freezable("com.amazon.device.software.ota.override", "Update Override", "Part of system updates"),
@@ -336,6 +347,9 @@ object RootFeatures {
         Freezable("com.amazon.venezia", "Appstore", "Turning it off also stops app updates from it"),
         Freezable("com.amazon.firebat", "Prime Video", "~95 MB in the background; also the remote's Prime Video button"),
     )
+
+    /** The rows of [freezable] whose package this device has (a non-Fire box lists none). */
+    fun freezableHere(context: Context): List<Freezable> = freezable.filter { DeviceProfile.installed(context.packageManager, it.pkg) }
 
     suspend fun frozen(): Set<String> =
         Root.run("pm list packages -d").out.lines().map { it.removePrefix("package:").trim() }.filter { it.isNotEmpty() }.toSet()

@@ -10,6 +10,9 @@ LOG="$HOME/Documents/firestick-unlocked/DEBLOAT-LOG.md"
 log() { printf -- "- %s %s\n" "$(date '+%Y-%m-%d %H:%M')" "$*" >> "$LOG"; }
 case "${1:-status}" in
   install)
+    # Fire TV only (P155): the zram overlay is the stick's own fstab, and the numbers were measured on a 2 GB karat.
+    [ "$(adb shell getprop ro.product.manufacturer | tr -d '\r')" = Amazon ] || { echo "Not a Fire TV: nothing installed." >&2; exit 1; }
+    adb shell test -f /vendor/etc/fstab.enableswap || { echo "No /vendor/etc/fstab.enableswap here: nothing installed." >&2; exit 1; }
     adb push "$ROOT/tools/magisk/glass-tuning/module.prop" /data/local/tmp/gt.prop >/dev/null
     adb push "$ROOT/tools/magisk/glass-tuning/service.sh" /data/local/tmp/gt.sh >/dev/null
     # Fire OS turns zram on at boot completion from /vendor/etc/fstab.enableswap (800 MB); the module

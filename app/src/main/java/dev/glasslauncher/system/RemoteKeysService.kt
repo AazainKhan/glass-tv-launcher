@@ -146,7 +146,7 @@ class RemoteKeysService : AccessibilityService() {
             if (was) return true
         }
         val name = KeyEvent.keyCodeToString(event.keyCode)
-        val action = RemoteButtons.actionFor(name, app.config.config.value.remoteButtons, event.scanCode) ?: return false
+        val action = RemoteButtons.actionFor(name, app.config.config.value.remoteButtons, event.scanCode, event.device?.name) ?: return false
         if (dev.glasslauncher.BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN) Log.i(TAG, "$name scan=${event.scanCode} -> $action")
         // Act on the first down (a key the layout doesn't name never delivers its up here); ignore
         // auto-repeat, and swallow every half of the press.
@@ -194,9 +194,11 @@ class RemoteKeysService : AccessibilityService() {
         when (action) {
             is RemoteAction.OpenApp -> {
                 val pm = packageManager
-                // Not installed (e.g. Amazon Music after a debloat): its Appstore page, as Fire TV does.
+                // Not installed (e.g. Amazon Music after a debloat): its store page: Fire TV's Appstore there, Play elsewhere.
                 val intent = pm.getLeanbackLaunchIntentForPackage(action.pkg) ?: pm.getLaunchIntentForPackage(action.pkg)
-                    ?: Intent(Intent.ACTION_VIEW, android.net.Uri.parse("amzn://apps/android?p=${action.pkg}"))
+                    ?: Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
+                        if (HomeSetup.isFireTv) "amzn://apps/android?p=${action.pkg}" else "market://details?id=${action.pkg}",
+                    ))
                 runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
             RemoteAction.ControlCenter -> {

@@ -3,6 +3,8 @@
 # return because Fire OS caps cached apps at 4, lmkd kills the *heaviest* app first (always the video
 # app you were just in), and the 800 MB zram fills up. Removing the module restores all three.
 
+# Measured on a 2 GB Fire TV only (P155): anywhere else the module does nothing.
+[ "$(getprop ro.product.manufacturer)" = Amazon ] || exit 0
 
 resetprop ro.lmk.kill_heaviest_task false
 resetprop ro.lmk.psi_partial_stall_ms 300

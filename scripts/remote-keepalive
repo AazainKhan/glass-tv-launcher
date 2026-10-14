@@ -15,6 +15,7 @@ OLD=/data/adb/service.d/glass-remote-keepalive.sh
 
 case "${1:-status}" in
   install)
+    [ "$(adb shell getprop ro.product.manufacturer | tr -d '\r')" = Amazon ] || { echo "Not a Fire TV: there is no AutoPairService to follow, nothing installed." >&2; exit 1; }
     adb push "$SRC/module.prop" /data/local/tmp/grka.prop >/dev/null
     adb push "$SRC/service.sh" /data/local/tmp/grka.sh >/dev/null
     adb shell "su -c 'mkdir -p $MOD && cp /data/local/tmp/grka.prop $MOD/module.prop && cp /data/local/tmp/grka.sh $MOD/service.sh && chmod 755 $MOD/service.sh && rm -f $MOD/remove $MOD/disable /data/local/tmp/grka.* $OLD'"

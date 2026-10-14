@@ -632,7 +632,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     // The layout (P83): the stored one, or while edit mode is on the draft being changed (saved when it ends).
-    val storedLayout = remember(cfg.ccLayout, cfg.ccHidden) { CcLayout.resolve(cfg.ccLayout, cfg.ccHidden) }
+    // The Alexa page is only there where the Alexa app is (P155): a saved layout keeps it, but it is not drawn without the app.
+    val hasAlexa = remember { dev.glasslauncher.system.DeviceProfile.hasAlexa(context.packageManager) }
+    val storedLayout = remember(cfg.ccLayout, cfg.ccHidden, hasAlexa) { CcLayout.resolve(cfg.ccLayout, cfg.ccHidden).let { if (hasAlexa) it else it.withShown("alexa", false) } }
     var draft by remember { androidx.compose.runtime.mutableStateOf<CcLayout?>(null) }
     val layout = draft ?: storedLayout
     val editing = draft != null

@@ -35,4 +35,12 @@ class RemoteButtonsTest {
         listOf(RemoteAction.Default, RemoteAction.Nothing, RemoteAction.Home, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.TvSettings, RemoteAction.OpenApp("a.b"))
             .forEach { assertEquals(it, RemoteAction.parse(it.key)) }
     }
+
+    @org.junit.Test fun gamepadCodesAreRemoteButtonsOnlyFromAFireRemote() {
+        val app1 = RemoteAction.OpenApp("com.netflix.ninja")
+        assertEquals("the Fire remote", app1, RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap(), 0, "Fire TV Remote"))
+        assertEquals("an unknown device is accepted as before", app1, RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap(), 0, null))
+        assertEquals("a game controller on any TV box is not", null, RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap(), 0, "Xbox Wireless Controller"))
+        assertEquals("the standard app keys stay generic", app1, RemoteButtons.actionFor("KEYCODE_APP_1", emptyMap(), 0, "Xbox Wireless Controller"))
+    }
 }
