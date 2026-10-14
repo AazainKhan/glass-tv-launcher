@@ -111,8 +111,11 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
                 dev.glasslauncher.system.RecentApps.resume(getApplication(), app.packageName, options)
             }
             if (!resumed) {
-                val intent = graph.apps.launchIntent(app) ?: return@launch
-                try { getApplication<Application>().startActivity(intent, options) } catch (_: ActivityNotFoundException) { }
+                // A launch that fails says so (P162), whether the app is gone, turned off or refuses to start.
+                val ok = graph.apps.launchIntent(app)?.let { intent ->
+                    try { getApplication<Application>().startActivity(intent, options); true } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }
+                } ?: false
+                if (!ok) dev.glasslauncher.system.LaunchNotice.couldNotOpen(getApplication(), app.label)
             }
         }
     }

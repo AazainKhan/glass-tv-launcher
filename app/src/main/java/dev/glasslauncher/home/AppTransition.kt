@@ -155,7 +155,18 @@ class AppTransition(
             launch { progress.animateTo(1f, tween(OPEN_MS, easing = ZoomOut)) }
             delay(HANDOFF_MS)
             startRequested = true
-            if (!startApp(app)) { reset(); return@launch }
+            if (!startApp(app)) {
+                // Honest failure (P162): the window goes back into its tile and a notice says so, instead of Home
+                // quietly coming back as if nothing had been asked.
+                startRequested = false
+                launch { fill.animateTo(0f, tween(CLOSE_FADE_MS)) }
+                progress.animateTo(0f, tween(CLOSE_MS, easing = FastOutSlowInEasing))
+                coverAlpha.animateTo(0f, tween(UNBLUR_MS))
+                reset()
+                last = null
+                dev.glasslauncher.system.LaunchNotice.couldNotOpen(context, app.label)
+                return@launch
+            }
             // From here until its first window shows, Back or Home means "cancel it" (RemoteKeysService).
             dev.glasslauncher.system.LaunchGate.begin(app.packageName, android.os.SystemClock.uptimeMillis())
             model.noteLaunched(app.packageName)
