@@ -111,6 +111,13 @@ object TvHarness {
         runBlocking { app.config.update { config(LauncherConfig(tipsSeen = true, seededDefaults = true, dock = DOCK)) } }
     }
 
+    /** Fire's Alexa app, as a bare package: Control Center shows its page only where the app is (P155), and a JVM test is not a Fire TV. */
+    fun installAlexa() {
+        val pm = ApplicationProvider.getApplicationContext<GlassApp>().packageManager
+        val info = ApplicationInfo().apply { packageName = dev.glasslauncher.home.AlexaIcon.PACKAGE; flags = ApplicationInfo.FLAG_INSTALLED }
+        shadowOf(pm).installPackage(android.content.pm.PackageInfo().apply { packageName = info.packageName; applicationInfo = info })
+    }
+
     /** Any request fails fast against a dead proxy, so sources fall back to the seeded cache. */
     private fun blockNetwork() {
         for (scheme in listOf("http", "https")) {
