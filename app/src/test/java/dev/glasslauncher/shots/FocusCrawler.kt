@@ -3,6 +3,7 @@ package dev.glasslauncher.shots
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.performSemanticsAction
@@ -22,11 +23,14 @@ class FocusCrawler(
 
     data class Edge(val from: String, val button: Button, val to: String?)
 
+    /** What a screen reader gets for a focused element (P166): the spoken label (description, else text, else its children's text) and its role. */
+    data class A11y(val label: String, val role: String?)
+
     /** Shortest key path from the start to each node found so far. */
     private val paths = HashMap<String, List<Button>>()
     private lateinit var start: String
 
-    class Graph(val start: String, val edges: List<Edge>, val skipped: List<String>) {
+    class Graph(val start: String, val edges: List<Edge>, val skipped: List<String>, val a11y: Map<String, A11y> = emptyMap()) {
         val nodes: Set<String> get() = (edges.map { it.from } + edges.mapNotNull { it.to }).toSet()
         fun from(node: String, button: Button) = edges.firstOrNull { it.from == node && it.button == button }?.to
         fun matching(prefix: String) = nodes.filter { it.startsWith(prefix) }
@@ -58,6 +62,8 @@ class FocusCrawler(
     fun crawl(directions: List<Button> = listOf(Button.Up, Button.Down, Button.Left, Button.Right)): Graph {
         start = requireNotNull(compose.focused()) { "nothing is focused" }
         paths[start] = emptyList()
+        val a11y = LinkedHashMap<String, A11y>()
+        a11yOfFocused()?.let { a11y[start] = it }
         val edges = ArrayList<Edge>()
         val queue = ArrayDeque(listOf(start))
         val seen = mutableSetOf(start)
@@ -68,12 +74,27 @@ class FocusCrawler(
                 if (!focus(node)) { skipped += node; break }
                 compose.press(b)
                 val to = compose.focused()
+                if (to != null && to !in a11y) a11yOfFocused()?.let { a11y[to] = it }
                 edges += Edge(node, b, to)
                 if (to != null && seen.add(to)) { queue += to; paths[to] = paths.getValue(node) + b }
             }
         }
         focus(start)
-        return Graph(start, edges, skipped)
+        return Graph(start, edges, skipped, a11y)
+    }
+
+    /** The merged (TalkBack's) view of the focused element: its label and role. */
+    private fun a11yOfFocused(): A11y? {
+        val node = compose.onAllNodes(androidx.compose.ui.test.isFocused(), useUnmergedTree = false).fetchSemanticsNodes().firstOrNull() ?: return null
+        fun texts(n: SemanticsNode): List<String> = buildList {
+            n.config.getOrNull(SemanticsProperties.ContentDescription)?.let { addAll(it) }
+            n.config.getOrNull(SemanticsProperties.Text)?.let { addAll(it.map { t -> t.text }) }
+            n.children.forEach { addAll(texts(it)) }
+        }
+        val own = (node.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() + node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text })
+            .filter { it.isNotBlank() }
+        val label = (own.ifEmpty { texts(node) }).joinToString(", ")
+        return A11y(label, node.config.getOrNull(SemanticsProperties.Role)?.toString())
     }
 
     /** Moves focus to [name] (as [describe] names it): directly if it's on screen, else by replaying its key path. */

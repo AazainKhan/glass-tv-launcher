@@ -22,6 +22,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.focusProperties
@@ -166,7 +168,7 @@ fun Modifier.trapFocus(active: Boolean): Modifier =
 
 /** Right-hand glass panel that slides in, used for menus and settings. */
 @Composable
-fun SidePanel(active: Boolean, width: Dp = 420.dp, compact: Boolean = false, content: @Composable BoxScope.() -> Unit) {
+fun SidePanel(active: Boolean, width: Dp = 420.dp, compact: Boolean = false, paneTitle: String = "Menu", content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter()
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     // No dimming behind it (tvOS doesn't dim for these, and a full-screen scrim is an extra GPU pass).
@@ -183,7 +185,8 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, compact: Boolean = false, con
                 // A compact panel is as tall as its rows (P154: a name field is not a full-height page).
                 .then(if (compact) Modifier.wrapContentHeight() else Modifier.fillMaxHeight())
                 .graphicsLayer { translationX = OverlayMotion.slide(enter.value, reduceMotion) * 80.dp.toPx() }
-                .trapFocus(active),
+                .trapFocus(active)
+                .semantics { this.paneTitle = paneTitle },
             content = content,
         )
     }
@@ -197,7 +200,7 @@ object OverlayMotion {
 
 /** Fades and scales a full-screen overlay in. */
 @Composable
-fun FullOverlay(active: Boolean, scale: Boolean = true, instant: Boolean = false, content: @Composable BoxScope.() -> Unit) {
+fun FullOverlay(active: Boolean, scale: Boolean = true, instant: Boolean = false, paneTitle: String? = null, content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter(instant)
     val reduceMotion = dev.glasslauncher.ui.LocalUiPrefs.current.reduceMotion
     Box(
@@ -210,7 +213,9 @@ fun FullOverlay(active: Boolean, scale: Boolean = true, instant: Boolean = false
                 val s = if (scale) OverlayMotion.scale(enter.value, reduceMotion) else 1f
                 scaleX = s; scaleY = s
             }
-            .trapFocus(active),
+            .trapFocus(active)
+            // A screen reader announces a page by its title when it appears (P166).
+            .then(if (paneTitle != null) Modifier.semantics { this.paneTitle = paneTitle } else Modifier),
         content = content,
     )
 }
@@ -432,7 +437,7 @@ fun SettingsPage(active: Boolean, content: @Composable BoxScope.() -> Unit) {
     // Opened out of its tile, the page comes up under the zoom's window (which fades off it) instead of fading in itself.
     val transition = LocalAppTransition.current
     val underWindow = remember { transition?.pageOpening == true }
-    FullOverlay(active, scale = false, instant = underWindow) {
+    FullOverlay(active, scale = false, instant = underWindow, paneTitle = "Settings") {
         // A calm washed page, not glass over Home: through the glass, the grid and the shelf's giant
         // wordmark ghosted behind the rows (audit 9.3). Tinted faintly by the scene's own colour.
         // The scene's mean hue tints it (the audit's spec: a white capsule on a flat near-white page has weak contrast).

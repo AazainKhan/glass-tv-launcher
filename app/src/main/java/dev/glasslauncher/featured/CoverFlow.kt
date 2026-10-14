@@ -48,6 +48,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -137,7 +139,12 @@ fun CoverFlow(
             .focusRequester(focusRequester)
             .focusProperties { if (upTo != null) up = upTo }
             .focusable()
-            .semantics { contentDescription = listOfNotNull(shown.title, shown.subtitle).joinToString(", ") }
+            .semantics {
+                contentDescription = listOfNotNull(shown.title, shown.subtitle).joinToString(", ")
+                role = androidx.compose.ui.semantics.Role.Button
+                // Which cover of how many (P166): the screen reader says it when Left or Right moves the flow.
+                stateDescription = "${current + 1} of ${items.size}"
+            }
             .onPreviewKeyEvent { e ->
                 val k = e.nativeKeyEvent
                 if (k.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false

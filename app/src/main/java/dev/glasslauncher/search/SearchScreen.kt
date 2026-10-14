@@ -40,6 +40,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -136,7 +141,7 @@ fun SearchScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("search-filter")) {
                 SearchIndex.Filter.entries.forEach { f ->
-                    Pill(ink, selected = filter == f, onClick = { filter = f }, modifier = Modifier.testTag("search-filter:${f.name}")) { focused ->
+                    Pill(ink, selected = filter == f, label = f.label, onClick = { filter = f }, modifier = Modifier.testTag("search-filter:${f.name}")) { focused ->
                         Text(f.label, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = pillInk(focused || filter == f, ink), maxLines = 1)
                     }
                 }
@@ -181,7 +186,7 @@ private fun completion(title: String, typed: String, color: Color): AnnotatedStr
 
 /** A focusable capsule: translucent at rest, white (dark text) when focused or selected. */
 @Composable
-private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
+private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, label: String? = null, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val pressed = remember { booleanArrayOf(false) }
     Row(
@@ -200,6 +205,7 @@ private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = 
                 }
                 select
             }
+            .semantics { role = Role.Button; label?.let { contentDescription = it }; if (selected) this.selected = true }
             .focusable()
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -210,7 +216,7 @@ private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = 
 /** One key: a letter, or [label] null for delete. */
 @Composable
 private fun Key(label: String?, width: Int, ink: Color, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Pill(ink, modifier.width(width.dp).testTag(tag), onClick = onClick) { focused ->
+    Pill(ink, modifier.width(width.dp).testTag(tag), label = if (label == null) "Delete" else null, onClick = onClick) { focused ->
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (label == null) Icon(R.drawable.ic_backspace, pillInk(focused, ink), 18)
             else Text(label, style = Type.label, color = pillInk(focused, ink), maxLines = 1, textAlign = TextAlign.Center)
@@ -268,6 +274,7 @@ private fun ResultCard(hit: SearchHit, ink: Color, onClick: () -> Unit) {
                 }
                 select
             }
+            .semantics { role = Role.Button; contentDescription = listOfNotNull(hit.title, hit.subtitle ?: if (hit.kind == SearchKind.App) "App" else null).joinToString(", ") }
             .focusable()
             .padding(8.dp)
             .testTag("search-result:${hit.key}"),

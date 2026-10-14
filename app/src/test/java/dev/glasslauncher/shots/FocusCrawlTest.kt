@@ -65,7 +65,21 @@ class FocusCrawlTest {
                 if (back != null && !back.startsWith("app:") && !back.startsWith("folder:")) problems += "$a Down -> $down, but Up -> $back"
             }
 
+            // A screen reader (TalkBack) can speak every focus stop: a label and a role (P166).
+            writeA11y(name, graph)
+            graph.a11y.forEach { (node, a) ->
+                if (a.label.isBlank()) problems += "$node has no spoken label"
+                else if (a.role == null) problems += "$node ('${a.label}') has no role"
+            }
+
             assertTrue("Focus problems (see build/focus-graph/home.md):\n" + problems.joinToString("\n"), problems.isEmpty())
         }
+    }
+
+    private fun writeA11y(name: String, graph: FocusCrawler.Graph) {
+        val dir = java.io.File("build/focus-graph").apply { mkdirs() }
+        java.io.File(dir, "$name-a11y.md").writeText(
+            "| node | label | role |\n|---|---|---|\n" + graph.a11y.entries.joinToString("\n") { (n, a) -> "| $n | ${a.label.replace("|", "/")} | ${a.role ?: "NONE"} |" },
+        )
     }
 }

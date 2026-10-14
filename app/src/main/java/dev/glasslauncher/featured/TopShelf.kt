@@ -42,6 +42,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.getValue
@@ -447,6 +448,7 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                 .background(Color(0xE61C1C1E), RoundedCornerShape(28.dp))
                 .padding(28.dp)
                 .focusRequester(focus)
+                .semantics { role = androidx.compose.ui.semantics.Role.Button; paneTitle = "More Info" }
                 .onKeyEvent { e ->
                     val k = e.nativeKeyEvent
                     // Back (and Select) close the sheet only; Home's own Back would also leave full screen.

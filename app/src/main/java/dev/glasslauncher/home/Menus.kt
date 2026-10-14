@@ -138,12 +138,12 @@ fun OverlayContent(
             }
         }
         is Overlay.IconPicker -> SidePanel(active, width = 520.dp) { IconPickerBody(overlay.app, model, active, open, closeAll) }
-        is Overlay.TextInput -> SidePanel(active, width = 340.dp, compact = true) { TextInputBody(overlay, active, close, open) }
+        is Overlay.TextInput -> SidePanel(active, width = 340.dp, compact = true, paneTitle = overlay.title) { TextInputBody(overlay, active, close, open) }
         is Overlay.PhoneSetup -> SidePanel(active, width = 460.dp) { PhoneSetupBody(overlay, active, close) }
         is Overlay.Confirm -> ConfirmCard(overlay, active, close)
         is Overlay.InstallConfirm -> InstallConfirmHost(overlay, active, close)
         is Overlay.AirPlayCode -> AirPlayCodeCard(overlay, active, close)
-        Overlay.Tips -> FullOverlay(active) { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
+        Overlay.Tips -> FullOverlay(active, paneTitle = "Welcome to Glass") { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll, close)
@@ -453,7 +453,7 @@ private fun FolderView(
     // over 130 ms; leaving still fades it out with the panel.
     val folderLeaving = LocalOverlayExiting.current
     SnapshotBackdrop({ if (folderLeaving) backdropEnter.value else 1f }, LocalBackdrop.current.overlay, fallbackGlass = true)
-    FullOverlay(active) {
+    FullOverlay(active, paneTitle = "Folder") {
         // tvOS: the panel grows out of the folder tile (about 170 ms of travel, settled by ~500 ms) and
         // shrinks back into it on close.
         val morph = remember { Animatable(0f) }
@@ -825,7 +825,7 @@ private fun SearchHost(model: HomeModel, layout: HomeLayout, active: Boolean, cl
             { q -> dev.glasslauncher.search.CinemetaSearch.search(searchHttp, q) },
         )
     }
-    FullOverlay(active, scale = false) {
+    FullOverlay(active, scale = false, paneTitle = "Search") {
         Box(Modifier.fillMaxSize().background(if (palette.light) Color(0xFFEFEFF4) else Color(0xFF14161C))) {
             dev.glasslauncher.search.SearchScreen(
                 search, active,
