@@ -1697,6 +1697,8 @@ fun AppCell(
     val tile = rememberTile(model, app)
     val art = tile?.image
     val isNew by rememberTileValue(model, app.packageName) { model.isNew(app.packageName, it) }
+    val installs by dev.glasslauncher.apps.InstallWatch.states.collectAsStateWithLifecycle()
+    val install = installs[app.packageName]
     val tileBounds = remember { TileBounds() }
     val anchorStore = LocalMenuAnchor.current
     val launchView = LocalView.current
@@ -1706,6 +1708,7 @@ fun AppCell(
         tag = "app:${app.packageName}",
         moving = moving,
         isNew = isNew,
+        install = install,
         focusRequester = focusRequester,
         onFocused = onFocused,
         // Launch from the tile as drawn (focused, 1.2x), so the app zooms out of what you see.
@@ -1812,6 +1815,8 @@ fun TileWithLabel(
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onMenu: () -> Unit,
+    /** The app is being installed or updated (P168): a progress badge on the tile's corner. */
+    install: dev.glasslauncher.apps.InstallState? = null,
     glassBackground: Boolean = false,
     showLabel: Boolean = true,
     /** In the tray: the name still shows on focus, in the tray's own bottom padding (no row gap to reserve). */
@@ -1828,7 +1833,7 @@ fun TileWithLabel(
     Box {
         FocusTile(
             // The blue dot isn't colour-only: "New" is spoken too.
-            label = if (isNew) "$label, New" else label,
+            label = listOfNotNull(label, if (isNew) "New" else null, install?.let { installSpoken(it) }).joinToString(", "),
             onClick = onClick,
             onLongClick = onMenu,
             wiggle = moving,
@@ -1849,6 +1854,7 @@ fun TileWithLabel(
                 Box(Modifier.fillMaxSize().glass(LocalBackdrop.current, RoundedCornerShape(m.tileRadius), GlassStyle.shelf(palette.light).copy(clear = false))) { content() }
             } else content()
         }
+        if (install != null) InstallBadge(install, Modifier.align(Alignment.TopEnd).padding(6.dp))
         if (showLabel || floatingLabel || isNew) {
             // Sits in the row gap below the tile so labels never change the layout.
             Row(

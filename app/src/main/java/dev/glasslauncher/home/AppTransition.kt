@@ -298,7 +298,11 @@ class AppTransition(
     /** Off the main thread: the binder call blocked it for ~40–60 ms, mid-zoom. */
     private suspend fun startApp(app: AppEntry): Boolean = withContext(Dispatchers.IO) {
         // Straight to the store (its own entry only bounces a request back to Home).
-        if (app.packageName == dev.glasslauncher.system.AmazonStore.PACKAGE && dev.glasslauncher.system.AmazonStore.open(context)) return@withContext true
+        if (app.packageName == dev.glasslauncher.system.AmazonStore.PACKAGE) {
+            if (dev.glasslauncher.system.AmazonStore.open(context)) return@withContext true
+            // No root: the store through its public links (an empty search, which is its front door), not the launcher entry that only bounces to Home (P168).
+            if (dev.glasslauncher.system.StoreLauncher.open(context, null)) return@withContext true
+        }
         val intent = model.launchIntent(app) ?: return@withContext false
         val options = ActivityOptions.makeCustomAnimation(context, R.anim.app_open_enter, R.anim.app_open_hold).toBundle()
         try {

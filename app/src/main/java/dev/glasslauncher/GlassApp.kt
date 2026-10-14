@@ -64,6 +64,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         // RenderScript and the image loader take ~150 ms to set up cold; do it while the activity starts,
         // not on the first bake's critical path.
         chore(Dispatchers.Default) { wallpapers.prewarm() }
+        // Installs and updates in progress: a badge on the tile and a capsule at the start and the end (P168).
+        dev.glasslauncher.apps.InstallWatch.start(this)
         // The tile shadows bake once (a few ms to tens of ms on the stick): off the UI thread, before the first tile draws.
         chore(Dispatchers.Default) { dev.glasslauncher.ui.TileShadow.focus; dev.glasslauncher.ui.TileShadow.contact }
         // Old tiles on disk (changed apps, removed packs) are cleared away once per start, off the main thread.

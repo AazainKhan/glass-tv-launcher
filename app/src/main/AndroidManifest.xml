@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Which apps are being installed or updated and how far along (a tile badge and a capsule, P168). A normal permission. -->
+    <uses-permission android:name="android.permission.READ_INSTALL_SESSIONS" />
     <!-- Install card's signer check: an installed app that has no launcher entry must still be visible on API 30. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     <!-- Without it the system uninstaller closes the moment it opens (Android 9+). -->

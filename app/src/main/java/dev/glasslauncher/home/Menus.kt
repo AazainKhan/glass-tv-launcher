@@ -233,6 +233,12 @@ private fun ColumnScope.AppMenuBody(
     MenuRow("Change Icon", { open(Overlay.IconPicker(app)) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_image) })
     MenuRow("Hide", { model.hide(app.packageName); closeAll() }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_visibility_off) })
     MenuRow("App Info", { closeAll(); model.appInfo(app) }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_info) })
+    // The app's page in this TV's store (updates, reviews), without root (P168).
+    val storeContext = androidx.compose.ui.platform.LocalContext.current
+    MenuRow("View in Store", {
+        closeAll()
+        if (!dev.glasslauncher.system.StoreLauncher.open(storeContext, app.packageName)) dev.glasslauncher.system.RemoteNotice.show(storeContext, "This TV has no app store.")
+    }, leading = { MenuIcon(dev.glasslauncher.R.drawable.ic_download) })
     // The destructive action sits apart from the rest, as in tvOS menus.
     // Equal room above and below (the list's 7 dp row gap plus 5 dp each side), so the line sits centred in a clear gap.
     Box(Modifier.padding(horizontal = 18.dp, vertical = 5.dp).fillMaxWidth().height(1.dp).background(palette.secondary.copy(alpha = 0.25f)).testTag("menu-separator"))
