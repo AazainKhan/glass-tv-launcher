@@ -39,11 +39,30 @@ object DeviceProfile {
     fun stockHomes(context: Context): List<ComponentName> {
         val pm = context.packageManager
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        return pm.queryIntentActivities(home, 0)
+        return pm.queryIntentActivities(home, PackageManager.MATCH_DIRECT_BOOT_AWARE or PackageManager.MATCH_DIRECT_BOOT_UNAWARE)
+            .filter { r ->
+                val a = r.activityInfo
+                isStockHome(a.packageName, context.packageName, a.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0, a.directBootAware, r.priority)
+            }
             .map { it.activityInfo }
-            .filter { it.packageName != context.packageName && it.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0 }
             .distinctBy { it.packageName }
             .map { ComponentName(it.packageName, it.name) }
+    }
+
+    /**
+     * Pure rule (tested): a HOME handler that is a real stock launcher, safe to disable for Home takeover. NOT one that
+     * only stands in while the device boots: Fire's Settings (com.amazon.tv.settings.v2) and AOSP Settings carry a
+     * direct-boot FallbackHome (directBootAware, priority -1000). Disabling it left no HOME while user 0 was still
+     * BOOTING and the stick hung at boot (2026-10-14, Magisk safe mode). So: system apps only, never Glass, never a
+     * direct-boot or negative-priority handler, never a settings or setup package.
+     */
+    fun isStockHome(pkg: String, self: String, system: Boolean, directBootAware: Boolean, priority: Int): Boolean =
+        system && pkg != self && !directBootAware && priority >= 0 && !neverDisable(pkg)
+
+    /** Packages Home takeover must never disable, whatever they declare: settings and setup (their HOME is a boot fallback). */
+    fun neverDisable(pkg: String): Boolean {
+        val p = pkg.lowercase()
+        return "settings" in p || "provision" in p || "setupwizard" in p || p == "android"
     }
 
     /** Fire's `com.amazon.*` packages from [candidates] that are installed (the debloat rows list only these). */

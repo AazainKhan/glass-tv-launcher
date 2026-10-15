@@ -141,8 +141,11 @@ object RootFeatures {
     // (Fire's and its home starter, Google TV's, the leanback one) that are installed, since a disabled one no longer answers it.
     private val KNOWN_STOCK_HOME = HomeSetup.STOCK_LAUNCHERS + "com.amazon.firehomestarter"
 
+    // The second guard: whatever detection says, a settings or setup package is never in the list (disabling Fire Settings
+    // hung the stick at boot, 2026-10-14).
     private fun stockHome(context: Context): List<String> =
-        (DeviceProfile.stockHomes(context).map { it.packageName } + DeviceProfile.present(context.packageManager, KNOWN_STOCK_HOME.toList())).distinct()
+        (DeviceProfile.stockHomes(context).map { it.packageName } + DeviceProfile.present(context.packageManager, KNOWN_STOCK_HOME.toList()))
+            .distinct().filterNot { DeviceProfile.neverDisable(it) }
 
     /** The shell that hands Home back to [pkg]: enable it, then ask the system which activity answers HOME for it. */
     private fun restoreHome(pkg: String) = "pm enable $pkg\nc=$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME $pkg | tail -n 1)\n[ -n \"\$c\" ] && cmd package set-home-activity \"\$c\" || true"
