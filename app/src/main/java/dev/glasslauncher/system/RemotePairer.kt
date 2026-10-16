@@ -117,6 +117,7 @@ class RemotePairer(private val context: Context) {
     fun stop() {
         if (!started) return
         started = false
+        handler.removeCallbacks(audioRecheck)
         stopScan()
         runCatching { app.unregisterReceiver(screen) }
         Log.i(TAG, "stopped")
@@ -126,15 +127,41 @@ class RemotePairer(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun evaluate() {
         val remoteConnected = anyRemoteConnected()
-        if (RemotePairPolicy.shouldScan(remoteConnected)) startScan() else {
+        // No scan while Bluetooth audio is connected (P169/P175): a scan every 25 s on the radio carrying A2DP glitched the
+        // music, and the stick hard-reset twice under headphones + gamepad + scanning. Pairing waits until they disconnect.
+        val audio = btAudioConnected()
+        handler.removeCallbacks(audioRecheck)
+        // Paused for Bluetooth audio only: look again later, so pairing resumes once the headphones disconnect.
+        if (audio && RemotePairPolicy.shouldScan(remoteConnected)) handler.postDelayed(audioRecheck, RemotePairPolicy.RESCAN_EVERY_MS)
+        if (!audio && RemotePairPolicy.shouldScan(remoteConnected)) startScan() else {
             if (scanning) Log.i(TAG, "scan stops (remote connected)")
             stopScan()
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun anyRemoteConnected(): Boolean = runCatching {
+    private fun anyRemoteConnected(): Boolean = remoteInputPresent() || runCatching {
         adapter?.bondedDevices.orEmpty().any { isAmazonRemote(it) && isConnected(it) }
+    }.getOrDefault(false)
+
+    private val audioRecheck = Runnable { evaluate() }
+
+    private fun btAudioConnected(): Boolean = runCatching {
+        app.getSystemService(android.media.AudioManager::class.java)?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
+            .any { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+    }.getOrDefault(false)
+
+    /**
+     * A remote whose keys are arriving is connected, whatever BluetoothDevice.isConnected (a hidden API, read by
+     * reflection) says. When that reflection failed, Glass rescanned every 25 s with the remote in use, on the same radio
+     * as A2DP headphones and a gamepad (P169/P175: glitchy music, and a hard reset under that load). An external input
+     * device named like Fire's remote is the public-API answer.
+     */
+    private fun remoteInputPresent(): Boolean = runCatching {
+        android.view.InputDevice.getDeviceIds().any { id ->
+            val d = android.view.InputDevice.getDevice(id) ?: return@any false
+            (android.os.Build.VERSION.SDK_INT < 29 || d.isExternal) && RemotePairPolicy.isAmazonRemoteName(d.name)
+        }
     }.getOrDefault(false)
 
     /** An input peripheral (class 0x0500) or one named like Fire's remote: only these matter to the policy. */
@@ -173,7 +200,8 @@ class RemotePairer(private val context: Context) {
             runCatching { scanner?.stopScan(scanIntent) }
             scanning = false
             val started = scanStartedAt
-            startScan()
+            // Through the policy again: headphones may have connected since (no scan then) or the remote come back.
+            evaluate()
             if (scanning) scanStartedAt = started
         }
     }
