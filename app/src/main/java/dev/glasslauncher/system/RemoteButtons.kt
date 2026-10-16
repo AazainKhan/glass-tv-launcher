@@ -66,14 +66,29 @@ object RemoteButtons {
     )
 
     /**
+     * The buttons of a game controller that can be given a Glass action (P174). Unlike the remote's, they default to nothing of
+     * Glass's own ([RemoteAction.Default]): the app in front keeps every one until the user maps it.
+     */
+    val pad = listOf(
+        "a" to "A", "b" to "B", "x" to "X", "y" to "Y", "l1" to "Left Bumper", "r1" to "Right Bumper",
+        "l2" to "Left Trigger", "r2" to "Right Trigger", "start" to "Start", "select" to "Select", "mode" to "Guide",
+        "thumbl" to "Left Stick Press", "thumbr" to "Right Stick Press",
+    ).map { (id, label) -> RemoteButton("pad:$id", label, setOf("KEYCODE_BUTTON_${id.uppercase()}"), RemoteAction.Default) }
+
+    /** A remote or controller button by its id. */
+    fun find(id: String): RemoteButton? = all.firstOrNull { it.id == id } ?: pad.firstOrNull { it.id == id }
+
+    /**
      * [deviceName] is the input device that sent the key. The gamepad codes BUTTON_9..13 are what the Fire remote's app buttons are
      * remapped to, so from any other named device (a game controller on a Google TV box) they are not remote buttons (P155); an
      * unknown device (null) is accepted as before.
      */
     fun actionFor(keyName: String, config: Map<String, String>, scanCode: Int = 0, deviceName: String? = null): RemoteAction? {
-        if (deviceName != null && keyName.startsWith("KEYCODE_BUTTON_") && !RemotePairPolicy.isAmazonRemoteName(deviceName)) return null
-        val button = all.firstOrNull { keyName in it.names || (keyName == "KEYCODE_UNKNOWN" && scanCode in it.scanCodes) } ?: return null
-        return action(button, config)
+        val remote = all.firstOrNull { keyName in it.names || (keyName == "KEYCODE_UNKNOWN" && scanCode in it.scanCodes) }
+        if (remote != null && !(deviceName != null && keyName.startsWith("KEYCODE_BUTTON_") && !RemotePairPolicy.isAmazonRemoteName(deviceName))) return action(remote, config)
+        // A controller button does something only once the user has mapped it; otherwise the app in front gets it.
+        val pad = pad.firstOrNull { keyName in it.names } ?: return null
+        return action(pad, config).takeIf { it != RemoteAction.Default }
     }
 
     fun action(button: RemoteButton, config: Map<String, String>): RemoteAction =

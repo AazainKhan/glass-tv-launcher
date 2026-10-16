@@ -2,6 +2,7 @@ package dev.glasslauncher.shots
 
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -29,8 +30,8 @@ class CcDevicePlatterTest {
     @get:Rule val compose = createComposeRule()
     private val sz = CcSizes(1f)
 
-    private fun show(rows: List<CcDeviceRow>, settings: String, empty: String = "Nothing here") {
-        compose.setContent { CcDevicePlatter(sz, "Test", "platter", rows, R.drawable.ic_settings_remote, empty, null, settings, {}) }
+    private fun show(rows: List<CcDeviceRow>, settings: String) {
+        compose.setContent { CcDevicePlatter(sz, "Test", "platter", rows, R.drawable.ic_settings_remote, settings, {}) }
         compose.waitForIdle()
     }
 
@@ -53,7 +54,7 @@ class CcDevicePlatterTest {
     @Test fun remotesDevicePillIsFullWidthAndTheActionsAreHalves() {
         show(listOf(CcDeviceRow("Amazon Fire TV Remote", "Connected · Battery 77%", true)), "Remote Settings")
         assertEquals("device pill is the column wide", sz.column.value, dp(bounds("cc-device-0").width), 0.6f)
-        assertTrue("the actions sit under the device", bounds("cc-action-settings").top > bounds("cc-device-0").bottom)
+        assertTrue("the devices sit under the actions", bounds("cc-device-0").top > bounds("cc-action-settings").bottom)
         check("Remote Settings")
     }
 
@@ -64,9 +65,19 @@ class CcDevicePlatterTest {
         check("Controller Settings")
     }
 
-    @Test fun theEmptyStateIsAFullWidthInfoPill() {
-        show(emptyList(), "Controller Settings", "No controllers connected")
-        assertEquals(sz.column.value, dp(bounds("cc-device-empty").width), 0.6f)
+    @Test fun pairThenSettingsThenTheDevicesAndNoEmptyPill() {
+        show(listOf(CcDeviceRow("Xbox Wireless Controller", "Connected", true)), "Controller Settings")
+        assertTrue("Pair comes first", bounds("cc-action-pair").top < bounds("cc-action-settings").top)
+        assertTrue("Settings is above the devices", bounds("cc-action-settings").bottom <= bounds("cc-device-0").top)
+        assertEquals(sz.column.value, dp(bounds("cc-action-pair").width), 0.8f)
+        compose.onNodeWithTag("cc-action-pair").assertIsDisplayed()
+    }
+
+    @Test fun withNothingConnectedTheOnlyPillsAreTheTwoActions() {
+        show(emptyList(), "Controller Settings")
+        assertEquals("no empty-state pill", 0, compose.onAllNodes(hasTestTag("cc-device-empty")).fetchSemanticsNodes().size)
+        assertEquals("no device rows", 0, compose.onAllNodes(hasTestTag("cc-device-0")).fetchSemanticsNodes().size)
+        compose.onNodeWithTag("cc-action-pair").assertIsDisplayed()
         check("Controller Settings")
     }
 }

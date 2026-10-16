@@ -124,6 +124,7 @@ private sealed interface Page {
     data object About : Page
     data object Accessibility : Page
     data object RemoteButtons : Page
+    data object ControllerButtons : Page
     data object RootTools : Page
     data object DisplayText : Page
     data object TextSize : Page
@@ -136,6 +137,14 @@ private sealed interface Page {
     data class ButtonAction(val id: String) : Page
     data object CcShortcut : Page
     data class ButtonApp(val id: String) : Page
+}
+
+/** A one-shot request to open Settings on a given page (P174): set before opening the overlay, taken when the panel starts. */
+object SettingsEntry {
+    const val REMOTE_BUTTONS = "remote_buttons"
+    const val CONTROLLER_BUTTONS = "controller_buttons"
+    @Volatile var page: String? = null
+    fun take(): String? = page.also { page = null }
 }
 
 /** A selected row that removes itself takes focus with it; focus goes back to the page's first row. */
@@ -152,7 +161,14 @@ fun SettingsPanel(
     open: (Overlay) -> Unit,
     close: () -> Unit,
 ) {
-    var stack by remember { mutableStateOf(listOf<Page>(Page.Root)) }
+    var stack by remember {
+        // Control Center's Remotes and Game Controllers pages open Settings straight on their button mapping (P174).
+        mutableStateOf(when (SettingsEntry.take()) {
+            SettingsEntry.REMOTE_BUTTONS -> listOf(Page.Root, Page.RemoteButtons)
+            SettingsEntry.CONTROLLER_BUTTONS -> listOf(Page.Root, Page.ControllerButtons)
+            else -> listOf<Page>(Page.Root)
+        })
+    }
     fun push(p: Page) { stack = stack + p }
     fun pop() { if (stack.size > 1) stack = stack.dropLast(1) else close() }
     BackHandler(enabled = active && stack.size > 1) { pop() }
@@ -214,6 +230,7 @@ fun SettingsPanel(
                 Page.About -> AboutPage(model, cfg, f)
                 Page.Accessibility -> AccessibilityPage(model, cfg, f)
                 Page.RemoteButtons -> RemoteButtonsPage(cfg, f, ::push)
+                Page.ControllerButtons -> ControllerButtonsPage(cfg, f, ::push)
                 Page.RootTools -> RootToolsPage(f, ::push)
                 Page.DisplayText -> DisplayTextPage(model, cfg, f, ::push)
                 Page.TextSize -> TextSizePage(model, cfg, f)
@@ -1124,6 +1141,20 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     })
 }
 
+/** Settings › Controller Buttons (P174): each controller button and what it does; unmapped, the app in front keeps it. */
+@Composable
+private fun ColumnScope.ControllerButtonsPage(cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    val apps = remember { context.packageManager }
+    androidx.compose.runtime.LaunchedEffect(Unit) { dev.glasslauncher.addons.AddonHost.loadActions(context, dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) }
+    PanelTitle("Controller Buttons")
+    RemoteButtons.pad.forEachIndexed { i, b ->
+        MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, if (i == 0) f else Modifier.testTag("pad-button-${b.id.substringAfter(':')}"), value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
+    }
+    if (!HomeSetup.isRemoteKeysEnabled(context)) Hint("Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings so Glass can see these buttons.")
+    else Hint("A button you leave on Default keeps working in the app in front.")
+}
+
 /** The key that opens Control Center over an app (P167): one choice, saved as it is picked. */
 @Composable
 private fun ColumnScope.CcShortcutPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, done: () -> Unit) {
@@ -1140,7 +1171,7 @@ private fun ColumnScope.CcShortcutPage(model: HomeModel, cfg: LauncherConfig, f:
 
 @Composable
 private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, id: String, f: Modifier, push: (Page) -> Unit, done: () -> Unit) {
-    val button = RemoteButtons.all.first { it.id == id }
+    val button = RemoteButtons.find(id)!!
     val current = RemoteButtons.action(button, cfg.remoteButtons)
     val apps = LocalContext.current.packageManager
     fun set(action: RemoteAction) {
@@ -1150,7 +1181,7 @@ private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, 
     PanelTitle(button.label)
     val options = listOf(button.default, RemoteAction.TvSettings, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
     options.forEachIndexed { i, a ->
-        val label = if (a == button.default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
+        val label = if (a == button.default && a != RemoteAction.Default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
         MenuRow(label, { set(a) }, if (i == 0) f else Modifier, value = if (a == current) "✓" else null)
     }
     // Add-on actions (switched-on add-ons that offer some): choosing one is the consent; a stored one whose add-on is gone shows as unavailable.

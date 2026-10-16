@@ -43,4 +43,21 @@ class RemoteButtonsTest {
         assertEquals("a game controller on any TV box is not", null, RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap(), 0, "Xbox Wireless Controller"))
         assertEquals("the standard app keys stay generic", app1, RemoteButtons.actionFor("KEYCODE_APP_1", emptyMap(), 0, "Xbox Wireless Controller"))
     }
+
+    @Test fun aControllerButtonDoesNothingOfGlassesUntilMapped() {
+        val pad = "Xbox Wireless Controller"
+        assertNull("unmapped: the app in front keeps it", RemoteButtons.actionFor("KEYCODE_BUTTON_A", emptyMap(), 0, pad))
+        assertNull("mapped to Default is unmapped", RemoteButtons.actionFor("KEYCODE_BUTTON_START", mapOf("pad:start" to "default"), 0, pad))
+        assertEquals(RemoteAction.ControlCenter, RemoteButtons.actionFor("KEYCODE_BUTTON_START", mapOf("pad:start" to "glass:control_center"), 0, pad))
+        assertEquals(RemoteAction.Home, RemoteButtons.actionFor("KEYCODE_BUTTON_MODE", mapOf("pad:mode" to "glass:home"), 0, pad))
+        assertEquals(RemoteAction.Nothing, RemoteButtons.actionFor("KEYCODE_BUTTON_L1", mapOf("pad:l1" to "none"), 0, pad))
+    }
+
+    @Test fun mappingAControllerButtonNeverChangesTheRemotesButtons() {
+        val cfg = mapOf("pad:a" to "glass:home")
+        assertEquals(RemoteAction.OpenApp("com.netflix.ninja"), RemoteButtons.actionFor("KEYCODE_BUTTON_9", cfg))
+        assertEquals(RemoteButtons.pad.size, RemoteButtons.pad.map { it.id }.toSet().size)
+        assertEquals(RemoteButtons.pad.first(), RemoteButtons.find("pad:a"))
+        assertEquals(RemoteButtons.all.first(), RemoteButtons.find("app1"))
+    }
 }

@@ -73,6 +73,9 @@ import dev.glasslauncher.R
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.ThemeMode
 import dev.glasslauncher.dream.AerialActivity
+import dev.glasslauncher.system.BtFound
+import dev.glasslauncher.system.BtKind
+import dev.glasslauncher.system.BtPairing
 import dev.glasslauncher.system.SystemControls
 import dev.glasslauncher.glass.LocalBackdrop
 import dev.glasslauncher.glass.GlassMatch
@@ -147,7 +150,7 @@ internal val LocalCcSizes = androidx.compose.runtime.staticCompositionLocalOf { 
 internal val CcPillTitle @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
 private val CcPillValue @Composable get() = Type.caption.copy(fontSize = 11.5.sp, lineHeight = 15.sp, letterSpacing = (-0.1).sp)
 /** A platter's section header: Caption 1 (12.5 sp). */
-private val CcSectionHeader @Composable get() = Type.caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+internal val CcSectionHeader @Composable get() = Type.caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
 
 /** Whether the tile whose content is being drawn has focus (a pill's long text scrolls only then, F05). */
 private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { false }
@@ -340,10 +343,16 @@ data class CcEmergeFrame(val scale: Float, val dx: Float, val dy: Float, val rou
 }
 
 /** Room around the scrolling tiles so a focused tile's growth and shadow aren't clipped. */
-private val CC_BLEED = 16.dp
+internal val CC_BLEED = 16.dp
 
 /** Room above the first row inside the scrolling viewport: the 2x2's growth (104 dp x 0.105) plus a margin, so a focused tile is never cut flat (P138 G6). */
 private val CC_TOP_ROOM = 12.dp
+
+/** Gap between the time/weather header and the title of every sub-panel (platters, confirms, the permission card): one value so they all sit alike (P176). */
+internal val CC_PANEL_TOP = 20.dp
+
+/** Where a sub-panel sits under the header: the same offset and top gap for every one. */
+internal fun Modifier.ccPanelSlot(): Modifier = offset(x = -CC_BLEED).padding(top = CC_PANEL_TOP, bottom = 4.dp)
 
 /**
  * How edit mode is entered (P101): only from Launcher Settings › Control Center › Edit Layout. That sets
@@ -664,6 +673,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var airplayPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // Game Controllers is a platter like Remotes (P146): the connected controllers, then Controller Settings and Back.
     var controllersPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // The Pair page inside the Remotes / Game Controllers platter (P174): Back returns to the platter.
+    var devicePairing by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    // A controller's own page (name, Test Controller, Button Mapping) and its live tester (P174).
+    var controllerPage by remember(active) { androidx.compose.runtime.mutableStateOf<CcDeviceRow?>(null) }
+    var controllerTest by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
+    var padState by remember(active) { androidx.compose.runtime.mutableStateOf(PadState()) }
     val platterSource = remember { PlatterSource() }
     // Edit mode's hint (P101): a small glass bar at the bottom centre, up while edit mode is on (P152).
     var hintShown by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
@@ -726,9 +741,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
     // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
     // closing Control Center save too).
-    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter, controllersPlatter) {
+    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter, controllersPlatter, devicePairing, controllerPage, controllerTest) {
         val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter || airplayPlatter || controllersPlatter) ({
             when {
+                controllerTest -> { controllerTest = false; padState = PadState() }
+                controllerPage != null -> controllerPage = null
+                devicePairing -> devicePairing = false
                 airplayPlatter -> { airplayPlatter = false; pendingFocus = "airplay" }
                 remotesPlatter -> { remotesPlatter = false; pendingFocus = "remotes" }
                 controllersPlatter -> { controllersPlatter = false; pendingFocus = "controllers" }
@@ -928,7 +946,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val np by (dev.glasslauncher.widgets.NowPlayingFixture.state ?: context.app.nowPlaying.state).collectAsStateWithLifecycle()
             // Confirms and the permission card are laid out in the panel itself, under the header, never inside the
             // scrolling tiles: a scrolled offset hid the card's top once, and a security prompt must be whole.
-            if (restartAsk || agentCard) Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) {
+            if (restartAsk || agentCard) Box(Modifier.ccPanelSlot()) {
             if (restartAsk) {
                 val canReboot = rooted || dev.glasslauncher.system.RootFeatures.systemAppState(context) == dev.glasslauncher.system.RootFeatures.SystemApp.On
                 CcConfirmCard(
@@ -987,7 +1005,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 label = "cc-platter",
             ) { shownPlatter ->
             val morphScope = this
-            if (shownPlatter == "airplay") Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
+            if (shownPlatter == "airplay") Box(Modifier.ccPanelSlot()) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
                 CcAirPlayPlatter(sz, airPlay, cfg.speakers, cfg.muteTvOnSonos, edit, active, onBack = { airplayPlatter = false; pendingFocus = "airplay" }, onName = {
                     val page = dev.glasslauncher.system.AirPlayPageModel.of(airPlay!!.first)
                     closeAll()
@@ -997,10 +1015,17 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         else airPlay.second.setSetting(dev.glasslauncher.system.AirPlayProtocol.SettingKey.DisplayName, name)
                     })
                 })
-            } } else if (shownPlatter == "controllers") Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
-                CcControllersPlatter(sz, onSettings = { system { SystemControls.openGameControllers(context) } })
-            } } else if (shownPlatter == "remotes") Box(Modifier.offset(x = -CC_BLEED).padding(top = 2.dp, bottom = 4.dp)) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
-                CcRemotesPlatter(sz, onSettings = { system { SystemControls.openGameControllers(context) } })
+            } } else if (shownPlatter == "controllers") Box(Modifier.ccPanelSlot()) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
+                val page = controllerPage
+                if (page != null) CcControllerPage(sz, page.name, controllerTest, padState,
+                    onTest = { padState = PadState(); controllerTest = true },
+                    onMapping = { dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.CONTROLLER_BUTTONS; closeAll(); open(Overlay.Settings) },
+                    onKey = { code, down -> padState = padState.key(code, down) },
+                    onMotion = { padState = padState.apply(it) })
+                else CcControllersPlatter(sz, devicePairing, onSettings = { system { SystemControls.openGameControllers(context) } }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } }, onSelect = { controllerPage = it })
+            } } else if (shownPlatter == "remotes") Box(Modifier.ccPanelSlot()) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
+                CcRemotesPlatter(sz, devicePairing, onSettings = { system { SystemControls.openGameControllers(context) } }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } },
+                    onSelect = { dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.REMOTE_BUTTONS; closeAll(); open(Overlay.Settings) })
             } } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
@@ -1860,54 +1885,113 @@ private fun CcEditHint(shown: Boolean, lifted: Boolean, modifier: Modifier = Mod
 }
 
 /** One device in a device platter: its name, one line of state, and whether it is connected (an accent glyph). */
-internal data class CcDeviceRow(val name: String, val line: String, val connected: Boolean)
+internal data class CcDeviceRow(val name: String, val line: String, val connected: Boolean, val id: String = "")
 
 /**
- * A device platter (Remotes, Game Controllers; P111, P146): pushed over the grid inside the panel, as tvOS pushes a module.
- * The layout rule for every sub-panel: every pill (device, info, action) is the full column wide, and there is no Back button: the
- * remote's Back key pops the platter, as in tvOS. Same width and pitch as the grid, so it replaces it without the panel resizing.
+ * A device platter (Remotes, Game Controllers; P111, P146, P174): pushed over the grid inside the panel, as tvOS pushes a module.
+ * Order: Pair, Settings, then the connected devices (each opens its own page). No empty-state pill: with nothing connected the
+ * page is just the two actions. The layout rule for every sub-panel: every pill is the full column wide, and there is no Back
+ * button: the remote's Back key pops the platter, as in tvOS. Same width and pitch as the grid, so it replaces it without the
+ * panel resizing.
  */
 @Composable
 internal fun CcDevicePlatter(
     sz: CcSizes, title: String, tag: String, rows: List<CcDeviceRow>, deviceIcon: Int,
-    emptyTitle: String, emptyValue: String?, settingsLabel: String, onSettings: () -> Unit,
+    settingsLabel: String, onSettings: () -> Unit, onPair: () -> Unit = {}, onSelect: (CcDeviceRow) -> Unit = {},
 ) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag(tag)) {
         Text(title, style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
-        if (rows.isEmpty()) {
-            CcTile(emptyTitle, emptyValue, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = Modifier.focusRequester(first).testTag("cc-device-empty")) { fg ->
-                PillContent(deviceIcon, emptyTitle, emptyValue, fg, on = false, accent = fg)
-            }
-        } else rows.forEachIndexed { i, r ->
-            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("cc-device-$i")) { fg ->
-                PillContent(deviceIcon, r.name, r.line, fg, on = r.connected, accent = Blue)
-            }
+        CcTile("Pair a device\u2026", null, Shapes.pill, sz.column, sz.pill, onClick = onPair, modifier = Modifier.focusRequester(first).testTag("cc-action-pair")) { fg ->
+            PillContent(R.drawable.ic_bluetooth, "Pair a device\u2026", null, fg, on = false, accent = fg)
         }
         CcTile(settingsLabel, null, Shapes.pill, sz.column, sz.pill, onClick = onSettings, modifier = Modifier.testTag("cc-action-settings")) { fg ->
             PillContent(R.drawable.ic_tune, settingsLabel, null, fg, on = false, accent = fg)
+        }
+        rows.forEachIndexed { i, r ->
+            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = { onSelect(r) }, modifier = Modifier.testTag("cc-device-$i")) { fg ->
+                PillContent(deviceIcon, r.name, r.line, fg, on = r.connected, accent = Blue)
+            }
+        }
+    }
+}
+
+/**
+ * The pairing page (P174): nearby devices of this page's kind (controllers or remotes) found by Bluetooth discovery; selecting one
+ * bonds it. When Glass can't scan (no permission and no root to grant it), the only row is the system Bluetooth page.
+ */
+@Composable
+internal fun CcPairPlatter(
+    sz: CcSizes, title: String, tag: String, found: List<BtFound>, scanning: Boolean, canScan: Boolean, deviceIcon: Int,
+    onPair: (BtFound) -> Unit, onSystem: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag(tag)) {
+        Text(title, style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+        if (!canScan) {
+            CcTile("Open Bluetooth settings", "Glass can't scan from here", Shapes.pill, sz.column, sz.pill, onClick = onSystem, modifier = Modifier.focusRequester(first).testTag("cc-pair-system")) { fg ->
+                PillContent(R.drawable.ic_bluetooth, "Open Bluetooth settings", "Glass can't scan from here", fg, on = false, accent = fg)
+            }
+        } else {
+            val status = if (scanning) "Searching\u2026" else if (found.isEmpty()) "Nothing found. Put the device in pairing mode." else "Choose a device"
+            CcTile("Nearby", status, Shapes.pill, sz.column, sz.pill, onClick = {}, modifier = Modifier.focusRequester(first).testTag("cc-pair-status")) { fg ->
+                PillContent(R.drawable.ic_bluetooth, "Nearby", status, fg, on = scanning, accent = Blue)
+            }
+            found.forEachIndexed { i, f ->
+                val line = if (f.bonding) "Pairing\u2026" else "Select to pair"
+                CcTile(f.name, line, Shapes.pill, sz.column, sz.pill, onClick = { onPair(f) }, modifier = Modifier.testTag("cc-pair-$i")) { fg ->
+                    PillContent(deviceIcon, f.name, line, fg, on = f.bonding, accent = Blue)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun CcRemotesPlatter(sz: CcSizes, onSettings: () -> Unit) {
+private fun rememberPairing(): BtPairing {
     val context = LocalContext.current
-    var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
-    val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context).map { CcDeviceRow(it.name, it.line, it.line.startsWith("Connected")) } }
-    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "No remote paired", "Hold Home for 10 s", "Remote Settings", onSettings)
+    val pairing = remember { BtPairing(context) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { pairing.stop() } }
+    return pairing
 }
 
-/** The Game Controllers platter (P146): the connected controllers, then Controller Settings (Fire's own page, as the tile opened before) and Back. */
+/** Remotes and Game Controllers share one pairing page, filtered to the kind each was opened for. */
 @Composable
-private fun CcControllersPlatter(sz: CcSizes, onSettings: () -> Unit) {
+private fun CcPairing(sz: CcSizes, title: String, tag: String, kind: BtKind, deviceIcon: Int, onBluetooth: () -> Unit) {
+    val context = LocalContext.current
+    val pairing = rememberPairing()
+    var canScan by remember { androidx.compose.runtime.mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        canScan = (pairing.grantWithRoot() || !pairing.permissionsMissing()) && pairing.start()
+    }
+    val all by pairing.found.collectAsStateWithLifecycle()
+    val scanning by pairing.scanning.collectAsStateWithLifecycle()
+    // A class-less device (many remotes advertise none) is shown on both pages; a classified one only where it belongs.
+    val found = remember(all) { all.filter { it.kind == kind || it.kind == BtKind.Other } }
+    CcPairPlatter(sz, title, tag, found, scanning, canScan, deviceIcon, onPair = { pairing.pair(it.address) }, onSystem = onBluetooth)
+}
+
+@Composable
+private fun CcRemotesPlatter(sz: CcSizes, pairing: Boolean, onSettings: () -> Unit, onPair: () -> Unit, onBluetooth: () -> Unit, onSelect: (CcDeviceRow) -> Unit) {
     val context = LocalContext.current
     var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
-    val rows = remember(tick) { dev.glasslauncher.system.ControllerList.read(context).map { CcDeviceRow(it.name, it.line, true) } }
-    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "No controllers connected", null, "Controller Settings", onSettings)
+    if (pairing) { CcPairing(sz, "Pair a Remote", "cc-pair-remotes", BtKind.Remote, R.drawable.ic_settings_remote, onBluetooth); return }
+    val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context).map { CcDeviceRow(it.name, it.line, it.line.startsWith("Connected"), it.address) } }
+    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "Remote Settings", onSettings, onPair, onSelect)
+}
+
+/** The Game Controllers platter (P146, P174): Pair, Controller Settings (Fire's own page, as the tile opened before), then the connected controllers. */
+@Composable
+private fun CcControllersPlatter(sz: CcSizes, pairing: Boolean, onSettings: () -> Unit, onPair: () -> Unit, onBluetooth: () -> Unit, onSelect: (CcDeviceRow) -> Unit) {
+    val context = LocalContext.current
+    var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
+    if (pairing) { CcPairing(sz, "Pair a Controller", "cc-pair-controllers", BtKind.Controller, R.drawable.ic_sports_esports, onBluetooth); return }
+    val rows = remember(tick) { dev.glasslauncher.system.ControllerList.read(context).map { CcDeviceRow(it.name, it.line, true, it.id.toString()) } }
+    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "Controller Settings", onSettings, onPair, onSelect)
 }
 
 /**
