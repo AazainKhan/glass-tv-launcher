@@ -91,6 +91,27 @@ object ResumeIntents {
         return out
     }
 
+    /**
+     * Stremio (P170): `stremio:///detail/<type>/<id>/<videoId>?autoPlay=true` starts that video directly, with no stream list, so Resume
+     * needs no key. [link] is the row's title link or its `intent:` URI; returns the VIEW link with autoPlay set when it names an episode
+     * or movie (`<type>/<id>/<videoId>`), else null (a title page without a video id has nothing to play).
+     */
+    fun stremioAutoPlay(link: String?): String? {
+        if (link == null) return null
+        val uri = if (link.startsWith("intent:", ignoreCase = true)) {
+            val body = link.substring("intent:".length)
+            body.substringBefore("#Intent;").takeIf { it.isNotEmpty() }
+                ?: Regex("(?:^|;)S\\.?data=([^;]+)").find(body)?.groupValues?.get(1) ?: return null
+        } else link
+        if (!uri.startsWith("stremio:", ignoreCase = true)) return null
+        val path = uri.substringAfter("stremio:").trimStart('/').substringBefore('#')
+        val (route, query) = path.substringBefore('?') to path.substringAfter('?', "")
+        val parts = route.split('/').filter { it.isNotEmpty() }
+        if (parts.size < 4 || parts[0] != "detail") return null
+        val keep = query.split('&').filter { it.isNotEmpty() && !it.startsWith("autoPlay=") }
+        return "stremio:///" + parts.joinToString("/") + "?" + (keep + "autoPlay=true").joinToString("&")
+    }
+
     /** Whether Glass may also offer this link to any app (only for links Glass fetched itself, never a row another app published). */
     fun isAppPublished(item: FeaturedItem): Boolean = item.owner != null || item.id.startsWith("tv:")
 

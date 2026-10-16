@@ -462,6 +462,8 @@ fun FeaturedItem.open(context: Context): Boolean {
     return false
 }
 
+private const val STREMIO = "com.stremio.one"
+
 /**
  * Resume (P160): opens the item like [open], then asks Glass's accessibility service for the one key that starts playback (see
  * [ResumePlayback]). Without that service (APK mode, it is off) the page opens and a one-line hint says why nothing plays.
@@ -469,6 +471,10 @@ fun FeaturedItem.open(context: Context): Boolean {
 fun FeaturedItem.resume(context: Context): Boolean {
     val pm = context.packageManager
     val target = owner ?: packages.firstOrNull { pm.getLaunchIntentForPackage(it) != null || pm.getLeanbackLaunchIntentForPackage(it) != null }
+    // Stremio's own deep link with autoPlay=true starts the video itself (P170): no key follows it.
+    if (target == STREMIO) ResumeIntents.stremioAutoPlay(link)?.let { direct ->
+        if (ResumeIntents.start(context, ResumeIntents.Step.View(direct, STREMIO))) return true
+    }
     val opened = open(context)
     if (!opened || target == null) return opened
     val service = dev.glasslauncher.system.RemoteKeysService.instance

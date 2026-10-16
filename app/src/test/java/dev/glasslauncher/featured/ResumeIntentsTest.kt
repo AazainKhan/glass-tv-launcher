@@ -98,4 +98,19 @@ class ResumeIntentsTest {
         val steps = ResumeIntents.steps(item(link, id = "x", pkgs = crowd), crowd, glass)
         assertEquals(listOf<Step>(Step.Published(link, app)), steps.filterIsInstance<Step.Published>())
     }
+
+    @Test fun stremioDeepLinkGetsAutoPlay() {
+        val want = "stremio:///detail/series/tt0944947/tt0944947:1:1?autoPlay=true"
+        assertEquals(want, ResumeIntents.stremioAutoPlay("stremio:///detail/series/tt0944947/tt0944947:1:1"))
+        assertEquals("already set: kept once", want, ResumeIntents.stremioAutoPlay("stremio:///detail/series/tt0944947/tt0944947:1:1?autoPlay=true"))
+        assertEquals("stremio:///detail/movie/tt1/tt1?x=1&autoPlay=true", ResumeIntents.stremioAutoPlay("stremio://detail/movie/tt1/tt1?x=1&autoPlay=false"))
+        assertEquals(want, ResumeIntents.stremioAutoPlay("intent:stremio:///detail/series/tt0944947/tt0944947:1:1#Intent;scheme=stremio;package=com.stremio.one;end"))
+    }
+
+    @Test fun stremioLinkWithoutAVideoIdOrFromAnotherSchemeIsNotAutoPlayed() {
+        assertEquals(null, ResumeIntents.stremioAutoPlay("stremio:///detail/movie/tt1"))
+        assertEquals(null, ResumeIntents.stremioAutoPlay("stremio:///board"))
+        assertEquals(null, ResumeIntents.stremioAutoPlay("https://example.com/detail/movie/tt1/tt1"))
+        assertEquals(null, ResumeIntents.stremioAutoPlay(null))
+    }
 }
