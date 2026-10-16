@@ -2,6 +2,32 @@
 
 All notable changes to Glass are recorded here. No version has been released yet.
 
+## 0.3.0-beta.1 (draft, not released)
+
+First plain-APK beta. Release notes: `docs/release/v0.3.0-beta.md`.
+
+### Added
+
+- Search: a search screen with a full keyboard, a symbols page, forgiving matching, a Music section and the source under every result.
+- Control Center: Remotes and Game Controllers pages with Pair, Settings and the connected devices; a controller page with a live
+  button and stick tester and Button Mapping; one Control Center style; the same gap under the header on every sub-panel.
+- Control Center shortcut on a remote key without the key-layout module, and remappable controller buttons.
+- The output picker lists every output under Audio Output, with network speakers selectable together.
+- Featured: a shared info line and panel, a Seasons view, Resume that starts playback (Stremio resumes through its own link with no
+  key press), and a shelf that stays current.
+- Install and update progress on app tiles; a "View in Store" shortcut.
+- One-at-a-time notices that hold under Do Not Disturb; screen-reader labels, roles and page titles throughout.
+
+### Changed
+
+- Fire TV- and device-specific behaviour is chosen at run time, so Glass runs on any Android TV or Google TV device; Fire-only
+  rows and app defaults no longer appear elsewhere.
+
+### Fixed
+
+- A launch that fails now says "Couldn't open <App>."; the open and close animations no longer skip; held-key scrolling settles
+  without jank on slow sticks; Home takeover can no longer disable a fallback Home.
+
 ## Unreleased
 
 ### Added
