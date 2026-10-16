@@ -160,7 +160,9 @@ class ControlCenterMotionTest {
                     }
                 sum.toFloat() / n
             }
-            val total = kotlin.math.abs(levels.last() - levels.first())
+            // The span, not the net change: the open dims and then reveals (a dip, then a rise), and with no white focus
+            // fill (P173) the net change is small while the motion still covers the whole span.
+            val total = levels.max() - levels.min()
             val steps = levels.zipWithNext { a, b -> kotlin.math.abs(b - a) }
             val moving = steps.count { it > total * 0.02f }
             val worst = steps.maxOrNull() ?: 0f
@@ -297,7 +299,8 @@ class ControlCenterMotionTest {
         val (dark, darkContrast) = measure(dev.glasslauncher.data.ThemeMode.Dark)
         val (light, lightContrast) = measure(dev.glasslauncher.data.ThemeMode.Light)
         println("CC tile luminance: dark ${"%.3f".format(dark)} (text ${"%.1f".format(darkContrast)}:1), light ${"%.3f".format(light)} (text ${"%.1f".format(lightContrast)}:1)")
-        assertTrue("light tiles ($light) are not clearly brighter than dark ones ($dark)", light > dark * 1.5f)
+        // P173 (user): one Control Center style in Light and Dark: the same glass, white text legible on both.
+        assertTrue("light-theme tiles ($light) differ from dark-theme ones ($dark): Control Center has one style", kotlin.math.abs(light - dark) <= 0.02f)
         assertTrue("light text is ${"%.2f".format(lightContrast)}:1 on the tiles", lightContrast >= 4.5f)
         assertTrue("dark text is ${"%.2f".format(darkContrast)}:1 on the tiles", darkContrast >= 4.5f)
     }
@@ -317,15 +320,8 @@ class ControlCenterMotionTest {
             val rootW = compose.onRoot().fetchSemanticsNode().size.width
             val settings = tileBounds()["Settings, Fire TV"] ?: error("no Settings tile")
             val l = frames.map { f -> material(f, rootW, settings).let { (it[0] * 3 + it[1] * 6 + it[2]) / 10 } }
-            val lo = l.min(); val hi = l.last()
-            assertTrue("the Settings tile never turned white: $l", hi - lo > 60f)
-            // Clipped in, never faded in: no frame has a grey Settings tile. Pixels of the tile's top band are either
-            // the bubble's dark colour (not revealed yet) or white; only the clip's own antialiased edge may be
-            // between (a fade shows as the whole band grey).
-            val range = hi - lo
-            val worstGrey = frames.maxOf { f -> greyFraction(f, rootW, settings, lo, hi) }
-            assertTrue("a frame has ${"%.0f".format(worstGrey * 100)}% grey pixels on the Settings tile: $l", worstGrey <= 0.25f)
-            assertTrue("the Settings tile settled ${"%.1f".format(hi)} but never reached white-ish", hi > 200f)
+            // P173: focus is the glass catching light, never a white fill.
+            assertTrue("the focused Settings tile filled white (P173: one glass style): $l", l.max() < 200f)
 
             // The dim: a patch of the screen left of the panel darkens smoothly; no frame takes most of it at once.
             val dim = frames.map { f ->

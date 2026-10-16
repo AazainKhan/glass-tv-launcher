@@ -98,7 +98,10 @@ object GlassMatch {
      * backdrop is baked, off the main thread: [panelSheet] over the right half, uploaded as a small hardware
      * bitmap (80x90, ~28 KB). Opening Control Center then only maps it; null if [clear] can't be read.
      */
-    fun ccSheet(clear: Bitmap, light: Boolean = false): PanelSheet? {
+    fun ccSheet(clear: Bitmap, @Suppress("UNUSED_PARAMETER") theme: Boolean = false): PanelSheet? {
+        // P173 (user): Control Center has ONE style, the clear glass with white labels, in Light and Dark alike. The sheet
+        // still adapts to a light scene (it darkens enough for white text), but never takes the light theme's material.
+        val light = false
         val t0 = android.os.SystemClock.elapsedRealtime()
         val w = clear.width.toFloat(); val h = clear.height.toFloat()
         val sheet = panelSheet(clear, clear.width, clear.height, w * CC_LEFT, 0f, w * (1f - CC_LEFT), h, if (light) CC_TINT_LIGHT else CC_TINT, if (light) CC_SHEET_DIM_LIGHT else CC_SHEET_DIM, CC_COLS,

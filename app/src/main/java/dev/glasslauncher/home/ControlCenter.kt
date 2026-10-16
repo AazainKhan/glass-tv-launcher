@@ -783,7 +783,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val pill = ControlCenterWindow.pillBounds
     // P137: the labels' ink follows the sheet in use (0 white, 1 dark): it lands with the sheet at open, and crossfades
     // (250 ms) if the backdrop flips while Control Center is open.
-    val inkTarget = remember { androidx.compose.runtime.mutableFloatStateOf(if (glassState.backdrop?.ccSheet?.lightScene == true) 1f else 0f) }
+    // P173 (user): one Control Center style, clear glass with white labels over any scene; no light variant.
+    val inkTarget = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     val inkAnim = remember { androidx.compose.animation.core.Animatable(inkTarget.floatValue) }
     val inkPalette = remember(palette, inkAnim.value) { palette.copy(ink = inkAnim.value) }
     val headerColor = inkPalette.primary
@@ -792,8 +793,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val headerAlpha = HEADER_ALPHA + (1f - HEADER_ALPHA) * inkAnim.value
     fun takeSheet() {
         val root = glassState.rootSize
-        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root, glassState.backdrop?.isLight == true)
-        inkTarget.floatValue = if (sheetRef.sheet?.lightScene == true) 1f else 0f
+        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root, light = false)
+        inkTarget.floatValue = 0f
         if (CcMaterial.recordLast) CcMaterial.last = sheetRef.sheet
     }
     // The window keeps this composition across opens, so everything per open starts here, not in remember.
@@ -1676,7 +1677,8 @@ internal fun CcTile(
         // The first focus lands while Control Center is still opening: the white appears at once, so the tile
         // is never revealed half-grey (later focus moves cross-fade).
         val phase = LocalCcPhase.current
-        val focusA by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, if (phase.landed) fade else androidx.compose.animation.core.snap(), label = "focus")
+        // P173: focus no longer fills white, so it fades in even while Control Center is opening (a snap was a jump).
+        val focusA by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, fade, label = "focus")
         val onA by androidx.compose.animation.core.animateFloatAsState(if (on && !focused) 1f else 0f, fade, label = "on")
         // The text and glyph colour follows the FILL, not the focus: it used to flip the moment focus moved while the
         // white fill took 120 ms to fade, so a tile showed white content on a half-white fill (a washed-out cream,
@@ -1684,7 +1686,9 @@ internal fun CcTile(
         // derived state so it recomposes once per flip, not per frame.
         val litByFocus by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { focusA >= CcFocusPhase.FLIP } }
         val litByOn by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { onA >= CcFocusPhase.FLIP } }
-        val fg = if (litByFocus) palette.onFocusFill else if (litByOn) inkAccent(Blue) else palette.primary
+        // P173: the same glass focused or not; content stays white (blue glyph when on). Focus is the lift, the shadow and
+        // the glass catching more light.
+        val fg = if (litByOn && !litByFocus) inkAccent(Blue) else palette.primary
         Box(
             Modifier
                 .fillMaxSize()
@@ -1698,7 +1702,13 @@ internal fun CcTile(
                     val outline = if (round < 1f) ccRounding(rest, size, round) else rest
                     onDrawBehind {
                         // "On" is the accent glyph on the control's glass, never a white fill (F09): white means focus only.
-                        if (focusA > 0f) drawOutline(outline, palette.focusFill, alpha = focusA)
+                        // P173: focus is the glass catching light, not a white fill: a brighter top sheen and a bright rim
+                        // (two plain draws, P139).
+                        if (focusA > 0f) {
+                            // The sheen stays in the top 14% (as the bevel's does): below it the tile is exactly the glass, focused or not.
+                            drawOutline(outline, androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.White.copy(alpha = 0.20f), 0.14f to Color.Transparent), alpha = focusA)
+                            drawOutline(outline, Color.White.copy(alpha = 0.55f), alpha = focusA, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+                        }
                     }
                 },
             contentAlignment = Alignment.Center,

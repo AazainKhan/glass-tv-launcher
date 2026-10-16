@@ -229,7 +229,8 @@ class VisualChecks {
         for (t in tiles) {
             val got = mean(landed.last().bitmap, band(t))
             if (t.name.startsWith("Sleep")) continue // under the focused Settings tile's shadow (P138)
-            if (luminance(got) >= LIT_MIN) continue // lit (on / focused): a white or solid fill by design, not glass
+            if (luminance(got) >= LIT_MIN) continue // lit (on): a solid fill by design, not glass
+            if (t.name.startsWith("Settings")) continue // focused: lifted x1.21, so its glass is magnified (P173: no fill)
             val want = sheetMean(sheet, t.l + (t.r - t.l) * bandLo((t.r - t.l).toFloat(), (t.b - t.t).toFloat()), t.t + (t.b - t.t) * bandY0((t.r - t.l).toFloat(), (t.b - t.t).toFloat()), t.l + (t.r - t.l) * bandHi((t.r - t.l).toFloat(), (t.b - t.t).toFloat()), t.t + (t.b - t.t) * bandY1((t.r - t.l).toFloat(), (t.b - t.t).toFloat()))
             val off = (0..2).maxOf { abs(got[it] - want[it]) }
             if (off > SHEET_DELTA) problems += "${t.name} is ${"%.0f".format(off)} levels off the sheet at its position (got ${got.joinToString { "%.0f".format(it) }}, sheet ${want.joinToString { "%.0f".format(it) }})"
@@ -237,23 +238,6 @@ class VisualChecks {
         if (problems.isNotEmpty()) fail("Control Center material:\n" + problems.distinct().take(12).joinToString("\n"))
     }
 
-    @Test fun controlCenterSettingsNeverGrey() = controlCenter { frames, _, settings, before ->
-        settings ?: throw AssertionError("no Settings tile found in Control Center")
-        val sheet = CcMaterial.last ?: throw AssertionError("Control Center made no sheet")
-        val box = inner(settings)
-        val grey = frames.withIndex().mapNotNull { (i, f) ->
-            // While it grows out of its drop its pixels move (P49); its fill is white from the first frame (a snap).
-            if (i * STEP_MS < ccLandedMs()) return@mapNotNull null
-            val ratio = dimRatio(before, f.bitmap, unclaimedPatch(before))
-            val share = greyPixelFraction(f.bitmap, box) { x, y, c ->
-                isNear(c, 0xFFFFFFFF.toInt()) || // the lit fill
-                    isNear(c, scaled(before.getPixel(x, y), ratio)) || // the scene behind, dimmed so far (not uncovered yet)
-                    isNear(c, sheetAt(sheet, x, y)) // the bubble's or the tile's own glass
-            }
-            if (share > GREY_SHARE) i to share else null
-        }
-        if (grey.isNotEmpty()) fail("Settings tile is part grey at ${grey.joinToString { "${it.first * STEP_MS} ms (${"%.0f".format(it.second * 100)}% of its pixels)" }}")
-    }
 
     /** Opens Control Center from the dock and hands over its frames, its tiles and the Settings tile. */
     private fun controlCenter(check: (List<Frame>, List<Box>, Box?, Bitmap) -> Unit) = onHome {
@@ -294,6 +278,13 @@ class VisualChecks {
 
     private fun isNear(a: Int, b: Int, tol: Int = NEAR): Boolean =
         abs(((a shr 16) and 0xff) - ((b shr 16) and 0xff)) <= tol && abs(((a shr 8) and 0xff) - ((b shr 8) and 0xff)) <= tol && abs((a and 0xff) - (b and 0xff)) <= tol
+
+    /** [c] is the glass [g] with between none and P173's focus sheen (up to ~25% white) over it. */
+    private fun litGlass(c: Int, g: Int): Boolean = (0..25).any { p ->
+        val k = p / 100f
+        fun ch(s: Int) = ((s and 0xff) + (255 - (s and 0xff)) * k).toInt()
+        isNear(c, (0xff shl 24) or (ch(g shr 16) shl 16) or (ch(g shr 8) shl 8) or ch(g))
+    }
 
     private fun sheetAt(sheet: CcSheet, x: Int, y: Int): Int {
         val m = sheetMean(sheet, x.toFloat(), y.toFloat(), x.toFloat(), y.toFloat())
