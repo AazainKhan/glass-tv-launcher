@@ -83,7 +83,9 @@ fun StatusPill(
             shape = CircleShape,
             focusedScale = 1.08f,
             shadow = false,
-            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-search"),
+            // The halo on the tile itself, as the pill's: inside the tile it was clipped to the circle (P177).
+            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-search")
+                .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier),
         ) { focused -> SearchFace(focused, onLight) }
         // Now Playing is a Home takeover and a Control Center card now, not a pill.
         FocusTile(
@@ -104,6 +106,19 @@ fun StatusPill(
 }
 
 
+/**
+ * The status chrome's ONE glass recipe (P177), shared by the pill and the search circle: the tray's clear glass, and
+ * over light art the milky light glass with the soft halo and the glass's bright rim, so either reads as glass on a
+ * white backdrop instead of leaving only its icon.
+ */
+@Composable
+internal fun Modifier.statusGlass(shape: androidx.compose.ui.graphics.Shape, onLight: Boolean, halo: Boolean = true): Modifier {
+    val palette = LocalPalette.current
+    return this
+        .then(if (onLight && halo) Modifier.drawBehind { drawHalo() } else Modifier)
+        .glass(LocalBackdrop.current, shape, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f), edgeBand = false) else GlassStyle.shelf(palette.light).copy(edgeBand = false))
+}
+
 /** The search button as drawn: a glass circle with a magnifying glass, the pill's material. */
 @Composable
 private fun SearchFace(focused: Boolean, onLight: Boolean) {
@@ -112,7 +127,7 @@ private fun SearchFace(focused: Boolean, onLight: Boolean) {
     Box(
         Modifier
             .size(32.dp)
-            .glass(LocalBackdrop.current, CircleShape, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f), edgeBand = false) else GlassStyle.shelf(palette.light).copy(edgeBand = false))
+            .statusGlass(CircleShape, onLight, halo = false)
             .then(if (focused) Modifier.background(palette.focusFill, CircleShape) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
@@ -136,14 +151,15 @@ fun PillFace(cfg: LauncherConfig, focused: Boolean, onLight: Boolean, modifier: 
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         modifier = modifier
             // Home's pill gets its halo from its focus tile; the copy draws its own.
-            .then(if (copy && onLight) Modifier.drawBehind { drawHalo() } else Modifier)
+
             // The tray's clear glass, so the two read as one material; over light art (a white logo
             // hero) clear glass vanishes, so it is milky white there (light glass: no dark bevel, a faint
             // eased shade at the bottom), and the edge does the separating (see shadow above, rim below).
             // Glass stays put under the focus fill.
             // No drawn border: the old 22% black one read as a hard grey outline on white (P52). Over light art the
             // edge is the soft halo around the capsule (drawHalo) with the glass's own bright rim inside it.
-            .glass(LocalBackdrop.current, Shapes.pill, if (onLight) GlassStyle.shelf(true).copy(tint = Color.White.copy(alpha = 0.6f), edgeBand = false) else GlassStyle.shelf(palette.light).copy(edgeBand = false))
+            // Home's pill gets its halo from its focus tile (it lifts with it); the copy draws its own.
+            .statusGlass(Shapes.pill, onLight, halo = copy)
             .then(
                 if (focused) Modifier.background(palette.focusFill, Shapes.pill) else Modifier,
             )

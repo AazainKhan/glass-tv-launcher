@@ -137,6 +137,34 @@ class StatusPillLightTest {
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
     }
 
+    /**
+     * P177: the search circle shares the pill's glass recipe, so on a white backdrop it reads as glass too (it showed
+     * only its icon): its edge, just outside the circle, sits below the art beside it as the pill's does.
+     */
+    @Test fun theSearchCircleReadsAsGlassOnWhite() {
+        TvHarness.setUp(config = { it.copy(background = BackgroundMode.Wallpaper, wallpaperDark = solid("white", android.graphics.Color.WHITE), wallpaperLight = solid("white", android.graphics.Color.WHITE)) })
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome(); compose.settle()
+            val full = compose.onRoot().captureToImage().asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            val c = compose.onAllNodes(hasTestTag("status-search"), useUnmergedTree = true).fetchSemanticsNodes().first().boundsInRoot
+            val d = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>().resources.displayMetrics.density
+            java.io.File("build/pill-crops").mkdirs()
+            Bitmap.createBitmap(full, (c.left - 20 * d).toInt().coerceAtLeast(0), (c.top - 12 * d).toInt().coerceAtLeast(0), (220 * d).toInt().coerceAtMost(full.width - (c.left - 20 * d).toInt()), (60 * d).toInt())
+                .compress(Bitmap.CompressFormat.PNG, 100, java.io.FileOutputStream("build/pill-crops/white-chrome.png"))
+            val cx = c.center.x; val cy = c.center.y; val rad = c.width / 2
+            var es = 0f; var en = 0; var as_ = 0f; var an = 0
+            for (y in (cy - rad - 20 * d).toInt()..(cy + rad + 20 * d).toInt()) for (x in (cx - rad - 20 * d).toInt()..(cx + rad + 20 * d).toInt()) {
+                if (x < 0 || y < 0 || x >= full.width || y >= full.height) continue
+                val dist = kotlin.math.hypot(x - cx, y - cy)
+                val g = grey(full.getPixel(x, y))
+                if (dist > rad + 1 * d && dist < rad + 5 * d) { es += g; en++ }
+                if (dist > rad + 14 * d && dist < rad + 18 * d) { as_ += g; an++ }
+            }
+            val edge = es / en; val art = as_ / an
+            assertTrue("the search circle's edge ($edge) is not below the white art beside it ($art): it doesn't read as glass", art - edge >= 1f)
+        }
+    }
+
     /** Dark art is unchanged: the crop's pixels are written to build/pill-crops so a before/after hash comparison can prove it. */
     @Test fun darkPresetCropIsWritten() {
         val s = capture(Wallpaper(WallpaperKind.Preset, "aurora"))
