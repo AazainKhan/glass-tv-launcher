@@ -5,7 +5,7 @@ import dev.glasslauncher.featured.FeaturedItem
 import dev.glasslauncher.featured.normTitle
 
 /** What a search result is, in the order the results list groups them. */
-enum class SearchKind { App, Title, Movie, Show }
+enum class SearchKind { App, Title, Movie, Show, Music }
 
 /** One result row: a poster (an app's tile art, a title's poster), a name, a line under it, and what Select does. */
 data class SearchHit(
@@ -18,13 +18,17 @@ data class SearchHit(
     /** The app to launch (kind [SearchKind.App]) or the title to open, null for the other. */
     val app: AppEntry? = null,
     val item: FeaturedItem? = null,
+    /** Where the result comes from, shown under it (an app's name, "Stremio"): the user sees which app will open (P171). */
+    val source: String? = null,
+    /** A music search to run inside its own app ([MusicSources]); null for the others. */
+    val music: MusicLink? = null,
 )
 
 /**
  * System search (P161), the pure core: which of the apps, the titles the TV rows and Top Shelf already know, and the titles Cinemeta
  * finds match a typed query, best first. Matching is on [normTitle] (case, accents and punctuation do not matter): a name that starts
  * with the query beats one with a word that starts with it, which beats one that merely contains it; words typed in any order all have to
- * match. Nothing here touches the network or Android, so it is unit-tested.
+ * match; below those come the forgiving matches ([FuzzyMatch]: letters in order, one or two typos). Nothing here touches the network or Android, so it is unit-tested.
  */
 object SearchIndex {
     const val MAX_RESULTS = 30
@@ -40,29 +44,45 @@ object SearchIndex {
             t.split(' ').any { it.startsWith(q) } -> 60
             t.contains(q) -> 40
             q.split(' ').all { w -> w.isNotEmpty() && t.contains(w) } -> 30
-            else -> 0
+            else -> maxOf(FuzzyMatch.subsequence(q, t), FuzzyMatch.typo(q, t))
         }
     }
 
     fun apps(query: String, apps: List<AppEntry>): List<SearchHit> = apps.mapNotNull { a ->
         val s = score(query, a.label)
-        if (s == 0) null else SearchHit(SearchKind.App, "app:${a.packageName}", a.label, null, null, s, app = a)
+        if (s == 0) null else SearchHit(SearchKind.App, "app:${a.packageName}", a.label, "App", null, s, app = a, source = "Installed app")
     }
 
     /** Titles the TV rows, Continue Watching and the Top Shelf already carry; [kind] says whether they are movies or shows when known. */
-    fun titles(query: String, items: List<FeaturedItem>): List<SearchHit> = items.mapNotNull { i ->
+    fun titles(query: String, items: List<FeaturedItem>, labelOf: (String) -> String? = { null }): List<SearchHit> = items.mapNotNull { i ->
         val s = score(query, i.title)
+        val owner = i.owner
+        val music = owner != null && MusicSources.ofPackage(owner) != null
         if (s == 0) null else SearchHit(
-            SearchKind.Title, "title:${i.owner ?: ""}:${i.id}", i.title,
+            if (music) SearchKind.Music else SearchKind.Title, "title:${i.owner ?: ""}:${i.id}", i.title,
             listOfNotNull(i.type, i.year?.toString()).joinToString(" · ").ifEmpty { null } ?: i.subtitle ?: i.episode, i.image, s, item = i,
+            source = owner?.let { MusicSources.ofPackage(it)?.label ?: labelOf(it) },
         )
     }
+
+    /** "Search ... on Spotify" for each music app that is installed: one row per app, opening that app's own search. */
+    fun music(query: String, installed: Set<String>): List<SearchHit> {
+        if (normTitle(query).length < 2) return emptyList()
+        return MusicSources.all.mapNotNull { src ->
+            val pkg = src.packages.firstOrNull { it in installed } ?: return@mapNotNull null
+            SearchHit(SearchKind.Music, "music:${src.id}", "Search \"${query.trim()}\" on ${src.label}", "Music", null, MUSIC_ROW_SCORE, source = src.label,
+                music = MusicLink(pkg, src.links(query.trim())))
+        }
+    }
+
+    /** Below every real match, above a guess: the offer to search in a music app is always on the list once music apps exist. */
+    const val MUSIC_ROW_SCORE = 28
 
     fun remote(query: String, items: List<FeaturedItem>): List<SearchHit> = items.mapNotNull { i ->
         val s = score(query, i.title)
         if (s == 0) null else SearchHit(
             if (i.type == "Movie") SearchKind.Movie else SearchKind.Show, "cinemeta:${i.id}", i.title,
-            listOfNotNull(i.type, i.year?.toString()).joinToString(" · ").ifEmpty { null }, i.image, s, item = i,
+            listOfNotNull(i.type, i.year?.toString()).joinToString(" · ").ifEmpty { null }, i.image, s, item = i, source = "Stremio",
         )
     }
 
@@ -70,23 +90,24 @@ object SearchIndex {
      * Everything, best first: by score, then apps before titles before Cinemeta's, then by name. A title Cinemeta also found (same name
      * and year) is shown once, as the one the user's own rows know (it can resume). At most [MAX_RESULTS].
      */
-    fun merge(apps: List<SearchHit>, titles: List<SearchHit>, remote: List<SearchHit>): List<SearchHit> {
+    fun merge(apps: List<SearchHit>, titles: List<SearchHit>, remote: List<SearchHit>, music: List<SearchHit> = emptyList()): List<SearchHit> {
         val known = titles.map { normTitle(it.title) }.toSet()
         val fresh = remote.filter { normTitle(it.title) !in known }
-        return (apps + titles + fresh)
+        return (apps + titles + fresh + music)
             .sortedWith(compareByDescending<SearchHit> { it.score }.thenBy { it.kind.ordinal }.thenBy { normTitle(it.title) })
             .distinctBy { it.key }
             .take(MAX_RESULTS)
     }
 
     /** The segmented filter under the keyboard (tvOS: Top Results | TV Shows | Movies). */
-    enum class Filter(val label: String) { Top("Top Results"), Shows("TV Shows"), Movies("Movies") }
+    enum class Filter(val label: String) { Top("Top Results"), Shows("TV Shows"), Movies("Movies"), Music("Music") }
 
     /** Top Results is everything (apps too); a type tab keeps only the titles of that type (a row whose type is unknown is only in Top Results). */
     fun filter(hits: List<SearchHit>, filter: Filter): List<SearchHit> = when (filter) {
         Filter.Top -> hits
         Filter.Shows -> hits.filter { it.kind == SearchKind.Show || (it.kind == SearchKind.Title && it.item?.type == "TV Show") }
         Filter.Movies -> hits.filter { it.kind == SearchKind.Movie || (it.kind == SearchKind.Title && it.item?.type == "Movie") }
+        Filter.Music -> hits.filter { it.kind == SearchKind.Music }
     }
 
     /** Completion pills for the typed text: the names of the best results that begin with it (or have a word that does), at most [n]. */

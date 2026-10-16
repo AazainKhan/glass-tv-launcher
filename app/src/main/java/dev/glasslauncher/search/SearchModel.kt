@@ -41,16 +41,19 @@ class SearchModel(
         job?.cancel()
         if (text.isBlank()) { _results.value = emptyList(); _busy.value = false; _offline.value = false; return }
         job = scope.launch {
-            val local = SearchIndex.apps(text, apps())
-            val known = runCatching { SearchIndex.titles(text, titles()) }.getOrDefault(emptyList())
-            _results.value = SearchIndex.merge(local, known, emptyList())
+            val installed = apps()
+            val labels = installed.associate { it.packageName to it.label }
+            val local = SearchIndex.apps(text, installed)
+            val known = runCatching { SearchIndex.titles(text, titles(), labels::get) }.getOrDefault(emptyList())
+            val music = SearchIndex.music(text, labels.keys)
+            _results.value = SearchIndex.merge(local, known, emptyList(), music)
             _busy.value = true
             try {
                 delay(debounceMs)
                 val answer = runCatching { remote(text) }
                 _offline.value = answer.isFailure
                 val found = answer.getOrDefault(emptyList())
-                _results.value = SearchIndex.merge(local, known, SearchIndex.remote(text, found))
+                _results.value = SearchIndex.merge(local, known, SearchIndex.remote(text, found), music)
             } finally { _busy.value = false }
         }
     }

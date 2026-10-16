@@ -70,4 +70,36 @@ class SearchIndexTest {
             assertEquals("only the newer text's answer, never the old one's ('Old pl')", listOf("Plex", "Old plex"), model.results.value.map { it.title })
         }
     }
+
+    @Test fun aTypoStillFindsTheAppAndRanksBelowARealMatch() {
+        val out = SearchIndex.merge(SearchIndex.apps("netflx", listOf(app("Netflix"), app("Netgear"))), emptyList(), emptyList())
+        assertEquals(listOf("Netflix"), out.map { it.title })
+        val both = SearchIndex.merge(SearchIndex.apps("net", listOf(app("Netflix"), app("Planet X"))), emptyList(), emptyList())
+        assertEquals("a prefix beats a contains", "Netflix", both.first().title)
+    }
+
+    @Test fun musicOffersASearchInEachInstalledMusicAppAndTheirRowsAreMusic() {
+        val rows = SearchIndex.music("daft punk", setOf("com.spotify.tv.android", "com.google.android.youtube.tv"))
+        assertEquals(listOf("Spotify", "YouTube"), rows.map { it.source })
+        assertEquals("Search \"daft punk\" on Spotify", rows.first().title)
+        assertEquals("com.spotify.tv.android", rows.first().music!!.pkg)
+        assertTrue(rows.first().music!!.uris.first().startsWith("spotify:search:"))
+        assertTrue("YouTube's link is a web link sent only to that app", rows.last().music!!.uris.single().startsWith("https://www.youtube.com/results?search_query=daft"))
+        assertEquals("no music apps, no rows", emptyList<SearchHit>(), SearchIndex.music("daft punk", setOf("p.x")))
+        val titles = SearchIndex.titles("daft", listOf(item("Daft Punk Radio", "s1", owner = "com.spotify.tv.android"), item("Daft Movie", "m1", owner = "p.other")), mapOf("p.other" to "Prime Video")::get)
+        assertEquals(listOf(SearchKind.Music, SearchKind.Title), titles.map { it.kind })
+        assertEquals(listOf("Spotify", "Prime Video"), titles.map { it.source })
+    }
+
+    @Test fun theMusicFilterKeepsOnlyMusic() {
+        val hits = SearchIndex.music("x y", setOf("com.spotify.tv.android")) + SearchIndex.apps("x", listOf(app("X Game")))
+        assertEquals(listOf(SearchKind.Music), SearchIndex.filter(hits, SearchIndex.Filter.Music).map { it.kind })
+    }
+
+    @Test fun everyKindOfResultNamesItsSource() {
+        val apps = SearchIndex.apps("plex", listOf(app("Plex")))
+        val remote = SearchIndex.remote("matrix", listOf(item("The Matrix", "tt1", year = 1999, type = "Movie")))
+        assertEquals("Installed app", apps.single().source)
+        assertEquals("Stremio", remote.single().source)
+    }
 }

@@ -838,6 +838,7 @@ private fun SearchHost(model: HomeModel, layout: HomeLayout, active: Boolean, cl
                 onOpen = { hit ->
                     val opened = when {
                         hit.app != null -> { model.launch(hit.app); true }
+                        hit.music != null -> dev.glasslauncher.search.MusicSources.open(context, hit.music)
                         hit.item != null -> hit.item.open(context)
                         else -> false
                     }

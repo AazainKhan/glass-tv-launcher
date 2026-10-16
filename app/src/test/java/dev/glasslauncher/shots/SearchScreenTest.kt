@@ -138,4 +138,36 @@ class SearchScreenTest {
         show()
         compose.onRoot().captureRoboImage(shot("search-empty"))
     }
+
+    @Test fun noKeyClipsItsGlyphAndTheSymbolsPageHasTheMarks() {
+        show()
+        val clipped = mutableListOf<Char>()
+        for (c in "abcdefghijklmnopqrstuvwxyz") {
+            compose.onNodeWithTag("search-keyboard").performScrollToNode(hasTestTag("search-key:$c"))
+            val node = compose.onNodeWithTag("search-key:$c", useUnmergedTree = true).fetchSemanticsNode()
+            fun textWidth(n: androidx.compose.ui.semantics.SemanticsNode): Int? {
+                val rs = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                n.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(rs)
+                return rs.firstOrNull()?.size?.width ?: n.children.firstNotNullOfOrNull { textWidth(it) }
+            }
+            val w = textWidth(node) ?: continue
+            // The glyph has room on both sides inside its key.
+            if (node.boundsInRoot.width - w < 12f * compose.density.density) clipped += c
+        }
+        assertTrue("keys with no room around their letter: $clipped", clipped.isEmpty())
+        press("search-key:mode")
+        assertEquals("ABC toggles back", true, exists("search-key:mode"))
+        for (m in listOf("0", "9", ".", ",", "-", "_", "'", ":", "!", "?", "&", "@", "#", "(", ")", "/")) {
+            compose.onNodeWithTag("search-keyboard").performScrollToNode(hasTestTag("search-key:$m"))
+            assertTrue("symbols page has $m", exists("search-key:$m"))
+        }
+    }
+
+    @Test fun everyResultNamesItsSource() {
+        show(remote = { listOf(item("Netcast", "tt5", "Movie", 2020)) })
+        press("search-key:n"); press("search-key:e"); press("search-key:t")
+        compose.waitForIdle()
+        val sources = compose.onAllNodes(hasTestTag("search-source"), useUnmergedTree = true).fetchSemanticsNodes().size
+        assertTrue("each result shows its source ($sources)", sources >= 3)
+    }
 }

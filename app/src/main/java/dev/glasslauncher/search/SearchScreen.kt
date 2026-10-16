@@ -80,7 +80,8 @@ object SearchText {
 
 /** The single-row keyboard (tvOS): [123] [space] a to z [delete]; the number page swaps the letters. */
 private val LETTERS = ('a'..'z').map { it.toString() }
-private val NUMBERS = "1234567890-'.&@".map { it.toString() }
+/** The 123 page: the digits, then the marks a title or a name needs (the exact tvOS order is not known, so this is a sensible set). */
+internal val NUMBERS = "0123456789.,-_':!?&@#()/".map { it.toString() }
 
 /**
  * System search (P161): the query echoed large, a one-row keyboard, completion pills with the typed part bold, a Top Results / TV Shows /
@@ -105,6 +106,14 @@ fun SearchScreen(
     var recent by remember { mutableStateOf(RecentSearches.read(context)) }
     val first = remember { FocusRequester() }
     LaunchedEffect(active) { if (active) runCatching { first.requestFocus() } }
+    // Every key is as wide as the widest glyph on either page needs (an "m" or a "w" was clipped at a fixed width, P171).
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val keyStyle = Type.label
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val keyWidth = remember(keyStyle, density) {
+        val widest = (LETTERS + NUMBERS).maxOf { measurer.measure(it, keyStyle, softWrap = false, maxLines = 1).size.width }
+        (with(density) { widest.toDp() } + 20.dp).coerceAtLeast(36.dp).value.toInt()
+    }
     val shown = SearchIndex.filter(results, filter)
     val ink = if (palette.light) Color(0xFF14161C) else Color.White
     Column(Modifier.fillMaxSize().padding(horizontal = 48.dp).padding(top = 26.dp).testTag("search")) {
@@ -123,7 +132,7 @@ fun SearchScreen(
             item { Key(if (numbers) "abc" else "123", 64, ink, "search-key:mode") { numbers = !numbers } }
             item { Key("space", 88, ink, "search-key:space") { if (query.isNotEmpty() && !query.endsWith(" ")) model.setQuery("$query ") } }
             items(if (numbers) NUMBERS else LETTERS) { c ->
-                Key(c, 36, ink, "search-key:$c", if (c == (if (numbers) NUMBERS else LETTERS).first()) Modifier.focusRequester(first) else Modifier) { model.setQuery(query + c) }
+                Key(c, keyWidth, ink, "search-key:$c", if (c == (if (numbers) NUMBERS else LETTERS).first()) Modifier.focusRequester(first) else Modifier) { model.setQuery(query + c) }
             }
             item { Key(null, 56, ink, "search-key:delete") { if (query.isNotEmpty()) model.setQuery(query.dropLast(1)) } }
         }
@@ -186,7 +195,7 @@ private fun completion(title: String, typed: String, color: Color): AnnotatedStr
 
 /** A focusable capsule: translucent at rest, white (dark text) when focused or selected. */
 @Composable
-private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, label: String? = null, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
+private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, label: String? = null, contentPadding: androidx.compose.ui.unit.Dp = 14.dp, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val pressed = remember { booleanArrayOf(false) }
     Row(
@@ -207,7 +216,7 @@ private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = 
             }
             .semantics { role = Role.Button; label?.let { contentDescription = it }; if (selected) this.selected = true }
             .focusable()
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = contentPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) { content(focused || selected) }
@@ -216,7 +225,7 @@ private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = 
 /** One key: a letter, or [label] null for delete. */
 @Composable
 private fun Key(label: String?, width: Int, ink: Color, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Pill(ink, modifier.width(width.dp).testTag(tag), label = if (label == null) "Delete" else null, onClick = onClick) { focused ->
+    Pill(ink, modifier.width(width.dp).testTag(tag), label = if (label == null) "Delete" else null, contentPadding = 0.dp, onClick = onClick) { focused ->
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (label == null) Icon(R.drawable.ic_backspace, pillInk(focused, ink), 18)
             else Text(label, style = Type.label, color = pillInk(focused, ink), maxLines = 1, textAlign = TextAlign.Center)
@@ -274,7 +283,7 @@ private fun ResultCard(hit: SearchHit, ink: Color, onClick: () -> Unit) {
                 }
                 select
             }
-            .semantics { role = Role.Button; contentDescription = listOfNotNull(hit.title, hit.subtitle ?: if (hit.kind == SearchKind.App) "App" else null).joinToString(", ") }
+            .semantics { role = Role.Button; contentDescription = listOfNotNull(hit.title, hit.subtitle ?: if (hit.kind == SearchKind.App) "App" else null, hit.source).joinToString(", ") }
             .focusable()
             .padding(8.dp)
             .testTag("search-result:${hit.key}"),
@@ -294,6 +303,8 @@ private fun ResultCard(hit: SearchHit, ink: Color, onClick: () -> Unit) {
             val fg = if (focused) Color.Black else ink
             Text(hit.title, style = Type.secondary.copy(fontWeight = FontWeight.SemiBold), color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(hit.subtitle ?: if (hit.kind == SearchKind.App) "App" else "", style = Type.caption, color = fg.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Where it comes from: the app that will open (P171).
+            hit.source?.let { Text(it, style = Type.caption, color = fg.copy(alpha = 0.45f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("search-source")) }
         }
     }
 }
