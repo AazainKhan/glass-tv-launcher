@@ -102,6 +102,9 @@ class AppTransition(
 
     val running get() = window != null
 
+    /** An open is in flight: zooming, or waiting for the app it started to cover Home. */
+    fun launching(): Boolean = job?.isActive == true && !closing && page == null && !pageOpening
+
     /** The app hasn't been asked to start yet (the zoom is still within [HANDOFF_MS]). */
     private var startRequested = false
 
@@ -124,6 +127,9 @@ class AppTransition(
     }
 
     fun open(app: AppEntry, from: Rect?, art: ImageBitmap?, view: android.view.View) {
+        // A second Select while a launch is under way (a gamepad's quick double press, P178) is ignored: it used to
+        // cancel the zoom and start it again from the tile, a visible flash, and could start the app twice.
+        if (launching()) return
         if (from == null || backdrop.rootSize == IntSize.Zero) { model.launch(app, view, from); return }
         host = java.lang.ref.WeakReference(view)
         // A new launch: nothing has been started yet, so Back can still cancel it from its very first frame.
