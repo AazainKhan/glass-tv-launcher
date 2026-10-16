@@ -1976,8 +1976,8 @@ private fun CcAirPlayPlatter(
                 }
             }
         }
-        // The tvOS picker (TVSSAudioRoutingPanelPlatterController): one list grouped by what a device is: This TV, Headphones,
-        // Speakers (network speakers and paired Bluetooth speakers together). A click applies at once; network speakers
+        // The tvOS picker (TVSSAudioRoutingPanelPlatterController): one list under Audio Output: This TV, then every other output
+        // (paired Bluetooth headphones and speakers, network speakers), headphones first. A click applies at once; network speakers
         // multi-select, each selected one with its volume row (and the mute rule) under it. Bluetooth is one sink at a time, set through the system's A2DP.
         Text("Audio Output", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
         val route by dev.glasslauncher.sonos.SonosRoutes.state(context).collectAsStateWithLifecycle()
@@ -2020,12 +2020,8 @@ private fun CcAirPlayPlatter(
                 else -> pickNetwork(row)
             }
         }
-        var lastSection: dev.glasslauncher.sonos.OutputSection? = null
+        // One list under "Audio Output" (P172): headphones and speakers are not separate sections, each row has its own glyph.
         for (row in rows) {
-            if (row.section != lastSection && row.section != dev.glasslauncher.sonos.OutputSection.ThisTv) {
-                Text(if (row.section == dev.glasslauncher.sonos.OutputSection.Headphones) "Headphones" else "Speakers", style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
-            }
-            lastSection = row.section
             Column {
                 CcRouteRow(sz, row, dev.glasslauncher.sonos.AudioOutputs.subtitle(row, route)) { pick(row) }
                 val speaker = row.network
@@ -2056,7 +2052,11 @@ private fun CcAirPlayPlatter(
                 }
             }
         }
-        // Pairing stays in Settings (tvOS: Remotes and Devices > Bluetooth); the picker only selects among paired devices.
+        // Pairing stays in Settings (tvOS: Remotes and Devices > Bluetooth); the picker only selects among paired devices. Its own row, set
+        // apart from the outputs by a gap and a hairline (P172).
+        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(LocalPalette.current.primary.copy(alpha = 0.18f)))
+        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
         CcRouteRow(sz, dev.glasslauncher.sonos.PickerRow("pair", dev.glasslauncher.sonos.OutputSection.ThisTv, "Pair a device…", "Opens Bluetooth settings", dev.glasslauncher.sonos.OutputGlyph.Tv, false),
             "Opens Bluetooth settings", glyphRes = R.drawable.ic_bluetooth, mark = false) { dev.glasslauncher.system.SystemControls.openBluetooth(context) }
     }
