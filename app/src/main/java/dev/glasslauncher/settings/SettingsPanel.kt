@@ -1135,6 +1135,7 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
         Hint("The shortcut needs Glass TV Launcher Remote Buttons turned on in the TV's Accessibility settings.")
     }
     Hint(when {
+        !HomeSetup.isFireTv -> if (HomeSetup.isRemoteKeysEnabled(context)) "Buttons left on Default keep working as usual." else "Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings."
         !active -> "Fire TV keeps these buttons to itself. On a rooted TV, run once from a computer, then restart: ${RemoteButtons.INSTALL_COMMAND}"
         !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings."
         else -> "Home, Back, volume, power, Alexa and the TV button keep working as usual."
@@ -1173,15 +1174,16 @@ private fun ColumnScope.CcShortcutPage(model: HomeModel, cfg: LauncherConfig, f:
 private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, id: String, f: Modifier, push: (Page) -> Unit, done: () -> Unit) {
     val button = RemoteButtons.find(id)!!
     val current = RemoteButtons.action(button, cfg.remoteButtons)
+    val dflt = RemoteButtons.defaultFor(button)
     val apps = LocalContext.current.packageManager
     fun set(action: RemoteAction) {
         model.edit { it.copy(remoteButtons = it.remoteButtons + (id to action.key)) }
         done()
     }
     PanelTitle(button.label)
-    val options = listOf(button.default, RemoteAction.TvSettings, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
+    val options = listOf(dflt, RemoteAction.TvSettings, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
     options.forEachIndexed { i, a ->
-        val label = if (a == button.default && a != RemoteAction.Default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
+        val label = if (a == dflt && a != RemoteAction.Default) "${actionName(a, apps)} (Default)" else actionName(a, apps)
         MenuRow(label, { set(a) }, if (i == 0) f else Modifier, value = if (a == current) "✓" else null)
     }
     // Add-on actions (switched-on add-ons that offer some): choosing one is the consent; a stored one whose add-on is gone shows as unavailable.
@@ -1195,7 +1197,7 @@ private fun ColumnScope.ButtonActionPage(model: HomeModel, cfg: LauncherConfig, 
         }
     }
     MenuRow("Open Another App…", { push(Page.ButtonApp(id)) }, chevron = true,
-        value = (current as? RemoteAction.OpenApp)?.takeIf { it != button.default }?.let { actionName(it, apps) })
+        value = (current as? RemoteAction.OpenApp)?.takeIf { it != dflt }?.let { actionName(it, apps) })
 }
 
 @Composable
@@ -1326,10 +1328,12 @@ private fun ColumnScope.DisplayTextPage(model: HomeModel, cfg: LauncherConfig, f
     ToggleRow("Increase Contrast", cfg.increaseContrast, { v -> screen.dissolve { model.edit { it.copy(increaseContrast = v) } } })
     ToggleRow("Reduce Transparency", cfg.reduceTransparency, { v -> screen.dissolve { model.edit { it.copy(reduceTransparency = v) } } },
         help = "Makes glass solid for easier reading.")
-    SectionLabel("Fire TV")
-    MenuRow("Fire TV Accessibility", {
-        SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Accessibility" })
-    }, chevron = true, help = "High Contrast Text, Screen Magnifier and captions: Fire TV settings for every app.")
+    if (HomeSetup.isFireTv) {
+        SectionLabel("Fire TV")
+        MenuRow("Fire TV Accessibility", {
+            SystemControls.openTvSettings(context, SystemControls.tvSettingsSections.first { it.title == "Accessibility" })
+        }, chevron = true, help = "High Contrast Text, Screen Magnifier and captions: Fire TV settings for every app.")
+    }
 }
 
 /** Settings › Display & Text › Font: the interface typeface; the page itself changes with it. */

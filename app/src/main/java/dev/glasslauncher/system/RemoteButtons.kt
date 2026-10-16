@@ -85,14 +85,24 @@ object RemoteButtons {
      */
     fun actionFor(keyName: String, config: Map<String, String>, scanCode: Int = 0, deviceName: String? = null): RemoteAction? {
         val remote = all.firstOrNull { keyName in it.names || (keyName == "KEYCODE_UNKNOWN" && scanCode in it.scanCodes) }
-        if (remote != null && !(deviceName != null && keyName.startsWith("KEYCODE_BUTTON_") && !RemotePairPolicy.isAmazonRemoteName(deviceName))) return action(remote, config)
+        if (remote != null && !(deviceName != null && keyName.startsWith("KEYCODE_BUTTON_") && !RemotePairPolicy.isAmazonRemoteName(deviceName))) return action(remote, config).takeIf { it != RemoteAction.Default }
         // A controller button does something only once the user has mapped it; otherwise the app in front gets it.
         val pad = pad.firstOrNull { keyName in it.names } ?: return null
         return action(pad, config).takeIf { it != RemoteAction.Default }
     }
 
+    /**
+     * Whether this is a Fire TV, where the app buttons have Fire's own apps as defaults. On any other device those apps are not
+     * assumed: an unmapped app button keeps its system behaviour ([RemoteAction.Default]). A variable so tests can pick.
+     */
+    var fireDefaults: () -> Boolean = { HomeSetup.isFireTv }
+
+    /** What an unmapped [button] does here. */
+    fun defaultFor(button: RemoteButton): RemoteAction =
+        if (button.default is RemoteAction.OpenApp && !fireDefaults()) RemoteAction.Default else button.default
+
     fun action(button: RemoteButton, config: Map<String, String>): RemoteAction =
-        config[button.id]?.let(RemoteAction::parse)?.takeIf { it != RemoteAction.Default } ?: button.default
+        config[button.id]?.let(RemoteAction::parse)?.takeIf { it != RemoteAction.Default } ?: defaultFor(button)
 
     /** True once the remapped key layout is live (after the module is installed and the TV restarted). */
     fun takeoverActive(): Boolean = runCatching {

@@ -7,6 +7,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RemoteButtonsTest {
+    @org.junit.Before fun fireTv() { RemoteButtons.fireDefaults = { true } }
+    @org.junit.After fun reset() { RemoteButtons.fireDefaults = { dev.glasslauncher.system.HomeSetup.isFireTv } }
+
     @Test fun remappedCodesKeepFireDefaults() {
         assertEquals(RemoteAction.OpenApp("com.netflix.ninja"), RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap()))
         assertEquals(RemoteAction.OpenApp("com.amazon.firebat"), RemoteButtons.actionFor("KEYCODE_BUTTON_10", emptyMap()))
@@ -59,5 +62,13 @@ class RemoteButtonsTest {
         assertEquals(RemoteButtons.pad.size, RemoteButtons.pad.map { it.id }.toSet().size)
         assertEquals(RemoteButtons.pad.first(), RemoteButtons.find("pad:a"))
         assertEquals(RemoteButtons.all.first(), RemoteButtons.find("app1"))
+    }
+
+    @Test fun noFireAppsAreAssumedOnOtherDevices() {
+        RemoteButtons.fireDefaults = { false }
+        assertNull("an unmapped app button keeps its system behaviour", RemoteButtons.actionFor("KEYCODE_BUTTON_9", emptyMap()))
+        assertNull(RemoteButtons.actionFor("KEYCODE_APP_1", emptyMap(), 0, "Some Remote"))
+        assertEquals("a mapped one still works", RemoteAction.Home, RemoteButtons.actionFor("KEYCODE_APP_1", mapOf("app1" to "glass:home"), 0, "Some Remote"))
+        assertEquals("non-app defaults stay", RemoteAction.AppSwitcher, RemoteButtons.actionFor("KEYCODE_BUTTON_13", emptyMap()))
     }
 }
