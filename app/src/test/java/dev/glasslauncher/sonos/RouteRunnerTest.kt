@@ -31,11 +31,13 @@ class RouteRunnerTest {
 
     private class Cap(val openError: Boolean = false, val pcm: ByteArray? = ByteArray(3840) { 3 }, val endAfter: Int = Int.MAX_VALUE) : PcmCapture {
         val released = AtomicInteger(); var reads = 0
+        /** An app that opts out of capture delivers silence; flipping this is how a test plays that app. */
+        @Volatile var silent = false
         override fun open() { if (openError) error("open failed") }
         override fun read(buf: ByteArray): Int {
             if (reads++ >= endAfter) return -1
             Thread.sleep(2)
-            if (pcm == null) return buf.size // all zeros
+            if (pcm == null || silent) { java.util.Arrays.fill(buf, 0); return buf.size } // all zeros
             System.arraycopy(pcm, 0, buf, 0, buf.size); return buf.size
         }
         override fun release() { released.incrementAndGet() }
@@ -162,11 +164,14 @@ class RouteRunnerTest {
 
     @Test fun optedOutAppBlocksAndGivesTheTvItsSoundBack() {
         val m = Muter(); val spk = Spk()
-        val r = runner(m, Flag(), spk) { PlayingApp("Netflix", true, false) }
-        r.go(Cap())
+        val cap = Cap()
+        // The app opts out once the TV is muted (so PCM was flowing), and from then on its capture is silent, as a real opted-out
+        // app's is. Loud PCM after the block would resume the route, which is the runner's job but not what this test is about.
+        val r = runner(m, Flag(), spk) { if (m.state) { cap.silent = true; PlayingApp("Netflix", true, false) } else PlayingApp("Netflix", true, null) }
+        r.go(cap)
         r.await { it is RouteState.Blocked }
-        assertEquals(RouteState.Blocked("Netflix"), r.state.value)
         waitUntil { !m.state }
+        assertEquals(RouteState.Blocked("Netflix"), r.state.value)
         r.stop(); waitUntil { spk.stopped.get() >= 1 }
     }
 
