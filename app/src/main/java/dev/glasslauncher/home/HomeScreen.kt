@@ -1000,7 +1000,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     if (overlays.isNotEmpty()) { backDownOnHome = false; return@onPreviewKeyEvent false }
                     val key = moving
                     if (key != null) {
-                        if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, layout, model, metrics.columns) { moving = null }
+                        if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, model, metrics.columns) { moving = null }
                         return@onPreviewKeyEvent true
                     }
                     // Compose treats Back as "leave the focus group" first, so from the grid the first press
@@ -1345,7 +1345,9 @@ private class PreviousTiles {
     }
 }
 
-private fun handleMoveKey(keyCode: Int, key: String, layout: HomeLayout, model: HomeModel, columns: Int, done: () -> Unit) {
+private fun handleMoveKey(keyCode: Int, key: String, model: HomeModel, columns: Int, done: () -> Unit) {
+    // Built from the working copy on every press: the composed layout trails a fast D-pad repeat by a frame or more.
+    val layout = model.currentLayout()
     val pkg = key.removePrefix("app:")
     val inDock = key.startsWith("app:") && layout.dock.any { it.packageName == pkg }
     val gridIndex = layout.grid.indexOfFirst { it.key == key }

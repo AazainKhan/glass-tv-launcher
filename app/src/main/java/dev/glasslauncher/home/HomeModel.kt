@@ -162,27 +162,20 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         c.copy(customIcons = if (path == null) c.customIcons - pkg else c.customIcons + (pkg to path))
     }
 
-    /** Moves a dock or grid item by [delta] positions within its own row set. Returns false at an edge. */
+    /**
+     * The layout the next edit will start from. [layout] is built off Main and trails the working copy by a dispatcher round trip,
+     * so a held D-pad (about 30 ms apart) read stale positions and lost steps; this builds it from the newest config on the spot.
+     */
+    fun currentLayout(): HomeLayout = buildLayout(layout.value.installed, moving.value ?: config.value)
+
+    /**
+     * Moves a dock or grid item by [delta] positions within its own row set. Returns false at an edge. The position is resolved
+     * against the working copy ([movedBy]), both here and inside the update, never against [layout].
+     */
     fun move(key: String, delta: Int): Boolean {
-        val l = layout.value
-        val pkg = key.removePrefix("app:")
-        val dockIndex = l.dock.indexOfFirst { it.packageName == pkg }
-        if (key.startsWith("app:") && dockIndex >= 0) {
-            val target = dockIndex + delta
-            if (target !in l.dock.indices) return false
-            edit { c ->
-                // The tray as shown (filled apps included), so positions match what's on screen.
-                val d = l.dock.map { it.packageName }.toMutableList()
-                d.add(target, d.removeAt(dockIndex)); c.copy(dock = d)
-            }
-            return true
-        }
-        val keys = l.grid.map { it.key }.toMutableList()
-        val from = keys.indexOf(key)
-        val target = from + delta
-        if (from < 0 || target !in keys.indices) return false
-        keys.add(target, keys.removeAt(from))
-        edit { it.copy(order = keys) }
+        val apps = layout.value.installed
+        if (movedBy(moving.value ?: config.value, apps, key, delta) == null) return false
+        edit { c -> movedBy(c, apps, key, delta) ?: c }
         return true
     }
 
@@ -334,6 +327,27 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
             recentApps = (listOf(pkg) + (c.recentApps - pkg)).take(RECENT_LIMIT),
             closedRecents = c.closedRecents - pkg,
         )
+
+        /** [cfg] with [key] moved by [delta] positions in its own row set as shown; null at an edge or for an item that isn't shown. */
+        fun movedBy(cfg: LauncherConfig, apps: List<AppEntry>, key: String, delta: Int): LauncherConfig? {
+            val l = buildLayout(apps, cfg)
+            val pkg = key.removePrefix("app:")
+            val dockIndex = l.dock.indexOfFirst { it.packageName == pkg }
+            if (key.startsWith("app:") && dockIndex >= 0) {
+                val target = dockIndex + delta
+                if (target !in l.dock.indices) return null
+                // The tray as shown (filled apps included), so positions match what's on screen.
+                val d = l.dock.map { it.packageName }.toMutableList()
+                d.add(target, d.removeAt(dockIndex))
+                return cfg.copy(dock = d)
+            }
+            val keys = l.grid.map { it.key }.toMutableList()
+            val from = keys.indexOf(key)
+            val target = from + delta
+            if (from < 0 || target !in keys.indices) return null
+            keys.add(target, keys.removeAt(from))
+            return cfg.copy(order = keys)
+        }
 
         fun buildLayout(apps: List<AppEntry>, cfg: LauncherConfig): HomeLayout {
             val byPkg = apps.associateBy { it.packageName }
