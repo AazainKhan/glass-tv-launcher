@@ -20,12 +20,17 @@ object RemoteNotice {
      * [actionable]: the user must answer or act (pairing help, a code to type): it keeps its time and is shown even under Do Not Disturb.
      * A plain notice is a few seconds at most and is not shown at all while Android's Do Not Disturb is on (P163); one at a time, the rest queue.
      */
-    fun show(context: Context, text: String, forMs: Long = 4_000, actionable: Boolean = false) {
-        if (!actionable && DoNotDisturb.on(context)) return
+    fun show(context: Context, text: String, forMs: Long = 4_000, actionable: Boolean = false) = show(context, Notice(text, forMs, actionable))
+
+    /** A device came or went (P185): glyph, name, then Connected or Disconnected. Plain, so Do Not Disturb holds it back. */
+    fun showDevice(context: Context, name: String, detail: String, iconRes: Int) = show(context, Notice(name, 3_500, false, detail, iconRes))
+
+    private fun show(context: Context, notice: Notice) {
+        if (!notice.actionable && DoNotDisturb.on(context)) return
         Handler(Looper.getMainLooper()).post {
             val banner = RemoteKeysService.instance
-            if (banner != null) banner.showBanner(text, forMs, actionable)
-            else Toast.makeText(context.applicationContext, text, Toast.LENGTH_LONG).show()
+            if (banner != null) banner.showNotice(notice)
+            else Toast.makeText(context.applicationContext, listOfNotNull(notice.text, notice.detail).joinToString(": "), Toast.LENGTH_LONG).show()
         }
     }
 }
@@ -86,7 +91,6 @@ object RemoteWatch {
                         handler.postDelayed({ offerCard(app) }, RemotePairPolicy.RECONNECT_TOAST_AFTER_MS + 1_000)
                     }
                     BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                        if (RemotePairPolicy.reconnectToast(lastDisconnect, now)) RemoteNotice.show(app, "Remote connected", 2_500)
                         lastDisconnect = 0L; cardOffered = false; _card.value = false
                     }
                 }

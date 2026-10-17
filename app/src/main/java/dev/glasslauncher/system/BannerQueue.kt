@@ -4,7 +4,10 @@ import android.app.NotificationManager
 import android.content.Context
 
 /** One notice for Glass's top-right capsule. [actionable]: the user has to answer or act (pairing, a code to type, the sleep warning). */
-data class Notice(val text: String, val forMs: Long, val actionable: Boolean = false) {
+data class Notice(val text: String, val forMs: Long, val actionable: Boolean = false, val detail: String? = null, val iconRes: Int = 0) {
+    /** What makes two notices the same banner: its words, both lines (a device that connects and then disconnects is two banners). */
+    val key: String get() = text + "\u0000" + detail.orEmpty()
+
     /** How long it is up: an actionable notice for as long as it asked, a plain one no longer than [MAX_PLAIN_MS] (tvOS: informational banners are a few seconds). */
     val shownMs: Long get() = if (actionable) forMs else forMs.coerceAtMost(MAX_PLAIN_MS)
 
@@ -33,12 +36,12 @@ class BannerQueue {
     fun offer(n: Notice): Step {
         val cur = current
         if (cur == null) { current = n; return Step.Show(n) }
-        if (cur.text == n.text) {
+        if (cur.key == n.key) {
             if (n.actionable && !cur.actionable) current = n
             return Step.Extend(n.shownMs)
         }
         if (n.actionable && !cur.actionable) { current = n; return Step.Show(n) }
-        pending.removeAll { it.text == n.text }
+        pending.removeAll { it.key == n.key }
         pending.addLast(n)
         while (pending.size > MAX_PENDING) {
             val drop = pending.firstOrNull { !it.actionable } ?: pending.first()

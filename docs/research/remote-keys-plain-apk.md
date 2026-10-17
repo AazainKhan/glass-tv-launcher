@@ -22,11 +22,11 @@ input filter sees every key a window would get, before the window manager's poli
 
 | Key | Stock Android TV | Fire OS (Fire TV Stick 4K 2nd gen, Fire OS 8) |
 |---|---|---|
-| Back | yes (framework) | yes (code: the Back escape hatch and instant-back run on it) |
-| Menu (the three-line key) | yes (framework) | unverified; Glass Home itself gets it, and the filter runs before the window |
-| Play/Pause, Rewind, Fast-forward | yes (framework) | unverified |
-| Settings key (KEYCODE_SETTINGS) | yes where a remote has one | Fire does not send it; its Settings button is caught by Fire's key policy before apps and only reaches Glass with the module (code: P75) |
-| Home | yes (framework) | no: Fire OS never passes Home to accessibility services (code: P87 comment in RemoteKeysService) |
+| Back | yes (framework) | yes, KEYCODE_BACK, scan code 158 (stick, P167; also code: the Back escape hatch and instant-back run on it) |
+| Menu (the three-line key) | yes (framework) | yes, KEYCODE_MENU, scan code 139 (stick, P167): a hold opened Control Center over YouTube |
+| Play/Pause, Rewind, Fast-forward | yes (framework) | Play/Pause yes, KEYCODE_MEDIA_PLAY_PAUSE, scan code 164 (stick, P167); Rewind and Fast-forward unverified |
+| Settings key (KEYCODE_SETTINGS) | yes where a remote has one | the gear arrives as KEYCODE_UNKNOWN, scan code 185 (the module remaps 249 to 185), with the key-down only: its key-up never reaches an accessibility service (stick, P167). Fire does not send KEYCODE_SETTINGS; its Settings button is caught by Fire's key policy before apps and only reaches Glass with the module (code: P75) |
+| Home | yes (framework) | no, scan code 172: Fire intercepts it (stick, P167; code: P87 comment in RemoteKeysService) |
 | Voice / Alexa button | Assistant key: yes (framework) | consumed by Fire (Alexa) |
 | Volume, Mute, Power | volume keys: yes (framework) | consumed by Fire's key policy |
 | App buttons 1-4 | brand buttons: usually consumed by the launcher policy | consumed by Fire (reach Glass only after the module remaps them to gamepad codes) |

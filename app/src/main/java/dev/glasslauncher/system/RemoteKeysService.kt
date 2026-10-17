@@ -38,6 +38,8 @@ class RemoteKeysService : AccessibilityService() {
     // ── Banner (Sleep Timer's one-minute warning) ─────────────────────────────────────────────────
 
     private var banner: android.view.View? = null
+    private var bannerFrom = 0.9f
+    private var bannerMs = 130L
     private val dropBanner = Runnable { hideBanner(animate = true); handler.postDelayed({ nextBanner() }, 160) }
 
     /**
@@ -45,9 +47,11 @@ class RemoteKeysService : AccessibilityService() {
      * never takes focus or touches). It scales from 0.9 and fades in over 130 ms and leaves the same way, with a soft
      * 1 dp rim, not the hard stroke and the one-frame pop the Sleep Timer banner had; replaces Android's grey toast.
      */
-    fun showBanner(text: String, forMs: Long, actionable: Boolean = false) {
+    fun showBanner(text: String, forMs: Long, actionable: Boolean = false) = showNotice(Notice(text, forMs, actionable))
+
+    fun showNotice(notice: Notice) {
         handler.post {
-            when (val step = bannerQueue.offer(Notice(text, forMs, actionable))) {
+            when (val step = bannerQueue.offer(notice)) {
                 is BannerQueue.Step.Show -> present(step.notice)
                 is BannerQueue.Step.Extend -> { handler.removeCallbacks(dropBanner); handler.postDelayed(dropBanner, step.ms) }
                 BannerQueue.Step.Wait -> Unit
@@ -73,16 +77,34 @@ class RemoteKeysService : AccessibilityService() {
         run {
             hideBanner(animate = false)
             val dp = resources.displayMetrics.density
-            val view = android.widget.TextView(this).apply {
-                this.text = text
-                setTextColor(0xFFFFFFFF.toInt())
-                textSize = 16f
+            fun word(t: String, size: Float, color: Int) = android.widget.TextView(this).apply { this.text = t; setTextColor(color); textSize = size }
+            val capsule = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xE61C1C1E.toInt()); cornerRadius = 40 * dp
+                setStroke((1 * dp).toInt(), 0x1AFFFFFF)
+            }
+            val view: android.view.View = if (notice.detail == null) word(text, 16f, 0xFFFFFFFF.toInt()).apply {
                 setPadding((22 * dp).toInt(), (12 * dp).toInt(), (22 * dp).toInt(), (12 * dp).toInt())
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(0xE61C1C1E.toInt()); cornerRadius = 40 * dp
-                    setStroke((1 * dp).toInt(), 0x1AFFFFFF)
-                }
-                alpha = 0f; scaleX = 0.9f; scaleY = 0.9f
+                background = capsule
+            } else android.widget.LinearLayout(this).apply {
+                // A device notice (P185): its glyph, then its name over Connected or Disconnected.
+                orientation = android.widget.LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding((18 * dp).toInt(), (10 * dp).toInt(), (24 * dp).toInt(), (10 * dp).toInt())
+                background = capsule
+                if (notice.iconRes != 0) addView(android.widget.ImageView(context).apply {
+                    setImageResource(notice.iconRes); setColorFilter(0xFFFFFFFF.toInt())
+                }, android.widget.LinearLayout.LayoutParams((26 * dp).toInt(), (26 * dp).toInt()).apply { marginEnd = (14 * dp).toInt() })
+                addView(android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    addView(word(text, 16f, 0xFFFFFFFF.toInt()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = (360 * dp).toInt() })
+                    addView(word(notice.detail, 13f, 0xB3FFFFFF.toInt()))
+                })
+            }
+            // A device notice (P185) grows out of the top-right corner, from Control Center's place, a little further and slower than a plain
+            // line; it leaves the same way, back into that corner.
+            bannerFrom = if (notice.detail != null) 0.6f else 0.9f
+            bannerMs = if (notice.detail != null) 240L else 130L
+            view.apply {
+                alpha = 0f; scaleX = bannerFrom; scaleY = bannerFrom
                 // Grows out of its top-right corner, where the status pill is.
                 pivotX = 1_000f; pivotY = 0f
             }
@@ -100,7 +122,7 @@ class RemoteKeysService : AccessibilityService() {
                 (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params)
                 banner = view
                 view.post { view.pivotX = view.width.toFloat(); view.pivotY = 0f }
-                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(130)
+                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(bannerMs)
                     .setInterpolator(android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).start()
             }
             handler.postDelayed(dropBanner, forMs)
@@ -113,7 +135,7 @@ class RemoteKeysService : AccessibilityService() {
         banner = null
         val remove = { runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).removeView(v) } }
         if (!animate) { remove(); return }
-        v.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(130).withEndAction { remove() }.start()
+        v.animate().alpha(0f).scaleX(bannerFrom).scaleY(bannerFrom).setDuration(bannerMs).withEndAction { remove() }.start()
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
