@@ -348,6 +348,15 @@ internal val CC_BLEED = 16.dp
 /** Room above the first row inside the scrolling viewport: the 2x2's growth (104 dp x 0.105) plus a margin, so a focused tile is never cut flat (P138 G6). */
 private val CC_TOP_ROOM = 12.dp
 
+/**
+ * "Remote Settings" (and a remote's row) open Glass's Settings on Remote Buttons: the remote's own settings, not the game controllers page
+ * (P187: the pill used to route to Fire's controller settings).
+ */
+internal fun openRemoteSettings(closeAll: () -> Unit, open: (Overlay) -> Unit) {
+    dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.REMOTE_BUTTONS
+    closeAll(); open(Overlay.Settings)
+}
+
 /** Gap between the time/weather header and the title of every sub-panel (platters, confirms, the permission card): one value so they all sit alike (P176). */
 internal val CC_PANEL_TOP = 20.dp
 
@@ -1017,8 +1026,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     onMotion = { padState = padState.apply(it) })
                 else CcControllersPlatter(sz, devicePairing, onSettings = { system { SystemControls.openGameControllers(context) } }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } }, onSelect = { controllerPage = it })
             } } else if (shownPlatter == "remotes") Box(Modifier.ccPanelSlot()) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
-                CcRemotesPlatter(sz, devicePairing, onSettings = { system { SystemControls.openGameControllers(context) } }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } },
-                    onSelect = { dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.REMOTE_BUTTONS; closeAll(); open(Overlay.Settings) })
+                CcRemotesPlatter(sz, devicePairing, onSettings = { openRemoteSettings(closeAll, open) }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } },
+                    onSelect = { openRemoteSettings(closeAll, open) })
             } } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier

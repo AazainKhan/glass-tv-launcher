@@ -85,19 +85,35 @@ class RemoteRegistry(context: Context) {
 data class RemoteRow(val address: String, val name: String, val line: String)
 
 object RemoteList {
-    /** Bonded Amazon remotes with their live state (connected, battery) and what the registry last saw. */
+    /**
+     * The remotes the TV knows: bonded Amazon remotes with their live state and what the registry last saw, plus any remote that is
+     * attached as an input device right now (public API, so a remote the Bluetooth stack will not list to this app still shows).
+     */
     @android.annotation.SuppressLint("MissingPermission")
     fun read(context: Context, nowMs: Long = System.currentTimeMillis()): List<RemoteRow> {
-        val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter ?: return emptyList()
+        val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
         val seen = RemoteRegistry(context).all().associateBy { it.address }
-        return runCatching {
+        val live = connectedInputNames()
+        val bonded = runCatching {
             // Amazon remotes only (the user hasn't asked for game controllers here): by name, not by device class.
-            adapter.bondedDevices.filter { RemotePairPolicy.isAmazonRemoteName(runCatching { it.name }.getOrNull()) }.map { d ->
-                val connected = runCatching { android.bluetooth.BluetoothDevice::class.java.getMethod("isConnected").invoke(d) as Boolean }.getOrDefault(false)
+            adapter?.bondedDevices.orEmpty().filter { RemotePairPolicy.isAmazonRemoteName(runCatching { it.name }.getOrNull()) }.map { d ->
+                val name = d.name ?: "Fire TV Remote"
+                val connected = name in live || runCatching { android.bluetooth.BluetoothDevice::class.java.getMethod("isConnected").invoke(d) as Boolean }.getOrDefault(false)
                 val battery = runCatching { android.bluetooth.BluetoothDevice::class.java.getMethod("getBatteryLevel").invoke(d) as Int }.getOrDefault(-1)
                 val s = seen[d.address]
-                RemoteRow(d.address, d.name ?: "Fire TV Remote", RemoteStatus.line(connected, s?.rssi, s?.lastSeenMs ?: 0L, battery, nowMs))
+                RemoteRow(d.address, name, RemoteStatus.line(connected, s?.rssi, s?.lastSeenMs ?: 0L, battery, nowMs))
             }
         }.getOrDefault(emptyList())
+        return withInputOnly(bonded, live, nowMs)
     }
+
+    /** Remotes that are present as input devices but not in the bonded list: shown as connected, named by their device. */
+    internal fun withInputOnly(bonded: List<RemoteRow>, liveNames: Set<String>, nowMs: Long = 0L): List<RemoteRow> =
+        bonded + liveNames.filter { n -> bonded.none { it.name == n } }.map { n -> RemoteRow("input:$n", n, RemoteStatus.line(true, null, 0L, -1, nowMs)) }
+
+    /** Names of the remotes attached as external, real input devices now (virtual and built-in devices are not remotes). */
+    fun connectedInputNames(): Set<String> = runCatching {
+        android.view.InputDevice.getDeviceIds().toList().mapNotNull { android.view.InputDevice.getDevice(it) }
+            .filter { !it.isVirtual && RemotePairPolicy.isAmazonRemoteName(it.name) }.mapNotNull { it.name }.toSet()
+    }.getOrDefault(emptySet())
 }
