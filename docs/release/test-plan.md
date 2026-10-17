@@ -39,3 +39,17 @@ Emulators at API 28, 30, 31 and 34 cover OS-version crashes; smoothness needs re
 ## Results
 
 Record each hunt's result below with the date, build and numbers.
+
+### 2026-10-17: Yang, emulators (twin GlassFire_API30, plain GlassTV_API31 Android TV), master ca13f1b2 debug/release builds
+
+| Hunt | Result |
+|---|---|
+| Monkey, 50,000 events, 50 ms throttle, key-heavy (nav 45%, majornav 40%, appswitch 5%, touch 3%, no system or "any" keys) | Twin: seed 1017, 50,000 events, no crash or ANR. Plain AVD: seed 3017, 50,000 events, no crash or ANR. A first plain-AVD run (seed 2017) stopped at event 20,012 with an ANR "no focused window"; the monkey's random "any" events had pressed POWER, which put the screen to sleep (`powerPress` in the log), so it was not a Glass fault. The seed-2017 run used flags in `/tmp/monkey-flags` (anyevent 7%); later runs used anyevent 0. |
+| Failure states | Offline (wifi and data off): cold start and 3,000-event monkey, no crash, Home shows no featured shelf and no blank screen. Slow network (gsm speed, gprs delay): no crash. Spotify and Stremio not installed (twin has neither): no crash. Stale and corrupt caches (tile PNGs, featured JSON and the image cache overwritten with 37 random bytes and dated 2020), online and offline: no crash. **Full storage (/data at 0 bytes free): CRASH** at event 51, `IOException: write failed: ENOSPC` out of the DataStore config write on Main. Fixed in a3a7d0ca (`ConfigStore.update` logs and returns false); full-disk rerun clean. |
+| Clean install on the plain AVD, following `v0.3.0-beta.md` | Works after two fixes, and the guide has gaps; see below. |
+| Upgrade | Built an older 0.2.0 (0aa8c810, 2026-10-09), hid an app on the plain AVD, installed master's release build over it (same versionCode 2, so `install -r`). Layout and the hidden app survived, no welcome card again, no crash. Not covered: a real version bump, a config written by a build older than 10-09. |
+| API-level crash checks | API 30 (twin) and API 31 (Android TV) done. API 28 and 34 have no AVD here (images exist for 34 and 35 only); waiting for the Manager's go-ahead to create them. |
+
+Bugs found and fixed this round: full-disk crash (a3a7d0ca); first-run card showed Fire's adb command off Fire and its button read "Open A…" (7c9872dc); "Make Glass TV Launcher the Default" did nothing on Android TV because the Home role request was not started for a result (378554ab).
+
+Gaps in `v0.3.0-beta.md` found by the clean install: it does not say that the first launch shows a Welcome card, then a "Turn on remote buttons?" card and a "Make Glass your Home" card (both can be cancelled); that Glass's own Settings are reached through the clock pill, Control Center, then Launcher Settings (the big Settings tile opens the system settings); and that after "Make the default" Android shows a system dialog to confirm. The beta also asks for no "app list" step that exists on every device. The emulator used `-gpu swiftshader_indirect` at first and was too slow to take key presses; use `-gpu host`.
