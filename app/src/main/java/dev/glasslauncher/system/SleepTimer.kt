@@ -64,6 +64,22 @@ object SleepTimer {
         return prefs.getBoolean("warned", false) && prefs.getLong(KEY_END, 0L) > now
     }
 
+    /**
+     * Exact where the app may set exact alarms; Android 12+ makes that a permission Glass does not hold (a plain setExact threw
+     * SecurityException and crashed Control Center on Android 15), so there the alarm is inexact: a sleep timer a few minutes
+     * late is better than a crash.
+     */
+    internal fun exactAllowed(sdk: Int, canScheduleExact: Boolean) = sdk < 31 || canScheduleExact
+
+    private fun schedule(alarms: AlarmManager, at: Long, pi: PendingIntent) {
+        val exact = exactAllowed(android.os.Build.VERSION.SDK_INT, android.os.Build.VERSION.SDK_INT >= 31 && alarms.canScheduleExactAlarms())
+        try {
+            if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        } catch (_: SecurityException) {
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        }
+    }
+
     /** Starts (or, with 0, cancels) the timer. */
     fun set(context: Context, minutes: Int, now: Long = System.currentTimeMillis()) {
         val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -74,10 +90,10 @@ object SleepTimer {
         }
         val at = now + minutes * 60_000L
         prefs.edit().putLong(KEY_END, at).putInt("choice", minutes).putBoolean("warned", false).apply()
-        // Exact and allowed while idle: it fires with Glass in the background or the screensaver up.
-        alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending(context))
+        // Allowed while idle: it fires with Glass in the background or the screensaver up.
+        schedule(alarms, at, pending(context))
         // A minute before: the banner "Going to sleep in 1 minute" (any key cancels). Not for a timer of a minute or less.
-        if (minutes * 60_000L > WARN_MS) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at - WARN_MS, pendingWarn(context))
+        if (minutes * 60_000L > WARN_MS) schedule(alarms, at - WARN_MS, pendingWarn(context))
         else alarms.cancel(pendingWarn(context))
     }
 
