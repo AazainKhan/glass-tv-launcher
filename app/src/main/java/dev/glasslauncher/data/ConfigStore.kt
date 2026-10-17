@@ -34,11 +34,21 @@ class ConfigStore(private val context: Context, scope: CoroutineScope) {
     @Volatile var writes = 0
         private set
 
-    suspend fun update(transform: (LauncherConfig) -> LauncherConfig) {
-        context.dataStore.edit { prefs ->
-            prefs[key] = json.encodeToString(LauncherConfig.serializer(), transform(decode(prefs[key])))
+    /**
+     * Writes the config. A disk that cannot take the write (full storage: ENOSPC) leaves the saved config as it was and says so in
+     * the log; it must never crash the launcher, whose callers run on Main. Returns whether the write happened.
+     */
+    suspend fun update(transform: (LauncherConfig) -> LauncherConfig): Boolean {
+        try {
+            context.dataStore.edit { prefs ->
+                prefs[key] = json.encodeToString(LauncherConfig.serializer(), transform(decode(prefs[key])))
+            }
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("ConfigStore", "config not saved: ${e.message}")
+            return false
         }
         writes++ // after the write: a reader that sees the count change can read the saved config
+        return true
     }
 
     fun export(): String = json.encodeToString(LauncherConfig.serializer(), config.value)
