@@ -19,7 +19,7 @@ object RecentApps {
     }
 
     /** A real recent task: [taskId] is what [resume] needs to bring it to the front with its state intact. */
-    data class RecentTask(val packageName: String, val taskId: Int)
+    data class RecentTask(val packageName: String, val taskId: Int, val lastActiveMs: Long = 0L)
 
     /** [all] without Glass's own tasks: an unprivileged getRecentTasks returns only those, which must not count as "can see tasks". */
     fun others(all: List<RecentTask>, own: String): List<RecentTask> = all.filter { it.packageName != own }
@@ -34,10 +34,34 @@ object RecentApps {
         val am = context.getSystemService(ActivityManager::class.java) ?: return@runCatching emptyList()
         @Suppress("DEPRECATION")
         others(
-            am.getRecentTasks(maxNum, 0).mapNotNull { info -> info.baseIntent?.component?.packageName?.let { RecentTask(it, info.id) } },
+            am.getRecentTasks(maxNum, 0).mapNotNull { info -> info.baseIntent?.component?.packageName?.let { RecentTask(it, info.id, lastActive(info)) } },
             context.packageName,
         )
     }.getOrDefault(emptyList())
+
+    /** When the task was last in front (system clock ms), from the stack's own record; 0 when this Android does not tell. */
+    private fun lastActive(info: Any): Long = runCatching {
+        generateSequence(info.javaClass as Class<*>?) { it.superclass }.firstNotNullOf { c -> runCatching { c.getDeclaredField("lastActiveTime") }.getOrNull() }
+            .apply { isAccessible = true }.getLong(info)
+    }.getOrDefault(0L)
+
+    /**
+     * The task stack as "when it was last used" pairs for [order]. The real time when the system gives one. Without it every task used
+     * to be stamped "now", which is later than any close, so a closed app came straight back (P189): the time is 0 then, and a task
+     * is hidden once it has been closed, until the app is launched again (which clears the close).
+     */
+    fun usageFromTasks(tasks: List<RecentTask>): List<Pair<String, Long>> = tasks.map { it.packageName to it.lastActiveMs }
+
+    /**
+     * Removes [pkg]'s tasks from the recents (privileged builds only: ActivityManager.removeTask is a hidden call that needs the
+     * REMOVE_TASKS permission, which the glass-system module can grant), so a closed app really leaves the stack.
+     */
+    fun removeTasks(context: Context, pkg: String) {
+        val am = context.getSystemService(ActivityManager::class.java) ?: return
+        tasks(context).filter { it.packageName == pkg }.forEach { t ->
+            runCatching { ActivityManager::class.java.getMethod("removeTask", Int::class.javaPrimitiveType).invoke(am, t.taskId) }
+        }
+    }
 
     /**
      * Brings [pkg]'s live task to the front with its state intact, instead of relaunching it fresh. The id is looked
@@ -69,8 +93,7 @@ object RecentApps {
         val byPackage = installed.associateBy { it.packageName }
         val privileged = tasks(context)
         val usage = if (privileged.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            privileged.mapIndexed { i, t -> t.packageName to (now - i) }
+            usageFromTasks(privileged)
         } else {
             if (hasUsageAccess(context)) fromUsage(context, days) else emptyList()
         }
@@ -109,6 +132,7 @@ object RecentApps {
      */
     suspend fun stop(context: Context, pkg: String): Boolean {
         runCatching { context.getSystemService(ActivityManager::class.java)?.killBackgroundProcesses(pkg) }
+        removeTasks(context, pkg)
         val privileged = runCatching {
             val am = context.getSystemService(ActivityManager::class.java)
             ActivityManager::class.java.getMethod("forceStopPackage", String::class.java).invoke(am, pkg)
