@@ -13,8 +13,21 @@ if [ -z "${ANDROID_SERIAL:-}" ]; then
 fi
 TV_LOCK_DIR="${TV_LOCK_DIR:-${HOME}/.cache/glass-tv}"
 
+# One lock per physical device, whatever transport reaches it: over Wi-Fi the stick's adb serial is
+# <ip>:5555, over USB its hardware serial, and a lock keyed by either let two sessions hold "it" at
+# once. The lock is named after the device's own ro.serialno (an emulator, or an unreadable one, keeps its
+# adb serial).
+if [ -z "${TV_DEVICE_ID:-}" ] && [ -n "${ANDROID_SERIAL:-}" ]; then
+  case "$ANDROID_SERIAL" in
+    emulator-*) TV_DEVICE_ID="$ANDROID_SERIAL" ;;
+    *) TV_DEVICE_ID="$(adb -s "$ANDROID_SERIAL" shell getprop ro.serialno 2>/dev/null | tr -d '\r')"
+       [ -n "$TV_DEVICE_ID" ] || TV_DEVICE_ID="$ANDROID_SERIAL" ;;
+  esac
+  export TV_DEVICE_ID
+fi
+
 lock_owner() {  # prints the current holder of this device's lock, if any and unexpired
-  local f="$TV_LOCK_DIR/$ANDROID_SERIAL.lock"
+  local f="$TV_LOCK_DIR/${TV_DEVICE_ID:-$ANDROID_SERIAL}.lock"
   [ -f "$f" ] || return 0
   local owner until; read -r until owner < "$f"
   [ "$(date +%s)" -lt "$until" ] && echo "$owner"

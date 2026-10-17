@@ -11,7 +11,7 @@
 # Export TV_OWNER="<who>" in your session so your own scripts pass.
 set -euo pipefail
 source "$(dirname "$0")/lib/device.sh"
-mkdir -p "$TV_LOCK_DIR"; f="$TV_LOCK_DIR/$ANDROID_SERIAL.lock"
+mkdir -p "$TV_LOCK_DIR"; f="$TV_LOCK_DIR/${TV_DEVICE_ID:-$ANDROID_SERIAL}.lock"
 case "${1:-status}" in
   take)
     who="${2:?usage: scripts/stick-lock take <who> [minutes]}"; mins="${3:-30}"
