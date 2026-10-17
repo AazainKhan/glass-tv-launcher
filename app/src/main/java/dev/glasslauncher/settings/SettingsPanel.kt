@@ -959,7 +959,7 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
     },
         help = "Maps the remote's app buttons and Recent Apps, and lets Back or Home cancel an app that is still loading. Needs Glass's accessibility service: rooted installs keep it on for you; otherwise Glass asks once, and you turn it on in Fire's Accessibility settings. Back inside a running app is never changed.")
     if (!isDefault && requestIntent != null) {
-        MenuRow("Make Glass TV Launcher the Default", { runCatching { context.startActivity(requestIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+        MenuRow("Make Glass TV Launcher the Default", { runCatching { HomeSetup.startRequest(context, requestIntent) } })
     }
     if (HomeSetup.isFireTv || !isDefault) {
         SectionLabel("Fallback")

@@ -76,6 +76,24 @@ object HomeSetup {
         return settings.takeIf { it.resolveActivity(context.packageManager) != null }
     }
 
+    /**
+     * Starts what [requestDefaultHomeIntent] returned. The Home role request must be started for a result from an Activity: started
+     * with plain startActivity the system's role dialog sees no caller and quietly shows nothing ("Package name cannot be null",
+     * found on a plain Android TV AVD), so the Make Glass the Default row did nothing.
+     */
+    fun startRequest(context: Context, intent: Intent) {
+        val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
+        if (needsResult(intent) && activity != null) activity.startActivityForResult(intent, REQUEST_HOME_ROLE)
+        else context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** True for an intent that must be started for a result (the role request). */
+    fun needsResult(intent: Intent): Boolean = intent.action == ACTION_REQUEST_ROLE
+
+    private const val REQUEST_HOME_ROLE = 0x4801
+    /** RoleManager.createRequestRoleIntent's action (the constant is hidden API). */
+    const val ACTION_REQUEST_ROLE = "android.app.role.action.REQUEST_ROLE"
+
     private fun guardComponent(context: Context) = ComponentName(context, HomeGuardService::class.java)
 
     fun isGuardEnabled(context: Context): Boolean = isServiceEnabled(context, guardComponent(context))
