@@ -97,6 +97,11 @@ object HomeSetup {
         true
     }.getOrDefault(false)
 
+    /** The first-run "Make Glass your Home" card's text: the adb command names Fire's launcher, so only a Fire TV is shown it. */
+    fun homeCardText(fire: Boolean): String =
+        if (fire) "Turn on Glass in Accessibility so the Home button comes back here. Or from a computer, once: $DISABLE_STOCK_COMMAND"
+        else "Turn on Glass in Accessibility so the Home button comes back here, or choose Glass as the default in Settings, Home Button."
+
     const val DISABLE_STOCK_COMMAND = "adb shell pm disable-user --user 0 com.amazon.tv.launcher"
     const val RESTORE_STOCK_COMMAND = "adb shell pm enable com.amazon.tv.launcher"
 }

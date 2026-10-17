@@ -927,8 +927,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         dev.glasslauncher.system.KeysService.homeCardShown()
         open(Overlay.Confirm(
             "Make Glass your Home",
-            "Turn on Glass in Accessibility so the Home button comes back here. Or from a computer, once: ${dev.glasslauncher.system.HomeSetup.DISABLE_STOCK_COMMAND}",
-            "Open Accessibility Settings",
+            // The adb command names Fire's launcher: any other device is pointed at its own Home setting instead.
+            dev.glasslauncher.system.HomeSetup.homeCardText(dev.glasslauncher.system.HomeSetup.isFireTv),
+            // Short: the card's buttons are half-width, and a longer label was cut to "Open A…".
+            "Open Settings",
         ) {
             runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         })
@@ -941,7 +943,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         open(Overlay.Confirm(
             "Remote not connected",
             "Hold Home on the remote for 10 s to pair it. If that does nothing, open Fire's remote settings and choose Add New Remote.",
-            "Open Remote Settings",
+            "Open Settings",
         ) { runCatching { dev.glasslauncher.system.SystemControls.openGameControllers(context) } })
     }
     val keysCard by dev.glasslauncher.system.KeysService.card.collectAsStateWithLifecycle()
@@ -951,7 +953,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         open(Overlay.Confirm(
             "Turn on remote buttons?",
             "Glass needs its accessibility service for the remote's app buttons and instant Back. Turn it on in Accessibility settings.",
-            "Open Accessibility Settings",
+            "Open Settings",
         ) {
             runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         })
