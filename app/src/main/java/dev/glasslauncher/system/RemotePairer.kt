@@ -186,6 +186,12 @@ class RemotePairer(private val context: Context) {
             .onFailure { Log.w(TAG, "scan failed to start", it) }
         if (scanning) {
             scanStartedAt = System.currentTimeMillis()
+            // Exactly one of each, ever (P169 #4): every 25 s rescan came back through here and added another
+            // self-reposting batteryCheck without removing the last, so after 18 h some 2,600 ran on the main thread
+            // (~130 Bluetooth binder calls a second): Glass's main thread at 34% CPU, Bluetooth at 45%, an ANR at 03:01
+            // and the stick rebooting three times overnight with nobody using it.
+            handler.removeCallbacks(batteryCheck)
+            handler.removeCallbacks(rescan)
             handler.postDelayed(batteryCheck, 20_000)
             handler.postDelayed(rescan, RemotePairPolicy.RESCAN_EVERY_MS)
         }
