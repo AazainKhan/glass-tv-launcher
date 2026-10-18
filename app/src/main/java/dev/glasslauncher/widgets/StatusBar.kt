@@ -204,7 +204,7 @@ private fun DrawScope.drawHalo() {
 }
 
 @Composable
-fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
+fun rememberClock(h24: Boolean, seconds: Boolean = false, running: Boolean = true): String {
     // 12-hour time says AM or PM. Seconds tick only where asked (Control Center, while it's open): on
     // the always-visible pill they took idle CPU from 0% to 1.2% (measured), so it wakes once a minute.
     val pattern = when {
@@ -214,8 +214,9 @@ fun rememberClock(h24: Boolean, seconds: Boolean = false): String {
         else -> "h:mm a"
     }
     val step = if (seconds) 1_000L else 60_000L
-    val text by produceState(format(pattern), pattern) {
-        while (true) {
+    // P203: a parked Control Center's clock doesn't tick ([running] false); it reads the time again as it opens.
+    val text by produceState(format(pattern), pattern, running) {
+        while (running) {
             value = format(pattern)
             delay(step - WallClock.now() % step + 20)
         }

@@ -1,5 +1,6 @@
 package dev.glasslauncher.home
 
+import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.heightIn
@@ -545,7 +546,13 @@ private data class CcSurfaceElement(val shape: Shape, val sheet: CcSheetRef?) : 
 }
 
 private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.Node(), androidx.compose.ui.node.DrawModifierNode, androidx.compose.ui.node.GlobalPositionAwareModifierNode,
-    androidx.compose.ui.node.CompositionLocalConsumerModifierNode {
+    androidx.compose.ui.node.CompositionLocalConsumerModifierNode, androidx.compose.ui.node.ObserverModifierNode {
+    // P203: a closed Control Center lets go of its sheet; its tiles then drop their baked images at once, though they
+    // aren't drawn while it is parked (a draw would never come to do it).
+    override fun onAttach() { onObservedReadsChanged() }
+    override fun onObservedReadsChanged() {
+        observeReads { if (ref?.sheet == null) unbake() }
+    }
     private var origin: androidx.compose.ui.geometry.Offset? = null
     private var cachedSize = androidx.compose.ui.geometry.Size.Unspecified
     private var outline: androidx.compose.ui.graphics.Outline? = null
@@ -689,9 +696,12 @@ val CONTROL_CENTER_TILES = listOf(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit, closeTop: () -> Unit = closeAll) {
-    DisposableEffect(Unit) {
-        dev.glasslauncher.system.RemoteNotice.controlCenterOpen = true
-        onDispose { dev.glasslauncher.system.RemoteNotice.controlCenterOpen = false }
+    // Only while it is open: a closed Control Center that stays composed (Home parks it, P203; its window keeps it
+    // warm) must not hold device banners back.
+    val shown = !LocalOverlayExiting.current
+    DisposableEffect(shown) {
+        if (shown) dev.glasslauncher.system.RemoteNotice.controlCenterOpen = true
+        onDispose { if (shown) dev.glasslauncher.system.RemoteNotice.controlCenterOpen = false }
     }
     // One look in either theme, like the pill and tray: white text and glyphs on clear glass over the
     // dimmed screen (tvOS 27 Control Center isn't themed light or dark).
@@ -729,10 +739,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     LaunchedEffect(active) { if (active) { withFrameNanos { }; runCatching { first.requestFocus() } } }
     val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
 
-    val network by produceState("", active) { value = withContext(Dispatchers.IO) { SystemControls.network(context) } }
-    val wifiOn = remember(active) { SystemControls.wifiConnected(context) }
-    val bluetooth = remember(active) { SystemControls.bluetoothOn() }
-    val clock = rememberClock(cfg.clock24h)
+    // P203: these are read as Control Center opens, never while it is closed or parked (Home keeps it composed).
+    val network by produceState("", active) { if (active) { CcOpenReads.count++; value = withContext(Dispatchers.IO) { SystemControls.network(context) } } }
+    val wifiOn = rememberWhileOpen(active, false) { SystemControls.wifiConnected(context) }
+    val bluetooth = rememberWhileOpen(active, false) { SystemControls.bluetoothOn() }
+    val clock = rememberClock(cfg.clock24h, running = active)
     val headerStyle = Type.caption
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
     val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -753,7 +764,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // The tile lifted in edit mode (the hint bar, outside the scrolling tiles, reads it).
     var lifted by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Showcase add-on tiles (debug flag): the Agents card, in place of the grid like the gallery.
-    CcShowcase.enabled = cfg.ccDemoTiles || remember(active) { CcShowcase.flag(context) }
+    CcShowcase.enabled = cfg.ccDemoTiles || rememberWhileOpen(active, false) { CcShowcase.flag(context) }
     // Real add-ons (A1): their tiles are read once per open; the add-on is bound for that call only.
     LaunchedEffect(active, cfg.addonsEnabled) { if (active) dev.glasslauncher.addons.AddonHost.refresh(context, cfg.addonsEnabled) }
     val agents = remember { CcAgentState() }
@@ -789,16 +800,18 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // Null without PhairPlay: the pill never shows then. The platter and Settings read the same hub.
     val airPlay = dev.glasslauncher.system.AirPlay.rememberAirPlay(active).takeIf { it.first.availability != dev.glasslauncher.system.AirPlayAvailability.Absent }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val rooted by produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
-    var fast by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(dev.glasslauncher.system.RootFeatures.fast(context)) }
+    val rooted by produceState(dev.glasslauncher.system.Root.known, active) { if (active) value = dev.glasslauncher.system.Root.available() }
+    val fastNow = rememberWhileOpen(active, false) { dev.glasslauncher.system.RootFeatures.fast(context) }
+    var fast by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(fastNow) }
     var freed by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<Int?>(null) }
     // Clean Up's result line ("cleaning…", then what it freed, for a few seconds).
     var cleaned by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     // Sleep Timer: the end is stored; the pill re-reads it twice a minute (never per frame).
-    var sleepLeft by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(dev.glasslauncher.system.SleepTimer.remainingMs(context)) }
+    val sleepNow = rememberWhileOpen(active, 0L) { dev.glasslauncher.system.SleepTimer.remainingMs(context) }
+    var sleepLeft by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(sleepNow) }
     LaunchedEffect(active) { while (active) { sleepLeft = dev.glasslauncher.system.SleepTimer.remainingMs(context); kotlinx.coroutines.delay(30_000) } }
     val vpnConnected = dev.glasslauncher.system.VpnControl.rememberConnected(active)
-    val vpnApps = remember(active) { dev.glasslauncher.system.VpnControl.apps(context) }
+    val vpnApps = rememberWhileOpen(active, emptyList()) { dev.glasslauncher.system.VpnControl.apps(context) }
 
     fun system(go: () -> Boolean) { closeAll(); go() }
 
@@ -1020,7 +1033,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                 androidx.compose.runtime.CompositionLocalProvider(LocalCcPageIconSize provides iconSize) {
                 if (alexaPage) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 16.dp)) {
                     // The Alexa app's own icon (loaded once per open); the mic if it isn't installed.
-                    val alexaIcon = remember(active) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }
+                    val alexaIcon = rememberWhileOpen(active, null) { AlexaIcon.load(context.packageManager, 52)?.asImageBitmap() }
                     // Not editable, so out of the strip (and the walk to +) while editing.
                     layout.pages.filter { !(editing && it.id == "alexa") }.forEachIndexed { i, pg ->
                         val lit = pg.id == (hoverPage ?: pageId)
@@ -2313,3 +2326,17 @@ private fun CcVolumeRow(sz: CcSizes, speaker: dev.glasslauncher.data.AudioOutput
         }
     }
 }
+
+/**
+ * P203: [read] runs as Control Center opens ([active] turns true), never while it is closed or parked; closed (and
+ * through its close animation) it returns what the last open read, so nothing on screen changes as it leaves.
+ */
+@Composable
+internal fun <T> rememberWhileOpen(active: Boolean, initial: T, read: () -> T): T {
+    val held = remember { arrayOf<Any?>(initial) }
+    @Suppress("UNCHECKED_CAST")
+    return remember(active) { if (active) read().also { held[0] = it; CcOpenReads.count++ } else held[0] as T }
+}
+
+/** Tests only: how many open-time reads Control Center has made (P203: none while it is parked). */
+internal object CcOpenReads { @Volatile var count = 0 }

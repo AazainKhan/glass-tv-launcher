@@ -83,6 +83,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -566,6 +568,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     val reveal = remember { Animatable(0f) }
     LaunchedEffect(ready) { if (ready) reveal.animateTo(1f, tween(if (prefs.reduceMotion) 150 else 450)) }
+    // P203: Control Center is composed once, hidden, after Home has appeared, and kept between opens (as its overlay
+    // window does): composing its ~20 controls from scratch made its first frame ~110 ms on the stick, a visible
+    // stall. While parked it is "closed" (exiting, inactive): invisible, unfocusable, out of the semantics tree, and
+    // nothing in it runs (ControlCenter gates its effects on being open).
+    var ccParked by remember { mutableStateOf(false) }
+    LaunchedEffect(ready) { if (ready) { delay(CC_PARK_AFTER_MS); ccParked = true } }
 
     fun open(overlay: Overlay) {
         scope.launch {
@@ -1254,9 +1262,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             }
             // One loop over open and leaving overlays, keyed by identity, so an overlay keeps its state
             // (and its animation) when it moves from open to leaving.
-            (overlays + exiting.filter { it !in overlays }).forEach { overlay ->
+            (overlays + exiting.filter { it !in overlays } + (if (ccParked && Overlay.ControlCenter !in overlays && Overlay.ControlCenter !in exiting) listOf(Overlay.ControlCenter) else emptyList())).forEach { overlay ->
                 androidx.compose.runtime.key(System.identityHashCode(overlay)) {
-                    val leaving = overlay in exiting && overlay !in overlays
+                    val parkedCc = overlay === Overlay.ControlCenter && overlay !in overlays && overlay !in exiting
+                    val leaving = (overlay in exiting && overlay !in overlays) || parkedCc
                     val top = !leaving && overlay === overlays.lastOrNull()
                     // A confirm card sits over the page it came from (Settings), under its scrim: that page stays drawn
                     // instead of vanishing behind it (P64).
@@ -1281,7 +1290,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         if (underCcEdit) androidx.compose.animation.core.tween(if (prefs.reduceMotion) 1 else 220) else androidx.compose.animation.core.snap(),
                         label = "cc-edit-entry",
                     )
-                    Box(Modifier.fillMaxSize().testTag(tag).graphicsLayer { alpha = if (heldForCc) 0f else if (underCcEdit) editFade else (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
+                    Box(Modifier.fillMaxSize().then(if (parkedCc) Modifier.ccParked() else Modifier.testTag(tag)).graphicsLayer { alpha = if (parkedCc || heldForCc) 0f else if (underCcEdit) editFade else (if (top || leaving || underCard || overlay is Overlay.FolderOpen) 1f else 0f) * heldAlpha }) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayExiting provides leaving) {
                             OverlayContent(
                                 overlay = overlay,
@@ -1959,3 +1968,15 @@ internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
         // Only a full page (Settings and its kin) stays drawn under the card; a side panel or menu goes, so the card is the
         // one glass layer over Home instead of a second one stacked on the panel (P105 #6).
         when (stack[index]) { Overlay.Settings, Overlay.TvSettings, Overlay.ControlCenter, Overlay.Remotes, Overlay.Downloads, Overlay.Files, Overlay.AppSwitcher, is Overlay.Confirm, is Overlay.InstallConfirm -> true; else -> false }
+
+/** P203: how long after Home appears Control Center is composed (parked), so it doesn't compete with Home's first frames. */
+private const val CC_PARK_AFTER_MS = 1_500L
+
+/** A parked Control Center: no focus can enter it, and nothing of it is in the semantics tree (TalkBack, tests). */
+private fun Modifier.ccParked(): Modifier = this
+    // Not drawn at all, not just at alpha 0: HWUI then lets go of the parked tree's display lists and the textures
+    // they hold (drawn at alpha 0 it kept ~12 MB of GPU memory, over P203's 8 MB budget).
+    .drawWithContent { }
+    .clearAndSetSemantics { }
+    .focusProperties { onEnter = { cancelFocusChange() } }
+    .focusGroup()
