@@ -52,11 +52,24 @@ class CcAdaptTest {
         }
     }
 
-    @Test fun theCapKeepsHueAndLeavesDarkPixelsAlone() {
-        val dark = 0xFF101820.toInt()
-        assertTrue(CcAdapt.fit(dark) == dark)
-        val red = CcAdapt.fit(0xFFFF3030.toInt())
-        assertTrue("capped red stays reddish", (red shr 16 and 0xFF) > (red shr 8 and 0xFF))
-        assertTrue(CcAdapt.relLuminance(red) <= CcAdapt.CAP + 0.002f)
+    @Test fun anyColourBecomesTheToneWithAHint() {
+        for (c in listOf(0xFF000000.toInt(), 0xFF101820.toInt(), 0xFFFF3030.toInt(), 0xFF2050FF.toInt(), 0xFFFFFFFF.toInt())) {
+            val g = CcAdapt.fit(c)
+            val ch = listOf((g shr 16) and 0xFF, (g shr 8) and 0xFF, g and 0xFF)
+            assertTrue("fit(${Integer.toHexString(c)}) = $ch is not the neutral tone", ch.all { it in 50..60 } && ch.max() - ch.min() <= 8)
+        }
+    }
+
+    /** P188: whatever is behind, every tile reads as the same neutral glass: across all scenes within 6 levels, and neutral. */
+    @Test fun everySceneGivesTheSameNeutralGlass() {
+        val all = scenes.flatMap { (_, src) -> bake(src).pixels.toList() }
+        for (c in listOf(16, 8, 0)) {
+            val v = all.map { (it shr c) and 0xFF }
+            assertTrue("channel $c spans ${v.min()}..${v.max()} across scenes (max 6)", v.max() - v.min() <= 6)
+        }
+        for (px in all) {
+            val ch = listOf((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
+            assertTrue("a glass pixel $ch has a colour cast", ch.max() - ch.min() <= 6)
+        }
     }
 }

@@ -405,7 +405,7 @@ private const val ADD_TILE = "__add"
  */
 internal object CcMaterial {
     /** With no baked sheet (no backdrop yet): one fixed smoky colour. */
-    val fallback = Color(0xFF23262D)
+    val fallback = Color(0xFF383838) // the glass tone itself (CcAdapt.TONE), so a frame without the sheet looks the same
     /** The rim every tile keeps so it has an edge: a single thin stroke, lit from the top-left. */
     fun rimBrush(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.Brush.linearGradient(
         0f to Color.White.copy(alpha = 0.42f),
@@ -1661,6 +1661,8 @@ internal fun CcTile(
         focusedScale = LocalCcSizes.current.focusScale(width),
         shadow = true,
         shapedShadow = true,
+        // P188: no wide focus shadow; it darkened the tiles around the focused one, which read as tiles changing colour.
+        focusShadow = false,
         // Grows out of its drop as Control Center opens ([CcEmerge]).
         modifier = modifier.size(width, height).ccEmerge(emerge),
     ) { focused ->

@@ -65,6 +65,8 @@ fun FocusTile(
     shadow: Boolean = true,
     /** The shadow follows [shape] (Control Center's circles and capsules) instead of a 5:3 tile's (P149). */
     shapedShadow: Boolean = false,
+    /** The wide lifted shadow on focus. Off in Control Center (P188): it fell across the neighbouring tiles and darkened them. */
+    focusShadow: Boolean = true,
     /** tvOS 27's focus edge light: for app tiles and shelf cards only (not pills, circles or thumbnails). */
     edgeLight: Boolean = false,
     onFocusChange: (Boolean) -> Unit = {},
@@ -138,7 +140,7 @@ fun FocusTile(
                     val contactImage = if (shapedShadow) TileShadow.shaped(TileShadow.Kind.Contact, aspect, radiusFrac) else TileShadow.contact
                     val rectOf = if (shapedShadow) TileShadow::shapedRect else TileShadow::destRect
                     val focusAlpha = TileShadow.alpha(TileShadow.Kind.Focus, lift)
-                    if (focusImage != null && focusAlpha > 0.002f) {
+                    if (focusShadow && focusImage != null && focusAlpha > 0.002f) {
                         val r = rectOf(TileShadow.Kind.Focus, size.width, size.height, scale, lift, k)
                         if (!r.isEmpty) drawImage(
                             focusImage,

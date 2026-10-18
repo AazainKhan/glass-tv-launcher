@@ -65,8 +65,10 @@ class GlassMatchTest {
         val px = sheet!!.pixels!!
         assertTrue("sheet ${px.width}x${px.height}, ${px.pixels.size * 4} bytes", px.width == GlassMatch.CC_COLS && px.pixels.size * 4 <= 48 * 1024)
         assertEquals(GlassMatch.CC_LEFT, sheet.left, 0f); assertEquals(1f, sheet.bottom, 0f)
-        // It is the scene on the right (red), not the dark left half: the middle of the sheet is the red side.
+        // P188: over a saturated red scene the glass is the one neutral tone with only a hint of the scene: no channel more
+        // than 6 levels from another (it used to be clearly red, red > 2x blue).
         val mid = px.pixels[(px.height / 2) * px.width + px.width / 2]
-        assertTrue(android.graphics.Color.red(mid) > 2 * android.graphics.Color.blue(mid))
+        val ch = listOf(android.graphics.Color.red(mid), android.graphics.Color.green(mid), android.graphics.Color.blue(mid))
+        assertTrue("glass over red is $ch, not neutral", ch.max() - ch.min() <= 6)
     }
 }

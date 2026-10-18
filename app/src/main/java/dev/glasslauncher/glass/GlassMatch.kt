@@ -62,8 +62,11 @@ object GlassMatch {
      * remain "the sheet at their position" (VisualChecks.controlCenterIsOneMaterial). A departure from P10's
      * flat dimmed scene, on purpose (the user: "too sharp", "more liquid glass bubble").
      */
-    const val CC_BLUR_PASSES = 10
-    const val CC_SATURATION = 1.35f
+    // P188 (user): the glass reads as ONE colour. Each tile is a window on the blurred scene, and with the colour boosted
+    // (1.35) neighbouring tiles took clearly different casts (a blue shirt behind Bluetooth, a red wall behind Settings),
+    // which read as tiles changing colour as focus moved. Nearly grey (0.2) and twice as soft: a hint of the scene only.
+    const val CC_BLUR_PASSES = 20
+    const val CC_SATURATION = 0.2f
     const val CC_LIFT = 0.14f
     /** Light appearance's lift: its tiles must stay clearly brighter than the dark ones (ControlCenterMotionTest). */
     const val CC_LIFT_LIGHT = 0.26f

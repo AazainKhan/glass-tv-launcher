@@ -448,4 +448,19 @@ class ControlCenterMotionTest {
         }
         assertTrue(problems.distinct().take(15).joinToString("\n"), problems.isEmpty())
     }
+
+    /** Not a check: writes the tiles' bounds (fractions of the root) for the stick's per-tile colour measurement. */
+    @Test fun dumpTileBounds() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+            compose.waitForTag("control-center")
+            compose.settle()
+            val root = compose.onRoot().fetchSemanticsNode().size
+            val out = StringBuilder()
+            for ((label, r) in tileBounds()) out.append("$label\t${r.left / root.width}\t${r.top / root.height}\t${r.right / root.width}\t${r.bottom / root.height}\n")
+            java.io.File("build/cc-tile-bounds.tsv").writeText(out.toString())
+        }
+    }
 }
