@@ -88,6 +88,16 @@ class HomeBenchmarks {
         keys(D, R, L, gapMs = 500); keys(B, gapMs = 1_200)
     }
 
+    // The open users see (P197): Control Center has opened once in this process, so its shaders and textures are
+    // resident. This is the one judged against the 9/14/18 ms budget; controlCenter (every open a first open, after a
+    // force-stop) is reported as the looser first-open number.
+    @Test fun controlCenterWarm() = frames(setup = {
+        homeAtStart(); overlay("CONTROL_CENTER"); Thread.sleep(1_200); keys(B, gapMs = 1_500)
+    }) {
+        overlay("CONTROL_CENTER"); Thread.sleep(1_200)
+        keys(D, R, L, gapMs = 500); keys(B, gapMs = 1_200)
+    }
+
     @Test fun appSwitcher() = frames(setup = { homeAtStart() }) {
         overlay("APP_SWITCHER"); Thread.sleep(1_200)
         keys(R, L, gapMs = 500); keys(B, gapMs = 1_200)

@@ -45,8 +45,11 @@ rm -rf build/bench && mkdir -p build/bench && adb pull "$OUT/." build/bench >/de
 if [ "${1:-}" = profile ]; then
   dst=app/src/release/generated/baselineProfiles; mkdir -p "$dst"
   for kind in baseline startup; do
-    f="$(ls build/bench/*-${kind}-prof-*.txt 2>/dev/null | head -1)"
-    [ -n "$f" ] && { grep -E '^[HSP]*L' "$f" > "$dst/$kind-prof.txt"; echo "$(wc -l < "$dst/$kind-prof.txt") rules -> $dst/$kind-prof.txt"; }
+    # The generator may write only the startup profile (it doubles as the baseline); with pipefail a failed ls
+    # used to end the script here, so nothing was copied.
+    f="$(ls build/bench/*-${kind}-prof-*.txt 2>/dev/null | head -1 || true)"
+    if [ -z "$f" ] && [ "$kind" = baseline ]; then f="$(ls build/bench/*-startup-prof-*.txt 2>/dev/null | head -1 || true)"; fi
+    if [ -n "$f" ]; then grep -E '^[HSP]*L' "$f" > "$dst/$kind-prof.txt"; echo "$(wc -l < "$dst/$kind-prof.txt") rules -> $dst/$kind-prof.txt"; else echo "no $kind profile in build/bench" >&2; fi
   done
   exit
 fi
