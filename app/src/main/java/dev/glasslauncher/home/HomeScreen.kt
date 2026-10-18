@@ -544,8 +544,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         }
     }
     // Once Home has settled on a scene, the renderer's copies of the scenes it has left are released
-    // (see GpuCaches): they otherwise pile up while browsing titles and app heroes.
-    LaunchedEffect(backdrop.backdrop, expanded, overlays.size, ControlCenterWindow.open) {
+    // (see GpuCaches): they otherwise pile up while browsing titles and app heroes. Not on Control Center opening or
+    // closing (P197): it leaves no scene behind, and the trim (UI_HIDDEN in HWUI) dropped its shader programs, so
+    // every open reloaded ~50-70 of them (3 ms each) from the disk cache.
+    LaunchedEffect(backdrop.backdrop, expanded, overlays.size) {
         delay(GPU_TRIM_AFTER_MS)
         dev.glasslauncher.ui.GpuCaches.trim()
     }
