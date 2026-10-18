@@ -300,6 +300,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { model.endMove() } }
     LaunchedEffect(overlays.none { it is Overlay.FolderOpen }) { if (overlays.none { it is Overlay.FolderOpen }) folderMoving = null }
     var lastFocused by remember { mutableStateOf<String?>(null) }
+    // Whether any tile, the pill or the hero holds focus (the root's own focus state).
+    var rootFocused by remember { mutableStateOf(true) }
     // The list swaps layouts a tile's fade after the change landed (P62): positions shift under the focused tile,
     // so focus is put back on what it was on when that happens.
     var heldFocus by remember { mutableStateOf<String?>(null) }
@@ -856,6 +858,20 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         val last = lastFocused ?: return@LaunchedEffect
         if (overlays.isEmpty() && !expanded && moving == null && !exists(last)) focusKey(last)
     }
+    // Focus can never stay nowhere (P190): a tile that changed places (Move to, App Dock) is a new node and takes the focus of the old
+    // one with it; the layout changes only once, so nothing asked for focus again and every key reached nothing until Home. A cheap
+    // watchdog: when Home is in front, nothing is open, and no tile, the pill or the hero has had focus for two looks in a row, focus
+    // goes back to the last tile (or the first).
+    LaunchedEffect(Unit) {
+        var lost = 0
+        while (true) {
+            kotlinx.coroutines.delay(FOCUS_WATCH_MS)
+            val idle = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && view.hasWindowFocus() && overlays.isEmpty() &&
+                !expanded && moving == null && folderMoving == null && !ControlCenterWindow.open && homeLoadedForFocus(layout)
+            lost = if (idle && !rootFocused) lost + 1 else 0
+            if (lost >= 2) { lost = 0; focusKey(lastFocused ?: firstKey()) }
+        }
+    }
     // After the effect above has chosen its target (it does so before its first suspension), the layout just
     // shown becomes "before" for the next change.
     LaunchedEffect(layout) {
@@ -987,6 +1003,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 .fillMaxSize()
                 .semantics { testTagsAsResourceId = true }
                 .onSizeChanged { backdrop.rootSize = it }
+                .onFocusChanged { rootFocused = it.hasFocus }
                 // Black under the fade-in only; afterwards the backdrop is the only full-screen fill.
                 .drawBehind { if (reveal.value < 1f) drawRect(Color.Black) }
                 .onPreviewKeyEvent { ev ->
@@ -1346,6 +1363,12 @@ private class PreviousTiles {
         return (area.drop(i + 1) + area.take(i).reversed()).firstOrNull(exists)
     }
 }
+
+/** The focus watchdog only looks once Home has tiles to focus. */
+internal fun homeLoadedForFocus(layout: HomeLayout) = layout.loaded && (layout.dock.isNotEmpty() || layout.grid.isNotEmpty())
+
+/** How often the focus watchdog looks (P190). */
+private const val FOCUS_WATCH_MS = 500L
 
 private fun handleMoveKey(keyCode: Int, key: String, model: HomeModel, columns: Int, done: () -> Unit) {
     // Built from the working copy on every press: the composed layout trails a fast D-pad repeat by a frame or more.
