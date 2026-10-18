@@ -11,7 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * P188: Control Center's glass is one material on every backdrop. Every sheet pixel stays at or below [CcAdapt.CAP],
+ * P188: Control Center's glass is one material on every backdrop. P195: Liquid Glass's bake (brightness and detail, no colour). Every sheet pixel stays at or below [CcAdapt.CAP],
  * so white labels keep 4.5:1 over a white app as over a dark one; there is no light mode left to switch into.
  */
 @RunWith(AndroidJUnit4::class)
@@ -52,24 +52,23 @@ class CcAdaptTest {
         }
     }
 
-    @Test fun anyColourBecomesTheToneWithAHint() {
+    /** P195: any colour becomes neutral grey (no saturation boost, P188), within Apple's compressed, washed range. */
+    @Test fun anyColourBecomesNeutralGlass() {
         for (c in listOf(0xFF000000.toInt(), 0xFF101820.toInt(), 0xFFFF3030.toInt(), 0xFF2050FF.toInt(), 0xFFFFFFFF.toInt())) {
             val g = CcAdapt.fit(c)
             val ch = listOf((g shr 16) and 0xFF, (g shr 8) and 0xFF, g and 0xFF)
-            assertTrue("fit(${Integer.toHexString(c)}) = $ch is not the neutral tone", ch.all { it in 50..60 } && ch.max() - ch.min() <= 8)
+            assertTrue("fit(${Integer.toHexString(c)}) = $ch is not neutral glass", ch.all { it in 30..110 } && ch.max() == ch.min())
         }
     }
 
-    /** P188: whatever is behind, every tile reads as the same neutral glass: across all scenes within 6 levels, and neutral. */
-    @Test fun everySceneGivesTheSameNeutralGlass() {
-        val all = scenes.flatMap { (_, src) -> bake(src).pixels.toList() }
-        for (c in listOf(16, 8, 0)) {
-            val v = all.map { (it shr c) and 0xFF }
-            assertTrue("channel $c spans ${v.min()}..${v.max()} across scenes (max 6)", v.max() - v.min() <= 6)
-        }
-        for (px in all) {
+    /** P195: the glass keeps the scene's brightness as detail (Liquid Glass), with no colour cast anywhere. */
+    @Test fun theGlassShowsTheScenesDetailWithoutColour() {
+        fun level(name: String) = bake(scenes.first { it.first == name }.second).pixels.map { it and 0xFF }.average()
+        val dark = level("black"); val white = level("white")
+        assertTrue("white scene ($white) should read brighter than black ($dark)", white > dark + 20)
+        for ((name, src) in scenes) for (px in bake(src).pixels) {
             val ch = listOf((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
-            assertTrue("a glass pixel $ch has a colour cast", ch.max() - ch.min() <= 6)
+            assertTrue("$name: a glass pixel $ch has a colour cast", ch.max() - ch.min() <= 2)
         }
     }
 }
