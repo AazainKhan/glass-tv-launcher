@@ -166,7 +166,10 @@ private fun blurFrosted(soft: android.graphics.Bitmap, light: Boolean?): ImageBi
 fun Modifier.trapFocus(active: Boolean): Modifier =
     focusProperties { if (active) onExit = { cancelFocusChange() } else onEnter = { cancelFocusChange() } }.focusGroup()
 
-/** Right-hand glass panel that slides in, used for menus and settings. */
+/**
+ * Right-hand glass panel that slides in, used for menus and settings. A [compact] panel (a name field, P193) is not a page: it opens
+ * centred and grows in instead of sliding from the right edge.
+ */
 @Composable
 fun SidePanel(active: Boolean, width: Dp = 420.dp, compact: Boolean = false, paneTitle: String = "Menu", content: @Composable BoxScope.() -> Unit) {
     val enter = rememberOverlayEnter()
@@ -179,12 +182,15 @@ fun SidePanel(active: Boolean, width: Dp = 420.dp, compact: Boolean = false, pan
     ) {
         GlassBox(
             modifier = Modifier
-                .align(Alignment.CenterEnd)
+                .align(if (compact) Alignment.Center else Alignment.CenterEnd)
                 .padding(18.dp)
                 .width(width)
                 // A compact panel is as tall as its rows (P154: a name field is not a full-height page).
                 .then(if (compact) Modifier.wrapContentHeight() else Modifier.fillMaxHeight())
-                .graphicsLayer { translationX = OverlayMotion.slide(enter.value, reduceMotion) * 80.dp.toPx() }
+                .graphicsLayer {
+                    if (compact) { val sc = OverlayMotion.scale(enter.value, reduceMotion); scaleX = sc; scaleY = sc }
+                    else translationX = OverlayMotion.slide(enter.value, reduceMotion) * 80.dp.toPx()
+                }
                 .trapFocus(active)
                 .semantics { this.paneTitle = paneTitle },
             content = content,
