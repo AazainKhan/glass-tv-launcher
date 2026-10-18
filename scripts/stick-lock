@@ -25,7 +25,9 @@ case "${1:-status}" in
     lock_clear; echo "released $ANDROID_SERIAL" ;;
   status)
     owner="$(lock_owner)"
-    if [ -n "$owner" ]; then echo "$ANDROID_SERIAL: locked by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)"; else echo "$ANDROID_SERIAL: free"; fi ;;
+    # Exit 3 when someone other than TV_OWNER holds it, so `stick-lock status && <device command>` really guards.
+    if [ -n "$owner" ]; then echo "$ANDROID_SERIAL: locked by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)"; [ "$owner" = "${TV_OWNER:-}" ] || exit 3
+    else echo "$ANDROID_SERIAL: free"; fi ;;
   hold)
     who="${2:?usage: scripts/stick-lock hold <who> [--max <minutes>] -- <command…>}"; shift 2
     max=60
