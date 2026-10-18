@@ -562,6 +562,9 @@ fun AnchoredMenu(
                         val s = 0.85f + 0.15f * enter.value
                         scaleX = s; scaleY = s
                         alpha = enter.value
+                        // Alpha per draw op, not one offscreen layer for the whole panel: the layer was flushed and redrawn on every
+                        // enter frame (P204). The panel is at full alpha once it has arrived, so nothing differs at rest.
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(originX.floatValue, 0.5f)
                     }
                     .trapFocus(active),
