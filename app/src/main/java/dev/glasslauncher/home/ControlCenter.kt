@@ -165,8 +165,10 @@ private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { f
  * (black [LABEL_SHADOW_ALPHA], [LABEL_SHADOW_BLUR] soft), labels only: glyphs have none (user: a dark spot under an icon
  * looked wrong).
  */
-private const val LABEL_SHADOW_ALPHA = 0.4f
-private val LABEL_SHADOW_BLUR = 6.dp
+/** P206 E: a faint black wash over the dock's clear glass, so white labels keep 4.5:1 at their brightest surround over white art. */
+private val E_WASH = androidx.compose.ui.graphics.SolidColor(Color.Black.copy(alpha = 0.18f))
+private const val LABEL_SHADOW_ALPHA = 0.45f
+private val LABEL_SHADOW_BLUR = 4.dp
 
 @Composable
 private fun shadowed(style: androidx.compose.ui.text.TextStyle): androidx.compose.ui.text.TextStyle {
@@ -621,6 +623,7 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         // dark, CcAdapt) goes over it: the same material in every state and on every backdrop.
         drawOutline(o, androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
         if (hardwareCanvas()) drawOutline(o, b)
+        if (hardwareCanvas() && dev.glasslauncher.glass.CcAdapt.variant == "E") drawOutline(o, E_WASH)
         if (sheet != null && hardwareCanvas()) drawOutline(o, bevel ?: sheet.bevelBrush(size.height).also { bevel = it })
         // P195: Liquid Glass's edge (rom/research/liquid-glass-recipe.md §4A): the soft inner shadow and the lit rim
         // depend only on the shape, so they are baked once per shape and size into one bitmap and drawn as one image
@@ -649,6 +652,7 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
                     androidx.compose.ui.graphics.drawscope.CanvasDrawScope().draw(d, dir, canvas, sz) {
                         drawOutline(o, androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
                         drawOutline(o, b)
+                        if (dev.glasslauncher.glass.CcAdapt.variant == "E") drawOutline(o, E_WASH)
                         drawOutline(o, bv)
                         drawImage(ed)
                     }
