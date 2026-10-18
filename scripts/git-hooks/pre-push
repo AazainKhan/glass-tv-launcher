@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Every push runs the leak check, and the gates unless scripts/gates passed for this exact tree. A push can then
+# never follow a failed gate or leak check, however the command that pushes was chained (a `;` chain twice nearly
+# pushed the wrong build). Skip once with: git push --no-verify
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+out="$(scripts/leak-check 2>&1)" || true
+echo "$out" | grep -q clean || { echo "$out" >&2; echo "pre-push: leak-check failed; not pushing." >&2; exit 1; }
+stamp="$(git rev-parse --git-dir)/gates-ok"
+if [ "$(cat "$stamp" 2>/dev/null)" != "$(git rev-parse 'HEAD^{tree}')" ]; then
+  echo "pre-push: no passing scripts/gates for this tree; running the gates…" >&2
+  scripts/gates >&2 || { echo "pre-push: gates failed; not pushing." >&2; exit 1; }
+fi
