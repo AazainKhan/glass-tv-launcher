@@ -51,7 +51,9 @@ class RemoteKeysService : AccessibilityService() {
 
     fun showNotice(notice: Notice) {
         handler.post {
-            when (val step = bannerQueue.offer(notice)) {
+            val step = bannerQueue.offer(notice)
+            android.util.Log.i("RemoteKeysService", "banner ${step::class.simpleName}: ${notice.text}")
+            when (step) {
                 is BannerQueue.Step.Show -> present(step.notice)
                 is BannerQueue.Step.Extend -> { handler.removeCallbacks(dropBanner); handler.postDelayed(dropBanner, step.ms) }
                 BannerQueue.Step.Wait -> Unit
@@ -120,11 +122,12 @@ class RemoteKeysService : AccessibilityService() {
             }
             runCatching {
                 (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params)
+                android.util.Log.i("RemoteKeysService", "banner drawn: $text")
                 banner = view
                 view.post { view.pivotX = view.width.toFloat(); view.pivotY = 0f }
                 view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(bannerMs)
                     .setInterpolator(android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).start()
-            }
+            }.onFailure { android.util.Log.w("RemoteKeysService", "banner could not be drawn: $text", it) }
             handler.postDelayed(dropBanner, forMs)
         }
     }

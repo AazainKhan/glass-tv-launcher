@@ -14,11 +14,17 @@ import kotlinx.coroutines.flow.StateFlow
 object RemoteNotice {
     const val STALE_BOND = "The remote kept an old pairing. Hold Left + Menu + Back for 12 s to reset it, then hold Home for 10 s."
 
+    /** What [show] did with a notice, decided at once (the drawing itself is posted to the main thread). */
+    enum class Outcome { Banner, Toast, Suppressed }
+
+    private const val TAG = "RemoteNotice"
+
     /**
      * [actionable]: the user must answer or act (pairing help, a code to type): it keeps its time and is shown even under Do Not Disturb.
      * A plain notice is a few seconds at most and is not shown at all while Android's Do Not Disturb is on (P163); one at a time, the rest queue.
+     * Returns which path took it, and logs it (tag RemoteNotice), so a missing banner can be traced to Do Not Disturb, the toast fallback or the banner.
      */
-    fun show(context: Context, text: String, forMs: Long = 4_000, actionable: Boolean = false) = show(context, Notice(text, forMs, actionable))
+    fun show(context: Context, text: String, forMs: Long = 4_000, actionable: Boolean = false): Outcome = show(context, Notice(text, forMs, actionable))
 
     /** A device came or went (P185): glyph, name, then Connected or Disconnected. Plain, so Do Not Disturb holds it back. */
     fun showDevice(context: Context, name: String, detail: String, iconRes: Int) {
@@ -29,13 +35,19 @@ object RemoteNotice {
     /** True while Control Center is up: a device banner would sit over its top tiles, and the device list there already shows the change. */
     @Volatile var controlCenterOpen = false
 
-    private fun show(context: Context, notice: Notice) {
-        if (!notice.actionable && DoNotDisturb.on(context)) return
+    private fun show(context: Context, notice: Notice): Outcome {
+        if (!notice.actionable && DoNotDisturb.on(context)) {
+            android.util.Log.i(TAG, "held back by Do Not Disturb: ${notice.text}")
+            return Outcome.Suppressed
+        }
+        val viaBanner = RemoteKeysService.instance != null
+        android.util.Log.i(TAG, "${if (viaBanner) "banner" else "toast"}: ${notice.text}")
         Handler(Looper.getMainLooper()).post {
             val banner = RemoteKeysService.instance
             if (banner != null) banner.showNotice(notice)
             else Toast.makeText(context.applicationContext, listOfNotNull(notice.text, notice.detail).joinToString(": "), Toast.LENGTH_LONG).show()
         }
+        return if (viaBanner) Outcome.Banner else Outcome.Toast
     }
 }
 

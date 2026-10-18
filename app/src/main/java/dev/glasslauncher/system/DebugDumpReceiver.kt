@@ -18,6 +18,19 @@ class DebugDumpReceiver : BroadcastReceiver() {
             context.startActivity(Intent(context, dev.glasslauncher.MainActivity::class.java).setAction(dev.glasslauncher.MainActivity.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
             return
         }
+        // A plain notice, to see whether the banner works at all (after a service restart, say): `--es notice "text"`; the result says
+        // which path took it (Banner, Toast, Suppressed). `--ez crash_notice true` runs the crash-recovery path as if the last exit were a crash.
+        intent.getStringExtra("notice")?.let { text ->
+            resultData = RemoteNotice.show(context, text).name
+            return
+        }
+        if (intent.getBooleanExtra("crash_notice", false)) {
+            val now = System.currentTimeMillis()
+            CrashRecovery.record(context, android.app.ApplicationExitInfo.REASON_CRASH, now, now)
+            CrashRecovery.showPending(context)
+            resultData = "crash notice run"
+            return
+        }
         // A device notice for the device tests: `--es device "Xbox Wireless Controller" --es kind gamepad --ez connected true --ei battery 80`.
         intent.getStringExtra("device")?.let { name ->
             val kind = DeviceKind.entries.firstOrNull { it.name.equals(intent.getStringExtra("kind"), true) } ?: DeviceKind.Other
