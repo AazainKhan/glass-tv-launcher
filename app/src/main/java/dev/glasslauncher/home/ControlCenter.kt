@@ -161,14 +161,30 @@ internal val CcSectionHeader @Composable get() = Type.caption.copy(fontSize = 12
 private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { false }
 
 /**
+ * P206 E: the tiles are the dock's clear glass, so a label can sit on bright art. It gets a subtle shadow of its own
+ * (black [LABEL_SHADOW_ALPHA], [LABEL_SHADOW_BLUR] soft), labels only: glyphs have none (user: a dark spot under an icon
+ * looked wrong).
+ */
+private const val LABEL_SHADOW_ALPHA = 0.4f
+private val LABEL_SHADOW_BLUR = 6.dp
+
+@Composable
+private fun shadowed(style: androidx.compose.ui.text.TextStyle): androidx.compose.ui.text.TextStyle {
+    if (dev.glasslauncher.glass.CcAdapt.variant != "E") return style
+    val px = with(androidx.compose.ui.platform.LocalDensity.current) { LABEL_SHADOW_BLUR.toPx() }
+    return style.copy(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = LABEL_SHADOW_ALPHA), androidx.compose.ui.geometry.Offset(0f, px / 4f), px))
+}
+
+/**
  * A pill's one line of text (F05): never an ellipsis. Text that fits is as it was; text that does not fades out at its
  * right edge, and scrolls (a marquee) only while its tile has focus, as tvOS's labels do.
  */
 @Composable
 internal fun PillText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, modifier: Modifier = Modifier, lines: Int = 1) {
     // A title with no value line under it wraps at its spaces onto a second line, as tvOS's do ("Do Not / Disturb"); never mid-word, never an ellipsis.
-    if (lines > 1) { Text(text, style = style, color = color, maxLines = lines, softWrap = true, overflow = TextOverflow.Clip, modifier = modifier); return }
-    dev.glasslauncher.ui.MarqueeText(text, style, color, active = LocalCcTileFocused.current, modifier = modifier)
+    val st = shadowed(style)
+    if (lines > 1) { Text(text, style = st, color = color, maxLines = lines, softWrap = true, overflow = TextOverflow.Clip, modifier = modifier); return }
+    dev.glasslauncher.ui.MarqueeText(text, st, color, active = LocalCcTileFocused.current, modifier = modifier)
 }
 
 /** Platter push and pop (TVSPAnimator): spring mass 1, stiffness 150, damping 20 is a damping ratio of 20 / (2 * sqrt(150)). */
@@ -901,7 +917,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         // kept), the one the tray samples, instead of Control Center's neutral heavy-blur sheet. Taken once per open, so
         // it stays still while Control Center is up, as the sheet did.
         val material = if (dev.glasslauncher.glass.CcAdapt.variant == "E") glassState.backdrop?.let { b ->
-            GlassMatch.PanelSheet(b.clearLegible.asAndroidBitmap(), 0f, 0f, 1f, 1f, null)
+            val bmp = b.clearLegible.asAndroidBitmap()
+            // Tests read the material's pixels (GlassMatch.keepPixels); a hardware bitmap can't be read, the JVM's can.
+            val px = if (GlassMatch.keepPixels && bmp.config != android.graphics.Bitmap.Config.HARDWARE)
+                GlassMatch.Sheet(IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) }, bmp.width, bmp.height) else null
+            GlassMatch.PanelSheet(bmp, 0f, 0f, 1f, 1f, px)
         } else glassState.backdrop?.ccSheet
         sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(material, root, light = false)
         inkTarget.floatValue = 0f
@@ -1590,8 +1610,8 @@ private val LocalRouteInk = androidx.compose.runtime.compositionLocalOf<Color?> 
 private fun BigIcon(@DrawableRes icon: Int, title: String, fg: Color, value: String? = null, on: Boolean = false, accent: Color = fg) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.5.dp)) {
         Glyph(icon, toggleTint(on, fg, accent), Modifier.size(LocalCcSizes.current.bigGlyph))
-        Text(title, style = Type.caption, color = fg)
-        value?.let { Text(it, style = Type.caption, color = fg.copy(alpha = 0.7f), maxLines = 1) }
+        Text(title, style = shadowed(Type.caption), color = fg)
+        value?.let { Text(it, style = shadowed(Type.caption), color = fg.copy(alpha = 0.7f), maxLines = 1) }
     }
 }
 

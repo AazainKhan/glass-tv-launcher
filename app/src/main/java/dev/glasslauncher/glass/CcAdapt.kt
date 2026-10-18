@@ -53,9 +53,11 @@ object CcAdapt {
      * C: B with a quarter of the scene's colour. Only the JVM's software canvas can't show the sheet, so the choice
      * is made from stick screenshots; the losing recipes go once the user has picked.
      */
-    @Volatile var variant = "A"
+    /** The recipe when files/cc-glass names none: E. The JVM suite pins A (TvHarness): its software canvas can't draw the sheet at all. */
+    @Volatile var defaultVariant = "E"
+    @Volatile var variant = "E"
     @Volatile var variantFile: java.io.File? = null
-    fun readVariant() { variant = runCatching { variantFile?.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()?.takeIf { it in setOf("A", "B", "C", "E") } ?: "A" }
+    fun readVariant() { variant = runCatching { variantFile?.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()?.takeIf { it in setOf("A", "B", "C", "E") } ?: defaultVariant }
 
     fun fit(argb: Int): Int {
         val v = toSrgb(relLuminance(argb)) / 255f * DIM

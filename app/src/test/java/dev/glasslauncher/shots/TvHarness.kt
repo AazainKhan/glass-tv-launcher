@@ -94,6 +94,10 @@ object TvHarness {
     fun setUp(featured: Boolean = true, squareFeed: Boolean = false, config: (LauncherConfig) -> LauncherConfig = { it }) {
         // Keep Control Center's sheet (baked with each backdrop) readable, so tests can compare the tiles with it.
         dev.glasslauncher.home.CcMaterial.recordLast = true
+        // P206: Control Center's default is the dock's clear glass (E), which this software canvas can't draw (it shows the
+        // fallback fill), so the screens and material checks here run on A, the tone the fallback matches. E is checked
+        // on the stick (contrast, stability) and by CcDockGlassTest.
+        dev.glasslauncher.glass.CcAdapt.defaultVariant = "A"; dev.glasslauncher.glass.CcAdapt.variant = "A"
         dev.glasslauncher.glass.GlassMatch.keepPixels = true
         blockNetwork()
         pinClock()
