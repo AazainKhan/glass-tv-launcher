@@ -28,8 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import kotlin.math.roundToInt
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -275,48 +276,40 @@ private fun ColumnScope.MoveToBody(
 }
 
 /**
- * Menu glyphs drawn from a bitmap rasterized once per size (P204). A vector painter builds a small composition of its own the first
- * time each icon is drawn: seven of them made the app menu's first frame ~90 ms on the stick. A bitmap is one cheap draw; [warm] makes
- * them before the first menu opens, off the main thread.
+ * Menu glyphs drawn as platform VectorDrawables (P204). A Compose vector painter builds a small composition of its own the first
+ * time each icon is drawn (seven of them were most of the app menu's first-frame applyChanges), and a tinted bitmap needs a
+ * renderer program the vectors never did (a 300 ms first frame on the stick). A VectorDrawable records straight into the display
+ * list. [warm] inflates each one before the first menu opens, off the main thread; every draw gets its own copy, since the tint is
+ * state on the drawable.
  */
 internal object MenuIcons {
-    private val cache = java.util.concurrent.ConcurrentHashMap<Long, androidx.compose.ui.graphics.ImageBitmap>()
+    private val states = java.util.concurrent.ConcurrentHashMap<Int, android.graphics.drawable.Drawable.ConstantState>()
     val ALL = intArrayOf(
         dev.glasslauncher.R.drawable.ic_tv, dev.glasslauncher.R.drawable.ic_apps, dev.glasslauncher.R.drawable.ic_drive_file_move,
         dev.glasslauncher.R.drawable.ic_image, dev.glasslauncher.R.drawable.ic_visibility_off, dev.glasslauncher.R.drawable.ic_info,
         dev.glasslauncher.R.drawable.ic_do_not_disturb_on,
     )
 
-    fun sizePx(context: android.content.Context): Int = (22 * context.resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
-
-    fun get(context: android.content.Context, @androidx.annotation.DrawableRes icon: Int, px: Int): androidx.compose.ui.graphics.ImageBitmap? =
-        cache.getOrPut((icon.toLong() shl 32) or px.toLong()) {
-            val d = androidx.core.content.ContextCompat.getDrawable(context, icon)?.mutate() ?: return null
-            d.toBitmap(px, px).asImageBitmap()
-        }
-
-    /** The app menu's glyphs, made ahead of time. */
-    fun warm(context: android.content.Context) {
-        val px = sizePx(context)
-        ALL.forEach { runCatching { get(context, it, px) } }
+    fun drawable(context: android.content.Context, @androidx.annotation.DrawableRes icon: Int): android.graphics.drawable.Drawable? {
+        val state = states[icon] ?: androidx.core.content.ContextCompat.getDrawable(context, icon)?.constantState?.also { states[icon] = it } ?: return null
+        return state.newDrawable(context.resources).mutate()
     }
+
+    /** The app menu's glyphs, inflated ahead of time. */
+    fun warm(context: android.content.Context) = ALL.forEach { runCatching { drawable(context, it) } }
 }
 
 @Composable
 internal fun MenuIcon(@androidx.annotation.DrawableRes icon: Int) {
     val context = LocalContext.current
-    val px = MenuIcons.sizePx(context)
-    val bitmap = remember(icon, px) { MenuIcons.get(context, icon, px) }
-    if (bitmap == null) {
-        Box(Modifier.size(22.dp))
-        return
+    val drawable = remember(icon) { MenuIcons.drawable(context, icon) }
+    val tint = androidx.tv.material3.LocalContentColor.current
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        drawable ?: return@Canvas
+        drawable.setBounds(0, 0, size.width.roundToInt(), size.height.roundToInt())
+        drawable.setTint(tint.toArgb())
+        drawIntoCanvas { drawable.draw(it.nativeCanvas) }
     }
-    Image(
-        bitmap,
-        contentDescription = null,
-        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.tv.material3.LocalContentColor.current),
-        modifier = Modifier.size(22.dp),
-    )
 }
 
 @Composable
