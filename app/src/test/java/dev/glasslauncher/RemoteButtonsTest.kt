@@ -71,4 +71,21 @@ class RemoteButtonsTest {
         assertEquals("a mapped one still works", RemoteAction.Home, RemoteButtons.actionFor("KEYCODE_APP_1", mapOf("app1" to "glass:home"), 0, "Some Remote"))
         assertEquals("non-app defaults stay", RemoteAction.AppSwitcher, RemoteButtons.actionFor("KEYCODE_BUTTON_13", emptyMap()))
     }
+
+    @Test fun aControllerButtonCanBeMappedForOneControllerOnly() {
+        val cfg = mapOf(RemoteButtons.padKey("Xbox Wireless Controller", "start") to "glass:control_center")
+        assertEquals(RemoteAction.ControlCenter, RemoteButtons.actionFor("KEYCODE_BUTTON_START", cfg, 0, "Xbox Wireless Controller"))
+        assertNull("another controller keeps the default", RemoteButtons.actionFor("KEYCODE_BUTTON_START", cfg, 0, "8BitDo Pro 2"))
+        // The one for every controller still applies where the controller has none of its own.
+        val both = cfg + ("pad:start" to "glass:home")
+        assertEquals(RemoteAction.Home, RemoteButtons.actionFor("KEYCODE_BUTTON_START", both, 0, "8BitDo Pro 2"))
+        assertEquals(RemoteAction.ControlCenter, RemoteButtons.actionFor("KEYCODE_BUTTON_START", both, 0, "Xbox Wireless Controller"))
+    }
+
+    @Test fun aPerControllerIdFindsItsButton() {
+        val b = RemoteButtons.find(RemoteButtons.padKey("Xbox Wireless Controller", "mode"))!!
+        assertEquals("pad:Xbox Wireless Controller:mode", b.id)
+        assertEquals("Guide", b.label)
+        assertNull(RemoteButtons.find("pad:Xbox:nonsense"))
+    }
 }

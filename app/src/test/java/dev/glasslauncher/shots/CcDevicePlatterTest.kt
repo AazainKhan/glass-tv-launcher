@@ -2,7 +2,10 @@ package dev.glasslauncher.shots
 
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -79,5 +82,21 @@ class CcDevicePlatterTest {
         assertEquals("no device rows", 0, compose.onAllNodes(hasTestTag("cc-device-0")).fetchSemanticsNodes().size)
         compose.onNodeWithTag("cc-action-pair").assertIsDisplayed()
         check("Controller Settings")
+    }
+
+    /** P186: a device that just paired is focused as soon as the list has it, then the request is cleared. */
+    @Test fun aJustPairedDeviceTakesFocusWhenItAppears() {
+        var rows by androidx.compose.runtime.mutableStateOf(emptyList<CcDeviceRow>())
+        var cleared = 0
+        compose.setContent {
+            CcDevicePlatter(sz, "Test", "platter", rows, R.drawable.ic_settings_remote, "Settings", {}, focusName = "8BitDo Pro 2", onFocused = { cleared++ })
+        }
+        compose.waitForIdle(); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertEquals("nothing to focus yet: the request waits", 0, cleared)
+        rows = listOf(CcDeviceRow("Xbox Wireless Controller", "Connected", true), CcDeviceRow("8BitDo Pro 2", "Connected", true))
+        compose.waitForIdle(); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertEquals(1, cleared)
+        val focused = compose.onNodeWithTag("cc-device-1").fetchSemanticsNode().config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Focused)
+        assertEquals("the new device's row has focus", true, focused)
     }
 }

@@ -11,6 +11,13 @@ import android.content.Intent
  */
 class DebugDumpReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // A device's page for the device tests: `--es open_device gamepad:Xbox` (or remote:Name) opens Settings on it.
+        intent.getStringExtra("open_device")?.let { spec ->
+            val kind = if (spec.startsWith("remote:")) dev.glasslauncher.home.PageKind.Remote else dev.glasslauncher.home.PageKind.Gamepad
+            dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.device(kind, spec.substringAfter(':'))
+            context.startActivity(Intent(context, dev.glasslauncher.MainActivity::class.java).setAction(dev.glasslauncher.MainActivity.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            return
+        }
         // A device notice for the device tests: `--es device "Xbox Wireless Controller" --es kind gamepad --ez connected true --ei battery 80`.
         intent.getStringExtra("device")?.let { name ->
             val kind = DeviceKind.entries.firstOrNull { it.name.equals(intent.getStringExtra("kind"), true) } ?: DeviceKind.Other

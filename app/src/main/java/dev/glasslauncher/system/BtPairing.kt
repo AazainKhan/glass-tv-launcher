@@ -30,6 +30,9 @@ class BtPairing(context: Context) {
     val found: StateFlow<List<BtFound>> = _found
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning
+    private val _bonded = MutableStateFlow<BtFound?>(null)
+    /** The device that just bonded (P186): the pairing page returns to the list when this is set. */
+    val bonded: StateFlow<BtFound?> = _bonded
     private var registered = false
 
     private val receiver = object : BroadcastReceiver() {
@@ -49,7 +52,10 @@ class BtPairing(context: Context) {
                         BluetoothDevice.BOND_BONDING -> mark(d.address, true)
                         else -> {
                             // Bonded: it moves to the connected list on the next refresh. Failed: back to idle in the list.
-                            if (d.bondState == BluetoothDevice.BOND_BONDED) _found.value = _found.value.filter { it.address != d.address } else mark(d.address, false)
+                            if (d.bondState == BluetoothDevice.BOND_BONDED) {
+                                _bonded.value = _found.value.firstOrNull { it.address == d.address } ?: BtFound(d.address, runCatching { d.name }.getOrNull().orEmpty(), BtKind.Other)
+                                _found.value = _found.value.filter { it.address != d.address }
+                            } else mark(d.address, false)
                         }
                     }
                 }
@@ -90,7 +96,7 @@ class BtPairing(context: Context) {
             })
             registered = true
         }
-        _found.value = emptyList()
+        _found.value = emptyList(); _bonded.value = null
         _scanning.value = runCatching { a.isDiscovering || a.startDiscovery() }.getOrDefault(false)
         return _scanning.value
     }

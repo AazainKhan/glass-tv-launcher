@@ -65,6 +65,8 @@ data class LauncherConfig(
     val closedRecents: Map<String, Long> = emptyMap(),
     /** Remote button name (e.g. "KEYCODE_APP_1") -> action; see RemoteAction. Missing = Fire TV default. */
     val remoteButtons: Map<String, String> = emptyMap(),
+    /** Stick tuning per game controller, by the controller's name (P186): the dead zone and sensitivity of each stick. */
+    val controllerSticks: Map<String, ControllerSticks> = emptyMap(),
     /** The remote key that opens Control Center over any app without the key-layout module (P167); see [dev.glasslauncher.system.CcShortcut]. */
     val ccShortcut: String = "menu_hold",
     /** Top Shelf: show the focused app's titles after a dwell (else only its hero). */
@@ -86,6 +88,15 @@ data class LauncherConfig(
     /** Minutes of idle Home before Aerials start (when Aerials is the screensaver); 0 stored means the default. */
     val aerialsIdleMinutes: Int get() = aerialsOnIdleMinutes.takeIf { it > 0 } ?: 5
 }
+
+/** One stick's tuning: how far it must move before it counts (the dead zone, 0 to 0.5 of its travel) and how strongly it answers (0.5 to 2). */
+@Serializable
+data class StickTuning(val deadzoneX: Float = 0.12f, val deadzoneY: Float = 0.12f, val sensX: Float = 1f, val sensY: Float = 1f) {
+    companion object { const val DEADZONE_MAX = 0.5f; const val SENS_MIN = 0.5f; const val SENS_MAX = 2f }
+}
+
+@Serializable
+data class ControllerSticks(val left: StickTuning = StickTuning(), val right: StickTuning = StickTuning())
 
 @Serializable
 data class DownloadsConfig(

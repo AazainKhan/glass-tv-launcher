@@ -21,10 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.glasslauncher.R
 import dev.glasslauncher.home.CC_PANEL_TOP
-import dev.glasslauncher.home.CcControllerPage
 import dev.glasslauncher.home.CcPairPlatter
 import dev.glasslauncher.home.CcSizes
-import dev.glasslauncher.home.PadState
 import dev.glasslauncher.home.ccPanelSlot
 import dev.glasslauncher.system.BtFound
 import dev.glasslauncher.system.BtKind
@@ -78,24 +76,5 @@ class CcDevicePagesTest {
         press("cc-pair-system")
         assertEquals(1, system)
         assertEquals(0, compose.onAllNodes(hasTestTag("cc-pair-status")).fetchSemanticsNodes().size)
-    }
-
-    @Test fun controllerPageOffersTestAndMappingThenShowsLiveState() {
-        var testing by androidx.compose.runtime.mutableStateOf(false)
-        var state by androidx.compose.runtime.mutableStateOf(PadState())
-        var mapping = 0
-        compose.setContent {
-            CcControllerPage(sz, "Xbox Wireless Controller", testing, state, onTest = { testing = true }, onMapping = { mapping++ }, onKey = { _, _ -> }, onMotion = {})
-        }
-        compose.waitForIdle()
-        press("cc-controller-mapping")
-        assertEquals(1, mapping)
-        press("cc-controller-test")
-        compose.waitForIdle()
-        compose.onNodeWithTag("cc-controller-tester").assertIsDisplayed()
-        state = PadState().key(android.view.KeyEvent.KEYCODE_BUTTON_A, true).axes(0.8f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
-        compose.waitForIdle()
-        val held = compose.onNodeWithTag("cc-pad-held").fetchSemanticsNode().config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString("")
-        assertEquals("Held: A", held)
     }
 }

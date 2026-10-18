@@ -348,8 +348,14 @@ internal val CC_BLEED = 16.dp
 /** Room above the first row inside the scrolling viewport: the 2x2's growth (104 dp x 0.105) plus a margin, so a focused tile is never cut flat (P138 G6). */
 private val CC_TOP_ROOM = 12.dp
 
+/** A device's own page (P186): a controller's or a remote's drawing with its buttons, opened in Settings' full-page layout. */
+internal fun openDevicePage(kind: PageKind, name: String, closeAll: () -> Unit, open: (Overlay) -> Unit) {
+    dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.device(kind, name)
+    closeAll(); open(Overlay.Settings)
+}
+
 /**
- * "Remote Settings" (and a remote's row) open Glass's Settings on Remote Buttons: the remote's own settings, not the game controllers page
+ * "Remote Settings" open Glass's Settings on Remote Buttons: the remote's own settings, not the game controllers page
  * (P187: the pill used to route to Fire's controller settings).
  */
 internal fun openRemoteSettings(closeAll: () -> Unit, open: (Overlay) -> Unit) {
@@ -678,10 +684,8 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     var controllersPlatter by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
     // The Pair page inside the Remotes / Game Controllers platter (P174): Back returns to the platter.
     var devicePairing by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
-    // A controller's own page (name, Test Controller, Button Mapping) and its live tester (P174).
-    var controllerPage by remember(active) { androidx.compose.runtime.mutableStateOf<CcDeviceRow?>(null) }
-    var controllerTest by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
-    var padState by remember(active) { androidx.compose.runtime.mutableStateOf(PadState()) }
+    // The name of the device that just paired: the list takes focus to it once it shows (P186).
+    var justPaired by remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val platterSource = remember { PlatterSource() }
     // Edit mode's hint (P101): a small glass bar at the bottom centre, up while edit mode is on (P152).
     var hintShown by remember(active) { androidx.compose.runtime.mutableStateOf(false) }
@@ -744,11 +748,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     fun cancelLift() { liftBase?.let { draft = it }; lifted = null; liftBase = null }
     // Back: closes the gallery (a level at a time), drops a lift, else saves and leaves edit mode (Home and
     // closing Control Center save too).
-    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter, controllersPlatter, devicePairing, controllerPage, controllerTest) {
+    androidx.compose.runtime.DisposableEffect(editing, lifted, gallery, agentCard, restartAsk, remotesPlatter, airplayPlatter, controllersPlatter, devicePairing) {
         val mine: (() -> Boolean)? = if (editing || agentCard || restartAsk || remotesPlatter || airplayPlatter || controllersPlatter) ({
             when {
-                controllerTest -> { controllerTest = false; padState = PadState() }
-                controllerPage != null -> controllerPage = null
                 devicePairing -> devicePairing = false
                 airplayPlatter -> { airplayPlatter = false; pendingFocus = "airplay" }
                 remotesPlatter -> { remotesPlatter = false; pendingFocus = "remotes" }
@@ -1018,16 +1020,10 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                     })
                 })
             } } else if (shownPlatter == "controllers") Box(Modifier.ccPanelSlot()) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
-                val page = controllerPage
-                if (page != null) CcControllerPage(sz, page.name, controllerTest, padState,
-                    onTest = { padState = PadState(); controllerTest = true },
-                    onMapping = { dev.glasslauncher.settings.SettingsEntry.page = dev.glasslauncher.settings.SettingsEntry.CONTROLLER_BUTTONS; closeAll(); open(Overlay.Settings) },
-                    onKey = { code, down -> padState = padState.key(code, down) },
-                    onMotion = { padState = padState.apply(it) })
-                else CcControllersPlatter(sz, devicePairing, onSettings = { system { SystemControls.openGameControllers(context) } }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } }, onSelect = { controllerPage = it })
+                CcControllersPlatter(sz, devicePairing, justPaired, { justPaired = null }, onSettings = { system { SystemControls.openGameControllers(context) } }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } }, onPaired = { justPaired = it; devicePairing = false }, onSelect = { openDevicePage(PageKind.Gamepad, it.name, closeAll, open) })
             } } else if (shownPlatter == "remotes") Box(Modifier.ccPanelSlot()) { Box(Modifier.platterMorph(morphScope, platterSource, reduceMotion)) {
-                CcRemotesPlatter(sz, devicePairing, onSettings = { openRemoteSettings(closeAll, open) }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } },
-                    onSelect = { openRemoteSettings(closeAll, open) })
+                CcRemotesPlatter(sz, devicePairing, justPaired, { justPaired = null }, onSettings = { openRemoteSettings(closeAll, open) }, onPair = { devicePairing = true }, onBluetooth = { system { SystemControls.openBluetooth(context) } }, onPaired = { justPaired = it; devicePairing = false },
+                    onSelect = { openDevicePage(PageKind.Remote, it.name, closeAll, open) })
             } } else if (!restartAsk && !agentCard) Column(
                 verticalArrangement = Arrangement.spacedBy(sz.gap),
                 modifier = Modifier
@@ -1899,8 +1895,16 @@ internal data class CcDeviceRow(val name: String, val line: String, val connecte
 internal fun CcDevicePlatter(
     sz: CcSizes, title: String, tag: String, rows: List<CcDeviceRow>, deviceIcon: Int,
     settingsLabel: String, onSettings: () -> Unit, onPair: () -> Unit = {}, onSelect: (CcDeviceRow) -> Unit = {},
+    /** A device that just paired (P186): focus goes to its row as soon as the list has it, then [onFocused] clears the request. */
+    focusName: String? = null, onFocused: () -> Unit = {},
 ) {
     val first = remember { FocusRequester() }
+    val rowRequesters = remember { HashMap<String, FocusRequester>() }
+    LaunchedEffect(focusName, rows.map { it.name }) {
+        val target = focusName?.let { n -> rows.firstOrNull { it.name == n } } ?: return@LaunchedEffect
+        withFrameNanos { }
+        if (runCatching { rowRequesters.getOrPut(target.name) { FocusRequester() }.requestFocus() }.getOrDefault(false)) onFocused()
+    }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag(tag)) {
         Text(title, style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
@@ -1911,7 +1915,7 @@ internal fun CcDevicePlatter(
             PillContent(R.drawable.ic_tune, settingsLabel, null, fg, on = false, accent = fg)
         }
         rows.forEachIndexed { i, r ->
-            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = { onSelect(r) }, modifier = Modifier.testTag("cc-device-$i")) { fg ->
+            CcTile(r.name, r.line, Shapes.pill, sz.column, sz.pill, onClick = { onSelect(r) }, modifier = Modifier.focusRequester(remember(r.name) { rowRequesters.getOrPut(r.name) { FocusRequester() } }).testTag("cc-device-$i")) { fg ->
                 PillContent(deviceIcon, r.name, r.line, fg, on = r.connected, accent = Blue)
             }
         }
@@ -1960,13 +1964,16 @@ private fun rememberPairing(): BtPairing {
 
 /** Remotes and Game Controllers share one pairing page, filtered to the kind each was opened for. */
 @Composable
-private fun CcPairing(sz: CcSizes, title: String, tag: String, kind: BtKind, deviceIcon: Int, onBluetooth: () -> Unit) {
+private fun CcPairing(sz: CcSizes, title: String, tag: String, kind: BtKind, deviceIcon: Int, onBluetooth: () -> Unit, onPaired: (String) -> Unit) {
     val context = LocalContext.current
     val pairing = rememberPairing()
     var canScan by remember { androidx.compose.runtime.mutableStateOf(true) }
     LaunchedEffect(Unit) {
         canScan = (pairing.grantWithRoot() || !pairing.permissionsMissing()) && pairing.start()
     }
+    // A bonded device ends the search: back to the list, with the new device waiting to be focused (P186).
+    val bonded by pairing.bonded.collectAsStateWithLifecycle()
+    LaunchedEffect(bonded) { bonded?.let { onPaired(it.name) } }
     val all by pairing.found.collectAsStateWithLifecycle()
     val scanning by pairing.scanning.collectAsStateWithLifecycle()
     // A class-less device (many remotes advertise none) is shown on both pages; a classified one only where it belongs.
@@ -1975,24 +1982,24 @@ private fun CcPairing(sz: CcSizes, title: String, tag: String, kind: BtKind, dev
 }
 
 @Composable
-private fun CcRemotesPlatter(sz: CcSizes, pairing: Boolean, onSettings: () -> Unit, onPair: () -> Unit, onBluetooth: () -> Unit, onSelect: (CcDeviceRow) -> Unit) {
+private fun CcRemotesPlatter(sz: CcSizes, pairing: Boolean, focusName: String?, onFocused: () -> Unit, onSettings: () -> Unit, onPair: () -> Unit, onBluetooth: () -> Unit, onPaired: (String) -> Unit, onSelect: (CcDeviceRow) -> Unit) {
     val context = LocalContext.current
     var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
-    if (pairing) { CcPairing(sz, "Pair a Remote", "cc-pair-remotes", BtKind.Remote, R.drawable.ic_settings_remote, onBluetooth); return }
+    if (pairing) { CcPairing(sz, "Pair a Remote", "cc-pair-remotes", BtKind.Remote, R.drawable.ic_settings_remote, onBluetooth, onPaired); return }
     val rows = remember(tick) { dev.glasslauncher.system.RemoteList.read(context).map { CcDeviceRow(it.name, it.line, it.line.startsWith("Connected"), it.address) } }
-    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "Remote Settings", onSettings, onPair, onSelect)
+    CcDevicePlatter(sz, "Remotes", "cc-remotes", rows, R.drawable.ic_settings_remote, "Remote Settings", onSettings, onPair, onSelect, focusName, onFocused)
 }
 
 /** The Game Controllers platter (P146, P174): Pair, Controller Settings (Fire's own page, as the tile opened before), then the connected controllers. */
 @Composable
-private fun CcControllersPlatter(sz: CcSizes, pairing: Boolean, onSettings: () -> Unit, onPair: () -> Unit, onBluetooth: () -> Unit, onSelect: (CcDeviceRow) -> Unit) {
+private fun CcControllersPlatter(sz: CcSizes, pairing: Boolean, focusName: String?, onFocused: () -> Unit, onSettings: () -> Unit, onPair: () -> Unit, onBluetooth: () -> Unit, onPaired: (String) -> Unit, onSelect: (CcDeviceRow) -> Unit) {
     val context = LocalContext.current
     var tick by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
-    if (pairing) { CcPairing(sz, "Pair a Controller", "cc-pair-controllers", BtKind.Controller, R.drawable.ic_sports_esports, onBluetooth); return }
+    if (pairing) { CcPairing(sz, "Pair a Controller", "cc-pair-controllers", BtKind.Controller, R.drawable.ic_sports_esports, onBluetooth, onPaired); return }
     val rows = remember(tick) { dev.glasslauncher.system.ControllerList.read(context).map { CcDeviceRow(it.name, it.line, true, it.id.toString()) } }
-    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "Controller Settings", onSettings, onPair, onSelect)
+    CcDevicePlatter(sz, "Game Controllers", "cc-controllers", rows, R.drawable.ic_sports_esports, "Controller Settings", onSettings, onPair, onSelect, focusName, onFocused)
 }
 
 /**

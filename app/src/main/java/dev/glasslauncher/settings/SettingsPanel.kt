@@ -125,6 +125,8 @@ private sealed interface Page {
     data object Accessibility : Page
     data object RemoteButtons : Page
     data object ControllerButtons : Page
+    /** A game controller's or a remote's own page (P186), reached from Control Center. */
+    data class Device(val kind: dev.glasslauncher.home.PageKind, val name: String) : Page
     data object RootTools : Page
     data object DisplayText : Page
     data object TextSize : Page
@@ -143,6 +145,17 @@ private sealed interface Page {
 object SettingsEntry {
     const val REMOTE_BUTTONS = "remote_buttons"
     const val CONTROLLER_BUTTONS = "controller_buttons"
+    private const val DEVICE = "device:"
+
+    /** The entry for one device's page: `device:<Gamepad|Remote>:<name>`. */
+    fun device(kind: dev.glasslauncher.home.PageKind, name: String) = "$DEVICE${kind.name}:$name"
+
+    /** The device an entry names, or null. */
+    fun parseDevice(entry: String): Pair<dev.glasslauncher.home.PageKind, String>? {
+        if (!entry.startsWith(DEVICE)) return null
+        val kind = dev.glasslauncher.home.PageKind.entries.firstOrNull { entry.startsWith("$DEVICE${it.name}:") } ?: return null
+        return kind to entry.removePrefix("$DEVICE${kind.name}:")
+    }
     @Volatile var page: String? = null
     fun take(): String? = page.also { page = null }
 }
@@ -163,9 +176,13 @@ fun SettingsPanel(
 ) {
     var stack by remember {
         // Control Center's Remotes and Game Controllers pages open Settings straight on their button mapping (P174).
-        mutableStateOf(when (SettingsEntry.take()) {
-            SettingsEntry.REMOTE_BUTTONS -> listOf(Page.Root, Page.RemoteButtons)
-            SettingsEntry.CONTROLLER_BUTTONS -> listOf(Page.Root, Page.ControllerButtons)
+        val entry = SettingsEntry.take()
+        val device = entry?.let { SettingsEntry.parseDevice(it) }
+        mutableStateOf(when {
+            entry == SettingsEntry.REMOTE_BUTTONS -> listOf(Page.Root, Page.RemoteButtons)
+            entry == SettingsEntry.CONTROLLER_BUTTONS -> listOf(Page.Root, Page.ControllerButtons)
+            // A device's own page is the whole stack: Back leaves Settings, as it left Control Center's list.
+            device != null -> listOf<Page>(Page.Device(device.first, device.second))
             else -> listOf<Page>(Page.Root)
         })
     }
@@ -196,6 +213,8 @@ fun SettingsPanel(
         val pageActive = active && landed && page == stack.last()
         if (page is Page.Wallpapers) {
             WallpaperPage(page.dark, model, cfg, pageActive, open)
+        } else if (page is Page.Device) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
+            dev.glasslauncher.home.DevicePage(page.kind, page.name, cfg, { model.edit(it) }, pageActive) { id -> push(Page.ButtonAction(id)) }
         } else if (page == Page.ChooseAerials) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
             ChooseAerialsPage(model, cfg, pageActive)
         } else androidx.compose.runtime.CompositionLocalProvider(
@@ -244,6 +263,7 @@ fun SettingsPanel(
                 Page.CcShortcut -> CcShortcutPage(model, cfg, f, ::pop)
                 is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); pop() }
                 is Page.Wallpapers -> Unit
+                is Page.Device -> Unit
             }
         } }
     }
@@ -1210,6 +1230,9 @@ private fun ColumnScope.ButtonAppPage(model: HomeModel, layout: HomeLayout, id: 
         }, if (i == 0) f else Modifier)
     }
 }
+
+/** What a button does, in words (the device pages show it next to each button). */
+internal fun actionLabel(action: RemoteAction, pm: android.content.pm.PackageManager): String = actionName(action, pm)
 
 private fun actionName(action: RemoteAction, pm: android.content.pm.PackageManager): String = when (action) {
     is RemoteAction.AddonAction -> dev.glasslauncher.addons.AddonActionPicker.name(dev.glasslauncher.addons.AddonActionRef(action.pkg, action.service, action.id), dev.glasslauncher.addons.AddonHost.actionLists)

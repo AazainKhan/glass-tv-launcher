@@ -75,8 +75,15 @@ object RemoteButtons {
         "thumbl" to "Left Stick Press", "thumbr" to "Right Stick Press",
     ).map { (id, label) -> RemoteButton("pad:$id", label, setOf("KEYCODE_BUTTON_${id.uppercase()}"), RemoteAction.Default) }
 
-    /** A remote or controller button by its id. */
-    fun find(id: String): RemoteButton? = all.firstOrNull { it.id == id } ?: pad.firstOrNull { it.id == id }
+    /** The config key of a controller button mapped for one controller only (P186): `pad:<controller name>:<button>`. */
+    fun padKey(controller: String, button: String) = "pad:$controller:$button"
+
+    /** A remote or controller button by its id; a per-controller id (`pad:<name>:<button>`) gives that button with the controller's own key. */
+    fun find(id: String): RemoteButton? = all.firstOrNull { it.id == id } ?: pad.firstOrNull { it.id == id } ?: run {
+        val rest = id.removePrefix("pad:").takeIf { id.startsWith("pad:") && it.contains(':') } ?: return@run null
+        val button = pad.firstOrNull { it.id == "pad:" + rest.substringAfterLast(':') } ?: return@run null
+        button.copy(id = id, label = button.label)
+    }
 
     /**
      * [deviceName] is the input device that sent the key. The gamepad codes BUTTON_9..13 are what the Fire remote's app buttons are
@@ -88,7 +95,9 @@ object RemoteButtons {
         if (remote != null && !(deviceName != null && keyName.startsWith("KEYCODE_BUTTON_") && !RemotePairPolicy.isAmazonRemoteName(deviceName))) return action(remote, config).takeIf { it != RemoteAction.Default }
         // A controller button does something only once the user has mapped it; otherwise the app in front gets it.
         val pad = pad.firstOrNull { keyName in it.names } ?: return null
-        return action(pad, config).takeIf { it != RemoteAction.Default }
+        // This controller's own mapping first, else the one for every controller.
+        val own = deviceName?.let { n -> config[padKey(n, pad.id.removePrefix("pad:"))]?.let(RemoteAction::parse)?.takeIf { it != RemoteAction.Default } }
+        return (own ?: action(pad, config)).takeIf { it != RemoteAction.Default }
     }
 
     /**
