@@ -927,8 +927,19 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         motion.panel = androidx.compose.ui.geometry.Rect(b.left, b.top, b.right, bottom)
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalPalette provides inkPalette, LocalCcSizes provides sz, LocalCcSheet provides sheetRef, LocalCcPhase provides phase, LocalCcMotion provides motion) {
+    // P202: inside Glass, Home under Control Center is the sharp capture taken as it opened, and Home itself isn't
+    // drawn meanwhile (as for folders, SnapshotBackdrop): Home's whole tree was replayed under the tiles every frame.
+    // Its glass is frozen while Control Center is open anyway (P188). As Control Center leaves, Home draws again.
+    val homeState = dev.glasslauncher.glass.LocalBackdrop.current
+    val homeShot = homeState.overlaySharp
+    androidx.compose.runtime.DisposableEffect(homeShot, exiting) {
+        val hide = homeShot != null && !exiting
+        if (hide) homeState.homeHidden = true
+        onDispose { if (hide) homeState.homeHidden = false }
+    }
     Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            if (homeShot != null && !exiting) drawImage(homeShot, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()))
             // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent rect whose alpha
             // follows the spring (drawn, not a layer with alpha, which would be a full-screen offscreen pass), and
             // over another app (an overlay window) the system composites it without redrawing anything.
