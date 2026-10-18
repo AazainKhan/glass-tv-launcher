@@ -554,8 +554,9 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
     private var rim: androidx.compose.ui.graphics.Brush? = null
     private var bevel: androidx.compose.ui.graphics.Brush? = null
     private var edge: androidx.compose.ui.graphics.ImageBitmap? = null
+    private var baked: androidx.compose.ui.graphics.ImageBitmap? = null
 
-    fun reset() { brush = null; outline = null; rim = null; bevel = null; edge = null }
+    fun reset() { brush = null; outline = null; rim = null; bevel = null; edge = null; unbake() }
 
     override fun onGloballyPositioned(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
         // The tile's resting top-left, not its scaled one (P188): inside a focused tile's x1.21 layer, positionInWindow is
@@ -566,15 +567,15 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         // A focused tile's 1.02 lift moves its corner a couple of pixels each frame of the scale; the sheet's cells
         // are ~12 px and blurred, so that is not worth new shaders every frame. Only a real move re-maps it.
         val o = origin
-        if (o == null || kotlin.math.abs(p.x - o.x) > MOVE_PX || kotlin.math.abs(p.y - o.y) > MOVE_PX) { origin = p; brush = null; invalidateDraw() }
+        if (o == null || kotlin.math.abs(p.x - o.x) > MOVE_PX || kotlin.math.abs(p.y - o.y) > MOVE_PX) { origin = p; brush = null; unbake(); invalidateDraw() }
     }
 
     override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
-        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null; bevel = null; edge = null }
+        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null; bevel = null; edge = null; unbake() }
         val rest = outline ?: return drawContent()
         // Read while drawing: a new sheet redraws this surface (and only that).
         val sheet = ref?.sheet
-        if (sheet !== brushFor) { brushFor = sheet; brush = null; bevel = null }
+        if (sheet !== brushFor) { brushFor = sheet; brush = null; bevel = null; unbake() }
         // While the open's choreography moves this shape, its glass is mapped through the move every frame (and a
         // rounded tile starts as a capsule); at rest the cached brush and outline are used.
         val emerge = currentValueOf(LocalCcEmerge)
@@ -582,6 +583,15 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         val o = if (moved != null && moved.round < 1f) ccRounding(rest, size, moved.round) else rest
         val b = if (moved != null && sheet != null) sheet.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height, moved, emerge.slot?.center)
             else brush ?: (sheet?.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
+        // P201: at rest a tile's four layers (fill, sheet, bevel, edge) are one image, rasterised once by the GPU
+        // (Bitmap.createBitmap(Picture)) and redrawn only when its sheet, place or size changes: the four draws cost
+        // ~7 ms a frame across Control Center's tiles on the stick. The open's moving frames draw the layers live.
+        // The bake runs off the main thread (a synchronous GPU render per tile, all tiles at once when the open
+        // settles, was 80-190 ms frames); until it lands the tile draws its layers live, the same pixels.
+        if (moved == null && sheet != null && hardwareCanvas()) {
+            baked?.let { drawImage(it); drawContent(); return }
+            if (baking == null && !bakeFailed) bakeLater(rest, b, sheet)
+        }
         // P188: the one dark fill first, always, so nothing behind can show through a frame where the sheet isn't
         // there yet, samples outside itself mid-move, or is drawn by a canvas that can't draw it. The sheet (capped
         // dark, CcAdapt) goes over it: the same material in every state and on every backdrop.
@@ -597,6 +607,39 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         if (k < 1f) drawOutline(o, rim ?: CcMaterial.rimBrush(size).also { rim = it }, alpha = 1f - k, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
         drawContent()
     }
+
+    private var baking: kotlinx.coroutines.Job? = null
+    // A bake that failed isn't retried every frame; the live layers draw until the sheet, place or size changes.
+    private var bakeFailed = false
+
+    private fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.bakeLater(o: androidx.compose.ui.graphics.Outline, b: androidx.compose.ui.graphics.Brush, sheet: CcSheet) {
+        val sz = size; val dir = layoutDirection; val d = androidx.compose.ui.unit.Density(density, fontScale)
+        val bv = bevel ?: sheet.bevelBrush(sz.height).also { bevel = it }
+        val ed = edge ?: CcMaterial.edge(shape, sz, dir, this).also { edge = it }
+        baking = coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val img = runCatching {
+                val w = kotlin.math.ceil(sz.width).toInt(); val h = kotlin.math.ceil(sz.height).toInt()
+                if (w <= 0 || h <= 0) null else {
+                    val picture = android.graphics.Picture()
+                    val canvas = androidx.compose.ui.graphics.Canvas(picture.beginRecording(w, h))
+                    androidx.compose.ui.graphics.drawscope.CanvasDrawScope().draw(d, dir, canvas, sz) {
+                        drawOutline(o, androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
+                        drawOutline(o, b)
+                        drawOutline(o, bv)
+                        drawImage(ed)
+                    }
+                    picture.endRecording()
+                    android.graphics.Bitmap.createBitmap(picture).asImageBitmap()
+                }
+            }.getOrNull()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                baked = img; bakeFailed = img == null; baking = null; invalidateDraw()
+            }
+        }
+    }
+
+    /** Drops the baked image and any bake in flight (its sheet, place or size changed). */
+    private fun unbake() { baking?.cancel(); baking = null; baked = null; bakeFailed = false }
 
     private companion object { const val MOVE_PX = 4f }
 }
