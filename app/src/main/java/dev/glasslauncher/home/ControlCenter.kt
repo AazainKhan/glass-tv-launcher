@@ -894,8 +894,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         ) {
             // One band above the tiles (tvOS 27): the time with seconds, the date and the weather on the
             // left, lined up with the tiles; the page icons on the right (focusing one shows its page).
+            // One row on one midline (P196, tvOS): the time, the weather and the page icons are vertically centred together.
             Row(
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(start = CC_BLEED + 4.dp, end = CC_BLEED, bottom = 16.dp - CC_BLEED),
             ) {
                 // The time, date and weather grow out of the pill's clock (tvOS slides the time out of the pill).
@@ -1486,7 +1487,7 @@ private fun PageIcon(
         ) { focused ->
             val lit = focused || selected
             Box(
-                Modifier.fillMaxSize().ccSurface(CircleShape, LocalCcSheet.current)
+                Modifier.fillMaxSize().testTag("cc-page-icon:$index").ccSurface(CircleShape, LocalCcSheet.current)
                     // A drop is plain glass on its way; the selected page's white comes with the glyph as it lands.
                     .then(if (lit) Modifier.drawBehind { drawCircle(palette.focusFill, alpha = if (motion?.enabled == true) CcMorph.glyphAlpha(motion.p) else 1f) } else Modifier),
                 contentAlignment = Alignment.Center,
