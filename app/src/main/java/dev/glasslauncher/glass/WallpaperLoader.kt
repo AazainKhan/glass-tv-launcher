@@ -2,6 +2,8 @@ package dev.glasslauncher.glass
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
@@ -33,7 +35,7 @@ class Backdrop(
      * Opaque wallpaper copies from sharp to fully blurred. Animating the blur steps through these, so
      * every frame is a single opaque full-screen draw instead of a two-image cross-fade.
      */
-    val ladder: List<ImageBitmap>,
+    ladder: List<ImageBitmap>,
     /** Same blur as a software bitmap, for the glass BitmapShader. */
     val blurredSoftware: ImageBitmap,
     /**
@@ -49,7 +51,25 @@ class Backdrop(
     private val luma: FloatArray = FloatArray(0),
     /** Control Center's material (see [GlassMatch.ccSheet]), baked here so opening Control Center does no work. */
     val ccSheet: GlassMatch.PanelSheet? = null,
+    /** P205: the ladder's blur rungs, baked but not yet on the GPU (see [ensureLadder]). */
+    private var pendingRungs: List<Bitmap>? = null,
 ) {
+    /**
+     * The ladder in use: sharp to blurred. Its in-between rungs go to the GPU only once Home settles on this scene
+     * ([ensureLadder]): uploading ~10 bitmaps per dock move contended with the frames (P205: focusDock's slow frames
+     * were GPU backpressure). Until then it is just sharp and blurred, both on the GPU, so the scroll cross-fades them.
+     */
+    var ladder: List<ImageBitmap> by androidx.compose.runtime.mutableStateOf(ladder)
+        private set
+
+    /** Puts the pending rungs on the GPU, off the main thread, and swaps in the full ladder. Idempotent. */
+    suspend fun ensureLadder() {
+        val rungs = synchronized(this) { pendingRungs.also { pendingRungs = null } } ?: return
+        val gpu = withContext(Dispatchers.Default) { rungs.map { b -> (b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b).asImageBitmap() } }
+        val now = ladder
+        ladder = listOf(now.first()) + gpu + now.last()
+    }
+
     /**
      * Whether the art behind a region (fractions of the screen) is light, so text placed straight on it
      * (not on glass) should be dark. Uses the region's average (dark text over mostly dark art, the
@@ -237,7 +257,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         blurred.setHasAlpha(false)
         val sharp = source.copy(Bitmap.Config.HARDWARE, false)?.also { source.recycle() } ?: source
         val blurredGpu = blurredScreen.copy(Bitmap.Config.HARDWARE, false)?.also { blurredScreen.recycle() } ?: blurredScreen
-        val ladder = listOf(sharp) + steps.map { b -> b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b } + blurredGpu
+        // P205: the rungs stay software until Home settles on this scene (Backdrop.ensureLadder).
+        val ladder = listOf(sharp, blurredGpu)
         // The glass samples these through a BitmapShader every frame: as software bitmaps the GPU re-uploads
         // them each frame of a scroll (measured: glass off cut janky frames from 39% to 15%), so they live
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
@@ -246,7 +267,7 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         val ccSheet = GlassMatch.ccSheet(clear, light)
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
         val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
-        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, ccSheet)
+        return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, ccSheet, pendingRungs = steps)
     }
 
     /**

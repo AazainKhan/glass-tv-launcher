@@ -83,6 +83,12 @@ class HomeBenchmarks {
         keys(D, D, D, U, U, U, gapMs = 900)
     }
 
+    // P205: the first scroll to the grid right after a dock move: the scene's blur ladder is uploaded only once Home
+    // rests on it (~250 ms), so this is the scroll most likely to start before it lands.
+    @Test fun rowScrollAfterDockMove() = frames(setup = { homeAtStart() }) {
+        keys(R, gapMs = 300); keys(D, D, U, U, gapMs = 900)
+    }
+
     @Test fun controlCenter() = frames(setup = { homeAtStart() }) {
         overlay("CONTROL_CENTER"); Thread.sleep(1_200)
         keys(D, R, L, gapMs = 500); keys(B, gapMs = 1_200)

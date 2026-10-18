@@ -549,6 +549,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // (see GpuCaches): they otherwise pile up while browsing titles and app heroes. Not on Control Center opening or
     // closing (P197): it leaves no scene behind, and the trim (UI_HIDDEN in HWUI) dropped its shader programs, so
     // every open reloaded ~50-70 of them (3 ms each) from the disk cache.
+    // P205: once Home has stayed on a scene for a moment (focus rests, before a scroll to the grid can start), its blur
+    // ladder goes to the GPU, off the main thread. Moving on cancels it, so a quick pass along the dock uploads nothing.
+    LaunchedEffect(backdrop.backdrop) { val b = backdrop.backdrop ?: return@LaunchedEffect; delay(LADDER_AFTER_MS); b.ensureLadder() }
     LaunchedEffect(backdrop.backdrop, expanded, overlays.size) {
         delay(GPU_TRIM_AFTER_MS)
         dev.glasslauncher.ui.GpuCaches.trim()
@@ -1971,6 +1974,9 @@ internal fun keptUnderCard(stack: List<Overlay>, index: Int): Boolean =
 
 /** P203: how long after Home appears Control Center is composed (parked), so it doesn't compete with Home's first frames. */
 private const val CC_PARK_AFTER_MS = 1_500L
+
+/** P205: how long Home stays on a scene before its blur ladder is uploaded (a dock move every ~0.3 s uploads nothing). */
+private const val LADDER_AFTER_MS = 250L
 
 /** A parked Control Center: no focus can enter it, and nothing of it is in the semantics tree (TalkBack, tests). */
 private fun Modifier.ccParked(): Modifier = this

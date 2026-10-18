@@ -26,7 +26,6 @@ restore_a11y() { adb shell su -c "pm enable dev.glasslauncher/.widgets.NowPlayin
 trap restore_a11y EXIT
 # macOS bash 3.2 skips the EXIT trap when the script is killed; turn signals into a normal exit.
 trap "exit 130" INT TERM HUP
-adb shell settings delete secure enabled_accessibility_services >/dev/null
 build=1; [ "${1:-}" = --no-build ] && { build=0; shift; }
 # The profile is generated on the non-minified build, so its rules carry real names that R8 rewrites per build.
 # (A profile dumped from a minified build, as profile-capture did, goes stale on the next change.)
@@ -38,6 +37,19 @@ scripts/key wait:1 >/dev/null 2>&1 || true   # pushes glass-press and its key la
 adb shell "su -c 'mkdir -p /data/local/tmp/benchbin && printf \"#!/system/bin/sh\n[ \\\"\\\$1\\\" = root ] && shift\nexec \\\"\\\$@\\\"\n\" > /data/local/tmp/benchbin/su && chmod 755 /data/local/tmp/benchbin/su'"
 OUT=/sdcard/Android/media/dev.glasslauncher.baselineprofile
 adb shell "rm -rf $OUT/*"
+# A guard on the stick itself: if this script dies without its EXIT trap (kill -9, the Mac sleeping, adb dropping),
+# the stick puts the services back once the instrumentation is gone, so the remote never stays without its keys
+# service (2026-10-18: a cut-off run left the user's Menu hold and banners broken). It waits for the run to start,
+# then for it to end, and gives up after 90 minutes.
+adb shell "cat > /data/local/tmp/a11y-guard.sh" <<'GUARD'
+# $1: the accessibility services to put back. Waits up to 60 s for the instrumentation to start, then until it ends
+# (at most 90 min), then restores them.
+i=0; while [ $i -lt 60 ] && ! pgrep -f androidx.test.runner >/dev/null; do sleep 1; i=$((i+1)); done
+j=0; while pgrep -f androidx.test.runner >/dev/null && [ $j -lt 1080 ]; do sleep 5; j=$((j+1)); done
+settings put secure enabled_accessibility_services "$1"; settings put secure accessibility_enabled 1
+GUARD
+adb shell "su -c 'nohup sh /data/local/tmp/a11y-guard.sh $a11y >/dev/null 2>&1 &'"
+adb shell settings delete secure enabled_accessibility_services >/dev/null
 args="-e class dev.glasslauncher.baselineprofile.HomeBenchmarks"
 case "${1:-}" in profile) args="-e class dev.glasslauncher.baselineprofile.BaselineProfileGenerator" ;; ?*) args="-e tests_regex '.*${1}.*'" ;; esac
 adb shell "su -c \"PATH=/data/local/tmp/benchbin:\\\$PATH am instrument -w $args dev.glasslauncher.baselineprofile/androidx.test.runner.AndroidJUnitRunner\"" | grep -E "^(OK|FAILURES|Tests run|[0-9]+\)|java\.lang)" || true
