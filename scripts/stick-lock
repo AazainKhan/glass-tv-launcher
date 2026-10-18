@@ -11,18 +11,18 @@
 # Export TV_OWNER="<who>" in your session so your own scripts pass.
 set -euo pipefail
 source "$(dirname "$0")/lib/device.sh"
-mkdir -p "$TV_LOCK_DIR"; f="$TV_LOCK_DIR/${TV_DEVICE_ID:-$ANDROID_SERIAL}.lock"
+mkdir -p "$TV_LOCK_DIR"; f="$(lock_files | head -1)"
 case "${1:-status}" in
   take)
     who="${2:?usage: scripts/stick-lock take <who> [minutes]}"; mins="${3:-30}"
     owner="$(lock_owner)"
     if [ -n "$owner" ] && [ "$owner" != "$who" ]; then echo "held by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)" >&2; exit 3; fi
-    echo "$(( $(date +%s) + mins * 60 )) $who" > "$f"
+    lock_write "$(( $(date +%s) + mins * 60 )) $who"
     echo "$ANDROID_SERIAL locked by \"$who\" for $mins min (export TV_OWNER=\"$who\")" ;;
   release)
     owner="$(lock_owner)"
     if [ -n "$owner" ] && [ -n "${2:-}" ] && [ "$owner" != "$2" ]; then echo "held by \"$owner\", not \"$2\"" >&2; exit 3; fi
-    rm -f "$f"; echo "released $ANDROID_SERIAL" ;;
+    lock_clear; echo "released $ANDROID_SERIAL" ;;
   status)
     owner="$(lock_owner)"
     if [ -n "$owner" ]; then echo "$ANDROID_SERIAL: locked by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M)"; else echo "$ANDROID_SERIAL: free"; fi ;;
@@ -37,15 +37,15 @@ case "${1:-status}" in
       echo "stick-lock: held by \"$owner\" until $(date -r "$(cut -d' ' -f1 "$f")" +%H:%M); not starting" >&2; exit 3
     fi
     deadline=$(( $(date +%s) + max * 60 ))
-    echo "$(( $(date +%s) + 300 )) $who" > "$f"
+    lock_write "$(( $(date +%s) + 300 )) $who"
     # Renew a 5-minute window every minute until the command ends or --max is reached.
     ( while sleep 60; do
         [ "$(date +%s)" -ge "$deadline" ] && { echo "stick-lock: $who hit --max ${max}m; lock not renewed" >&2; exit 0; }
         [ "$(lock_owner)" = "$who" ] || exit 0
-        echo "$(( $(date +%s) + 300 )) $who" > "$f"
+        lock_write "$(( $(date +%s) + 300 )) $who"
       done ) &
     renewer=$!
-    trap 'kill $renewer 2>/dev/null || true; wait $renewer 2>/dev/null || true; if [ "$(lock_owner)" = "$who" ]; then rm -f "$f"; fi' EXIT
+    trap 'kill $renewer 2>/dev/null || true; wait $renewer 2>/dev/null || true; if [ "$(lock_owner)" = "$who" ]; then lock_clear; fi' EXIT
     rc=0; TV_OWNER="$who" "$@" || rc=$?
     exit $rc
     ;;

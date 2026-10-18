@@ -26,11 +26,19 @@ if [ -z "${TV_DEVICE_ID:-}" ] && [ -n "${ANDROID_SERIAL:-}" ]; then
   export TV_DEVICE_ID
 fi
 
-lock_owner() {  # prints the current holder of this device's lock, if any and unexpired
-  local f="$TV_LOCK_DIR/${TV_DEVICE_ID:-$ANDROID_SERIAL}.lock"
-  [ -f "$f" ] || return 0
-  local owner until; read -r until owner < "$f"
-  [ "$(date +%s)" -lt "$until" ] && echo "$owner"
+# The lock is written under every name the device goes by (its ro.serialno and the adb serial in use), because a copy of these
+# scripts from before the per-device lock keys it by the adb serial alone and would not see a lock under the other name.
+lock_files() { echo "$TV_LOCK_DIR/${TV_DEVICE_ID:-$ANDROID_SERIAL}.lock"; [ "${TV_DEVICE_ID:-$ANDROID_SERIAL}" != "$ANDROID_SERIAL" ] && echo "$TV_LOCK_DIR/$ANDROID_SERIAL.lock"; return 0; }
+lock_write() { local f; for f in $(lock_files); do echo "$1" > "$f"; done; }   # lock_write "<until> <who>"
+lock_clear() { local f; for f in $(lock_files); do rm -f "$f"; done; }
+
+lock_owner() {  # prints the current holder of this device's lock, if any and unexpired, under any of its names
+  local f owner until
+  for f in $(lock_files); do
+    [ -f "$f" ] || continue
+    read -r until owner < "$f"
+    [ "$(date +%s)" -lt "$until" ] && { echo "$owner"; return 0; }
+  done
   return 0
 }
 
