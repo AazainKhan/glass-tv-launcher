@@ -156,7 +156,8 @@ class FocusCrawler(
         if (requestFocus(name)) return true
         val path = paths[name] ?: return false
         reset(); compose.waitForIdle()
-        if (compose.focused() != start && !focus(start)) return false
+        // Not focus(start): when the screen does not come back with the start focusable, replaying again would reset and loop for ever.
+        if (compose.focused() != start && !requestFocus(start)) return false
         compose.press(*path.toTypedArray())
         // Rows can remember their last focus, so the replay may land nearby; the node is composed now.
         return compose.focused() == name || requestFocus(name)
