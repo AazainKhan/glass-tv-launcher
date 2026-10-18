@@ -446,23 +446,19 @@ private fun FolderView(
         if (rearranging != null) gliding = true else { kotlinx.coroutines.delay(GLIDE_TAIL_MS); gliding = false; glide.reset() }
     }
     // The home screen behind is shown blurred (a snapshot, Home not drawn), with a frosted panel and a
-    // capsule name above it.
-    val backdropEnter = rememberOverlayEnter()
-    // tvOS blurs the home screen in one frame when a folder opens (motion-spec, P105 #9): the snapshot is already
-    // captured and blurred before the overlay is added, so it is shown at full strength at once instead of fading in
-    // over 130 ms; leaving still fades it out with the panel.
+    // capsule name above it. The blur is not a one-frame cut (P192: that was the flash): the backdrop starts as Home's own picture and is
+    // blurred along with the panel's growth out of the folder tile, and goes back the same way on close.
+    // tvOS: the panel grows out of the folder tile (about 170 ms of travel, settled by ~500 ms) and shrinks back into it on close.
+    val morph = remember { Animatable(0f) }
     val folderLeaving = LocalOverlayExiting.current
-    SnapshotBackdrop({ if (folderLeaving) backdropEnter.value else 1f }, LocalBackdrop.current.overlay, fallbackGlass = true)
+    LaunchedEffect(folderLeaving) {
+        if (folderLeaving) morph.animateTo(0f, tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        // Settles in ~400 ms (was ~1 s at stiffness 260: a long tail of full-panel redraws).
+        else morph.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 420f))
+    }
+    SnapshotBackdrop({ morph.value.coerceIn(0f, 1f) }, LocalBackdrop.current.overlay, fallbackGlass = true)
     FullOverlay(active, paneTitle = "Folder") {
-        // tvOS: the panel grows out of the folder tile (about 170 ms of travel, settled by ~500 ms) and
-        // shrinks back into it on close.
-        val morph = remember { Animatable(0f) }
-        val leaving = LocalOverlayExiting.current
-        LaunchedEffect(leaving) {
-            if (leaving) morph.animateTo(0f, tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-            // Settles in ~400 ms (was ~1 s at stiffness 260: a long tail of full-panel redraws).
-            else morph.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 420f))
-        }
+        val leaving = folderLeaving
         var panelBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
