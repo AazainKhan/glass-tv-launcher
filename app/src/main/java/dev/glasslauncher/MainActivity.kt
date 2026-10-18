@@ -72,6 +72,8 @@ class MainActivity : ComponentActivity() {
             dev.glasslauncher.system.RootFeatures.keepHome(app)
             // The remote's buttons, Recent Apps and instant back run on this service: never left off after an update.
             dev.glasslauncher.system.KeysService.check(app)
+            // Storage nearly full is said once a day, when Home is in front (P214).
+            dev.glasslauncher.system.StorageWatch.check(app)
         }
     }
 
