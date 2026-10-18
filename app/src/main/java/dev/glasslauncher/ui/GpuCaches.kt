@@ -17,8 +17,29 @@ object GpuCaches {
         }.getOrNull()
     }
 
-    fun trim() {
+    fun trim() = trimAt(android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE)
+
+    private fun trimAt(level: Int) {
         val (instance, method) = target ?: return
-        runCatching { method.invoke(instance, android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) }
+        runCatching { method.invoke(instance, level) }
+    }
+
+    /**
+     * P200: while an app is in front Glass still counts as a foreground process (its services and overlay), so the
+     * system never trims it and its renderer keeps ~35 MB of GPU memory. When the system is short of memory and Home is
+     * hidden, Glass releases its GPU context itself (TRIM_MEMORY_COMPLETE, ~24 MB). Never on a timer: a release costs
+     * the next return to Home a ~250 ms first frame, and smooth returns come first (a short trip releases nothing).
+     */
+    @Volatile private var hidden = false
+
+    fun homeHidden() { hidden = true }
+    fun homeShown() { hidden = false }
+
+    /** RUNNING_LOW/CRITICAL or a background level while Home is hidden: release the GPU context now. */
+    fun onPressure(level: Int) {
+        val pressure = level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+        if (pressure && hidden) trimAt(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
     }
 }

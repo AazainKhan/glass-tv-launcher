@@ -37,12 +37,18 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         stoppedSinceResume = true
+        dev.glasslauncher.ui.GpuCaches.homeHidden()
     }
 
     /** Any key or touch Home receives cancels a Sleep Timer that is showing its one-minute banner. */
     override fun onUserInteraction() {
         super.onUserInteraction()
         dev.glasslauncher.system.SleepTimer.cancelOnInteraction(this)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        dev.glasslauncher.ui.GpuCaches.homeShown()
     }
 
     override fun onPause() {
