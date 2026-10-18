@@ -24,9 +24,11 @@ class ConfigStoreFullDiskTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val store = ConfigStore(context, scope)
+            // Its own DataStore on this test's files: the launcher's is one per process and stays on whichever test's folder came first.
+            val dir = File(context.filesDir, "full-disk-test").also { it.mkdirs() }
+            val files = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(scope = scope) { File(dir, "launcher.preferences_pb") }
+            val store = ConfigStore(context, scope, files)
             assertTrue(runBlocking { store.update { it.copy(boldText = true) } })
-            val dir = File(context.filesDir, "datastore")
             assertTrue("the store writes into ${dir.path}", dir.isDirectory)
             // A directory nothing can be created in: the write's temp file fails with an IOException, as ENOSPC does.
             check(dir.setWritable(false)) { "cannot make the directory read-only here" }
