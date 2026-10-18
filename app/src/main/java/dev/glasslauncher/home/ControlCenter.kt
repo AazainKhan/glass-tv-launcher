@@ -509,7 +509,11 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
     fun reset() { brush = null; outline = null; rim = null; bevel = null }
 
     override fun onGloballyPositioned(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
-        val p = coordinates.positionInWindow()
+        // The tile's resting top-left, not its scaled one (P188): inside a focused tile's x1.21 layer, positionInWindow is
+        // the scaled corner, so the sheet was sampled from a different (lighter) patch of the backdrop and the focused
+        // tile read as a lighter, greyer glass. The centre doesn't move under a centred scale: rest = centre - size/2.
+        val c = coordinates.localToWindow(androidx.compose.ui.geometry.Offset(coordinates.size.width / 2f, coordinates.size.height / 2f))
+        val p = androidx.compose.ui.geometry.Offset(c.x - coordinates.size.width / 2f, c.y - coordinates.size.height / 2f)
         // A focused tile's 1.02 lift moves its corner a couple of pixels each frame of the scale; the sheet's cells
         // are ~12 px and blurred, so that is not worth new shaders every frame. Only a real move re-maps it.
         val o = origin
@@ -1686,8 +1690,7 @@ internal fun CcTile(
                     val outline = if (round < 1f) ccRounding(rest, size, round) else rest
                     onDrawBehind {
                         // "On" is the accent glyph on the control's glass, never a white fill (F09): white means focus only.
-                        // P188: focus changes nothing of the fill; only the lift, the shadow and this rim.
-                        if (focusA > 0f) drawOutline(outline, Color.White.copy(alpha = 0.55f), alpha = focusA, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+                        // P188: focus changes nothing of the tile's look; only the lift and the shadow (no rim, no sheen: user).
                     }
                 },
             contentAlignment = Alignment.Center,

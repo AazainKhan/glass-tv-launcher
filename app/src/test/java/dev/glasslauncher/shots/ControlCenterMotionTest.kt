@@ -107,6 +107,8 @@ class ControlCenterMotionTest {
      */
     @Test fun switchingPagesIsContinuous() {
         TvHarness.setUp()
+        // The Alexa page exists only with the Alexa app (P155): without it there is no second page to switch to.
+        TvHarness.installAlexa()
         ActivityScenario.launch(MainActivity::class.java).use {
             compose.waitForHome()
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
@@ -133,7 +135,10 @@ class ControlCenterMotionTest {
             }
             val first = shots.first(); val last = shots.last()
             val total = diff(first, last)
-            assertTrue("the page did not change (diff $total)", total > 3f)
+            // The page did change: the Alexa page's controls are there (the darker one-material glass, P188, leaves
+            // less pixel difference between pages than the old light glass did, so pixels alone don't say).
+            assertTrue("the page did not change: no Alexa page after Right (diff $total)",
+                compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Ask Alexa", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
             val floor = 0.5f * minOf(energy(first), energy(last))
             val low = shots.withIndex().filter { energy(it.value) < floor }.map { it.index }
             assertTrue("frames $low show (almost) nothing: neither page is visible", low.isEmpty())
