@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -645,6 +646,10 @@ val CONTROL_CENTER_TILES = listOf(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, closeAll: () -> Unit, closeTop: () -> Unit = closeAll) {
+    DisposableEffect(Unit) {
+        dev.glasslauncher.system.RemoteNotice.controlCenterOpen = true
+        onDispose { dev.glasslauncher.system.RemoteNotice.controlCenterOpen = false }
+    }
     // One look in either theme, like the pill and tray: white text and glyphs on clear glass over the
     // dimmed screen (tvOS 27 Control Center isn't themed light or dark).
     val outer = LocalPalette.current
