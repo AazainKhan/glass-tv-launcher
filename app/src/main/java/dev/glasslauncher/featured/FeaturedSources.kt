@@ -85,6 +85,9 @@ data class FeaturedSection(val heading: String, val items: List<FeaturedItem>)
  */
 data class FeaturedFeed(val heading: String, val items: List<FeaturedItem>, val sections: List<FeaturedSection> = emptyList())
 
+/** The source refused the saved sign-in (HTTP 401): the user is told once (P214), not left with an empty shelf. */
+class FeaturedAuthExpired : IllegalStateException("HTTP 401")
+
 interface FeaturedSource {
     suspend fun load(http: OkHttpClient, cfg: FeaturedConfig): FeaturedFeed
 }
@@ -94,6 +97,7 @@ private val json = Json { ignoreUnknownKeys = true }
 private fun OkHttpClient.getJson(url: String, headers: Map<String, String> = emptyMap()): JsonElement {
     val request = Request.Builder().url(url).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
     newCall(request).execute().use { r ->
+        if (r.code == 401) throw FeaturedAuthExpired()
         check(r.isSuccessful) { "HTTP ${r.code}" }
         return json.parseToJsonElement(r.body.string())
     }

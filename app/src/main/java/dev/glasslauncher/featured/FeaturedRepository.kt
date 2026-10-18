@@ -117,6 +117,7 @@ class FeaturedRepository(context: Context, private val http: OkHttpClient) {
             memory[key] = feed to loadedAt
             writeCache(key, feed)
         }.onFailure { e ->
+            if (e is FeaturedAuthExpired) dev.glasslauncher.system.CredentialNotice.expired(app, cfg.source)
             _state.value = _state.value.copy(error = if (_state.value.feed == null) e.message ?: "Couldn't load featured content" else null, settledKey = key)
             loadedKey = key
             loadedAt = SystemClock.elapsedRealtime() - 25 * 60_000L
