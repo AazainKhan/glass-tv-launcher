@@ -264,6 +264,15 @@
         <receiver
             android:name=".system.RemoteScanReceiver"
             android:exported="false" />
+        <!-- Device banners (P208): ACL broadcasts start the process even when nothing of Glass is running. The Bluetooth app sends them, so exported. -->
+        <receiver
+            android:name=".system.AclReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".system.InstallResultReceiver"
             android:exported="false" />

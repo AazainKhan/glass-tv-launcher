@@ -4,10 +4,8 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.hardware.input.InputManager
 import android.os.Handler
 import android.os.Looper
@@ -88,25 +86,28 @@ object DeviceToasts {
     private var started = false
     private val gate = Gate()
 
+    /**
+     * A Bluetooth link came or went. Called by [AclReceiver], which the manifest declares: with Glass behind an app and its accessibility
+     * service off nothing keeps the process alive, and a receiver registered at runtime died with it, so the banner never came (P208).
+     * ACL broadcasts are exempt from the implicit-broadcast limits, so the system starts the process for them.
+     */
+    @SuppressLint("MissingPermission")
+    fun onAcl(context: Context, i: Intent) {
+        @Suppress("DEPRECATION")
+        val d = (if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) else i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)) ?: return
+        val name = runCatching { d.name }.getOrNull()
+        if (!worthShowing(name)) return
+        val connected = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
+        if (!connected && i.action != BluetoothDevice.ACTION_ACL_DISCONNECTED) return
+        val kind = kindOf(runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull(), runCatching { d.bluetoothClass?.deviceClass }.getOrNull(), name)
+        val battery = if (connected) runCatching { BluetoothDevice::class.java.getMethod("getBatteryLevel").invoke(d) as Int }.getOrNull() else null
+        offer(context.applicationContext, name!!, connected, kind, battery)
+    }
+
     fun start(context: Context) {
         if (started) return
         started = true
         val app = context.applicationContext
-        val bt = IntentFilter().apply { addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED) }
-        androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
-            @SuppressLint("MissingPermission")
-            override fun onReceive(c: Context, i: Intent) {
-                @Suppress("DEPRECATION")
-                val d = (if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) else i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)) ?: return
-                val name = runCatching { d.name }.getOrNull()
-                if (!worthShowing(name)) return
-                val connected = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
-                val kind = kindOf(runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull(), runCatching { d.bluetoothClass?.deviceClass }.getOrNull(), name)
-                val battery = if (connected) runCatching { BluetoothDevice::class.java.getMethod("getBatteryLevel").invoke(d) as Int }.getOrNull() else null
-                offer(app, name!!, connected, kind, battery)
-            }
-        }, bt, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
-
         val input = app.getSystemService(InputManager::class.java) ?: return
         val main = Handler(Looper.getMainLooper())
         input.registerInputDeviceListener(object : InputManager.InputDeviceListener {
@@ -148,4 +149,9 @@ object DeviceToasts {
         if (!gate.allow(name, connected, android.os.SystemClock.elapsedRealtime())) return
         RemoteNotice.showDevice(app, name, detail(connected, battery), icon(kind))
     }
+}
+
+/** Manifest receiver for Bluetooth link changes (P208); see [DeviceToasts.onAcl]. */
+class AclReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) = DeviceToasts.onAcl(context, intent)
 }
