@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performSemanticsAction
 import java.io.File
 
@@ -30,7 +31,15 @@ class FocusCrawler(
     private val paths = HashMap<String, List<Button>>()
     private lateinit var start: String
 
-    class Graph(val start: String, val edges: List<Edge>, val skipped: List<String>, val a11y: Map<String, A11y> = emptyMap()) {
+    /**
+     * [offered] is every focusable that was on screen (enabled, not an unlabelled container) while the crawl visited a node: a focus
+     * target that was there to see and never got focus is unreachable. [hidden] lists the focus stops whose bounds are empty or outside
+     * the screen (P213: the focus would be on something the user cannot see).
+     */
+    class Graph(
+        val start: String, val edges: List<Edge>, val skipped: List<String>, val a11y: Map<String, A11y> = emptyMap(),
+        val offered: Set<String> = emptySet(), val hidden: List<String> = emptyList(),
+    ) {
         val nodes: Set<String> get() = (edges.map { it.from } + edges.mapNotNull { it.to }).toSet()
         fun from(node: String, button: Button) = edges.firstOrNull { it.from == node && it.button == button }?.to
         fun matching(prefix: String) = nodes.filter { it.startsWith(prefix) }
@@ -61,6 +70,7 @@ class FocusCrawler(
 
     fun crawl(directions: List<Button> = listOf(Button.Up, Button.Down, Button.Left, Button.Right)): Graph {
         start = requireNotNull(compose.focused()) { "nothing is focused" }
+        startLayer = compose.onAllNodes(androidx.compose.ui.test.isFocused(), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()?.let { layerOf(it) }
         paths[start] = emptyList()
         val a11y = LinkedHashMap<String, A11y>()
         a11yOfFocused()?.let { a11y[start] = it }
@@ -68,8 +78,14 @@ class FocusCrawler(
         val queue = ArrayDeque(listOf(start))
         val seen = mutableSetOf(start)
         val skipped = ArrayList<String>()
+        val offered = LinkedHashSet<String>()
+        val hidden = ArrayList<String>()
         while (queue.isNotEmpty() && seen.size <= maxNodes) {
             val node = queue.removeFirst()
+            if (focus(node)) {
+                offered += visibleFocusables()
+                focusedOutOfSight()?.let { hidden += "$node: $it" }
+            }
             for (b in directions) {
                 if (!focus(node)) { skipped += node; break }
                 compose.press(b)
@@ -80,7 +96,44 @@ class FocusCrawler(
             }
         }
         focus(start)
-        return Graph(start, edges, skipped, a11y)
+        return Graph(start, edges, skipped, a11y, offered, hidden)
+    }
+
+    private fun rootBounds(): androidx.compose.ui.geometry.Rect =
+        compose.onRoot(useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+
+    /** Why the focused element could not be seen (empty, or entirely off the screen), null if it can. */
+    private fun focusedOutOfSight(): String? {
+        val node = compose.onAllNodes(androidx.compose.ui.test.isFocused(), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull() ?: return null
+        val b = node.boundsInRoot
+        val root = rootBounds()
+        return when {
+            b.width <= 0f || b.height <= 0f -> "empty bounds $b"
+            b.right <= root.left || b.left >= root.right || b.bottom <= root.top || b.top >= root.bottom -> "off screen $b (screen $root)"
+            else -> null
+        }
+    }
+
+    /** The overlay a node is drawn in (the nearest ancestor tagged "overlay…"), null for Home itself. Home stays composed under an overlay but cannot take focus there. */
+    private fun layerOf(node: SemanticsNode): String? {
+        var n: SemanticsNode? = node
+        while (n != null) {
+            n.config.getOrNull(SemanticsProperties.TestTag)?.let { if (it.startsWith("overlay")) return it }
+            n = n.parent
+        }
+        return null
+    }
+
+    private var startLayer: String? = null
+
+    /** The enabled focusables of the start's layer that are on screen now. */
+    private fun visibleFocusables(): List<String> {
+        val root = rootBounds()
+        return focusables().filter { n ->
+            val b = n.boundsInRoot
+            layerOf(n) == startLayer && n.config.getOrNull(SemanticsProperties.Disabled) == null && b.width > 0f && b.height > 0f &&
+                b.right > root.left && b.left < root.right && b.bottom > root.top && b.top < root.bottom
+        }.map { describe(it) }
     }
 
     /** The merged (TalkBack's) view of the focused element: its label and role. */

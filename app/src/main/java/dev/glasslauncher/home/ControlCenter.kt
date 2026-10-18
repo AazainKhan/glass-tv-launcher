@@ -2098,7 +2098,8 @@ internal fun CcPairPlatter(
     onPair: (BtFound) -> Unit, onSystem: () -> Unit,
 ) {
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    // Again when Glass finds out it can't scan: the row that had focus ("Nearby") is then replaced by another, and focus would be lost (P213).
+    LaunchedEffect(canScan) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag(tag)) {
         Text(title, style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (!canScan) {
