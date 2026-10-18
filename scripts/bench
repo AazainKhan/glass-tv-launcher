@@ -5,7 +5,7 @@
 #   scripts/bench              the whole suite (~25 min)
 #   scripts/bench <regex>      only matching tests (method names, e.g. startup, focus, controlCenter)
 #   scripts/bench --no-build   reuse the last built APKs
-#   scripts/bench profile      regenerate the Baseline Profile (app/src/release/generated/…)
+#   scripts/bench profile      regenerate the Baseline and Startup Profiles (app/src/release/generated/…) on the non-minified build
 # Needs Magisk root and the stick free. androidx.benchmark detects root with `su root id`, which Magisk's su
 # reads as "open a root shell" (it waits on stdin forever). So the instrumentation runs as root (the session is
 # rooted, no su needed) with an AOSP-style su shim first on its PATH for that one check.
@@ -27,23 +27,29 @@ trap restore_a11y EXIT
 # macOS bash 3.2 skips the EXIT trap when the script is killed; turn signals into a normal exit.
 trap "exit 130" INT TERM HUP
 adb shell settings delete secure enabled_accessibility_services >/dev/null
-if [ "${1:-}" = profile ]; then
-  ./gradlew :app:generateBaselineProfile --console=plain -q
-  find app/src -path '*generated/baselineProfiles*' -type f -exec wc -l {} +
-  exit
-fi
 build=1; [ "${1:-}" = --no-build ] && { build=0; shift; }
-[ "$build" = 1 ] && ./gradlew :app:assembleBenchmarkRelease :baselineprofile:assembleBenchmarkRelease --console=plain -q
-adb install -r -d app/build/outputs/apk/benchmarkRelease/app-benchmarkRelease.apk >/dev/null
-adb install -r -t baselineprofile/build/outputs/apk/benchmarkRelease/baselineprofile-benchmarkRelease.apk >/dev/null
+# The profile is generated on the non-minified build, so its rules carry real names that R8 rewrites per build.
+# (A profile dumped from a minified build, as profile-capture did, goes stale on the next change.)
+variant=benchmarkRelease; Variant=BenchmarkRelease; [ "${1:-}" = profile ] && { variant=nonMinifiedRelease; Variant=NonMinifiedRelease; }
+[ "$build" = 1 ] && ./gradlew :app:assemble$Variant :baselineprofile:assemble$Variant --console=plain -q
+adb install -r -d app/build/outputs/apk/$variant/app-$variant.apk >/dev/null
+adb install -r -t baselineprofile/build/outputs/apk/$variant/baselineprofile-$variant.apk >/dev/null
 scripts/key wait:1 >/dev/null 2>&1 || true   # pushes glass-press and its key layout
 adb shell "su -c 'mkdir -p /data/local/tmp/benchbin && printf \"#!/system/bin/sh\n[ \\\"\\\$1\\\" = root ] && shift\nexec \\\"\\\$@\\\"\n\" > /data/local/tmp/benchbin/su && chmod 755 /data/local/tmp/benchbin/su'"
 OUT=/sdcard/Android/media/dev.glasslauncher.baselineprofile
 adb shell "rm -rf $OUT/*"
 args="-e class dev.glasslauncher.baselineprofile.HomeBenchmarks"
-[ -n "${1:-}" ] && args="-e tests_regex '.*${1}.*'"
+case "${1:-}" in profile) args="-e class dev.glasslauncher.baselineprofile.BaselineProfileGenerator" ;; ?*) args="-e tests_regex '.*${1}.*'" ;; esac
 adb shell "su -c \"PATH=/data/local/tmp/benchbin:\\\$PATH am instrument -w $args dev.glasslauncher.baselineprofile/androidx.test.runner.AndroidJUnitRunner\"" | grep -E "^(OK|FAILURES|Tests run|[0-9]+\)|java\.lang)" || true
 rm -rf build/bench && mkdir -p build/bench && adb pull "$OUT/." build/bench >/dev/null
+if [ "${1:-}" = profile ]; then
+  dst=app/src/release/generated/baselineProfiles; mkdir -p "$dst"
+  for kind in baseline startup; do
+    f="$(ls build/bench/*-${kind}-prof-*.txt 2>/dev/null | head -1)"
+    [ -n "$f" ] && { grep -E '^[HSP]*L' "$f" > "$dst/$kind-prof.txt"; echo "$(wc -l < "$dst/$kind-prof.txt") rules -> $dst/$kind-prof.txt"; }
+  done
+  exit
+fi
 python3 - <<'PY'
 import glob, json
 for f in glob.glob("build/bench/*benchmarkData.json"):
