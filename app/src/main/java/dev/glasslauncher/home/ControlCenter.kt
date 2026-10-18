@@ -391,8 +391,6 @@ private const val ADD_TILE = "__add"
 internal object CcMaterial {
     /** With no baked sheet (no backdrop yet): one fixed smoky colour. */
     val fallback = Color(0xFF23262D)
-    /** The same, in light appearance. */
-    val fallbackLight = Color(0xFFD6D9E3)
     /** The rim every tile keeps so it has an edge: a single thin stroke, lit from the top-left. */
     fun rimBrush(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.Brush.linearGradient(
         0f to Color.White.copy(alpha = 0.42f),
@@ -419,10 +417,8 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
     val bitmap: android.graphics.Bitmap? get() = baked?.bitmap
     /** The sheet's pixels (tests only: kept when [GlassMatch.keepPixels] is on). */
     val pixels: GlassMatch.Sheet? get() = baked?.pixels
-    /** P137: the backdrop is light, so the labels go dark (see [dev.glasslauncher.glass.CcAdapt]). */
-    val lightScene: Boolean get() = baked?.lightScene == true
     /** The one colour used when there is no baked sheet. */
-    private val flat: Color get() = if (light) CcMaterial.fallbackLight else CcMaterial.fallback
+    private val flat: Color get() = CcMaterial.fallback
     /** The window rectangle the sheet covers. */
     val panel: androidx.compose.ui.geometry.Rect = baked?.let {
         androidx.compose.ui.geometry.Rect(it.left * root.width, it.top * root.height, it.right * root.width, it.bottom * root.height)
@@ -437,7 +433,6 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
      * How light the sheet is (0..1, mean luminance of its small bitmap): over a light scene (a white app) a black
      * bevel reads as grey halos around the tiles (P38), so the shade follows it.
      */
-    private val sheetLuma: Float get() = baked?.luma ?: 0f
     /** The sheet in window coordinates, for the bubble. */
     /** The sheet's one flat colour, for a software canvas, which can't draw the (hardware) sheet bitmap. */
     val flatBrush: androidx.compose.ui.graphics.Brush get() = androidx.compose.ui.graphics.SolidColor(flat)
@@ -466,7 +461,7 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
     fun bevelBrush(height: Float): androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.ShaderBrush(
         android.graphics.LinearGradient(
             0f, 0f, 0f, height,
-            intArrayOf(Color.White.copy(alpha = 0.14f).toArgb(), 0, 0, bevelShade(sheetLuma).toArgb()),
+            intArrayOf(Color.White.copy(alpha = 0.14f).toArgb(), 0, 0, BEVEL_SHADE.toArgb()),
             floatArrayOf(0f, 0.14f, 0.70f, 1f), android.graphics.Shader.TileMode.CLAMP,
         ),
     )
@@ -479,16 +474,8 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
 internal fun androidx.compose.ui.graphics.drawscope.DrawScope.hardwareCanvas(): Boolean =
     drawContext.canvas.nativeCanvas.isHardwareAccelerated
 
-/**
- * The colour of the tiles' bottom bevel over a sheet of mean luminance [luma]: a faint black shade over a dark or
- * mid scene, and over a light one (above [LIGHT_SHEET]) a cool, lighter shade at a third of the strength, so it
- * never reads as a grey halo under the tile (P38).
- */
-internal fun bevelShade(luma: Float): Color =
-    if (luma > LIGHT_SHEET) Color(0xFF6B7391).copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.12f)
-
-/** A sheet lighter than this (mean luminance) is a light scene for the bevel. */
-internal const val LIGHT_SHEET = 0.62f
+/** The tiles' bottom bevel: one faint shade (P188: no luminance branch; the glass is always dark now). */
+internal val BEVEL_SHADE = Color.Black.copy(alpha = 0.12f)
 
 /**
  * Holds the open's [CcSheet]. Provided once (it never changes identity), and read only while drawing, so taking or
@@ -542,8 +529,11 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         val o = if (moved != null && moved.round < 1f) ccRounding(rest, size, moved.round) else rest
         val b = if (moved != null && sheet != null) sheet.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height, moved, emerge.slot?.center)
             else brush ?: (sheet?.brushAt(origin ?: androidx.compose.ui.geometry.Offset.Zero, size.height) ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback)).also { brush = it }
-        // A software canvas (a snapshot of the screen) can't draw the sheet, a hardware bitmap: the flat colour then.
-        drawOutline(o, if (hardwareCanvas()) b else sheet?.flatBrush ?: androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
+        // P188: the one dark fill first, always, so nothing behind can show through a frame where the sheet isn't
+        // there yet, samples outside itself mid-move, or is drawn by a canvas that can't draw it. The sheet (capped
+        // dark, CcAdapt) goes over it: the same material in every state and on every backdrop.
+        drawOutline(o, androidx.compose.ui.graphics.SolidColor(CcMaterial.fallback))
+        if (hardwareCanvas()) drawOutline(o, b)
         if (sheet != null && hardwareCanvas()) drawOutline(o, bevel ?: sheet.bevelBrush(size.height).also { bevel = it })
         // Liquid Glass's edge, one stroke: bright at the top-left, faint at the bottom-right, almost nothing between.
         val r = rim ?: CcMaterial.rimBrush(size).also { rim = it }
@@ -819,8 +809,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         androidx.compose.runtime.snapshotFlow { glassState.backdrop?.ccSheet to glassState.rootSize }.collect { (offered, root) ->
             val have = sheetRef.sheet
             if (!exitingNow.value && enter.value < 0.02f && offered != null && (have?.baked !== offered || have.root != root)) takeSheet()
-            // P137: a backdrop that flips light/dark while open is taken (its glass and labels would otherwise lose contrast).
-            else if (!exitingNow.value && offered != null && have != null && offered.lightScene != have.lightScene) takeSheet()
         }
     }
     LaunchedEffect(Unit) {
@@ -1528,12 +1516,8 @@ private const val FILL_FADE_MS = 120
 /** tvOS swaps a toggle between off (glyph in a disc) and on (accent glyph) over 0.25 s. */
 private const val TOGGLE_FADE_MS = 250
 
-/** P137: an accent colour over light glass (dark ink) is deepened so a glyph keeps 3:1 against it. */
-@Composable
-private fun inkAccent(c: Color): Color {
-    val ink = LocalPalette.current.ink
-    return if (ink <= 0f) c else androidx.compose.ui.graphics.lerp(c, Color(c.red * dev.glasslauncher.glass.CcAdapt.ACCENT_DARKEN, c.green * dev.glasslauncher.glass.CcAdapt.ACCENT_DARKEN, c.blue * dev.glasslauncher.glass.CcAdapt.ACCENT_DARKEN, c.alpha), ink)
-}
+/** The accent as is: the glass is always dark (P188), so the glyph keeps its contrast without deepening. */
+private fun inkAccent(c: Color): Color = c
 
 /** The glyph's colour: it fades to [accent] over tvOS's 0.25 s when a toggle turns on, and focus (near-black on white) wins. */
 @Composable
@@ -1702,13 +1686,8 @@ internal fun CcTile(
                     val outline = if (round < 1f) ccRounding(rest, size, round) else rest
                     onDrawBehind {
                         // "On" is the accent glyph on the control's glass, never a white fill (F09): white means focus only.
-                        // P173: focus is the glass catching light, not a white fill: a brighter top sheen and a bright rim
-                        // (two plain draws, P139).
-                        if (focusA > 0f) {
-                            // The sheen stays in the top 14% (as the bevel's does): below it the tile is exactly the glass, focused or not.
-                            drawOutline(outline, androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.White.copy(alpha = 0.20f), 0.14f to Color.Transparent), alpha = focusA)
-                            drawOutline(outline, Color.White.copy(alpha = 0.55f), alpha = focusA, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
-                        }
+                        // P188: focus changes nothing of the fill; only the lift, the shadow and this rim.
+                        if (focusA > 0f) drawOutline(outline, Color.White.copy(alpha = 0.55f), alpha = focusA, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
                     }
                 },
             contentAlignment = Alignment.Center,

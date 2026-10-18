@@ -398,4 +398,49 @@ class ControlCenterMotionTest {
             }
         }
     }
+
+    /**
+     * P188: one constant material. Over a white backdrop and a black one: (1) each tile's glass, settled, is within 3
+     * levels whether it is focused or not (measured at its live bounds, so the x1.21 lift doesn't move the sample);
+     * (2) through six focus moves, every frame including mid-move ones, white text keeps 4.5:1 on every tile, so no
+     * tile washes out or shows the white backdrop through. Focus may change only the scale, the shadow and the rim.
+     */
+    @Test fun oneMaterialFocusedOrNotOnAnyBackdrop() {
+        fun lin(v: Float) = (v / 255f).let { if (it <= 0.04045f) it / 12.92f else Math.pow(((it + 0.055f) / 1.055f).toDouble(), 2.4).toFloat() }
+        fun lum(c: FloatArray) = 0.2126f * lin(c[0]) + 0.7152f * lin(c[1]) + 0.0722f * lin(c[2])
+        fun solid(argb: Int): dev.glasslauncher.data.Wallpaper {
+            val f = java.io.File.createTempFile("cc-bg", ".png")
+            android.graphics.Bitmap.createBitmap(1920, 1080, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(argb) }
+                .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, f.outputStream())
+            return dev.glasslauncher.data.Wallpaper(dev.glasslauncher.data.WallpaperKind.File, f.absolutePath)
+        }
+        val problems = mutableListOf<String>()
+        for ((name, argb) in listOf("white" to android.graphics.Color.WHITE, "black" to android.graphics.Color.BLACK)) {
+            val wp = solid(argb)
+            TvHarness.setUp(config = { it.copy(background = dev.glasslauncher.data.BackgroundMode.Wallpaper, wallpaperDark = wp, wallpaperLight = wp) })
+            ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitForHome()
+                compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
+                compose.waitForTag("control-center")
+                compose.settle()
+                val rootW = compose.onRoot().fetchSemanticsNode().size.width
+                fun still() = compose.frames({}, frames = 2, stepMs = 16, scale = 0.5f).last()
+                // (1) Wi-Fi unfocused, then focused (Settings starts focused; Wi-Fi sits next to it).
+                val wifiRest = tileBounds().getValue("Wi-Fi").let { material(still(), rootW, it) }
+                compose.press(Button.Left); compose.settle()
+                val wifiFocused = tileBounds().getValue("Wi-Fi").let { material(still(), rootW, it) }
+                val d = (0..2).maxOf { kotlin.math.abs(wifiFocused[it] - wifiRest[it]) }
+                if (d > 3f) problems += "$name: Wi-Fi's glass is ${"%.0f".format(d)} levels different focused (${wifiFocused.toList()}) than not (${wifiRest.toList()})"
+                compose.press(Button.Right); compose.settle()
+                // (2) every frame of six focus moves: white text stays legible on every tile.
+                val tiles = tileBounds()
+                for (k in listOf(Button.Right, Button.Down, Button.Left, Button.Down, Button.Right, Button.Up))
+                    for ((fi, f) in compose.frames(k, frames = 8, stepMs = 16, scale = 0.5f).withIndex()) for ((label, r) in tiles) {
+                        val ratio = 1.05f / (lum(material(f, rootW, r)) + 0.05f)
+                        if (ratio < 4.5f) problems += "$name $k frame $fi: white text on $label is ${"%.2f".format(ratio)}:1"
+                    }
+            }
+        }
+        assertTrue(problems.distinct().take(15).joinToString("\n"), problems.isEmpty())
+    }
 }
