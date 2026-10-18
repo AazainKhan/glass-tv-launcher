@@ -17,11 +17,19 @@ import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore("launcher")
 
-class ConfigStore(private val context: Context, scope: CoroutineScope) {
+/**
+ * [store] is the process-wide DataStore by default. It is tied to the first Context that asks, so a test that needs its own files
+ * (a full disk, a read-only folder) passes one.
+ */
+class ConfigStore(
+    context: Context,
+    scope: CoroutineScope,
+    private val store: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> = context.dataStore,
+) {
 
     private val key = stringPreferencesKey("config")
 
-    private val flow = context.dataStore.data.map { prefs -> decode(prefs[key]) }
+    private val flow = store.data.map { prefs -> decode(prefs[key]) }
 
     // Read once synchronously so the first frame already has the user's layout and wallpaper; later reads decode off Main (P159).
     val config: StateFlow<LauncherConfig> = flow.flowOn(Dispatchers.Default).stateIn(
@@ -40,7 +48,7 @@ class ConfigStore(private val context: Context, scope: CoroutineScope) {
      */
     suspend fun update(transform: (LauncherConfig) -> LauncherConfig): Boolean {
         try {
-            context.dataStore.edit { prefs ->
+            store.edit { prefs ->
                 prefs[key] = json.encodeToString(LauncherConfig.serializer(), transform(decode(prefs[key])))
             }
         } catch (e: java.io.IOException) {
