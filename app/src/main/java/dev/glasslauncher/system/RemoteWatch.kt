@@ -1,10 +1,8 @@
 package dev.glasslauncher.system
 
 import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -67,50 +65,88 @@ object RemoteWatch {
     /** Glass Home is the resumed activity (no app or playback in front); set by MainActivity. */
     @Volatile var homeInFront = false
 
-    private var started = false
     private var lastDisconnect = 0L
     private var cardOffered = false
+    private var loaded = false
 
-    fun start(context: Context) {
-        if (started) return
-        started = true
-        val app = context.applicationContext
-        val handler = Handler(Looper.getMainLooper())
-        val f = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+    private const val PREFS = "remote_watch"
+    /** Boot time read twice differs by clock jitter, never by seconds; a different boot is another life of this state. */
+    private const val BOOT_SLACK_MS = 5_000L
+
+    private fun bootAt(now: Long = System.currentTimeMillis()) = now - android.os.SystemClock.elapsedRealtime()
+
+    /**
+     * The state lives in a small prefs file, so a process the system started for one broadcast knows what the last one said (P209). It is
+     * only valid for the boot it was written in: after a reboot the remote's own connect broadcast is the fresh observation, and until
+     * then nothing is known, so no "not connected" card.
+     */
+    @Synchronized private fun load(app: Context) {
+        if (loaded) return
+        loaded = true
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (kotlin.math.abs(prefs.getLong("boot", 0L) - bootAt()) <= BOOT_SLACK_MS) {
+            lastDisconnect = prefs.getLong("gone", 0L)
+            cardOffered = prefs.getBoolean("offered", false)
         }
-        androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
-            @android.annotation.SuppressLint("MissingPermission")
-            override fun onReceive(c: Context, i: Intent) {
-                val d = i.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
-                val remote = RemotePairPolicy.looksLikeRemote(
-                    runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull(), runCatching { d.name }.getOrNull(),
-                )
-                if (!remote) return
-                val now = System.currentTimeMillis()
-                // Connect and disconnect are sightings too (no signal strength: the stored one stays).
-                runCatching { RemoteRegistry(app).record(d.address, d.name, 0, now) }
-                when (i.action) {
-                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                        if (lastDisconnect == 0L) lastDisconnect = now
-                        // APK: still gone after the threshold, screen on: offer the page once per disconnect.
-                        handler.postDelayed({ offerCard(app) }, RemotePairPolicy.RECONNECT_TOAST_AFTER_MS + 1_000)
-                    }
-                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                        lastDisconnect = 0L; cardOffered = false; _card.value = false
-                    }
-                }
+    }
+
+    private fun save(app: Context) {
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong("boot", bootAt()).putLong("gone", lastDisconnect).putBoolean("offered", cardOffered).apply()
+    }
+
+    /** Test hook: forget what was loaded, as a fresh process does. */
+    internal fun resetForTest() { loaded = false; lastDisconnect = 0L; cardOffered = false; _card.value = false }
+
+    fun start(context: Context) = load(context.applicationContext)
+
+    /**
+     * A Bluetooth link came or went. Called by [AclReceiver], which the manifest declares, so it also runs in a process the system started
+     * for this broadcast (P209): a runtime receiver was gone with Glass's process.
+     */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun onAcl(context: Context, i: Intent) {
+        val app = context.applicationContext
+        load(app)
+        @Suppress("DEPRECATION")
+        val d = (if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) else i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)) ?: return
+        val remote = RemotePairPolicy.looksLikeRemote(
+            runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull(), runCatching { d.name }.getOrNull(),
+        )
+        if (!remote) return
+        val now = System.currentTimeMillis()
+        // Connect and disconnect are sightings too (no signal strength: the stored one stays).
+        runCatching { RemoteRegistry(app).record(d.address, d.name, 0, now) }
+        when (i.action) {
+            BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                if (lastDisconnect == 0L) lastDisconnect = now
+                save(app)
+                // APK: still gone after the threshold, screen on: offer the page once per disconnect. Best effort here (the process may
+                // be gone by then); [evaluate] asks again whenever Home comes to the front.
+                Handler(Looper.getMainLooper()).postDelayed({ offerCard(app) }, RemotePairPolicy.RECONNECT_TOAST_AFTER_MS + 1_000)
             }
-        }, f, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+            BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                lastDisconnect = 0L; cardOffered = false; _card.value = false
+                save(app)
+            }
+        }
+    }
+
+    /** Home came to the front: a remote that has been gone for a while with nothing else asking gets its card now. */
+    fun evaluate(context: Context) {
+        val app = context.applicationContext
+        load(app)
+        offerCard(app)
     }
 
     private fun offerCard(app: Context) {
-        if (lastDisconnect == 0L || cardOffered) return
+        if (lastDisconnect == 0L || cardOffered || _card.value) return
         if (RootFeatures.ownRemotePairing(app)) return
         val on = app.getSystemService(PowerManager::class.java)?.isInteractive == true
         if (!on) return
         if (System.currentTimeMillis() - lastDisconnect < RemotePairPolicy.RECONNECT_TOAST_AFTER_MS) return
         cardOffered = true
+        save(app)
         _card.value = true
     }
 }
