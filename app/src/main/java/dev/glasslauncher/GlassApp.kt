@@ -42,6 +42,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        dev.glasslauncher.glass.CcAdapt.variantFile = java.io.File(filesDir, "cc-glass")
         dev.glasslauncher.ui.NetworkEpoch.register(this)
         // A previous run that crashed while Glass held the TV muted for Sonos left it muted: undo that.
         chore(Dispatchers.Default) { dev.glasslauncher.sonos.SonosRoutes.recoverMute(this) }

@@ -71,4 +71,19 @@ class CcAdaptTest {
             assertTrue("$name: a glass pixel $ch has a colour cast", ch.max() - ch.min() <= 2)
         }
     }
+
+    /** P206: the stick-picked candidates keep white text at 4.5:1 on every scene; B stays neutral, C keeps colour small. */
+    @Test fun theTransparentCandidatesKeepTextLegible() {
+        try {
+            for (v in listOf("B", "C")) {
+                CcAdapt.variant = v
+                for ((name, src) in scenes) for (px in bake(src).pixels) {
+                    val text = CcAdapt.contrast(CcAdapt.relLuminance(Color.White.toArgb()), CcAdapt.relLuminance(px or (0xFF shl 24)))
+                    assertTrue("$v $name: white text is $text:1", text >= 4.5f)
+                    val ch = listOf((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
+                    assertTrue("$v $name: colour spread ${ch.max() - ch.min()}", ch.max() - ch.min() <= if (v == "B") 2 else 40)
+                }
+            }
+        } finally { CcAdapt.variant = "A" }
+    }
 }

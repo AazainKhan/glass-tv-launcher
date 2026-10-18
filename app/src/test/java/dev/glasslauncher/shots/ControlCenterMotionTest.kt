@@ -38,15 +38,22 @@ internal fun sheetMean(sheet: dev.glasslauncher.home.CcSheet, x0: Float, y0: Flo
 }
 
 /** Mean colour (r, g, b) of the tile's ink-free top band: the material, without its glyph or label. */
-internal fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF): FloatArray {
+/**
+ * [skipInk]: leave out near-white pixels (a glyph or label, luma > 200): the glass under them is what text sits on.
+ * A focused tile is drawn scaled about its centre while [r] is its resting rectangle, so a big glyph (the Settings
+ * gear) reaches into the band during the scale; the glass itself is capped far below that level (CcAdapt.CAP).
+ */
+internal fun material(b: android.graphics.Bitmap, rootW: Int, r: android.graphics.RectF, skipInk: Boolean = false): FloatArray {
     val k = b.width / rootW.toFloat()
     val x0 = ((r.left + r.width() * bandLo(r.width(), r.height())) * k).toInt(); val x1 = ((r.left + r.width() * bandHi(r.width(), r.height())) * k).toInt().coerceAtLeast(x0 + 1)
     val y0 = ((r.top + r.height() * bandY0(r.width(), r.height())) * k).toInt(); val y1 = ((r.top + r.height() * bandY1(r.width(), r.height())) * k).toInt().coerceAtLeast(y0 + 1)
     val sum = FloatArray(3); var n = 0
     for (y in y0 until y1) for (x in x0 until x1) {
         val c = b.getPixel(x.coerceIn(0, b.width - 1), y.coerceIn(0, b.height - 1))
+        if (skipInk && ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10 > 200) continue
         sum[0] += (c shr 16 and 0xFF); sum[1] += (c shr 8 and 0xFF); sum[2] += (c and 0xFF); n++
     }
+    if (n == 0) return FloatArray(3) { 0f }
     return FloatArray(3) { sum[it] / n }
 }
 
@@ -443,7 +450,7 @@ class ControlCenterMotionTest {
                 val tiles = tileBounds()
                 for (k in listOf(Button.Right, Button.Down, Button.Left, Button.Down, Button.Right, Button.Up))
                     for ((fi, f) in compose.frames(k, frames = 8, stepMs = 16, scale = 0.5f).withIndex()) for ((label, r) in tiles) {
-                        val ratio = 1.05f / (lum(material(f, rootW, r)) + 0.05f)
+                        val ratio = 1.05f / (lum(material(f, rootW, r, skipInk = true)) + 0.05f)
                         if (ratio < 4.5f) problems += "$name $k frame $fi: white text on $label is ${"%.2f".format(ratio)}:1"
                     }
             }

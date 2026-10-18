@@ -102,6 +102,7 @@ object GlassMatch {
      * bitmap (80x90, ~28 KB). Opening Control Center then only maps it; null if [clear] can't be read.
      */
     fun ccSheet(clear: Bitmap, @Suppress("UNUSED_PARAMETER") theme: Boolean = false): PanelSheet? {
+        CcAdapt.readVariant()
         // P173 (user): Control Center has ONE style, the clear glass with white labels, in Light and Dark alike. The sheet
         // still adapts to a light scene (it darkens enough for white text), but never takes the light theme's material.
         val light = false
