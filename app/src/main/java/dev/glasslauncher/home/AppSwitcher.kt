@@ -29,6 +29,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -197,27 +198,30 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                     if (reduceMotion) position.snapTo(d.toFloat())
                     else position.animateTo(d.toFloat(), androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f))
                 }
-                val p = position.value
-                var bounds by remember { mutableStateOf<Rect?>(null) }
+                // Where the card is, kept for the launch animation when it is opened. Not state: a write here during the enter frames
+                // recomposed every card on every frame (P210), and nothing draws from it.
+                val bounds = remember { arrayOfNulls<Rect>(1) }
                 Box(
                     Modifier
                         .align(Alignment.TopStart)
                         .offset(x = (CENTRE_X - CARD_W / 2).dp, y = CARD_TOP.dp)
                         .zIndex(if (d <= 0) 10f + d else 10f - d)
                         .graphicsLayer {
+                            // Read here, in the layer block: a card's position moves every frame and must not recompose its content.
+                            val p = position.value
                             val k = (-p).coerceAtLeast(0f)
                             val s = 1f - 0.08f * k
                             scaleX = s; scaleY = s
                             translationX = (if (p >= 0f) p * (CARD_W + CARD_GAP) else -k * STACK_STEP).dp.toPx()
                             alpha = (STACKED + 1 - k).coerceIn(0f, 1f)
                         }
-                        .onGloballyPositioned { bounds = it.boundsInWindow() },
+                        .onGloballyPositioned { bounds[0] = it.boundsInWindow() },
                 ) {
                     FocusTile(
                         label = app?.label ?: "Home",
                         onClick = {
                             if (app == null) closeAll()
-                            else { closeAll(); model.launch(app, view, bounds) }
+                            else { closeAll(); model.launch(app, view, bounds[0]) }
                         },
                         shape = RoundedCornerShape(22.dp),
                         focusedScale = 1f,
@@ -236,7 +240,8 @@ fun AppSwitcher(model: HomeModel, layout: HomeLayout, cfg: LauncherConfig, activ
                             Box(Modifier.fillMaxSize().background(Color(0xFF1C1E24)))
                         }
                         // Cards further back dim, so the stack reads as depth.
-                        Box(Modifier.fillMaxSize().graphicsLayer { alpha = ((-p).coerceIn(0f, 3f) * 0.18f) }.background(Color.Black))
+                        // Drawn as one alpha rect: a graphicsLayer with alpha under 1 is an offscreen layer per card.
+                        Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = ((-position.value).coerceIn(0f, 3f) * 0.18f)) })
                     }
                 }
                 }
