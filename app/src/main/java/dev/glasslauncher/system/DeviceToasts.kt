@@ -153,5 +153,6 @@ object DeviceToasts {
 
 /** Manifest receiver for Bluetooth link changes (P208); see [DeviceToasts.onAcl]. */
 class AclReceiver : android.content.BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) = DeviceToasts.onAcl(context, intent)
+    // Both listeners of a Bluetooth link (P208 device banners, P209 the remote watch) run in a process this broadcast may have started.
+    override fun onReceive(context: Context, intent: Intent) { DeviceToasts.onAcl(context, intent); RemoteWatch.onAcl(context, intent) }
 }

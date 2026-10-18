@@ -37,6 +37,12 @@ class RemoteWatchColdTest {
     private fun seen(goneAgoMs: Long, boot: Long = bootAt()) =
         prefs.edit().putLong("boot", boot).putLong("gone", System.currentTimeMillis() - goneAgoMs).putBoolean("offered", false).commit()
 
+    /** The manifest receiver is the only way a Bluetooth link reaches the remote watch now (P209 removed its runtime one). */
+    @Test fun theManifestReceiverFeedsTheRemoteWatch() {
+        AclReceiver().onReceive(context, acl(BluetoothDevice.ACTION_ACL_DISCONNECTED))
+        assertTrue("the remote's disconnect reached RemoteWatch", prefs.getLong("gone", 0L) > 0L)
+    }
+
     @Test fun aDisconnectIsWrittenDownForTheNextProcess() {
         RemoteWatch.onAcl(context, acl(BluetoothDevice.ACTION_ACL_DISCONNECTED))
         assertTrue("when it went", prefs.getLong("gone", 0L) > 0L)
