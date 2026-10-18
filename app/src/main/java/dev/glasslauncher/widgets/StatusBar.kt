@@ -73,6 +73,7 @@ fun StatusPill(
         modifier = modifier
             .padding(top = m.chromeInset, end = m.chromeInset)
             .graphicsLayer { alpha = idle.chromeAlpha * fade() }
+            .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.chromeBounds = it.boundsInWindow() }
             .focusProperties { enter = { pillFocus } }
             .focusGroup(),
     ) {

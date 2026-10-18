@@ -194,6 +194,8 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
 
         /** Where Home's status pill is, so Control Center can grow out of it (Home keeps this current). */
         @Volatile var pillBounds: androidx.compose.ui.geometry.Rect? = null
+        /** P207: the status chrome (search circle and pill), in window pixels, so Control Center can hide them in Home's capture. */
+        @Volatile var chromeBounds: androidx.compose.ui.geometry.Rect? = null
     }
 
     init {

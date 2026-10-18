@@ -944,7 +944,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // drawn meanwhile (as for folders, SnapshotBackdrop): Home's whole tree was replayed under the tiles every frame.
     // Its glass is frozen while Control Center is open anyway (P188). As Control Center leaves, Home draws again.
     val homeState = dev.glasslauncher.glass.LocalBackdrop.current
-    val homeShot = homeState.overlaySharp
+    // Not in Motion mode or mid-crossfade between scenes: there the backdrop alone can't stand in for the chrome
+    // (P207 below), so Home stays drawn as before P202.
+    val homeShot = homeState.overlaySharp.takeIf { cfg.background != dev.glasslauncher.data.BackgroundMode.Motion && homeState.previous == null }
     androidx.compose.runtime.DisposableEffect(homeShot, exiting) {
         val hide = homeShot != null && !exiting
         if (hide) homeState.homeHidden = true
@@ -952,7 +954,28 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     }
     Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            if (homeShot != null && !exiting) drawImage(homeShot, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()))
+            if (homeShot != null && !exiting) {
+                drawImage(homeShot, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()))
+                // P207: the capture holds Home's status pill and search circle as they were. Once the capsule covers
+                // them (the moment the live pill fades, ControlCenterWindow.pillCovered), the scene behind them is
+                // drawn over that part of the capture, so Control Center's header isn't drawn on top of them.
+                val chrome = ControlCenterWindow.chromeBounds
+                // The same ladder step Home draws at its current blur (dock: sharp; grid: blurred).
+                val scene = homeState.backdrop?.ladder?.let { l -> l[(homeState.wallpaperBlur.value * l.lastIndex).roundToInt().coerceIn(0, l.lastIndex)] }
+                if (ControlCenterWindow.pillCovered && chrome != null && scene != null) {
+                    val pad = 16.dp.toPx()
+                    val r = androidx.compose.ui.geometry.Rect(chrome.left - pad, chrome.top - pad, chrome.right + pad, chrome.bottom + pad)
+                        .intersect(androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height))
+                    val sx = scene.width / size.width; val sy = scene.height / size.height
+                    drawImage(
+                        scene,
+                        srcOffset = androidx.compose.ui.unit.IntOffset((r.left * sx).toInt(), (r.top * sy).toInt()),
+                        srcSize = androidx.compose.ui.unit.IntSize((r.width * sx).toInt().coerceAtLeast(1), (r.height * sy).toInt().coerceAtLeast(1)),
+                        dstOffset = androidx.compose.ui.unit.IntOffset(r.left.toInt(), r.top.toInt()),
+                        dstSize = androidx.compose.ui.unit.IntSize(r.width.toInt(), r.height.toInt()),
+                    )
+                }
+            }
             // tvOS 27 mutes what's behind with a dark wash rather than blurring it: one translucent rect whose alpha
             // follows the spring (drawn, not a layer with alpha, which would be a full-screen offscreen pass), and
             // over another app (an overlay window) the system composites it without redrawing anything.
