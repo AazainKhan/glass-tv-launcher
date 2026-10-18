@@ -41,9 +41,16 @@ class DeviceToastsTest {
         val g = DeviceToasts.Gate(4_000)
         assertTrue(g.allow("Pad", true, 1_000))
         assertFalse("a repeat", g.allow("Pad", true, 2_000))
-        assertTrue("the opposite state is news", g.allow("Pad", false, 2_500))
-        assertTrue("after the window", g.allow("Pad", false, 7_000))
+        assertFalse("a flap inside the window", g.allow("Pad", false, 2_500))
+        assertTrue("after the window", g.allow("Pad", false, 5_000))
         assertTrue("another device", g.allow("Buds", true, 7_100))
+    }
+
+    @Test fun testAndVirtualInputDevicesAreNotDevicesTheUserPluggedIn() {
+        assertTrue(DeviceToasts.isTestDevice(virtual = true, vendorId = 0x045e, productId = 0x02ea))
+        assertTrue("no ids at all (uinput)", DeviceToasts.isTestDevice(false, 0, 0))
+        assertTrue("scripts/key's keypad", DeviceToasts.isTestDevice(false, 0x1209, 0x0002))
+        assertFalse("an Xbox pad", DeviceToasts.isTestDevice(false, 0x045e, 0x02ea))
     }
 
     @Test fun aDeviceThatConnectsThenDisconnectsIsTwoBannersNotOne() {

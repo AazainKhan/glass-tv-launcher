@@ -62,18 +62,28 @@ object DeviceToasts {
     fun worthShowing(name: String?, virtual: Boolean = false): Boolean =
         !virtual && !name.isNullOrBlank() && !name.matches(Regex("([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}"))
 
-    /** The same device and state again within [WINDOW_MS] is one event (a stack that reports a connection twice, ACL plus input). */
+    /**
+     * A test or virtual input device (an injected keypad, a uinput pad) is not something the user plugged in. Virtual flag, no vendor and
+     * product id at all, or the open test vendor id 0x1209 that scripts/key's keypad uses.
+     */
+    fun isTestDevice(virtual: Boolean, vendorId: Int, productId: Int): Boolean =
+        virtual || (vendorId == 0 && productId == 0) || vendorId == TEST_VENDOR
+
+    private const val TEST_VENDOR = 0x1209
+
+    /** One device raises at most one banner per [WINDOW_MS], whatever the state: a stack that reports twice, or a link that flaps. */
     class Gate(private val windowMs: Long = WINDOW_MS) {
-        private val last = HashMap<String, Pair<Boolean, Long>>()
+        private val last = HashMap<String, Long>()
+        @Suppress("UNUSED_PARAMETER")
         fun allow(name: String, connected: Boolean, now: Long): Boolean {
             val prev = last[name]
-            if (prev != null && prev.first == connected && now - prev.second < windowMs) return false
-            last[name] = connected to now
+            if (prev != null && now - prev < windowMs) return false
+            last[name] = now
             return true
         }
     }
 
-    const val WINDOW_MS = 4_000L
+    const val WINDOW_MS = 3_000L
 
     private var started = false
     private val gate = Gate()
@@ -103,7 +113,11 @@ object DeviceToasts {
             // A removed device can no longer be asked its name: remember the names by id while they are here.
             private val names = HashMap<Int, Pair<String, DeviceKind>>()
             init { InputDevice.getDeviceIds().forEach { id -> InputDevice.getDevice(id)?.let { remember(it) } } }
-            private fun remember(d: InputDevice) { d.name?.let { names[d.id] = it to kindOfInput(d.sources, it) } }
+            // Test and virtual devices are never remembered, so neither their arrival nor their removal raises a banner.
+            private fun remember(d: InputDevice) {
+                if (isTestDevice(d.isVirtual, d.vendorId, d.productId)) { names.remove(d.id); return }
+                d.name?.let { names[d.id] = it to kindOfInput(d.sources, it) }
+            }
             /** Bluetooth devices are announced by the ACL broadcast; a bonded device of the same name is not announced twice. */
             @SuppressLint("MissingPermission")
             private fun isBluetooth(name: String) = runCatching {
@@ -113,7 +127,7 @@ object DeviceToasts {
                 val d = InputDevice.getDevice(id) ?: return
                 remember(d)
                 val name = d.name
-                if (!worthShowing(name, d.isVirtual) || isBluetooth(name!!)) return
+                if (!worthShowing(name) || isBluetooth(name!!)) return
                 val kind = names[id]?.second ?: return
                 if (kind == DeviceKind.Other) return
                 offer(app, name, true, kind, null)

@@ -23,7 +23,13 @@ object RemoteNotice {
     fun show(context: Context, text: String, forMs: Long = 4_000, actionable: Boolean = false) = show(context, Notice(text, forMs, actionable))
 
     /** A device came or went (P185): glyph, name, then Connected or Disconnected. Plain, so Do Not Disturb holds it back. */
-    fun showDevice(context: Context, name: String, detail: String, iconRes: Int) = show(context, Notice(name, 3_500, false, detail, iconRes))
+    fun showDevice(context: Context, name: String, detail: String, iconRes: Int) {
+        if (controlCenterOpen) return
+        show(context, Notice(name, 3_500, false, detail, iconRes))
+    }
+
+    /** True while Control Center is up: a device banner would sit over its top tiles, and the device list there already shows the change. */
+    @Volatile var controlCenterOpen = false
 
     private fun show(context: Context, notice: Notice) {
         if (!notice.actionable && DoNotDisturb.on(context)) return
