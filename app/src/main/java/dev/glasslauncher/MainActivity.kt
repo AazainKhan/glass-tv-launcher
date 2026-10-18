@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
             dev.glasslauncher.system.KeysService.check(app)
             // Storage nearly full is said once a day, when Home is in front (P214).
             dev.glasslauncher.system.StorageWatch.check(app)
+            // Glass crashed and was started again: say so now that Home is in front (P214).
+            dev.glasslauncher.system.CrashRecovery.showPending(app)
         }
     }
 
