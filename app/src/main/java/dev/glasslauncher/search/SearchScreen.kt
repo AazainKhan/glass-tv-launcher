@@ -78,10 +78,20 @@ object SearchText {
     const val OFFLINE = "Connect to the internet or try again later."
 }
 
-/** The single-row keyboard (tvOS): [123] [space] a to z [delete]; the number page swaps the letters. */
+/** The compact grid keyboard (P194): a to z in rows of nine, the digits and the marks on their own pages, a bottom row of page keys, space, delete and clear. */
 private val LETTERS = ('a'..'z').map { it.toString() }
-/** The 123 page: the digits, then the marks a title or a name needs (the exact tvOS order is not known, so this is a sensible set). */
-internal val NUMBERS = "0123456789.,-_':!?&@#()/".map { it.toString() }
+/** The 123 page: the digits. */
+internal val DIGITS = "1234567890".map { it.toString() }
+/** The #+= page: the marks a title or a name needs (the exact tvOS set is not known, so this is a sensible one). */
+internal val SYMBOLS = ".,-_':!?&@#()/".map { it.toString() }
+/** Every glyph on any page (key width is sized to the widest). */
+internal val NUMBERS = DIGITS + SYMBOLS
+
+internal enum class KeyPage(val label: String, val tag: String, val rows: List<List<String>>) {
+    Abc("ABC", "page-abc", LETTERS.chunked(9)),
+    Num("123", "page-num", DIGITS.chunked(5)),
+    Sym("#+=", "page-sym", SYMBOLS.chunked(7)),
+}
 
 /**
  * System search (P161): the query echoed large, a one-row keyboard, completion pills with the typed part bold, a Top Results / TV Shows /
@@ -102,7 +112,7 @@ fun SearchScreen(
     val busy by model.busy.collectAsState()
     val offline by model.offline.collectAsState()
     var filter by remember { mutableStateOf(SearchIndex.Filter.Top) }
-    var numbers by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf(KeyPage.Abc) }
     var recent by remember { mutableStateOf(RecentSearches.read(context)) }
     val first = remember { FocusRequester() }
     LaunchedEffect(active) { if (active) runCatching { first.requestFocus() } }
@@ -127,14 +137,25 @@ fun SearchScreen(
             )
         }
         Spacer(10)
-        // The keyboard: one row, scrolled with the D-pad.
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().testTag("search-keyboard")) {
-            item { Key(if (numbers) "abc" else "123", 64, ink, "search-key:mode") { numbers = !numbers } }
-            item { Key("space", 88, ink, "search-key:space") { if (query.isNotEmpty() && !query.endsWith(" ")) model.setQuery("$query ") } }
-            items(if (numbers) NUMBERS else LETTERS) { c ->
-                Key(c, keyWidth, ink, "search-key:$c", if (c == (if (numbers) NUMBERS else LETTERS).first()) Modifier.focusRequester(first) else Modifier) { model.setQuery(query + c) }
+        // The keyboard: a compact grid (P194), so any key is a few moves away and the results stay in view. The padding around it is room for
+        // a focused key's growth: a key at the edge must not be cut by its parent.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).testTag("search-keyboard"),
+        ) {
+            page.rows.forEachIndexed { r, row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEachIndexed { c, ch ->
+                        Key(ch, keyWidth, ink, "search-key:$ch", if (r == 0 && c == 0) Modifier.focusRequester(first) else Modifier) { model.setQuery(query + ch) }
+                    }
+                }
             }
-            item { Key(null, 56, ink, "search-key:delete") { if (query.isNotEmpty()) model.setQuery(query.dropLast(1)) } }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                KeyPage.entries.forEach { p -> Key(p.label, 64, ink, "search-key:${p.tag}", selected = p == page) { page = p } }
+                Key("space", 110, ink, "search-key:space") { if (query.isNotEmpty() && !query.endsWith(" ")) model.setQuery("$query ") }
+                Key(null, 56, ink, "search-key:delete") { if (query.isNotEmpty()) model.setQuery(query.dropLast(1)) }
+                Key("clear", 64, ink, "search-key:clear") { model.setQuery("") }
+            }
         }
         Spacer(10)
         // Completions: the typed part bold, the rest lighter; Select runs that search.
@@ -195,14 +216,14 @@ private fun completion(title: String, typed: String, color: Color): AnnotatedStr
 
 /** A focusable capsule: translucent at rest, white (dark text) when focused or selected. */
 @Composable
-private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, label: String? = null, contentPadding: androidx.compose.ui.unit.Dp = 14.dp, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
+private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, label: String? = null, contentPadding: androidx.compose.ui.unit.Dp = 14.dp, whiteWhenSelected: Boolean = true, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val pressed = remember { booleanArrayOf(false) }
     Row(
         modifier
             .graphicsLayer { val s = if (focused) 1.06f else 1f; scaleX = s; scaleY = s }
             .height(34.dp)
-            .background(if (focused || selected) Color.White else ink.copy(alpha = 0.14f), RoundedCornerShape(17.dp))
+            .background(if (focused || (selected && whiteWhenSelected)) Color.White else ink.copy(alpha = if (selected) 0.34f else 0.14f), RoundedCornerShape(17.dp))
             .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { e ->
                 val k = e.nativeKeyEvent
@@ -219,13 +240,13 @@ private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = 
             .padding(horizontal = contentPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) { content(focused || selected) }
+    ) { content(focused || (selected && whiteWhenSelected)) }
 }
 
 /** One key: a letter, or [label] null for delete. */
 @Composable
-private fun Key(label: String?, width: Int, ink: Color, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Pill(ink, modifier.width(width.dp).testTag(tag), label = if (label == null) "Delete" else null, contentPadding = 0.dp, onClick = onClick) { focused ->
+private fun Key(label: String?, width: Int, ink: Color, tag: String, modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
+    Pill(ink, modifier.width(width.dp).testTag(tag), selected = selected, label = if (label == null) "Delete" else null, contentPadding = 0.dp, whiteWhenSelected = false, onClick = onClick) { focused ->
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (label == null) Icon(R.drawable.ic_backspace, pillInk(focused, ink), 18)
             else Text(label, style = Type.label, color = pillInk(focused, ink), maxLines = 1, textAlign = TextAlign.Center)

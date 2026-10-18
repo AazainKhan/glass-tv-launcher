@@ -58,8 +58,6 @@ class SearchScreenTest {
     }
 
     private fun press(tag: String) {
-        // The keyboard is one scrolling row: bring the key into the composed window first.
-        if (tag.startsWith("search-key:")) compose.onNodeWithTag("search-keyboard").performScrollToNode(hasTestTag(tag))
         compose.onNodeWithTag(tag).performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onRoot().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitForIdle()
@@ -68,11 +66,12 @@ class SearchScreenTest {
     private fun exists(tag: String) = compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
     private fun text(tag: String) = compose.onNodeWithTag(tag).fetchSemanticsNode().config.getOrNull(SemanticsProperties.Text)?.joinToString("")
 
-    @Test fun theKeyboardIsOneRowAndTypingFiltersTheResultsLive() {
+    @Test fun theKeyboardIsACompactGridAndTypingFiltersTheResultsLive() {
         show()
-        assertTrue("one linear row starting 123, space, a", listOf("mode", "space", "a").all { exists("search-key:$it") })
-        compose.onNodeWithTag("search-keyboard").performScrollToNode(hasTestTag("search-key:delete"))
-        assertTrue("and ending in delete, with z before it (it scrolls, it is not a grid)", exists("search-key:delete") && exists("search-key:z"))
+        assertTrue("every letter, the page keys, space, delete and clear are all on screen at once", ("abcdefghijklmnopqrstuvwxyz".map { "$it" } + listOf("page-abc", "page-num", "page-sym", "space", "delete", "clear")).all { exists("search-key:$it") })
+        val rows = "abcdefghijklmnopqrstuvwxyz".map { c -> compose.onNodeWithTag("search-key:$c").fetchSemanticsNode().boundsInRoot.top }.distinct()
+        assertTrue("letters sit in three rows of nine or fewer: ${rows.size}", rows.size == 3)
+        assertTrue("and the keyboard is short enough to leave the results room", compose.onNodeWithTag("search-keyboard").fetchSemanticsNode().boundsInRoot.height < 230f * compose.density.density)
         press("search-key:n"); press("search-key:e")
         assertEquals("ne", text("search-query"))
         assertTrue(exists("search-result:app:p.netflix") && exists("search-result:app:p.netgear") && exists("search-result:title::t1"))
@@ -87,12 +86,41 @@ class SearchScreenTest {
         assertTrue(exists("search-result:app:p.netflix"))
     }
 
-    @Test fun theNumberPageSwapsTheLetters() {
+    @Test fun threePagesAbcDigitsAndMarksEachWithItsOwnKeys() {
         show()
-        press("search-key:mode")
-        assertTrue(exists("search-key:1") && !exists("search-key:a"))
+        press("search-key:page-num")
+        assertTrue(exists("search-key:1") && exists("search-key:0") && !exists("search-key:a") && !exists("search-key:."))
         press("search-key:1")
         assertEquals("1", text("search-query"))
+        press("search-key:page-sym")
+        assertTrue("marks are on their own page, not mixed with the digits", exists("search-key:&") && exists("search-key:/") && !exists("search-key:1"))
+        press("search-key:&")
+        assertEquals("1&", text("search-query"))
+        press("search-key:page-abc")
+        assertTrue(exists("search-key:a") && !exists("search-key:&"))
+    }
+
+    @Test fun clearEmptiesTheQueryAtOnce() {
+        show()
+        press("search-key:n"); press("search-key:e"); press("search-key:t")
+        press("search-key:clear")
+        assertEquals("Search", text("search-query"))
+    }
+
+    /** P194: the focused key grows 6%; the key at each edge of the keyboard must keep that room inside its parent (it was clipped on the left). */
+    @Test fun aFocusedKeyAtAnEdgeIsNotClipped() {
+        show()
+        val root = compose.onNodeWithTag("search-keyboard").fetchSemanticsNode().boundsInRoot
+        val grow = 0.06f
+        val edgeKeys = listOf("a", "i", "j", "r", "s", "z", "page-abc", "clear")
+        for (k in edgeKeys) {
+            val b = compose.onNodeWithTag("search-key:$k").fetchSemanticsNode().boundsInRoot
+            val room = b.width * grow / 2f
+            assertTrue("$k: its growth ($room px) stays inside the keyboard: key ${b.left}..${b.right}, keyboard ${root.left}..${root.right}", b.left - room >= root.left && b.right + room <= root.right)
+            assertTrue("$k keeps at least 6 dp between its growth and the keyboard's edge", b.left - root.left >= 6f * compose.density.density || b.right <= root.right - 6f * compose.density.density)
+        }
+        val screen = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue("the whole keyboard is on screen", root.left >= screen.left && root.right <= screen.right)
     }
 
     @Test fun noResultsSaysSoInTvOSsWordsWithTheKeyboardStillUp() {
@@ -143,7 +171,6 @@ class SearchScreenTest {
         show()
         val clipped = mutableListOf<Char>()
         for (c in "abcdefghijklmnopqrstuvwxyz") {
-            compose.onNodeWithTag("search-keyboard").performScrollToNode(hasTestTag("search-key:$c"))
             val node = compose.onNodeWithTag("search-key:$c", useUnmergedTree = true).fetchSemanticsNode()
             fun textWidth(n: androidx.compose.ui.semantics.SemanticsNode): Int? {
                 val rs = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
@@ -155,12 +182,12 @@ class SearchScreenTest {
             if (node.boundsInRoot.width - w < 12f * compose.density.density) clipped += c
         }
         assertTrue("keys with no room around their letter: $clipped", clipped.isEmpty())
-        press("search-key:mode")
-        assertEquals("ABC toggles back", true, exists("search-key:mode"))
-        for (m in listOf("0", "9", ".", ",", "-", "_", "'", ":", "!", "?", "&", "@", "#", "(", ")", "/")) {
-            compose.onNodeWithTag("search-keyboard").performScrollToNode(hasTestTag("search-key:$m"))
-            assertTrue("symbols page has $m", exists("search-key:$m"))
-        }
+        press("search-key:page-num")
+        for (m in listOf("0", "9")) assertTrue("digits page has $m", exists("search-key:$m"))
+        press("search-key:page-sym")
+        for (m in listOf(".", ",", "-", "_", "'", ":", "!", "?", "&", "@", "#", "(", ")", "/")) assertTrue("symbols page has $m", exists("search-key:$m"))
+        press("search-key:page-abc")
+        assertTrue("ABC toggles back", exists("search-key:a"))
     }
 
     @Test fun everyResultNamesItsSource() {
