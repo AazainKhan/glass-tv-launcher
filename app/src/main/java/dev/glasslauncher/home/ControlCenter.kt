@@ -1,5 +1,6 @@
 package dev.glasslauncher.home
 
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
@@ -896,7 +897,13 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val headerAlpha = HEADER_ALPHA + (1f - HEADER_ALPHA) * inkAnim.value
     fun takeSheet() {
         val root = glassState.rootSize
-        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(glassState.backdrop?.ccSheet, root, light = false)
+        // P206 E (user: "the dock's glass is better"): the dock's own clear texture in its text-safe range (clearLegible: lightly blurred art, its colour
+        // kept), the one the tray samples, instead of Control Center's neutral heavy-blur sheet. Taken once per open, so
+        // it stays still while Control Center is up, as the sheet did.
+        val material = if (dev.glasslauncher.glass.CcAdapt.variant == "E") glassState.backdrop?.let { b ->
+            GlassMatch.PanelSheet(b.clearLegible.asAndroidBitmap(), 0f, 0f, 1f, 1f, null)
+        } else glassState.backdrop?.ccSheet
+        sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(material, root, light = false)
         inkTarget.floatValue = 0f
         if (CcMaterial.recordLast) CcMaterial.last = sheetRef.sheet
     }

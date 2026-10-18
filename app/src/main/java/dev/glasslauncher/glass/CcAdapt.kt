@@ -48,14 +48,14 @@ object CcAdapt {
      */
     /**
      * P206 (user: "more transparent, like the dock's glass"): candidate recipes, picked on the stick by the file
-     * `files/cc-glass` (A, B or C; read at each backdrop bake, so moving to another scene re-bakes). A is the current
+     * `files/cc-glass` (A, B, C or E, E being the dock's own clear texture, see ControlCenter's takeSheet; read at each backdrop bake, so moving to another scene re-bakes). A is the current
      * look. B: closer to the scene's own brightness (0.9 of it plus a little), no floor, cap 0.16 (white text 5.1:1).
      * C: B with a quarter of the scene's colour. Only the JVM's software canvas can't show the sheet, so the choice
      * is made from stick screenshots; the losing recipes go once the user has picked.
      */
     @Volatile var variant = "A"
     @Volatile var variantFile: java.io.File? = null
-    fun readVariant() { variant = runCatching { variantFile?.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()?.takeIf { it in setOf("A", "B", "C") } ?: "A" }
+    fun readVariant() { variant = runCatching { variantFile?.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()?.takeIf { it in setOf("A", "B", "C", "E") } ?: "A" }
 
     fun fit(argb: Int): Int {
         val v = toSrgb(relLuminance(argb)) / 255f * DIM
