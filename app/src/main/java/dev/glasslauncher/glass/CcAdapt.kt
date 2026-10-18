@@ -61,7 +61,7 @@ object CcAdapt {
 
     fun fit(argb: Int): Int {
         val v = toSrgb(relLuminance(argb)) / 255f * DIM
-        if (variant != "A") {
+        if (variant == "B" || variant == "C") {
             val cap = toSrgb(0.16f)
             val g = minOf(((0.9f * v + 0.06f) * 255f + 0.5f).toInt(), cap)
             if (variant == "B") return (0xFF shl 24) or (g shl 16) or (g shl 8) or g
