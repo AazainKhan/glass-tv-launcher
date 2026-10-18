@@ -7,6 +7,8 @@ import java.io.File
  * A virtual Fire TV remote (tools/uinput/glass-press, bundled as an asset): a uinput device with the real
  * remote's vendor and product, so the remote's key layout applies and Fire OS treats its presses as the
  * remote's own (the mic button, which no app can inject otherwise). Runs as root.
+ * The asset is tools/uinput/glass-press.c as of c953764e (before P69 moved the scripts' copy to test-keypad IDs),
+ * built stripped: zig cc -target arm-linux-musleabi -static -O2 -s.
  */
 object VirtualRemote {
     /** The tool, unpacked into Glass's files (once per install); null if it can't be. */
