@@ -568,6 +568,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         ready = true
         // Startup metric: the system logs "Fully drawn" (time to real content, not the first frame).
         runCatching { (view.context as? android.app.Activity ?: (context as? android.app.Activity))?.reportFullyDrawn() }
+        // P204: the app menu's glyphs, rasterized once now so its first frame doesn't make them.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { MenuIcons.warm(context.applicationContext) }
     }
     val reveal = remember { Animatable(0f) }
     LaunchedEffect(ready) { if (ready) reveal.animateTo(1f, tween(if (prefs.reduceMotion) 150 else 450)) }

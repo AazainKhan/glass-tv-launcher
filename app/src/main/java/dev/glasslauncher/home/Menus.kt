@@ -27,6 +27,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -271,14 +275,41 @@ private fun ColumnScope.MoveToBody(
     })
 }
 
+/**
+ * Menu glyphs drawn as platform VectorDrawables (P204). A Compose vector painter builds a small composition of its own the first
+ * time each icon is drawn (seven of them were most of the app menu's first-frame applyChanges), and a tinted bitmap needs a
+ * renderer program the vectors never did (a 300 ms first frame on the stick). A VectorDrawable records straight into the display
+ * list. [warm] inflates each one before the first menu opens, off the main thread; every draw gets its own copy, since the tint is
+ * state on the drawable.
+ */
+internal object MenuIcons {
+    private val states = java.util.concurrent.ConcurrentHashMap<Int, android.graphics.drawable.Drawable.ConstantState>()
+    val ALL = intArrayOf(
+        dev.glasslauncher.R.drawable.ic_tv, dev.glasslauncher.R.drawable.ic_apps, dev.glasslauncher.R.drawable.ic_drive_file_move,
+        dev.glasslauncher.R.drawable.ic_image, dev.glasslauncher.R.drawable.ic_visibility_off, dev.glasslauncher.R.drawable.ic_info,
+        dev.glasslauncher.R.drawable.ic_do_not_disturb_on,
+    )
+
+    fun drawable(context: android.content.Context, @androidx.annotation.DrawableRes icon: Int): android.graphics.drawable.Drawable? {
+        val state = states[icon] ?: androidx.core.content.ContextCompat.getDrawable(context, icon)?.constantState?.also { states[icon] = it } ?: return null
+        return state.newDrawable(context.resources).mutate()
+    }
+
+    /** The app menu's glyphs, inflated ahead of time. */
+    fun warm(context: android.content.Context) = ALL.forEach { runCatching { drawable(context, it) } }
+}
+
 @Composable
 internal fun MenuIcon(@androidx.annotation.DrawableRes icon: Int) {
-    Image(
-        androidx.compose.ui.res.painterResource(icon),
-        contentDescription = null,
-        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.tv.material3.LocalContentColor.current),
-        modifier = Modifier.size(22.dp),
-    )
+    val context = LocalContext.current
+    val drawable = remember(icon) { MenuIcons.drawable(context, icon) }
+    val tint = androidx.tv.material3.LocalContentColor.current
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        drawable ?: return@Canvas
+        drawable.setBounds(0, 0, size.width.roundToInt(), size.height.roundToInt())
+        drawable.setTint(tint.toArgb())
+        drawIntoCanvas { drawable.draw(it.nativeCanvas) }
+    }
 }
 
 @Composable
