@@ -70,10 +70,9 @@ object RemoteWatch {
     private var loaded = false
 
     private const val PREFS = "remote_watch"
-    /** Boot time read twice differs by clock jitter, never by seconds; a different boot is another life of this state. */
-    private const val BOOT_SLACK_MS = 5_000L
-
-    private fun bootAt(now: Long = System.currentTimeMillis()) = now - android.os.SystemClock.elapsedRealtime()
+    /** The system's count of boots, exact (the wall clock minus uptime shifts when the time is corrected after boot); -1 if unreadable. */
+    private fun bootCount(app: Context): Int =
+        runCatching { android.provider.Settings.Global.getInt(app.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)
 
     /**
      * The state lives in a small prefs file, so a process the system started for one broadcast knows what the last one said (P209). It is
@@ -84,7 +83,9 @@ object RemoteWatch {
         if (loaded) return
         loaded = true
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (kotlin.math.abs(prefs.getLong("boot", 0L) - bootAt()) <= BOOT_SLACK_MS) {
+        val boot = bootCount(app)
+        // An unreadable count never matches: unknown is the safe answer.
+        if (boot >= 0 && prefs.getInt("bootCount", -2) == boot) {
             lastDisconnect = prefs.getLong("gone", 0L)
             cardOffered = prefs.getBoolean("offered", false)
         }
@@ -92,7 +93,7 @@ object RemoteWatch {
 
     private fun save(app: Context) {
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putLong("boot", bootAt()).putLong("gone", lastDisconnect).putBoolean("offered", cardOffered).apply()
+            .putInt("bootCount", bootCount(app)).putLong("gone", lastDisconnect).putBoolean("offered", cardOffered).apply()
     }
 
     /** Test hook: forget what was loaded, as a fresh process does. */
