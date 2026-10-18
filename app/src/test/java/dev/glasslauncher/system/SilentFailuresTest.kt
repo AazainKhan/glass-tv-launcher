@@ -123,4 +123,32 @@ class SilentFailuresTest {
         ShadowLooper.idleMainLooper()
         assertNull(ShadowToast.getLatestToast())
     }
+
+    private fun doNotDisturb(on: Boolean) {
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        org.robolectric.Shadows.shadowOf(nm).setNotificationPolicyAccessGranted(true)
+        nm.setInterruptionFilter(if (on) android.app.NotificationManager.INTERRUPTION_FILTER_NONE else android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+    }
+
+    @Test fun showSaysWhichPathTookTheNotice() {
+        assertEquals("no service up here: the toast fallback", RemoteNotice.Outcome.Toast, RemoteNotice.show(context, "hello"))
+        doNotDisturb(true)
+        assertEquals("a plain notice under Do Not Disturb", RemoteNotice.Outcome.Suppressed, RemoteNotice.show(context, "hello"))
+        assertEquals("an actionable one still shows", RemoteNotice.Outcome.Toast, RemoteNotice.show(context, "help", actionable = true))
+    }
+
+    @Test fun aCrashNoticeHeldBackByDoNotDisturbIsKeptForTheNextResume() {
+        val now = System.currentTimeMillis()
+        CrashRecovery.record(context, ApplicationExitInfo.REASON_CRASH, now - 3_000, now)
+        doNotDisturb(true)
+        CrashRecovery.showPending(context)
+        assertEquals("not shown, so not seen", 0L, seen)
+        assertEquals(now - 3_000, pending)
+        doNotDisturb(false)
+        CrashRecovery.showPending(context)
+        ShadowLooper.idleMainLooper()
+        assertEquals("Glass restarted after it stopped unexpectedly.", ShadowToast.getTextOfLatestToast())
+        assertEquals(now - 3_000, seen)
+        assertEquals(0L, pending)
+    }
 }

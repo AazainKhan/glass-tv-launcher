@@ -101,7 +101,8 @@ object CrashRecovery {
         val prefs = context.applicationContext.getSharedPreferences("notices", Context.MODE_PRIVATE)
         val pending = prefs.getLong(PENDING, 0L)
         if (pending == 0L) return
-        RemoteNotice.show(context, LINE, forMs = 5_000)
+        // Held back (Do Not Disturb): tried again at the next resume, but not for ever.
+        if (RemoteNotice.show(context, LINE, forMs = 5_000) == RemoteNotice.Outcome.Suppressed && System.currentTimeMillis() - pending < Notices.DAY_MS) return
         prefs.edit().putLong(SEEN, pending).remove(PENDING).apply()
     }
 }
