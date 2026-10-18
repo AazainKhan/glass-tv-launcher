@@ -27,6 +27,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -271,10 +274,45 @@ private fun ColumnScope.MoveToBody(
     })
 }
 
+/**
+ * Menu glyphs drawn from a bitmap rasterized once per size (P204). A vector painter builds a small composition of its own the first
+ * time each icon is drawn: seven of them made the app menu's first frame ~90 ms on the stick. A bitmap is one cheap draw; [warm] makes
+ * them before the first menu opens, off the main thread.
+ */
+internal object MenuIcons {
+    private val cache = java.util.concurrent.ConcurrentHashMap<Long, androidx.compose.ui.graphics.ImageBitmap>()
+    val ALL = intArrayOf(
+        dev.glasslauncher.R.drawable.ic_tv, dev.glasslauncher.R.drawable.ic_apps, dev.glasslauncher.R.drawable.ic_drive_file_move,
+        dev.glasslauncher.R.drawable.ic_image, dev.glasslauncher.R.drawable.ic_visibility_off, dev.glasslauncher.R.drawable.ic_info,
+        dev.glasslauncher.R.drawable.ic_do_not_disturb_on,
+    )
+
+    fun sizePx(context: android.content.Context): Int = (22 * context.resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
+
+    fun get(context: android.content.Context, @androidx.annotation.DrawableRes icon: Int, px: Int): androidx.compose.ui.graphics.ImageBitmap? =
+        cache.getOrPut((icon.toLong() shl 32) or px.toLong()) {
+            val d = androidx.core.content.ContextCompat.getDrawable(context, icon)?.mutate() ?: return null
+            d.toBitmap(px, px).asImageBitmap()
+        }
+
+    /** The app menu's glyphs, made ahead of time. */
+    fun warm(context: android.content.Context) {
+        val px = sizePx(context)
+        ALL.forEach { runCatching { get(context, it, px) } }
+    }
+}
+
 @Composable
 internal fun MenuIcon(@androidx.annotation.DrawableRes icon: Int) {
+    val context = LocalContext.current
+    val px = MenuIcons.sizePx(context)
+    val bitmap = remember(icon, px) { MenuIcons.get(context, icon, px) }
+    if (bitmap == null) {
+        Box(Modifier.size(22.dp))
+        return
+    }
     Image(
-        androidx.compose.ui.res.painterResource(icon),
+        bitmap,
         contentDescription = null,
         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.tv.material3.LocalContentColor.current),
         modifier = Modifier.size(22.dp),
