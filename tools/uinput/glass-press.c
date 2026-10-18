@@ -6,7 +6,8 @@
 // `input keyevent` Select doesn't click Glass's tiles on Fire OS).
 //   glass-press <gap_ms> <code>[:hold_ms] | w<ms> | g ...  (w<ms> waits; g runs $GLASS_PRESS_GUARD with sh and,
 //   if it fails, stops there with exit 3: scripts/key's check before a Select, inside the one device session)
-// Build: zig cc -target arm-linux-musleabi -static -O2 -o glass-press glass-press.c
+// Build: zig cc -target arm-linux-musleabi -static -O2 -s -o glass-press glass-press.c (-s strips debug info: 1.5 MB -> 22 KB).
+// Not the app's asset: app/src/main/assets/glass-press keeps the remote's own IDs (built from this file at c953764e).
 #include <fcntl.h>
 #include <linux/uinput.h>
 #include <stdio.h>
