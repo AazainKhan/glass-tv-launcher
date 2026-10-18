@@ -21,9 +21,10 @@ import org.robolectric.annotation.Config
 class RemoteWatchColdTest {
     private val context get() = ApplicationProvider.getApplicationContext<Context>()
     private val prefs get() = context.getSharedPreferences("remote_watch", Context.MODE_PRIVATE)
-    private fun bootAt() = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+    private val boot = 7
 
     @Before fun freshProcess() {
+        android.provider.Settings.Global.putInt(context.contentResolver, android.provider.Settings.Global.BOOT_COUNT, boot)
         prefs.edit().clear().commit()
         RemoteWatch.resetForTest()
     }
@@ -34,8 +35,8 @@ class RemoteWatchColdTest {
         return Intent(action).putExtra(BluetoothDevice.EXTRA_DEVICE, device)
     }
 
-    private fun seen(goneAgoMs: Long, boot: Long = bootAt()) =
-        prefs.edit().putLong("boot", boot).putLong("gone", System.currentTimeMillis() - goneAgoMs).putBoolean("offered", false).commit()
+    private fun seen(goneAgoMs: Long, bootCount: Int = boot) =
+        prefs.edit().putInt("bootCount", bootCount).putLong("gone", System.currentTimeMillis() - goneAgoMs).putBoolean("offered", false).commit()
 
     /** The manifest receiver is the only way a Bluetooth link reaches the remote watch now (P209 removed its runtime one). */
     @Test fun theManifestReceiverFeedsTheRemoteWatch() {
@@ -67,7 +68,14 @@ class RemoteWatchColdTest {
     }
 
     @Test fun stateFromAnotherBootIsUnknownUntilAFreshObservation() {
-        seen(goneAgoMs = 60_000, boot = bootAt() - 3_600_000)
+        seen(goneAgoMs = 60_000, bootCount = boot - 1)
+        RemoteWatch.evaluate(context)
+        assertFalse(RemoteWatch.card.value)
+    }
+
+    @Test fun anUnreadableBootCountIsUnknownToo() {
+        seen(goneAgoMs = 60_000)
+        android.provider.Settings.Global.putInt(context.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
         RemoteWatch.evaluate(context)
         assertFalse(RemoteWatch.card.value)
     }
