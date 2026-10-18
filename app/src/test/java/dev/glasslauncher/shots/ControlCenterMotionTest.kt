@@ -172,7 +172,9 @@ class ControlCenterMotionTest {
             val moving = steps.count { it > total * 0.02f }
             val worst = steps.maxOrNull() ?: 0f
             assertTrue("nothing changed while opening: $levels", total > 3f)
-            assertTrue("a sudden jump: ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one 16 ms frame: $levels", worst < total * 0.3f)
+            // P195: the glass is Apple's darker wash now, so the span is small (~9 levels) and the screen's own dim
+            // step (~2.9 a frame, unchanged) is a larger share of it; a jump is judged against at least a 10-level span.
+            assertTrue("a sudden jump: ${"%.1f".format(worst)} of ${"%.1f".format(total)} in one 16 ms frame: $levels", worst < maxOf(total, 10f) * 0.3f)
             assertTrue("the opening spans only $moving frames (want a grow over many): $levels", moving >= 12)
         }
     }

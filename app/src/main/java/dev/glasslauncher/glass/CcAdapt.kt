@@ -4,14 +4,14 @@ import kotlin.math.pow
 
 /**
  * Control Center's one material (P188, replacing P137's two modes): every pixel of the baked sheet is held at or
- * below relative luminance [CAP], whatever is behind it, so white labels keep at least 4.5:1 (they get 8:1) on a
+ * below relative luminance [CAP], whatever is behind it, so white labels keep at least 4.5:1 (they get 4.77:1) on a
  * white app as on a dark one. There is no light-scene mode and no dark-ink variant: P137's light branch floored the
  * sheet at 0.55 for dark ink, and once the ink was made white (P173) it put white labels on near-white glass.
  * All of it is arithmetic on the small baked sheet, off the main thread; nothing is sampled while drawing.
  */
 object CcAdapt {
-    /** The glass never rises above this relative luminance: white text keeps 4.5:1 (it gets 8:1). */
-    const val CAP = 0.08f
+    /** The glass never rises above this relative luminance: white text keeps 4.5:1 (it gets 4.77:1). */
+    const val CAP = 0.05f
 
     private val toLinear = FloatArray(256) { i -> val c = i / 255f; if (c <= 0.04045f) c / 12.92f else ((c + 0.055f) / 1.055f).pow(2.4f) }
     private fun toSrgb(l: Float): Int {

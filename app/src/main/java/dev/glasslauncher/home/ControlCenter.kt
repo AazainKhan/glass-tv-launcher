@@ -1,7 +1,6 @@
 package dev.glasslauncher.home
 
-import androidx.compose.ui.graphics.addOutline
-import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.heightIn
@@ -469,8 +468,8 @@ internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.com
     }
 
     /** P195: the sheet magnified 1.06x about the tile's centre, drawn in its edge band so the rim refracts. */
-    fun lensBrush(origin: androidx.compose.ui.geometry.Offset, size: androidx.compose.ui.geometry.Size): androidx.compose.ui.graphics.Brush =
-        shader(-origin.x, -origin.y) { postScale(LENS_ZOOM, LENS_ZOOM, size.width / 2f, size.height / 2f) }
+    fun lensBrush(origin: androidx.compose.ui.geometry.Offset, size: androidx.compose.ui.geometry.Size, shift: androidx.compose.ui.geometry.Offset = androidx.compose.ui.geometry.Offset.Zero): androidx.compose.ui.graphics.Brush =
+        shader(-origin.x, -origin.y) { postScale(LENS_ZOOM, LENS_ZOOM, size.width / 2f - shift.x, size.height / 2f - shift.y) }
             ?.let { androidx.compose.ui.graphics.ShaderBrush(it) } ?: androidx.compose.ui.graphics.SolidColor(flat)
 
     /**
@@ -530,8 +529,9 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
     private var rim: androidx.compose.ui.graphics.Brush? = null
     private var bevel: androidx.compose.ui.graphics.Brush? = null
     private var lens: androidx.compose.ui.graphics.Brush? = null
+    private var insets: List<Pair<Float, androidx.compose.ui.graphics.Outline>>? = null
 
-    fun reset() { brush = null; outline = null; rim = null; bevel = null; lens = null }
+    fun reset() { brush = null; outline = null; rim = null; bevel = null; lens = null; insets = null }
 
     override fun onGloballyPositioned(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
         // The tile's resting top-left, not its scaled one (P188): inside a focused tile's x1.21 layer, positionInWindow is
@@ -546,7 +546,7 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
     }
 
     override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
-        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null; bevel = null; lens = null }
+        if (cachedSize != size || outline == null) { cachedSize = size; outline = shape.createOutline(size, layoutDirection, this); brush = null; rim = null; bevel = null; lens = null; insets = null }
         val rest = outline ?: return drawContent()
         // Read while drawing: a new sheet redraws this surface (and only that).
         val sheet = ref?.sheet
@@ -566,12 +566,24 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         if (sheet != null && hardwareCanvas()) drawOutline(o, bevel ?: sheet.bevelBrush(size.height).also { bevel = it })
         // P195: Liquid Glass's lens (Kyant0/AndroidLiquidGlass draws it with AGSL, API 33+; ported as fixed draws).
         // Inside the edge the sheet is seen magnified (refraction), under the paired soft inner shadows; the top specular is the rim (rimBrush).
-        if (hardwareCanvas()) clipPath(androidx.compose.ui.graphics.Path().apply { addOutline(o) }) {
+        // P195: Liquid Glass's lens (Kyant0/AndroidLiquidGlass draws it with AGSL, API 33+; ported as fixed draws).
+        // Inside the edge the sheet is seen magnified (refraction), under the paired soft inner shadows; the top
+        // specular is the rim (rimBrush). Each band is a stroke on an inset copy of the shape, cached per size: no clip
+        // path and no new path per frame (P92: CC's RenderThread is its bottleneck).
+        if (hardwareCanvas()) {
             val band = LENS_DP.dp.toPx()
-            if (sheet != null && moved == null) drawOutline(o, lens ?: sheet.lensBrush(origin ?: androidx.compose.ui.geometry.Offset.Zero, size).also { lens = it },
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = band * 2f))
-            for (i in 1..3) drawOutline(o, androidx.compose.ui.graphics.SolidColor(Color.Black.copy(alpha = 0.05f)),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = band * 2f * i / 3f))
+            val rings = insets ?: listOf(band, band * 2f / 3f, band / 3f).map { w ->
+                w to shape.createOutline(androidx.compose.ui.geometry.Size(size.width - w, size.height - w), layoutDirection, this)
+            }.also { insets = it }
+            fun ring(w: Float, outline: androidx.compose.ui.graphics.Outline, brush: androidx.compose.ui.graphics.Brush, alpha: Float = 1f) =
+                translate(w / 2f, w / 2f) { drawOutline(outline, brush, alpha = alpha, style = androidx.compose.ui.graphics.drawscope.Stroke(width = w)) }
+            if (sheet != null && moved == null) ring(rings[0].first, rings[0].second, lens ?: sheet.lensBrush(
+                // drawn shifted by band/2 (the inset ring), so the sheet is shifted back to stay on the tile
+                (origin ?: androidx.compose.ui.geometry.Offset.Zero) + androidx.compose.ui.geometry.Offset(band / 2f, band / 2f), size,
+                androidx.compose.ui.geometry.Offset(band / 2f, band / 2f)).also { lens = it })
+            // While the open grows a tile, its shadows fade in with it, so a small tile isn't all edge (continuity).
+            val k = if (moved == null) 1f else ((moved.scale - 0.5f) / 0.5f).coerceIn(0f, 1f)
+            if (k > 0f) for ((w, outline) in rings) ring(w, outline, INNER_SHADOW, k)
         }
         // Liquid Glass's edge, one stroke: bright at the top-left, faint at the bottom-right, almost nothing between.
         val r = rim ?: CcMaterial.rimBrush(size).also { rim = it }
@@ -579,7 +591,7 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         drawContent()
     }
 
-    private companion object { const val MOVE_PX = 4f; const val LENS_DP = 8f }
+    private companion object { const val MOVE_PX = 4f; const val LENS_DP = 8f; val INNER_SHADOW = androidx.compose.ui.graphics.SolidColor(Color.Black.copy(alpha = 0.05f)) }
 }
 
 /**

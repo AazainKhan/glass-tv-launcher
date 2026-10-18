@@ -65,7 +65,7 @@ class CcAdaptTest {
     @Test fun theGlassShowsTheScenesDetailWithoutColour() {
         fun level(name: String) = bake(scenes.first { it.first == name }.second).pixels.map { it and 0xFF }.average()
         val dark = level("black"); val white = level("white")
-        assertTrue("white scene ($white) should read brighter than black ($dark)", white > dark + 20)
+        assertTrue("white scene ($white) should read brighter than black ($dark)", white > dark + 15)
         for ((name, src) in scenes) for (px in bake(src).pixels) {
             val ch = listOf((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
             assertTrue("$name: a glass pixel $ch has a colour cast", ch.max() - ch.min() <= 2)
