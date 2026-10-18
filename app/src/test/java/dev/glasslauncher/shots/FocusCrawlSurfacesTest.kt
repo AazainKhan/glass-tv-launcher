@@ -1,5 +1,6 @@
 package dev.glasslauncher.shots
 
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.core.app.ActivityScenario
@@ -35,7 +36,29 @@ class FocusCrawlSurfacesTest {
         (graph.offered - graph.nodes).forEach { add("$name: $it is on screen and focusable but the D-pad never reaches it") }
     }
 
-    /** Opens the surface, crawls it, and returns what is wrong. [reset] brings it back after a Home press. */
+    /** Crawls the surface [open] brings up in a running app and returns what is wrong; [open] is also how it comes back after a Home press. */
+    private fun crawlIn(
+        scenario: ActivityScenario<MainActivity>, name: String, maxNodes: Int,
+        open: (ActivityScenario<MainActivity>) -> Unit,
+    ): List<String> {
+        scenario.pressHome(); compose.waitForHome()
+        open(scenario)
+        compose.settle()
+        return crawlNow(scenario, name, maxNodes) { open(scenario); compose.settle() }
+    }
+
+    /** Crawls what is on screen now; [reopen] brings it back after a Home press. */
+    private fun crawlNow(
+        scenario: ActivityScenario<MainActivity>, name: String, maxNodes: Int,
+        reopen: () -> Unit,
+    ): List<String> {
+        if (compose.focused() == null) return listOf("$name: nothing has focus once it is open (the first D-pad press would go to whatever is behind it)")
+        val graph = FocusCrawler(compose, reset = { scenario.pressHome(); compose.waitForHome(); reopen() }, maxNodes = maxNodes).crawl()
+        graph.save("surface-$name")
+        return problemsOf(name, graph)
+    }
+
+    /** Launches the app and crawls one surface. */
     private fun crawl(
         name: String, maxNodes: Int = 80, config: (dev.glasslauncher.data.LauncherConfig) -> dev.glasslauncher.data.LauncherConfig = { it },
         prepare: () -> Unit = {},
@@ -46,15 +69,7 @@ class FocusCrawlSurfacesTest {
         var found = emptyList<String>()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             compose.waitForHome()
-            open(scenario)
-            compose.settle()
-            if (compose.focused() == null) {
-                found = listOf("$name: nothing has focus once it is open (the first D-pad press would go to whatever is behind it)")
-                return@use
-            }
-            val graph = FocusCrawler(compose, reset = { scenario.pressHome(); compose.waitForHome(); open(scenario); compose.settle() }, maxNodes = maxNodes).crawl()
-            graph.save("surface-$name")
-            found = problemsOf(name, graph)
+            found = crawlIn(scenario, name, maxNodes, open)
         }
         return found
     }
@@ -130,6 +145,52 @@ class FocusCrawlSurfacesTest {
         compose.press(Button.Down, Button.Down, Button.Select)
     })
 
+    /** Delivers one of MainActivity's actions the way the remote's buttons do (a new intent to the running activity). */
+    private fun deliver(scenario: ActivityScenario<MainActivity>, action: String) = scenario.onActivity { activity ->
+        android.app.Activity::class.java.getDeclaredMethod("onNewIntent", android.content.Intent::class.java)
+            .apply { isAccessible = true }.invoke(activity, android.content.Intent(action))
+    }
+
+    @Test fun search() = check(crawl("search") {
+        compose.press(Button.Up, Button.Up, Button.Up)
+        compose.press(Button.Left, Button.Select)
+        compose.waitForTag("search")
+    })
+
+    /**
+     * The switcher keeps its own selected card and asks for focus to follow it, so a crawler's direct focus requests would pull the two
+     * apart, and Up closes the focused app. This walks the strip with the keys a user has: Left to the end, Right to the end.
+     */
+    @Test fun appSwitcher() {
+        TvHarness.setUp(config = { it.copy(recentApps = listOf("com.netflix.ninja", "org.videolan.vlc", "com.plexapp.android")) })
+        val problems = mutableListOf<String>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            deliver(scenario, MainActivity.ACTION_APP_SWITCHER)
+            compose.settle()
+            check(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("app-switcher")).fetchSemanticsNodes().isNotEmpty()) { "the switcher didn't open" }
+            val onScreen = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("card") { n ->
+                n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)?.startsWith("switcher-card:") == true
+            }, useUnmergedTree = true).fetchSemanticsNodes().map { it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag] }.toSet()
+            val reached = linkedSetOf<String>()
+            fun note(step: String) {
+                val f = compose.focused()
+                if (f == null) problems += "app-switcher: focus is lost after $step" else reached += f
+            }
+            note("opening")
+            repeat(onScreen.size + 1) { compose.press(Button.Left); compose.settle(); note("Left") }
+            repeat(onScreen.size + 1) { compose.press(Button.Right); compose.settle(); note("Right") }
+            compose.press(Button.Down); compose.settle(); note("Down")
+            (onScreen - reached).forEach { problems += "app-switcher: $it is on screen and focusable but Left and Right never reach it" }
+        }
+        check(problems.distinct())
+    }
+
+    @Test fun downloads() = check(crawl("downloads") { scenario ->
+        deliver(scenario, MainActivity.ACTION_DOWNLOADS)
+        compose.waitForIdle()
+    })
+
     @Test fun folderMenu() = check(crawl("folder-menu", config = withFolder) {
         compose.focusTag(dev.glasslauncher.data.folderKey("media"))
         compose.settle()
@@ -137,24 +198,28 @@ class FocusCrawlSurfacesTest {
         compose.waitForTag("menu-header")
     })
 
+    /** Opens Settings, and the page of its [row]-th row (0 = the list itself). The caller settles once, after. */
     private fun openSettings(row: Int) {
         compose.focusTag("settings-tile")
         compose.press(Button.Select)
         compose.waitForTag("settings-icon:Settings")
-        compose.settle()
+        compose.waitForIdle()
         if (row > 0) {
             compose.press(*Array(row) { Button.Down })
             compose.press(Button.Select)
-            compose.settle()
         }
     }
 
     @Test fun settingsList() = check(crawl("settings") { openSettings(0) })
 
-    /** Every page a row of the main Settings list opens. */
+    /** Every page a row of the main Settings list opens, in one launch of the app (each is reopened from Home: Back does not land on the next row). */
     @Test fun settingsPages() {
+        TvHarness.setUp()
         val problems = mutableListOf<String>()
-        repeat(14) { row -> problems += crawl("settings-page-$row", maxNodes = 40) { openSettings(row) } }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitForHome()
+            repeat(14) { row -> problems += crawlIn(scenario, "settings-page-$row", 40) { openSettings(row) } }
+        }
         check(problems.distinct())
     }
 }

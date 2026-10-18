@@ -99,6 +99,10 @@ object TvHarness {
         // on the stick (contrast, stability) and by CcDockGlassTest.
         dev.glasslauncher.glass.CcAdapt.defaultVariant = "A"; dev.glasslauncher.glass.CcAdapt.variant = "A"
         dev.glasslauncher.glass.GlassMatch.keepPixels = true
+        // The app switcher remembers its last list in a process-wide static (so it opens full the next time): a test must not inherit another's.
+        runCatching {
+            Class.forName("dev.glasslauncher.home.AppSwitcherKt").getDeclaredField("lastApps").apply { isAccessible = true }.set(null, emptyList<dev.glasslauncher.apps.AppEntry>())
+        }
         blockNetwork()
         pinClock()
         useBitmapFactoryForImages()
