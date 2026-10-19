@@ -12,6 +12,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -302,11 +305,16 @@ private class GlassNode(
                     prevShader!!.setLocalMatrix(prevMatrix)
                     prevShader!!
                 }
-                drawOutline(outline, ShaderBrush(ComposeShader(prevFill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
+                // The old picture is the one the tray was baked from (P215): drawn as that image, not composed per pixel again.
+                val prevBaked = baked?.takeIf { (bakedKey as? List<*>)?.firstOrNull() === previousSource }
+                if (prevBaked != null) drawImage(prevBaked, alpha = texture)
+                else drawOutline(outline, ShaderBrush(ComposeShader(prevFill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
                 drawOutline(outline, ShaderBrush(ComposeShader(fill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = fade * texture)
             } else {
                 prevShaderSource = null; prevShader = null
-                drawOutline(outline, ShaderBrush(ComposeShader(fill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
+                val baked = if (style.clear && !style.legible && !style.useOverlay) bakedFill(outline, fill, source) else null
+                if (baked != null) drawImage(baked, alpha = texture)
+                else drawOutline(outline, ShaderBrush(ComposeShader(fill, overlayShader!!, PorterDuff.Mode.SRC_OVER)), alpha = texture)
             }
             // Glass over a dimmed scene (Control Center's) samples the scene as dimmed, like everything around
             // it: without this its tiles looked brighter and more colourful than the muted screen beside them.
@@ -323,6 +331,60 @@ private class GlassNode(
         else drawRim(outline)
         drawContent()
     }
+
+    // P215: the clear glass's fill (backdrop texture + tint + gloss, composed per pixel) was most of the GPU time on every
+    // animated Home frame (the tray: janky 13% -> 2% without it). At rest it is the same picture every frame, so it is drawn
+    // once into a bitmap of its own shape and drawn as one plain image; it is baked again only when the backdrop, size or
+    // place changes. While the surface is moving (the expand slide) the live fill is used, not a bake per frame.
+    private var bakedKey: Any? = null
+    private var baked: ImageBitmap? = null
+    private var lastMoveMs = 0L
+    private var lastOrigin = Offset.Unspecified
+
+    private fun ContentDrawScope.bakedFill(outline: Outline, fill: Shader, source: ImageBitmap): ImageBitmap? {
+        val now = android.os.SystemClock.uptimeMillis()
+        val placed = Offset(origin.x.roundToInt().toFloat(), origin.y.roundToInt().toFloat())
+        if (placed != lastOrigin) { lastOrigin = placed; lastMoveMs = now }
+        if (now - lastMoveMs < BAKE_AFTER_STILL_MS) { invalidateDraw(); return null }
+        val key = listOf(source, size, placed, overlayKey)
+        if (key == bakedKey) return baked
+        if (key == bakingKey) return null
+        val w = size.width.toInt(); val h = size.height.toInt()
+        if (w <= 0 || h <= 0) return null
+        // Baked off the main thread (on the stick a bake on the frame was a 20-60 ms stall); the live fill draws until it lands.
+        bakingKey = key
+        // The tint and gloss shader is never changed once built (a new key builds a new one), so the baker may share it.
+        val overlay = overlayShader!!
+        val m = android.graphics.Matrix().also { fill.getLocalMatrix(it) }
+        val path = android.graphics.Path().also { p -> when (outline) {
+            is Outline.Rounded -> outline.roundRect.let { r -> p.addRoundRect(r.left, r.top, r.right, r.bottom, floatArrayOf(r.topLeftCornerRadius.x, r.topLeftCornerRadius.y, r.topRightCornerRadius.x, r.topRightCornerRadius.y, r.bottomRightCornerRadius.x, r.bottomRightCornerRadius.y, r.bottomLeftCornerRadius.x, r.bottomLeftCornerRadius.y), android.graphics.Path.Direction.CW) }
+            is Outline.Rectangle -> outline.rect.let { r -> p.addRect(r.left, r.top, r.right, r.bottom, android.graphics.Path.Direction.CW) }
+            is Outline.Generic -> p.set(outline.path.asAndroidPath())
+        } }
+        val sourceBitmap = source.asAndroidBitmap()
+        BAKER.execute {
+            // Its own shader objects: the live ones keep being re-pointed on the main thread.
+            val own = BitmapShader(sourceBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).also { it.setLocalMatrix(m) }
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply { this.shader = ComposeShader(own, overlay, PorterDuff.Mode.SRC_OVER) }
+            // The backdrop texture can be a HARDWARE bitmap, which a software canvas can't draw: the fill is recorded and
+            // rendered by the GPU straight into a HARDWARE bitmap (no upload either). A software source (the JVM tests)
+            // is drawn in software. A bake that fails leaves the live fill for that key.
+            val image = runCatching {
+                if (sourceBitmap.config == android.graphics.Bitmap.Config.HARDWARE) {
+                    val picture = android.graphics.Picture()
+                    picture.beginRecording(w, h).drawPath(path, paint)
+                    picture.endRecording()
+                    android.graphics.Bitmap.createBitmap(picture, w, h, android.graphics.Bitmap.Config.HARDWARE)
+                } else android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).also { android.graphics.Canvas(it).drawPath(path, paint) }
+            }.onFailure { android.util.Log.w("GlassFill", "bake failed", it) }.getOrNull()?.asImageBitmap()
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (bakingKey == key) { bakingKey = null; bakedKey = key; baked = image; if (isAttached) invalidateDraw() }
+            }
+        }
+        return null
+    }
+
+    private var bakingKey: Any? = null
 
     private fun solidTint(tint: Color): Color =
         if (tint.luminance() > 0.5f) Color(0xF2F4F5F8) else Color(0xF21A1D25)
@@ -347,6 +409,10 @@ private class GlassNode(
         drawOutline(outline, brush(rim), style = Stroke(width = 1.dp.toPx()))
     }
 }
+
+private const val BAKE_AFTER_STILL_MS = 120L
+
+private val BAKER = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "glass-fill").apply { priority = Thread.MIN_PRIORITY } }
 
 private val EDGE_BAND_WIDE = Color(0xFF5C6688).copy(alpha = 0.022f)
 private val EDGE_BAND_NARROW = Color(0xFF5C6688).copy(alpha = 0.035f)
