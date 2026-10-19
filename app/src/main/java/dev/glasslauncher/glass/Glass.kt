@@ -378,7 +378,14 @@ private class GlassNode(
                 } else android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).also { android.graphics.Canvas(it).drawPath(path, paint) }
             }.onFailure { android.util.Log.w("GlassFill", "bake failed", it) }.getOrNull()?.asImageBitmap()
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                if (bakingKey == key) { bakingKey = null; bakedKey = key; baked = image; if (isAttached) invalidateDraw() }
+                if (bakingKey == key) {
+                    // The bake this replaces is this node's alone (P216): a HARDWARE buffer, released now rather than at the next
+                    // collection (the renderer keeps its own reference while a frame still uses it). Not mid-crossfade: the fade draws it as its old layer.
+                    val old = baked
+                    bakingKey = null; bakedKey = key; baked = image
+                    if (state.previous == null) old?.asAndroidBitmap()?.takeIf { it.config == android.graphics.Bitmap.Config.HARDWARE && it !== image?.asAndroidBitmap() }?.recycle()
+                    if (isAttached) invalidateDraw()
+                }
             }
         }
         return null

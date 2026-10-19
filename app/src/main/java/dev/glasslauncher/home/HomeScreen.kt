@@ -555,6 +555,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(backdrop.backdrop, expanded, overlays.size) {
         delay(GPU_TRIM_AFTER_MS)
         dev.glasslauncher.ui.GpuCaches.trim()
+        // P216: the scenes left behind are garbage whose native pixels go only when a collection runs (and their cleaners
+        // after it): a heap dump after a dock pass found ~40 MB of unreachable bitmaps, and one collection took the grid's
+        // PSS from ~133 to ~119 MB. Home is at rest here, so a collection costs nothing on screen.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
     }
 
     // Loading state: Home stays hidden until its first backdrop is baked and the app list is in, then
