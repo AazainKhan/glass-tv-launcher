@@ -44,7 +44,7 @@ if "idleCpuPct" in b and r.get("idleCpuPct") is not None and float(r["idleCpuPct
     bad.append(f"idleCpuPct {r['idleCpuPct']} > {b['idleCpuPct']}")
 for name in ("dock", "grid"):
     x = r[name]
-    print(f"{name}: deadline missed {x.get('deadlineMissedPct')}%, p99 {x.get('p99')} ms, PSS {x.get('pssMB')} MB "
+    print(f"{name}: deadline missed {x.get('deadlineMissedPct')}%, p99 {x.get('p99')} ms, PSS {x.get('pssMB')} MB at rest (peak {x.get('pssPeakMB')} MB, not judged) "
           f"(reported: janky {x.get('jankyPct')}%, high input latency {x.get('highInputLatencyPct')}%, p90 {x.get('p90')} ms)")
 print("perf-gate: " + ("FAIL: " + "; ".join(bad) if bad else "pass"))
 sys.exit(1 if bad else 0)
