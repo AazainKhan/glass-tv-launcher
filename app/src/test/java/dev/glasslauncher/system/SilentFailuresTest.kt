@@ -90,4 +90,65 @@ class SilentFailuresTest {
         val result = runCatching { runBlocking { Sources.of(FeaturedSourceId.Plex)!!.load(http, FeaturedConfig(source = FeaturedSourceId.Plex, plexToken = "stale", plexClientId = "x")) } }
         assertTrue("was ${result.exceptionOrNull()}", result.exceptionOrNull() is FeaturedAuthExpired)
     }
+
+    private val seen get() = context.getSharedPreferences("notices", Context.MODE_PRIVATE).getLong("exit-seen", 0L)
+    private val pending get() = context.getSharedPreferences("notices", Context.MODE_PRIVATE).getLong("exit-pending", 0L)
+
+    @Test fun aCrashAtStartIsHeldUntilHomeIsUpAndOnlyThenMarkedSeen() {
+        val now = System.currentTimeMillis()
+        CrashRecovery.record(context, ApplicationExitInfo.REASON_CRASH, now - 3_000, now)
+        assertEquals("kept, not shown, not consumed", now - 3_000, pending)
+        assertEquals(0L, seen)
+        ShadowLooper.idleMainLooper()
+        assertNull("nothing shown at start", ShadowToast.getLatestToast())
+        CrashRecovery.showPending(context)
+        ShadowLooper.idleMainLooper()
+        assertEquals("Glass restarted after it stopped unexpectedly.", ShadowToast.getTextOfLatestToast())
+        assertEquals("now it is seen", now - 3_000, seen)
+        assertEquals(0L, pending)
+        ShadowToast.reset()
+        CrashRecovery.showPending(context)
+        ShadowLooper.idleMainLooper()
+        assertNull("once", ShadowToast.getLatestToast())
+    }
+
+    @Test fun aQuietExitOrAnOldCrashIsConsumedAndNeverShown() {
+        val now = System.currentTimeMillis()
+        CrashRecovery.record(context, ApplicationExitInfo.REASON_USER_REQUESTED, now - 3_000, now)
+        assertEquals(now - 3_000, seen)
+        assertEquals(0L, pending)
+        CrashRecovery.record(context, ApplicationExitInfo.REASON_CRASH, now - 60 * 60_000, now)
+        assertEquals("older than what was seen: ignored", now - 3_000, seen)
+        CrashRecovery.showPending(context)
+        ShadowLooper.idleMainLooper()
+        assertNull(ShadowToast.getLatestToast())
+    }
+
+    private fun doNotDisturb(on: Boolean) {
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        org.robolectric.Shadows.shadowOf(nm).setNotificationPolicyAccessGranted(true)
+        nm.setInterruptionFilter(if (on) android.app.NotificationManager.INTERRUPTION_FILTER_NONE else android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+    }
+
+    @Test fun showSaysWhichPathTookTheNotice() {
+        assertEquals("no service up here: the toast fallback", RemoteNotice.Outcome.Toast, RemoteNotice.show(context, "hello"))
+        doNotDisturb(true)
+        assertEquals("a plain notice under Do Not Disturb", RemoteNotice.Outcome.Suppressed, RemoteNotice.show(context, "hello"))
+        assertEquals("an actionable one still shows", RemoteNotice.Outcome.Toast, RemoteNotice.show(context, "help", actionable = true))
+    }
+
+    @Test fun aCrashNoticeHeldBackByDoNotDisturbIsKeptForTheNextResume() {
+        val now = System.currentTimeMillis()
+        CrashRecovery.record(context, ApplicationExitInfo.REASON_CRASH, now - 3_000, now)
+        doNotDisturb(true)
+        CrashRecovery.showPending(context)
+        assertEquals("not shown, so not seen", 0L, seen)
+        assertEquals(now - 3_000, pending)
+        doNotDisturb(false)
+        CrashRecovery.showPending(context)
+        ShadowLooper.idleMainLooper()
+        assertEquals("Glass restarted after it stopped unexpectedly.", ShadowToast.getTextOfLatestToast())
+        assertEquals(now - 3_000, seen)
+        assertEquals(0L, pending)
+    }
 }

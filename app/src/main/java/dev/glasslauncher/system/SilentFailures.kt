@@ -69,15 +69,40 @@ object CrashRecovery {
     fun shouldNotify(reason: Int, timestamp: Long, lastSeen: Long, now: Long) =
         reason in UNEXPECTED && timestamp > lastSeen && now - timestamp in 0..RECENT_MS
 
+    private const val SEEN = "exit-seen"
+    private const val PENDING = "exit-pending"
+    private const val LINE = "Glass restarted after it stopped unexpectedly."
+
+    /**
+     * At start: reads how the last process ended. A recent crash is kept as pending, not shown: Glass is not in front yet, and Fire's
+     * notification service kills a toast from a background app (P214 on the stick). [showPending] says it once Home is up. Any other
+     * exit is consumed.
+     */
     fun check(context: Context, now: Long = System.currentTimeMillis()) {
         if (android.os.Build.VERSION.SDK_INT < 30) return
         val newest = runCatching {
             context.getSystemService(ActivityManager::class.java).getHistoricalProcessExitReasons(context.packageName, 0, 1).firstOrNull()
         }.getOrNull() ?: return
+        record(context, newest.reason, newest.timestamp, now)
+        // Home was already up when the check finished (the check runs off the main thread, at start-up).
+        if (dev.glasslauncher.system.RemoteWatch.homeInFront) showPending(context)
+    }
+
+    /** What to do with an exit: consumed, or pending until it is shown. */
+    internal fun record(context: Context, reason: Int, timestamp: Long, now: Long) {
         val prefs = context.applicationContext.getSharedPreferences("notices", Context.MODE_PRIVATE)
-        val lastSeen = prefs.getLong("exit-seen", 0L)
-        if (newest.timestamp <= lastSeen) return
-        prefs.edit().putLong("exit-seen", newest.timestamp).apply()
-        if (shouldNotify(newest.reason, newest.timestamp, lastSeen, now)) RemoteNotice.show(context, "Glass restarted after it stopped unexpectedly.", forMs = 5_000)
+        if (timestamp <= prefs.getLong(SEEN, 0L)) return
+        if (shouldNotify(reason, timestamp, prefs.getLong(SEEN, 0L), now)) prefs.edit().putLong(PENDING, timestamp).apply()
+        else prefs.edit().putLong(SEEN, timestamp).apply()
+    }
+
+    /** Home is in front: says the pending notice once, and only then marks that exit as seen, so a notice that could not be shown is tried again. */
+    @Synchronized fun showPending(context: Context) {
+        val prefs = context.applicationContext.getSharedPreferences("notices", Context.MODE_PRIVATE)
+        val pending = prefs.getLong(PENDING, 0L)
+        if (pending == 0L) return
+        // Held back (Do Not Disturb): tried again at the next resume, but not for ever.
+        if (RemoteNotice.show(context, LINE, forMs = 5_000) == RemoteNotice.Outcome.Suppressed && System.currentTimeMillis() - pending < Notices.DAY_MS) return
+        prefs.edit().putLong(SEEN, pending).remove(PENDING).apply()
     }
 }
