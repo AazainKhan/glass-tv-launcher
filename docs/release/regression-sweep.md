@@ -15,7 +15,7 @@ Prerequisites on the stick: wall adapter (not the Mac's USB, P169), all five Mag
 | P146/P150 | Device platters, no on-screen Back | Open Remotes and Game Controllers | Full-width device pills; no Back button; one Back closes the platter | S | |
 | P148/P172 | Output picker | Open AirPlay/Audio Output with headphones paired | One list under Audio Output, no Headphones header; Pair row set apart | U | |
 | P149 | Round shadows | Focus a circle and a capsule control over a dark scene | Shadow follows the shape (no square corners) | S | |
-| P151 | One default page | Fresh CC layout | One page, no page dots; + in edit adds a page | T | |
+| P151 | One default page | Fresh CC layout | One page, no page dots; + in edit adds a page | T || 2026-10-18 d698e097, twin: pass (one page, no dots). "+ in edit adds a page" not checked |
 | P151b | Platter grows from its tile | screenrecord opening/closing Controllers, Remotes, AirPlay | Grows out of its tile and back into it; never bottom-up; the closing platter never turns into another | S | |
 | P152 | Edit mode | Settings › Control Center › Edit Layout; move a tile with D-pad | Settings fades out (no frame of bare Home); only the lifted tile jiggles; no dark flash on focus moves | S | |
 | P152 | No crash entering edit | Enter Edit Layout 5 times | No Glass restart (`logcat -b crash` empty) | S | |
@@ -41,7 +41,7 @@ Prerequisites on the stick: wall adapter (not the Mac's USB, P169), all five Mag
 |---|---|---|---|---|---|
 | P147/P149 | Open is continuous | screenrecord Select on Spotify (cold) | Zoom within ~120 ms of the press, 17 ms frames to full screen, no green/black flash | S | |
 | P147/P149 | Close is continuous | screenrecord Home from Spotify | App preview shrinks into the tile with no size jump and no dark frames | S | |
-| P162 | Failed launch says so | Disable an app's launch activity (`pm disable` a test app), select its tile | "Couldn't open <App>." capsule; zoom returns into the tile | T | |
+| P162 | Failed launch says so | Disable an app's launch activity (`pm disable` a test app), select its tile | "Couldn't open <App>." capsule; zoom returns into the tile | T || 2026-10-18: covered by LaunchNoticeTest (gates pass). Not reproducible from adb on the twin: disabling the app drops its tile first |
 | P178 | Double Select | Gamepad X X fast on an app tile | One zoom, no flash, app starts once | U | |
 
 ## Search, info, resume
@@ -60,7 +60,7 @@ Prerequisites on the stick: wall adapter (not the Mac's USB, P169), all five Mag
 | P144 | Sonos opt-out hint | Route Spotify to Sonos | The Spotify-specific opt-out hint; TV keeps its sound | U | |
 | P149 | Fast | Settings › Root › Fast | Background apps closed once; animator scales stay 1.0 | S | |
 | P149 | Cached-app cap | `dumpsys activity settings` after a reboot | `CUR_MAX_CACHED_PROCESSES=12` | S | |
-| P154/P157 | Compact rename + pairs | Rename a folder; open an install confirm | 340 dp panel; Done/Cancel and Install/Cancel as half-width pairs | T | |
+| P154/P157 | Compact rename + pairs | Rename a folder; open an install confirm | 340 dp panel; Done/Cancel and Install/Cancel as half-width pairs | T || 2026-10-18: rename panel covered by the renameFolder golden (gates pass); install confirm not checked |
 | P155 | Fire-only rows on Fire | Settings › Root and Display & Text | Home Takeover, Own Remote Pairing, Memory Tuning, Fire TV Accessibility all present | S | |
 | P155 | App buttons | Press the remote's four app buttons | Netflix, Prime, Music, Disney+ open | U | |
 | stockHome | Boot never hangs | Home Takeover on, reboot | Boots to Glass; `pm list packages -d` never lists a settings package | S | |
@@ -68,3 +68,31 @@ Prerequisites on the stick: wall adapter (not the Mac's USB, P169), all five Mag
 | P168 | Install progress | Update an app from the store | Tile badge with progress; capsule at start/end | U | |
 | P169/P175 | No BLE scan under BT audio | Headphones on A2DP + gamepad, music playing | `logcat -s GlassRemotePair` shows "scan stops" and no new scans; music clean; no reset over 30 min | U | |
 | P174/P176 | Pair and test controllers | CC › Game Controllers › Pair; Test Controller; map a button | Pairs a controller in pairing mode; live test reacts; mapped button fires over an app; 20 dp gap under every platter header | U | |
+
+## Performance (P180), 2026-10-18, master d698e097
+
+Stick, release build, `scripts/perf-gate --rounds 2` (median of 3 samples per route) and `scripts/bench` (10 iterations each). The pre-P215 master (f81c31b0) was gated the same day for comparison.
+
+| Route | Deadline missed | p99 | PSS | p90 | Budget | Result | f81c31b0 (pre-P215) |
+|---|---|---|---|---|---|---|---|
+| dock | 1.4 % | 26 ms | 139 MB | 19 ms | 2 %, 25 ms, 145 MB | **fail** (p99 +1 ms) | 1.01 %, 29 ms, 153 MB: fail |
+| grid | 0.56 % | 15 ms | 126 MB | 12 ms | 2 %, 25 ms, 120 MB | **fail** (PSS +6 MB) | 0.56 %, 16 ms, 122 MB: fail |
+| idle CPU | 0.6 % (slideshow 0.6 %) | | | | 1 % | pass | |
+
+Both over-budget items predate P215 (it lowered dock p99 29 to 26 ms and dock PSS 153 to 139 MB).
+
+| Macrobench | Result |
+|---|---|
+| startupCold / Warm / Hot | TTID 810 / 302 / 220 ms (hot TTFD 573 ms); cold without profile 1010 ms |
+| focusDock | p50 8.2, p90 21.0, p99 42.2 ms (191 frames) |
+| focusGrid | p50 7.0, p90 8.6, p99 21.9 ms |
+| rowScroll | p50 8.5, p90 15.0, p99 28.6 ms |
+| rowScrollAfterDockMove | p50 9.6, p90 25.4, p99 64.3 ms |
+| controlCenter (first) / Warm | p90 32.4 / 31.6, p99 109.9 / 62.7 ms |
+| appSwitcher | p50 9.2, p90 25.0, p99 52.6 ms |
+| appMenu | p50 10.8, p90 28.3, p99 84.9 ms |
+| appLaunch | p50 4.6, p90 21.2, p99 195.5 ms (28 frames) |
+
+## Still to run
+
+The S (stick) rows above are not yet re-run on d698e097. The U rows need the user (physical buttons, Bluetooth devices, real accounts): P141, P144, P148/P172, P153, P155 (app buttons), P156, P160, P161/P171, P166, P167, P168, P169/P175, P170, P174/P176, P178, move race.
