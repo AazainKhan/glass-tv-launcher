@@ -1083,6 +1083,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     if (e.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                     when {
                         e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { openControlCenter(); true }
+                        // The info card keeps Up and Down until Back (P231): Home's "Down leaves full screen" below must not see them.
+                        dev.glasslauncher.featured.InfoCardOpen.open && (e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN || e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) -> false
                         // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && cfg.topShelfTitles && takeover == null -> { setExpanded(true); true }
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && takeover != null && !pillFocused && !heroFocused ->
