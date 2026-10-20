@@ -4,6 +4,9 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.basicMarquee
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -434,19 +437,37 @@ private fun ShelfButton(
  */
 @Composable
 private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
-    val focus = remember { FocusRequester() }
-    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    val context = LocalContext.current
     // null while it loads; a state with nothing in it when the title has no more to say.
     val details by androidx.compose.runtime.produceState<ShelfDetails?>(null, item.id) {
         value = runCatching { ShelfDetails.load(metaHttp, item) }.getOrNull() ?: ShelfDetails()
     }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).testTag("shelf-info-sheet"), contentAlignment = Alignment.Center) {
+    InfoCard(item, details, onClose)
+}
+
+/** Space kept clear between the info card and every screen edge (P231). */
+internal val INFO_CARD_MARGIN = 28.dp
+
+/**
+ * The info card (P231): a rounded glass card with a margin from every edge of the screen, never the full height; long content (a
+ * show's seasons, a big cast) scrolls inside it, Up and Down moving the text when no row has the keys.
+ */
+@Composable
+internal fun InfoCard(item: FeaturedItem, details: ShelfDetails?, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val context = LocalContext.current
+    val scroll = androidx.compose.foundation.rememberScrollState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).padding(INFO_CARD_MARGIN).testTag("shelf-info-sheet"),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             Modifier
                 .width(720.dp)
                 .background(Color(0xE61C1C1E), RoundedCornerShape(28.dp))
-                .padding(28.dp)
+                .clip(RoundedCornerShape(28.dp))
                 .focusRequester(focus)
                 .semantics { role = androidx.compose.ui.semantics.Role.Button; paneTitle = "More Info" }
                 .onKeyEvent { e ->
@@ -454,11 +475,17 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                     // Back (and Select) close the sheet only; Home's own Back would also leave full screen.
                     val close = k.keyCode == AndroidKeyEvent.KEYCODE_BACK || dev.glasslauncher.ui.isSelectKey(k.keyCode)
                     if (close && k.action == AndroidKeyEvent.ACTION_UP) onClose()
+                    // Up and Down scroll a long card (a row of episodes takes them first, so they reach here only at its ends).
+                    val dy = when (k.keyCode) { AndroidKeyEvent.KEYCODE_DPAD_DOWN -> 1; AndroidKeyEvent.KEYCODE_DPAD_UP -> -1; else -> 0 }
+                    if (dy != 0 && k.action == AndroidKeyEvent.ACTION_DOWN && (dy > 0 && scroll.canScrollForward || dy < 0 && scroll.canScrollBackward)) {
+                        scope.launch { scroll.animateScrollBy(dy * with(density) { 96.dp.toPx() }) }
+                    }
                     close
                 }
-                .focusable(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .focusable()
+                .testTag("shelf-info-card"),
         ) {
+          Column(Modifier.verticalScroll(scroll).padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.title, style = Type.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val d = details
             when {
@@ -501,6 +528,7 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
                     SeasonsView(d.seasonList)
                 }
             }
+          }
         }
     }
 }
