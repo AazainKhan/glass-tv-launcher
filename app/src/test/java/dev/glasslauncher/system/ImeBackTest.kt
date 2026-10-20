@@ -49,4 +49,23 @@ class ImeBackTest {
         compose.waitForIdle()
         assertEquals("the field let go of focus once, as the keyboard's own Done would", 1, lost)
     }
+
+    @Test fun backInTheKeyboardsPreImeStageEndsTheEditingWithoutTheService() {
+        var lost = 0
+        val field = FocusRequester()
+        var view: android.view.View? = null
+        compose.setContent {
+            view = androidx.compose.ui.platform.LocalView.current
+            SystemTextField("abc", {}, field, onFocusLost = { lost++ }, modifier = Modifier.semantics { testTag = "field" })
+        }
+        compose.runOnIdle { field.requestFocus() }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            // The stage before the keyboard sees a key (View.dispatchKeyEventPreIme): the standard path, no accessibility service involved.
+            view!!.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            view!!.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        compose.waitForIdle()
+        assertEquals("Back before the keyboard ended the editing", 1, lost)
+    }
 }

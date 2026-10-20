@@ -53,6 +53,9 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onInterceptKeyBeforeSoftKeyboard
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -389,6 +392,14 @@ internal fun SystemTextField(
         keyboardActions = KeyboardActions(onDone = { onAction() }, onNext = { onAction() }, onGo = { onAction() }, onSearch = { onAction() }, onSend = { onAction() }),
         modifier = modifier
             .then(if (label != null) Modifier.semantics { this.contentDescription = label } else Modifier)
+            // Back before the keyboard sees it (the standard Android pre-IME stage, no accessibility service needed): end the editing,
+            // hide the keyboard and let the field go. Then the next Back is the screen's own (P230). Whether this stage runs for Fire's
+            // modal keyboard is for the stick to say; the service path (ImeBack) covers it meanwhile.
+            .onInterceptKeyBeforeSoftKeyboard { e ->
+                if (e.key == androidx.compose.ui.input.key.Key.Back && e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
+                    keyboardController?.hide(); focusManager.clearFocus(); true
+                } else e.key == androidx.compose.ui.input.key.Key.Back
+            }
             .focusRequester(focusRequester)
             .onFocusChanged {
                 // onFocusChanged also fires on attach with the initial unfocused state; only a real loss of focus ends it.
