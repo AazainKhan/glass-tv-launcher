@@ -40,17 +40,13 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
-def _only_device() -> str:
-    """The single attached device; set ANDROID_SERIAL when there are several."""
-    out = subprocess.run(["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]
-    serials = [l.split()[0] for l in out if l.strip().endswith("device")]
-    assert len(serials) == 1, f"expected one device, found {serials}; set ANDROID_SERIAL"
-    return serials[0]
-
-
 @pytest.fixture(scope="session")
 def tv() -> TV:
-    serial = os.environ.get("ANDROID_SERIAL") or _only_device()
+    # Never "whatever device is attached": a bare pytest once ran a test on the user's stick. scripts/e2e sets this (and takes
+    # the stick lock); by hand, export it for the device you mean.
+    serial = os.environ.get("ANDROID_SERIAL")
+    if not serial:
+        pytest.exit("e2e: set ANDROID_SERIAL (scripts/e2e does): the suite won't pick a device by itself", returncode=4)
     owner = os.environ.get("TV_OWNER", "glass-e2e")
     t = TV(serial, owner)
     assert "device" in t.adb("get-state"), f"{serial} isn't connected"
