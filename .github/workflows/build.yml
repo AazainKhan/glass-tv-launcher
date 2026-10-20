@@ -48,3 +48,6 @@ jobs:
         with:
           files: glass-tv-launcher-*.apk
           generate_release_notes: true
+          # A draft: the signature is checked and the notes added before anyone can download it; a "-beta" tag is a pre-release.
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

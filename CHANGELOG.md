@@ -2,7 +2,7 @@
 
 All notable changes to Glass are recorded here. No version has been released yet.
 
-## 0.3.0-beta.1 (draft, not released)
+## 0.3.0-beta.1 (2026-10-20, pre-release)
 
 First plain-APK beta. Release notes: `docs/release/v0.3.0-beta.md`.
 
