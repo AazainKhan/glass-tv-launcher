@@ -22,7 +22,9 @@ fi
 a11y="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
 # A run cut off between delete and restore (adb dropping) leaves "null"; never save that as the value to restore.
 case "$a11y" in null|"") a11y=dev.glasslauncher/dev.glasslauncher.system.RemoteKeysService ;; esac
-restore_a11y() { adb shell su -c "pm enable dev.glasslauncher/.widgets.NowPlayingService" >/dev/null 2>&1; [ "$a11y" = null ] || [ -z "$a11y" ] && return; adb shell settings put secure enabled_accessibility_services "$a11y"; adb shell settings put secure accessibility_enabled 1; }
+# The instrumentation pins the clocks (2026-10-20: CPU min=max 2 GHz, GPU min=max 850 MHz were left behind, and every
+# perf number after it was taken at pinned clocks): they are saved before the run and put back by the trap and the guard.
+restore_a11y() { adb shell "su -c 'sh /data/local/tmp/clocks.sh restore'" >/dev/null 2>&1; adb shell su -c "pm enable dev.glasslauncher/.widgets.NowPlayingService" >/dev/null 2>&1; [ "$a11y" = null ] || [ -z "$a11y" ] && return; adb shell settings put secure enabled_accessibility_services "$a11y"; adb shell settings put secure accessibility_enabled 1; }
 trap restore_a11y EXIT
 # macOS bash 3.2 skips the EXIT trap when the script is killed; turn signals into a normal exit.
 trap "exit 130" INT TERM HUP
@@ -41,12 +43,23 @@ adb shell "rm -rf $OUT/*"
 # the stick puts the services back once the instrumentation is gone, so the remote never stays without its keys
 # service (2026-10-18: a cut-off run left the user's Menu hold and banners broken). It waits for the run to start,
 # then for it to end, and gives up after 90 minutes.
+adb shell "cat > /data/local/tmp/clocks.sh" <<'CLOCKS'
+# save: the min/max of every CPU policy and devfreq device into clocks.saved; restore: write them back (once, then forget).
+f=/data/local/tmp/clocks.saved
+case "$1" in
+  save) : > $f; for n in /sys/devices/system/cpu/cpufreq/policy*/scaling_min_freq /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq /sys/class/devfreq/*/min_freq /sys/class/devfreq/*/max_freq; do [ -w "$n" ] && echo "$n $(cat $n)" >> $f; done ;;
+  # max first, then min: a min above the old max is refused
+  restore) [ -s $f ] || exit 0; grep max $f | while read n v; do echo "$v" > "$n"; done; grep min $f | while read n v; do echo "$v" > "$n"; done; rm -f $f ;;
+esac
+CLOCKS
+adb shell "su -c 'sh /data/local/tmp/clocks.sh save'"
 adb shell "cat > /data/local/tmp/a11y-guard.sh" <<'GUARD'
 # $1: the accessibility services to put back. Waits up to 60 s for the instrumentation to start, then until it ends
 # (at most 90 min), then restores them.
 i=0; while [ $i -lt 60 ] && ! pgrep -f androidx.test.runner >/dev/null; do sleep 1; i=$((i+1)); done
 j=0; while pgrep -f androidx.test.runner >/dev/null && [ $j -lt 1080 ]; do sleep 5; j=$((j+1)); done
 settings put secure enabled_accessibility_services "$1"; settings put secure accessibility_enabled 1
+sh /data/local/tmp/clocks.sh restore
 GUARD
 adb shell "su -c 'nohup sh /data/local/tmp/a11y-guard.sh $a11y >/dev/null 2>&1 &'"
 adb shell settings delete secure enabled_accessibility_services >/dev/null
