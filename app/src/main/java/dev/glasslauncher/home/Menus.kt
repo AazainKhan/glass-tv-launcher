@@ -364,6 +364,8 @@ internal fun SystemTextField(
     focusRequester: FocusRequester,
     onFocusLost: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Back with the keyboard up: end the editing and put focus back on the caller's row. Defaults to [onFocusLost]. */
+    onBack: () -> Unit = onFocusLost,
     isPassword: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
     imeAction: ImeAction = ImeAction.Done,
@@ -373,14 +375,9 @@ internal fun SystemTextField(
 ) {
     val palette = LocalPalette.current
     var hadFocus by remember { mutableStateOf(false) }
-    // The accessibility service took a Back meant for the keyboard (ImeBack): end the editing, as the keyboard's own Done does.
+    // Back is taken before the keyboard sees it only while this field has focus, i.e. while its keyboard is up (P230).
     var focused by remember { mutableStateOf(false) }
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(focused) {
-        if (!focused) return@LaunchedEffect
-        dev.glasslauncher.system.ImeBack.requests.collect { keyboardController?.hide(); focusManager.clearFocus() }
-    }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -392,13 +389,15 @@ internal fun SystemTextField(
         keyboardActions = KeyboardActions(onDone = { onAction() }, onNext = { onAction() }, onGo = { onAction() }, onSearch = { onAction() }, onSend = { onAction() }),
         modifier = modifier
             .then(if (label != null) Modifier.semantics { this.contentDescription = label } else Modifier)
-            // Back before the keyboard sees it (the standard Android pre-IME stage, no accessibility service needed): end the editing,
-            // hide the keyboard and let the field go. Then the next Back is the screen's own (P230). Whether this stage runs for Fire's
-            // modal keyboard is for the stick to say; the service path (ImeBack) covers it meanwhile.
+            // Back before the keyboard sees it (Android's pre-IME stage, no accessibility service needed): while the keyboard is up, Back
+            // closes it and ends the editing through [onBack], which puts focus on the caller's own row, so the next Back is the
+            // screen's. Not taken when the field has no focus. (A clearFocus here left focus on the field and swallowed every later Back.)
             .onInterceptKeyBeforeSoftKeyboard { e ->
-                if (e.key == androidx.compose.ui.input.key.Key.Back && e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
-                    keyboardController?.hide(); focusManager.clearFocus(); true
-                } else e.key == androidx.compose.ui.input.key.Key.Back
+                if (!focused || e.key != androidx.compose.ui.input.key.Key.Back) false
+                else {
+                    if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) { keyboardController?.hide(); onBack() }
+                    true
+                }
             }
             .focusRequester(focusRequester)
             .onFocusChanged {

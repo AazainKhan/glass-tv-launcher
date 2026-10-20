@@ -124,7 +124,7 @@ fun SearchScreen(
             Icon(R.drawable.ic_search, ink.copy(alpha = 0.7f), 32)
             if (editing) dev.glasslauncher.home.SystemTextField(
                 value = query, onValueChange = { model.setQuery(it) }, focusRequester = field,
-                onFocusLost = { editing = false }, imeAction = androidx.compose.ui.text.input.ImeAction.Search, onAction = { returnToRow = true; editing = false }, label = "Search",
+                onFocusLost = { editing = false }, onBack = { returnToRow = true; editing = false }, imeAction = androidx.compose.ui.text.input.ImeAction.Search, onAction = { returnToRow = true; editing = false }, label = "Search",
                 modifier = Modifier.weight(1f).testTag("search-field"),
             ) else Pill(ink, Modifier.weight(1f).height(44.dp).focusRequester(row).testTag("search-row"), onClick = { editing = true }) { focused ->
                 Text(

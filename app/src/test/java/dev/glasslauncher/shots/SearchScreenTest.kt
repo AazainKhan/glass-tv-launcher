@@ -54,7 +54,7 @@ class SearchScreenTest {
 
     private fun show(remote: suspend (String) -> List<FeaturedItem> = { emptyList() }): SearchModel {
         val model = SearchModel(scope, { listOf(app("Netflix"), app("Plex"), app("Netgear")) }, { listOf(item("Net Game", "t1", "Movie", 2020)) }, remote, debounceMs = 0)
-        compose.setContent { Box(Modifier.fillMaxSize().background(Color(0xFF14161C))) { SearchScreen(model, active = true, onOpen = {}, askClear = {}) } }
+        compose.setContent { contentView = androidx.compose.ui.platform.LocalView.current; Box(Modifier.fillMaxSize().background(Color(0xFF14161C))) { SearchScreen(model, active = true, onOpen = {}, askClear = {}) } }
         compose.waitForIdle()
         // The row takes focus a frame after the screen opens.
         compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
@@ -70,6 +70,7 @@ class SearchScreenTest {
 
     private fun exists(tag: String) = compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
     private var shownModel: SearchModel? = null
+    private var contentView: android.view.View? = null
     /** The query (the model's: the field and the row both show it, which the field test checks). */
     private fun text(tag: String): String? =
         if (tag == "search-query") shownModel!!.query.value
@@ -171,5 +172,23 @@ class SearchScreenTest {
         compose.waitForIdle()
         val sources = compose.onAllNodes(hasTestTag("search-source"), useUnmergedTree = true).fetchSemanticsNodes().size
         assertTrue("each result shows its source ($sources)", sources >= 3)
+    }
+
+    @Test fun backWithTheKeyboardUpClosesItAndFocusLandsOnTheRowSoTheNextBackIsTheScreens() {
+        show()
+        press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue(exists("search-field"))
+        val content = contentView!!
+        compose.runOnIdle {
+            content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        compose.waitForIdle(); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("the field is gone and the row is back", !exists("search-field") && exists("search-row"))
+        assertEquals("focus is on the row, not on a field that would swallow the next Back", "search-row", compose.focused())
+        compose.runOnIdle {
+            assertTrue("the next Back is not taken by anything here: the screen's own handling gets it",
+                !content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK)))
+        }
     }
 }
