@@ -241,7 +241,9 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         }
         check()
         val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, light, scene, 0f); it.setHasAlpha(false) }
-        val clearText = clear.copy(Bitmap.Config.ARGB_8888, true).also { Blur.legible(it, light) }
+        // Control Center's texture (P206 E). It is one style with white ink in either theme, so it always takes the dark-ink
+        // range: the light range lifted a white scene to white glass under white labels (P237).
+        val clearText = clear.copy(Bitmap.Config.ARGB_8888, true).also { Blur.legible(it, light = false) }
         mid.recycle()
         // Scrims are baked in and the bitmaps are marked opaque, so drawing the backdrop is a single
         // non-blended full-screen pass. TV-stick GPUs only afford about two full-screen passes per frame.
