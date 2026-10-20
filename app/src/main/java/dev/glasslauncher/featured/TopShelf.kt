@@ -444,6 +444,9 @@ private fun InfoSheet(item: FeaturedItem, onClose: () -> Unit) {
     InfoCard(item, details, onClose)
 }
 
+/** True while the info card is up (P231): Home's own key handling leaves Up and Down to the card, which keeps them until Back. */
+object InfoCardOpen { var open by androidx.compose.runtime.mutableStateOf(false) }
+
 /** Space kept clear between the info card and every screen edge (P231). */
 internal val INFO_CARD_MARGIN = 28.dp
 
@@ -454,7 +457,18 @@ internal val INFO_CARD_MARGIN = 28.dp
 @Composable
 internal fun InfoCard(item: FeaturedItem, details: ShelfDetails?, onClose: () -> Unit) {
     val focus = remember { FocusRequester() }
-    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    var cardFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // The card takes focus as it opens, asked again on the following frames until it has it: a request on the first frame can come before
+    // the card is placed and is dropped without a word, and then every key went to whatever had focus behind it (on the stick, the ⓘ
+    // button, whose Down left full screen).
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        repeat(30) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { focus.requestFocus() }
+            if (cardFocused) return@LaunchedEffect
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) { InfoCardOpen.open = true; onDispose { InfoCardOpen.open = false } }
     val context = LocalContext.current
     val scroll = androidx.compose.foundation.rememberScrollState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -486,6 +500,7 @@ internal fun InfoCard(item: FeaturedItem, details: ShelfDetails?, onClose: () ->
                         k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT || k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
                     close || direction
                 }
+                .onFocusChanged { cardFocused = it.isFocused }
                 .focusable()
                 .testTag("shelf-info-card"),
         ) {
