@@ -10,5 +10,35 @@
   },
   "_dock": "2026-10-13 (P122): the dock route's PSS limit is 135 MB, the grid keeps 120. On the dock the Top Shelf's Cover Flow and scene stay resident; HWUI's GPU caches hold ~39 MB there (34 MB purgeable). Trimming them would bring re-upload hitches back, and smoothness comes first (user). 2026-10-13: raised to 145 MB. The dock's PSS depends on what the Top Shelf shows (measured 131-146 MB the same day on one build), the pre-P119 build 0be5053 already read 141 MB (P119, A1 and the browser link add ~2 MB), trimming the Cover Flow preview pool 10->6 MB changed nothing, and the peak is GL mtrack (~44 MB of GPU layers and textures), which we don't trim.",
   "apkMaxBytes": 5900000,
-  "_apk": "2026-10-20 (P92 step 7): a ratchet, not the target. master's release APK is 5,788,484 bytes; the user-approved target is 5.0 MB. Lower this as the APK shrinks; raise it only with the reason in the commit."
+  "_apk": "2026-10-20 (P92 step 7): a ratchet, not the target. master's release APK is 5,788,484 bytes; the user-approved target is 5.0 MB. Lower this as the APK shrinks; raise it only with the reason in the commit.",
+  "macrobench": {
+    "startupCold": {
+      "timeToInitialDisplayMs": 900
+    },
+    "startupWarm": {
+      "timeToInitialDisplayMs": 350
+    },
+    "focusGrid": {
+      "P90": 10
+    },
+    "rowScroll": {
+      "P90": 20
+    },
+    "focusDock": {
+      "P90": 24
+    },
+    "controlCenterWarm": {
+      "P90": 40
+    },
+    "appSwitcher": {
+      "P90": 31
+    },
+    "appMenu": {
+      "P90": 30
+    },
+    "appLaunch": {
+      "P90": 16
+    }
+  },
+  "_macrobench": "2026-10-20: frameDurationCpuMs P90 and startup TTID, from the bench on e0168f23. Where the approved budget is met it is the limit (startupCold 900, startupWarm 350, focusGrid 10, appLaunch 16); where not, measured P90 +~15% as a ratchet (rowScroll 17.4, focusDock 21.1, controlCenterWarm 36.2, appSwitcher 27.0, appMenu 26.3). P99 is reported, not judged: it moves \u00b120 ms between runs and appLaunch's includes the first-launch warm-up. Lower these as the app improves."
 }
