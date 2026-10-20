@@ -41,7 +41,8 @@ def test_root_setup(tv, rooted):
         assert "ACCESS_ALL_EPG_DATA: granted=true" in tv.sh(f"dumpsys package {GLASS}")
     if "glass-tuning" in modules:
         assert tv.sh("getprop ro.lmk.kill_heaviest_task").strip() == "false"
-        assert "max_cached_processes=12" in tv.setting("global", "activity_manager_constants")
+        # Where Android 11 reads it (P149, dde0908e): device_config, not the old activity_manager_constants setting.
+        assert tv.su("device_config get activity_manager max_cached_processes").strip() == "12"
         assert int(tv.sh("cat /sys/block/zram0/disksize").strip()) > 1_000_000_000
     assert tv.sh("getprop persist.perfanimation.enabled").strip() == "false", \
         "Fire's Home-key black flash (KeyFeedbackUI) is back on"

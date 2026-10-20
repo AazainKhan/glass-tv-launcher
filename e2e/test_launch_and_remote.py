@@ -66,12 +66,14 @@ def test_appstore_opens_and_home_restores_glass(tv, home, rooted):
 
 
 def _virtual_press(tv, code):
-    """A remote button by raw code through the virtual remote (same key layout as the real one)."""
+    """A remote button by raw code through the virtual remote. Not the same key layout as the real one since P69 (a USB test keypad, not the
+    remote's IDs), so Fire's key policy filters these codes: tests that use it are marked real_remote and skipped unless GLASS_REAL_REMOTE=1."""
     tv.press("wait:1")  # makes sure scripts/key has pushed glass-press
     tv.sh(f"/data/local/tmp/glass-press 120 {code}")
 
 
 @pytest.mark.root
+@pytest.mark.real_remote
 def test_recents_button_opens_the_app_switcher(tv, home):
     if "BUTTON_13" not in tv.sh("cat /system/usr/keylayout/Vendor_0171_Product_0427.kl"):
         pytest.skip("remote-keys module not installed")
@@ -80,6 +82,7 @@ def test_recents_button_opens_the_app_switcher(tv, home):
 
 
 @pytest.mark.root
+@pytest.mark.real_remote
 def test_settings_button_opens_control_center(tv, home):
     if "BUTTON_9" not in tv.sh("cat /system/usr/keylayout/Vendor_0171_Product_0427.kl"):
         pytest.skip("remote-keys module not installed")
@@ -89,6 +92,7 @@ def test_settings_button_opens_control_center(tv, home):
 
 @pytest.mark.slow
 @pytest.mark.root
+@pytest.mark.real_remote
 def test_app_button_opens_its_app(tv, home):
     if "BUTTON_9" not in tv.sh("cat /system/usr/keylayout/Vendor_0171_Product_0427.kl") or not _installed(tv, "com.netflix.ninja"):
         pytest.skip("remote-keys module or Netflix missing")

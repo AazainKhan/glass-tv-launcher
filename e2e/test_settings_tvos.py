@@ -109,19 +109,19 @@ def test_left_column_holds_one_short_text(tv, home, settings):
 
 
 def test_page_icon_has_no_tile_behind_it(tv, home, settings):
-    """Just the muted icon on the left: no glass tile or border around it."""
+    """The page's icon on its own 140 dp rounded square in the left column (tvOS's Settings page, F07; d372eec5), not the old 200 dp glass tile."""
     settings.open_from_control_center()
     settings.open_page("Accessibility")
     node = tv.wait_for(lambda t: t.find(rid="settings-icon:Accessibility"), 4, "the page icon")
     width = node.bounds[2] - node.bounds[0]
-    assert width <= 260, f"the icon area is {width}px wide: the 200 dp glass tile is still behind it"
+    assert width <= 300, f"the icon area is {width}px wide: the 200 dp glass tile is still behind it (want the 140 dp square, 280 px)"
 
 
 def test_main_settings_gear_matches_the_other_page_icons(tv, home, settings):
     settings.open_from_control_center()
     node = tv.wait_for(lambda t: t.find(rid="settings-icon:Settings"), 4, "the main page's gear")
     width = node.bounds[2] - node.bounds[0]
-    assert width <= 260, f"the gear sits on a {width}px tile; it should be the muted icon alone"
+    assert width <= 300, f"the gear sits on a {width}px tile; it should be the same 140 dp square as the other pages (280 px)"
 
 
 def test_settings_title_is_a_real_title_and_rows_are_grouped(tv, home, settings):
