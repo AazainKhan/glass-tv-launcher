@@ -36,7 +36,7 @@ import json, sys
 r = json.loads(sys.argv[1]); b = json.load(open(sys.argv[2]))
 # Jank is judged as frames that missed their deadline, plus p99. Janky % and high-input-latency % are reported, not
 # judged: Android 11 flags on-time frames of an animation that runs long after the last key (the shelf's autoplay).
-per_route = {k: v for k, v in b.items() if not k.startswith("_") and k not in ("idleCpuPct", "dock", "grid")}
+per_route = {k: v for k, v in b.items() if not k.startswith("_") and k not in ("idleCpuPct", "dock", "grid", "apkMaxBytes", "macrobench")}
 # A route may override a limit: {"dock": {"pssMB": 135}}.
 limits = {name: {**per_route, **b.get(name, {})} for name in ("dock", "grid")}
 bad = [f"{name} {k} {r[name].get(k)} > {v}" for name in ("dock", "grid") for k, v in limits[name].items() if r[name].get(k) is not None and float(r[name][k]) > v]

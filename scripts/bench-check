@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Judges scripts/bench results against perf-budget.json's "macrobench" limits; exit 1 on any breach.
+  scripts/bench-check [results-dir]      (default build/bench)
+Limits per test name: frame tests use frameDurationCpuMs percentiles (P50/P90/P99), startup tests a metric median,
+e.g. {"focusGrid": {"P90": 10}, "startupCold": {"timeToInitialDisplayMs": 900}}. Tests without limits are reported only.
+A test with limits but no result fails: a gate that silently skips is no gate."""
+import glob, json, os, sys
+os.chdir(os.popen("git rev-parse --show-toplevel").read().strip())
+d = sys.argv[1] if len(sys.argv) > 1 else "build/bench"
+limits = json.load(open("perf-budget.json")).get("macrobench", {})
+results = {}
+for f in glob.glob(f"{d}/*benchmarkData.json"):
+    for b in json.load(open(f))["benchmarks"]:
+        r = {k: v["median"] for k, v in b["metrics"].items()}
+        r.update(b.get("sampledMetrics", {}).get("frameDurationCpuMs", {}))
+        results[b["name"]] = r
+bad = []
+for name, r in sorted(results.items()):
+    shown = " ".join(f"{k} {v:.1f}" for k, v in r.items() if k in ("P50", "P90", "P99") or k.endswith("Ms"))
+    print(f"{name:22} {shown}")
+for name, lim in limits.items():
+    if name.startswith("_"):
+        continue
+    if name not in results:
+        bad.append(f"{name}: no result")
+        continue
+    bad += [f"{name} {k} {results[name].get(k, float('nan')):.1f} > {v}" for k, v in lim.items()
+            if k not in results[name] or results[name][k] > v]
+print("bench-check: " + ("FAIL: " + "; ".join(bad) if bad else f"pass ({len(limits)} tests judged)"))
+sys.exit(1 if bad else 0)

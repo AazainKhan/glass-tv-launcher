@@ -75,3 +75,5 @@ for f in glob.glob("build/bench/*benchmarkData.json"):
             parts += [f"{k}: p50 {v['P50']:.1f} p90 {v['P90']:.1f} p99 {v['P99']:.1f}" for k, v in b["sampledMetrics"].items()]
         print(f"{b['name']:<28} " + " | ".join(parts))
 PY
+# The gate: perf-budget.json "macrobench" limits; this run fails (exit 1) on any breach.
+scripts/bench-check

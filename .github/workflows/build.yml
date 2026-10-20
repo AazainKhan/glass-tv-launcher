@@ -36,6 +36,8 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease :app:lintRelease :app:testDebugUnitTest --console=plain
+      - name: APK size
+        run: scripts/apk-size-check
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk "glass-tv-launcher-${GITHUB_REF_NAME//\//-}.apk"
       - uses: actions/upload-artifact@v4
