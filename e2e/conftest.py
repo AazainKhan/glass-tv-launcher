@@ -21,6 +21,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: launches other apps or restarts things")
     config.addinivalue_line("markers", "perf: frame-time measurements (scripts/perf-gate)")
     config.addinivalue_line("markers", "emulator_gap: passes on the stick but not on the emulator (timing or rendering); skipped there, listed in P22")
+    config.addinivalue_line("markers", "real_remote: needs a press of the real Fire remote's app, Recents or Settings button; skipped in automated runs (P69)")
     config.addinivalue_line("markers", "stick: needs the real Fire TV (Fire OS, Amazon apps, its remote); skipped on the emulator")
 
 
@@ -29,7 +30,16 @@ def pytest_configure(config):
 STICK_ONLY_MODULES = {"test_device_setup", "test_launch_and_remote"}
 
 
+REAL_REMOTE_SKIP = ("needs the real remote: since P69 (dbfb482b) the virtual remote is a USB test keypad, not the remote's IDs, so the "
+                    "remote's key remap does not apply to it and Fire's key policy filters its gamepad codes. Covered by RemoteButtonsTest; "
+                    "a real-remote press is on the user's list. Set GLASS_REAL_REMOTE=1 to run it with the real remote in hand.")
+
+
 def pytest_collection_modifyitems(config, items):
+    if not os.environ.get("GLASS_REAL_REMOTE"):
+        for item in items:
+            if item.get_closest_marker("real_remote"):
+                item.add_marker(pytest.mark.skip(reason=REAL_REMOTE_SKIP))
     if os.environ.get("GLASS_TARGET") != "emulator":
         return
     skip = pytest.mark.skip(reason="stick-only: run with scripts/e2e --stick")

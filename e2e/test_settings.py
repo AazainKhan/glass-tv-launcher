@@ -151,11 +151,14 @@ def test_rows_are_slim_with_a_gap_between_them(tv, home, settings):
     rows = sorted((n for n in tree.nodes() if n.focusable and n.bounds[0] > 700), key=lambda n: n.bounds[1])
     img = tv.screen_image()
     x, y = focused.center
+    # The focused row's edges: where the pixel stops matching the row itself. (An absolute "bright" cut-off walked on through the page in
+    # the Light theme, where the page is bright too.)
+    base = img.getpixel((x, y))
     top = y
-    while top > 0 and img.getpixel((x, top - 1)) > 225:
+    while top > 0 and abs(img.getpixel((x, top - 1)) - base) <= 8:
         top -= 1
     bottom = y
-    while bottom < img.height - 1 and img.getpixel((x, bottom + 1)) > 225:
+    while bottom < img.height - 1 and abs(img.getpixel((x, bottom + 1)) - base) <= 8:
         bottom += 1
     height = bottom - top + 1
     assert height <= 84, f"the focused row draws {height}px tall (want about 72)"
