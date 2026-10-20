@@ -198,6 +198,15 @@ class RemoteKeysService : AccessibilityService() {
             escaped = false
             if (was) return true
         }
+        // Back while the keyboard is up over Glass: Glass closes it (P230), never the keyboard's own Back handling, which on Fire moves
+        // focus inside the keyboard and leaves it open. Both halves are taken.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && ImeBack.takesBack(imeShowing(), glassInFront = front == null, fieldListening = ImeBack.listening)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                Log.i(TAG, "back with the keyboard up: Glass closes it")
+                ImeBack.request()
+            }
+            return true
+        }
         if (handleCcShortcut(event)) return true
         val name = KeyEvent.keyCodeToString(event.keyCode)
         val action = RemoteButtons.actionFor(name, app.config.config.value.remoteButtons, event.scanCode, event.device?.name) ?: return false
@@ -257,6 +266,11 @@ class RemoteKeysService : AccessibilityService() {
     }
 
     /** Whether a focused application window of another package exists (the launched app can take Back). */
+    /** A keyboard window is on screen (the service can see windows; with that off the answer is no and the keyboard keeps Back). */
+    private fun imeShowing(): Boolean = runCatching {
+        windows.any { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+    }.getOrDefault(false)
+
     private fun appHasFocus(): Boolean {
         val own = packageName
         // Can't see windows (capability off: the system then answers an empty list, not an error): assume the app has

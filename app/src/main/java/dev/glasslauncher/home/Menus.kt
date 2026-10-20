@@ -370,6 +370,14 @@ internal fun SystemTextField(
 ) {
     val palette = LocalPalette.current
     var hadFocus by remember { mutableStateOf(false) }
+    // The accessibility service took a Back meant for the keyboard (ImeBack): end the editing, as the keyboard's own Done does.
+    var focused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(focused) {
+        if (!focused) return@LaunchedEffect
+        dev.glasslauncher.system.ImeBack.requests.collect { keyboardController?.hide(); focusManager.clearFocus() }
+    }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -384,6 +392,7 @@ internal fun SystemTextField(
             .focusRequester(focusRequester)
             .onFocusChanged {
                 // onFocusChanged also fires on attach with the initial unfocused state; only a real loss of focus ends it.
+                focused = it.isFocused
                 if (it.isFocused) hadFocus = true else if (hadFocus) onFocusLost()
             }
             .background(palette.primary.copy(alpha = 0.16f), Shapes.row)
