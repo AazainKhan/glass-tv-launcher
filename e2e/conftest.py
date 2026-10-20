@@ -59,6 +59,67 @@ def tv() -> TV:
     return t
 
 
+DATASTORE = f"/data/data/{PKG}/files/datastore/launcher.preferences_pb"
+
+
+def _varint(n: int) -> bytes:
+    out = bytearray()
+    while True:
+        b, n = n & 0x7F, n >> 7
+        out.append(b | (0x80 if n else 0))
+        if not n:
+            return bytes(out)
+
+
+def _config_json(raw: bytes) -> str | None:
+    """The config JSON in Glass's DataStore file, when it is the file's one entry ("config" -> a string value)."""
+    start, end = raw.find(b"{"), raw.rfind(b"}")
+    if start < 0 or raw[:start].count(b"config") != 1 or end != len(raw) - 1:
+        return None
+    text = raw[start:end + 1]
+    return text.decode("utf-8") if _datastore_with(text.decode("utf-8")) == raw else None
+
+
+def _datastore_with(text: str) -> bytes:
+    """A DataStore preferences file holding one entry: "config" -> the string [text]."""
+    body = text.encode("utf-8")
+    value = b"\x2a" + _varint(len(body)) + body
+    entry = b"\x0a\x06config" + b"\x12" + _varint(len(value)) + value
+    return b"\x0a" + _varint(len(entry)) + entry
+
+
+def _write_datastore(t: TV, data: bytes) -> None:
+    """Replaces Glass's saved config with Glass stopped (its DataStore would write its own copy back), then starts Home."""
+    t.sh(f"am force-stop {PKG}")
+    subprocess.run(["adb", "-s", t.serial, "shell", "su", "-c", f"'cat > {DATASTORE}'"], input=data, timeout=30, check=True)
+    t.sh("input keyevent KEYCODE_HOME")
+    time.sleep(8)
+    subprocess.run([str(ROOT / "scripts" / "ensure-keys-service")], capture_output=True, timeout=60)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def default_control_center(tv: TV):
+    """The Control Center tests measure the default layout. A user's edited layout (the real stick has one) is set aside
+    for the run and put back after, byte for byte. Needs root; without it, or with no edited layout, nothing is touched."""
+    raw = subprocess.run(["adb", "-s", tv.serial, "exec-out", "su", "-c", f"cat {DATASTORE}"], capture_output=True, timeout=30).stdout
+    text = _config_json(raw) if raw else None
+    if text is None:
+        yield
+        return
+    import json
+    cfg = json.loads(text)
+    if "ccLayout" not in cfg and not cfg.get("ccHidden"):
+        yield
+        return
+    cfg.pop("ccLayout", None)
+    cfg.pop("ccHidden", None)
+    _write_datastore(tv, _datastore_with(json.dumps(cfg, indent=4)))
+    try:
+        yield
+    finally:
+        _write_datastore(tv, raw)
+
+
 def _preflight(t: TV) -> None:
     """Stop the run with one clear line if the tree can't be read or keys don't move focus, instead of
     letting every test time out on its own (P22: 61 failures that were all the same problem)."""
@@ -68,10 +129,12 @@ def _preflight(t: TV) -> None:
     except AssertionError:
         pytest.exit(f"preflight: no focused node in the accessibility tree of {t.serial} "
                     "(is Glass Home and is uiautomator dump working?)", returncode=3)
+    # Home on Home scrolls back to the top and re-homes focus a moment later; a key sent in that moment is lost.
+    time.sleep(1.5)
     for key in ("right", "left"):
         t.press(key)
         try:
-            t.wait_for(lambda tr: tr.focused() and tr.focused().rid != start.rid, 4, "focus to move")
+            t.wait_for(lambda tr: tr.focused() and tr.focused().rid != start.rid, 10, "focus to move")  # a Cover Flow shelf slows the tree dump
             t.press("home")
             return
         except AssertionError:
@@ -96,6 +159,10 @@ def home(tv: TV) -> Home:
     h.reset()
     before = _config(tv)
     yield h
+    # A test that failed with Control Center up leaves it open, and every later test would run behind it.
+    if tv.tree().find(rid="control-center"):
+        tv.sh("input keyevent KEYCODE_BACK")
+        time.sleep(1.5)
     # A Control Center window still attached once Control Center is closed is invisible but takes every
     # Select (seen once on 2026-10-09: no tile, menu row or button responded until it was removed).
     # Since P111 d the closed window stays parked (1x1, not focusable, not touchable), which takes no input: only a
