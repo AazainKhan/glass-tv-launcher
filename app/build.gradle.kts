@@ -54,6 +54,8 @@ android {
             it.systemProperty("robolectric.graphicsMode", "NATIVE")
             it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
             it.maxHeapSize = "3g"
+            // A flaky failure on CI must leave its whole stack in the log (P218: "IllegalStateException at LifecycleRegistry.kt:382" was all there was).
+            it.testLogging { exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL; showCauses = true; showStackTraces = true }
             // -Pstrips=all|<name> turns on the MotionStrips frame captures.
             it.systemProperty("strips", providers.gradleProperty("strips").getOrElse(""))
             // GLASS_SHOTS_TIME=HH:mm pins the clock the shots show (see TvHarness); declared as an input so
