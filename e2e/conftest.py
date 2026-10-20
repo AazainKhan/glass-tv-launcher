@@ -113,6 +113,9 @@ def default_control_center(tv: TV):
         return
     cfg.pop("ccLayout", None)
     cfg.pop("ccHidden", None)
+    # A test that edits Control Center writes the default layout out in full where the reset left it absent: not a change it
+    # left behind (the user's file comes back at the end either way).
+    VOLATILE.update({"ccLayout", "ccHidden"})
     _write_datastore(tv, _datastore_with(json.dumps(cfg, indent=4)))
     try:
         yield
