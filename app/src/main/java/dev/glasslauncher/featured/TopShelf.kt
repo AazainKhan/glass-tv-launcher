@@ -480,7 +480,11 @@ internal fun InfoCard(item: FeaturedItem, details: ShelfDetails?, onClose: () ->
                     if (dy != 0 && k.action == AndroidKeyEvent.ACTION_DOWN && (dy > 0 && scroll.canScrollForward || dy < 0 && scroll.canScrollBackward)) {
                         scope.launch { scroll.animateScrollBy(dy * with(density) { 96.dp.toPx() }) }
                     }
-                    close
+                    // The card keeps every direction key until Back, the end of its scroll included: an unconsumed Down went on to the shelf
+                    // behind it, closed the card and left full screen (P231 on the stick).
+                    val direction = k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
+                        k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT || k.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                    close || direction
                 }
                 .focusable()
                 .testTag("shelf-info-card"),

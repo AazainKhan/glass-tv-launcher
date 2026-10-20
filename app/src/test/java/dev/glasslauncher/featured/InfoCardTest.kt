@@ -4,6 +4,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -46,4 +53,24 @@ class InfoCardTest {
     @Test fun aShortCardHasTheMarginsToo() = check(ShelfDetails())
 
     @Test fun whileLoadingToo() = check(null)
+
+    /** P231 on the stick: Down at the end of the card's scroll bubbled to the shelf, closed the card and left full screen. */
+    @Test fun directionKeysNeverLeaveTheCardNotEvenAtTheEndOfItsScroll() {
+        var closed = 0
+        var outside = 0
+        compose.setContent {
+            Box(Modifier.size(960.dp, 540.dp).onKeyEvent { e -> if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) outside++; false }) {
+                InfoCard(item(), tall(), onClose = { closed++ })
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("shelf-info-card").assertIsFocused()   // else the keys below would go nowhere and the test prove nothing
+        repeat(12) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; compose.waitForIdle(); compose.mainClock.advanceTimeBy(400) }
+        repeat(3) { compose.onRoot().performKeyInput { pressKey(Key.DirectionUp) }; compose.waitForIdle() }
+        compose.onRoot().performKeyInput { pressKey(Key.DirectionLeft); pressKey(Key.DirectionRight) }
+        compose.waitForIdle()
+        assertTrue("no direction key reached whatever sits behind the card ($outside did)", outside == 0)
+        assertTrue("and the card did not close", closed == 0)
+        compose.onNodeWithTag("shelf-info-card").assertExists()
+    }
 }
