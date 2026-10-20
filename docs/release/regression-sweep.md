@@ -93,6 +93,15 @@ Both over-budget items predate P215 (it lowered dock p99 29 to 26 ms and dock PS
 | appMenu | p50 10.8, p90 28.3, p99 84.9 ms |
 | appLaunch | p50 4.6, p90 21.2, p99 195.5 ms (28 frames) |
 
+## Stick run, 2026-10-19, master bfa828a2
+
+`scripts/e2e --stick` (whole suite): 58 passed, 67 failed, 11 errors, 11 skipped (33 min). Not a valid signal for the S rows on this stick:
+- A Control Center test left Control Center open (found open after the run; one Back closes it) and every later test timed out behind it (settings, top shelf, …).
+- Alone, `test_control_center.py` still fails 14 of 24 (10 pass): the stick runs the user's edited Control Center layout (Speed, Restart, Clean Up; one-line header without `cc-date`/`weather`), and the geometry tests assume the default layout.
+- To make it a signal: the suite needs to reset Control Center to the default layout (and restore the user's after) and to close Control Center in its teardown. Not done (usage).
+
+Also on this run: perf-gate passes on bfa828a2 (dock missed 1.5 %, p99 25 ms, PSS 117 MB at rest, peak 139; grid missed 1.13 %, p99 18 ms, PSS 118 MB at rest, peak 122), after P215 (tray glass bake) and P216 (rest collection), with PSS now judged at rest.
+
 ## Still to run
 
-The S (stick) rows above are not yet re-run on d698e097. The U rows need the user (physical buttons, Bluetooth devices, real accounts): P141, P144, P148/P172, P153, P155 (app buttons), P156, P160, P161/P171, P166, P167, P168, P169/P175, P170, P174/P176, P178, move race.
+The S (stick) rows above are not individually verified on bfa828a2. The U rows need the user (physical buttons, Bluetooth devices, real accounts): P141, P144, P148/P172, P153, P155 (app buttons), P156, P160, P161/P171, P166, P167, P168, P169/P175, P170, P174/P176, P178, move race.
