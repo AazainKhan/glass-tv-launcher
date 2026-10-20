@@ -53,8 +53,13 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onInterceptKeyBeforeSoftKeyboard
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -347,6 +352,64 @@ private fun IconPickerBody(app: AppEntry, model: HomeModel, active: Boolean, ope
     }
 }
 
+/**
+ * The one text field Glass uses (rename, names, URLs, and Search): a plain field that opens the device's own keyboard, in a soft rounded
+ * row. On Fire TV that keyboard is full-screen and modal and opens whenever a field takes focus, so callers show this only while editing
+ * and keep a normal row otherwise. [onFocusLost] fires when focus leaves the field after it had it (the keyboard was closed).
+ */
+@Composable
+internal fun SystemTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    onFocusLost: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Back with the keyboard up: end the editing and put focus back on the caller's row. Defaults to [onFocusLost]. */
+    onBack: () -> Unit = onFocusLost,
+    isPassword: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Done,
+    onAction: () -> Unit = {},
+    /** What a screen reader says for the field (its text is read as the value). */
+    label: String? = null,
+) {
+    val palette = LocalPalette.current
+    var hadFocus by remember { mutableStateOf(false) }
+    // Back is taken before the keyboard sees it only while this field has focus, i.e. while its keyboard is up (P230).
+    var focused by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = Type.heading.copy(color = palette.primary),
+        cursorBrush = SolidColor(palette.primary),
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onDone = { onAction() }, onNext = { onAction() }, onGo = { onAction() }, onSearch = { onAction() }, onSend = { onAction() }),
+        modifier = modifier
+            .then(if (label != null) Modifier.semantics { this.contentDescription = label } else Modifier)
+            // Back before the keyboard sees it (Android's pre-IME stage, no accessibility service needed): while the keyboard is up, Back
+            // closes it and ends the editing through [onBack], which puts focus on the caller's own row, so the next Back is the
+            // screen's. Not taken when the field has no focus. (A clearFocus here left focus on the field and swallowed every later Back.)
+            .onInterceptKeyBeforeSoftKeyboard { e ->
+                if (!focused || e.key != androidx.compose.ui.input.key.Key.Back) false
+                else {
+                    if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) { keyboardController?.hide(); onBack() }
+                    true
+                }
+            }
+            .focusRequester(focusRequester)
+            .onFocusChanged {
+                // onFocusChanged also fires on attach with the initial unfocused state; only a real loss of focus ends it.
+                focused = it.isFocused
+                if (it.isFocused) hadFocus = true else if (hadFocus) onFocusLost()
+            }
+            .background(palette.primary.copy(alpha = 0.16f), Shapes.row)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+    )
+}
+
 @Composable
 private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: () -> Unit, open: (Overlay) -> Unit) {
     val palette = LocalPalette.current
@@ -358,10 +421,8 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
     // Fire TV's keyboard is full-screen and modal and opens whenever a text field takes focus, so the
     // real field is only focusable while editing; otherwise the value sits in a normal row.
     LaunchedEffect(active) { if (active && !editing) { withFrameNanos { }; runCatching { editRow.requestFocus() } } }
-    var fieldHadFocus by remember { mutableStateOf(false) }
     LaunchedEffect(editing) {
         if (editing) {
-            fieldHadFocus = false
             withFrameNanos { }
             runCatching { field.requestFocus() }
             keyboard?.show()
@@ -381,27 +442,12 @@ private fun TextInputBody(overlay: Overlay.TextInput, active: Boolean, close: ()
     MenuList(active && !editing, compact = true) { _ ->
         PanelTitle(overlay.title)
         if (editing) {
-            BasicTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                textStyle = Type.heading.copy(color = palette.primary),
-                cursorBrush = SolidColor(palette.primary),
-                visualTransformation = if (overlay.isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-                keyboardOptions = KeyboardOptions(keyboardType = if (overlay.isPassword) KeyboardType.Password else KeyboardType.Uri, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submit() }, onNext = { submit() }, onGo = { submit() }, onSearch = { submit() }, onSend = { submit() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(field)
-                    .onFocusChanged {
-                        // onFocusChanged also fires on attach with the initial unfocused state; only a real
-                        // loss of focus after editing started should end editing.
-                        if (it.isFocused) fieldHadFocus = true
-                        else if (fieldHadFocus && editing) editing = false
-                    }
-                    .background(palette.primary.copy(alpha = 0.16f), Shapes.row)
-                    .padding(horizontal = 18.dp, vertical = 14.dp)
-                    .testTag("text-input"),
+            SystemTextField(
+                value = text, onValueChange = { text = it }, focusRequester = field,
+                onFocusLost = { if (editing) editing = false },
+                isPassword = overlay.isPassword, keyboardType = if (overlay.isPassword) KeyboardType.Password else KeyboardType.Uri,
+                imeAction = ImeAction.Done, onAction = { submit() }, label = overlay.title,
+                modifier = Modifier.fillMaxWidth().testTag("text-input"),
             )
         } else {
             MenuRow(

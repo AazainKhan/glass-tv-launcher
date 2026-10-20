@@ -16,7 +16,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
@@ -52,8 +54,11 @@ class SearchScreenTest {
 
     private fun show(remote: suspend (String) -> List<FeaturedItem> = { emptyList() }): SearchModel {
         val model = SearchModel(scope, { listOf(app("Netflix"), app("Plex"), app("Netgear")) }, { listOf(item("Net Game", "t1", "Movie", 2020)) }, remote, debounceMs = 0)
-        compose.setContent { Box(Modifier.fillMaxSize().background(Color(0xFF14161C))) { SearchScreen(model, active = true, onOpen = {}, askClear = {}) } }
+        compose.setContent { contentView = androidx.compose.ui.platform.LocalView.current; Box(Modifier.fillMaxSize().background(Color(0xFF14161C))) { SearchScreen(model, active = true, onOpen = {}, askClear = {}) } }
         compose.waitForIdle()
+        // The row takes focus a frame after the screen opens.
+        compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        shownModel = model
         return model
     }
 
@@ -64,19 +69,37 @@ class SearchScreenTest {
     }
 
     private fun exists(tag: String) = compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
-    private fun text(tag: String) = compose.onNodeWithTag(tag).fetchSemanticsNode().config.getOrNull(SemanticsProperties.Text)?.joinToString("")
+    private var shownModel: SearchModel? = null
+    private var contentView: android.view.View? = null
+    /** The query (the model's: the field and the row both show it, which the field test checks). */
+    private fun text(tag: String): String? =
+        if (tag == "search-query") shownModel!!.query.value
+        else compose.onNodeWithTag(tag).fetchSemanticsNode().config.getOrNull(SemanticsProperties.Text)?.joinToString("")
+    /** Types into the system field (the keyboard itself is the device's, not under test). */
+    private fun type(s: String) {
+        // Search opens on its row; Select on it opens the field (and the device's keyboard).
+        if (!exists("search-field")) { press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle() }
+        compose.onNodeWithTag("search-field").performTextInput(s)
+        compose.waitForIdle()
+    }
 
-    @Test fun theKeyboardIsACompactGridAndTypingFiltersTheResultsLive() {
+    @Test fun searchHasNoKeyboardOfItsOwnAndTypingFiltersTheResultsLive() {
         show()
-        assertTrue("every letter, the page keys, space, delete and clear are all on screen at once", ("abcdefghijklmnopqrstuvwxyz".map { "$it" } + listOf("page-abc", "page-num", "page-sym", "space", "delete", "clear")).all { exists("search-key:$it") })
-        val rows = "abcdefghijklmnopqrstuvwxyz".map { c -> compose.onNodeWithTag("search-key:$c").fetchSemanticsNode().boundsInRoot.top }.distinct()
-        assertTrue("letters sit in three rows of nine or fewer: ${rows.size}", rows.size == 3)
-        assertTrue("and the keyboard is short enough to leave the results room", compose.onNodeWithTag("search-keyboard").fetchSemanticsNode().boundsInRoot.height < 230f * compose.density.density)
-        press("search-key:n"); press("search-key:e")
+        assertTrue("Search opens on its row, focused", exists("search-row") && !exists("search-field"))
+        // P230: no custom key grid anywhere: no keyboard container, no key, no page key, no clear key.
+        val customKeys = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("a Glass keyboard key") { n ->
+            val tag = n.config.getOrNull(SemanticsProperties.TestTag).orEmpty()
+            tag == "search-keyboard" || tag.startsWith("search-key:")
+        }, useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("Glass has no keyboard of its own: ${customKeys.size} key nodes", customKeys.isEmpty())
+        press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("Select on the row opens a normal text field (the device's keyboard)", exists("search-field"))
+        type("ne")
+        assertEquals("the field shows what was typed", "ne", compose.onNodeWithTag("search-field").fetchSemanticsNode().config.getOrNull(SemanticsProperties.EditableText)?.text)
         assertEquals("ne", text("search-query"))
         assertTrue(exists("search-result:app:p.netflix") && exists("search-result:app:p.netgear") && exists("search-result:title::t1"))
         assertTrue("Plex does not match ne", !exists("search-result:app:p.plex"))
-        press("search-key:delete")
+        compose.onNodeWithTag("search-field").performTextReplacement("n"); compose.waitForIdle()
         assertEquals("n", text("search-query"))
         assertTrue("n matches Plex? no word starts with n", !exists("search-result:app:p.plex"))
         // The Movies tab keeps only movies: the apps go.
@@ -86,47 +109,23 @@ class SearchScreenTest {
         assertTrue(exists("search-result:app:p.netflix"))
     }
 
-    @Test fun threePagesAbcDigitsAndMarksEachWithItsOwnKeys() {
+    @Test fun theRowOpensTheFieldAndReturnsOnceTypingEnds() {
         show()
-        press("search-key:page-num")
-        assertTrue(exists("search-key:1") && exists("search-key:0") && !exists("search-key:a") && !exists("search-key:."))
-        press("search-key:1")
-        assertEquals("1", text("search-query"))
-        press("search-key:page-sym")
-        assertTrue("marks are on their own page, not mixed with the digits", exists("search-key:&") && exists("search-key:/") && !exists("search-key:1"))
-        press("search-key:&")
-        assertEquals("1&", text("search-query"))
-        press("search-key:page-abc")
-        assertTrue(exists("search-key:a") && !exists("search-key:&"))
-    }
-
-    @Test fun clearEmptiesTheQueryAtOnce() {
-        show()
-        press("search-key:n"); press("search-key:e"); press("search-key:t")
-        press("search-key:clear")
-        assertEquals("Search", text("search-query"))
-    }
-
-    /** P194: the focused key grows 6%; the key at each edge of the keyboard must keep that room inside its parent (it was clipped on the left). */
-    @Test fun aFocusedKeyAtAnEdgeIsNotClipped() {
-        show()
-        val root = compose.onNodeWithTag("search-keyboard").fetchSemanticsNode().boundsInRoot
-        val grow = 0.06f
-        val edgeKeys = listOf("a", "i", "j", "r", "s", "z", "page-abc", "clear")
-        for (k in edgeKeys) {
-            val b = compose.onNodeWithTag("search-key:$k").fetchSemanticsNode().boundsInRoot
-            val room = b.width * grow / 2f
-            assertTrue("$k: its growth ($room px) stays inside the keyboard: key ${b.left}..${b.right}, keyboard ${root.left}..${root.right}", b.left - room >= root.left && b.right + room <= root.right)
-            assertTrue("$k keeps at least 6 dp between its growth and the keyboard's edge", b.left - root.left >= 6f * compose.density.density || b.right <= root.right - 6f * compose.density.density)
-        }
-        val screen = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        assertTrue("the whole keyboard is on screen", root.left >= screen.left && root.right <= screen.right)
+        assertTrue("opens on the row", exists("search-row") && !exists("search-field"))
+        press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("Select opens the field", exists("search-field") && !exists("search-row"))
+        compose.onNodeWithTag("search-field").performImeAction()
+        compose.waitForIdle(); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("the keyboard's Search key ends typing: the query sits in a row again", !exists("search-field") && exists("search-row"))
+        press("search-row")
+        compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("Select on the row types again", exists("search-field"))
     }
 
     @Test fun noResultsSaysSoInTvOSsWordsWithTheKeyboardStillUp() {
         show()
-        press("search-key:z"); press("search-key:q")
-        assertTrue(exists("search-notice") && exists("search-keyboard"))
+        type("zq")
+        assertTrue(exists("search-notice") && (exists("search-field") || exists("search-row")))
         val all = compose.onAllNodes(hasTestTag("search-notice")).fetchSemanticsNodes().single()
         val texts = mutableListOf<String>()
         fun walk(n: androidx.compose.ui.semantics.SemanticsNode) { n.config.getOrNull(SemanticsProperties.Text)?.let { texts += it.joinToString("") }; n.children.forEach(::walk) }
@@ -137,7 +136,7 @@ class SearchScreenTest {
 
     @Test fun anUnreachableCinemetaSaysSearchNotAvailable() {
         show(remote = { throw java.io.IOException("offline") })
-        press("search-key:z"); press("search-key:q")
+        type("zq")
         compose.waitUntil(3_000) { exists("search-notice") }
         val texts = mutableListOf<String>()
         fun walk(n: androidx.compose.ui.semantics.SemanticsNode) { n.config.getOrNull(SemanticsProperties.Text)?.let { texts += it.joinToString("") }; n.children.forEach(::walk) }
@@ -156,7 +155,7 @@ class SearchScreenTest {
 
     @Test fun goldenResults() {
         show(remote = { listOf(item("Network", "tt1", "TV Show", 2019), item("Net Worth", "tt2", "Movie", 2021)) })
-        press("search-key:n"); press("search-key:e"); press("search-key:t")
+        type("net")
         compose.waitForIdle()
         compose.onRoot().captureRoboImage(shot("search-results"))
     }
@@ -167,34 +166,29 @@ class SearchScreenTest {
         compose.onRoot().captureRoboImage(shot("search-empty"))
     }
 
-    @Test fun noKeyClipsItsGlyphAndTheSymbolsPageHasTheMarks() {
-        show()
-        val clipped = mutableListOf<Char>()
-        for (c in "abcdefghijklmnopqrstuvwxyz") {
-            val node = compose.onNodeWithTag("search-key:$c", useUnmergedTree = true).fetchSemanticsNode()
-            fun textWidth(n: androidx.compose.ui.semantics.SemanticsNode): Int? {
-                val rs = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-                n.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(rs)
-                return rs.firstOrNull()?.size?.width ?: n.children.firstNotNullOfOrNull { textWidth(it) }
-            }
-            val w = textWidth(node) ?: continue
-            // The glyph has room on both sides inside its key.
-            if (node.boundsInRoot.width - w < 12f * compose.density.density) clipped += c
-        }
-        assertTrue("keys with no room around their letter: $clipped", clipped.isEmpty())
-        press("search-key:page-num")
-        for (m in listOf("0", "9")) assertTrue("digits page has $m", exists("search-key:$m"))
-        press("search-key:page-sym")
-        for (m in listOf(".", ",", "-", "_", "'", ":", "!", "?", "&", "@", "#", "(", ")", "/")) assertTrue("symbols page has $m", exists("search-key:$m"))
-        press("search-key:page-abc")
-        assertTrue("ABC toggles back", exists("search-key:a"))
-    }
-
     @Test fun everyResultNamesItsSource() {
         show(remote = { listOf(item("Netcast", "tt5", "Movie", 2020)) })
-        press("search-key:n"); press("search-key:e"); press("search-key:t")
+        type("net")
         compose.waitForIdle()
         val sources = compose.onAllNodes(hasTestTag("search-source"), useUnmergedTree = true).fetchSemanticsNodes().size
         assertTrue("each result shows its source ($sources)", sources >= 3)
+    }
+
+    @Test fun backWithTheKeyboardUpClosesItAndFocusLandsOnTheRowSoTheNextBackIsTheScreens() {
+        show()
+        press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue(exists("search-field"))
+        val content = contentView!!
+        compose.runOnIdle {
+            content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        compose.waitForIdle(); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("the field is gone and the row is back", !exists("search-field") && exists("search-row"))
+        assertEquals("focus is on the row, not on a field that would swallow the next Back", "search-row", compose.focused())
+        compose.runOnIdle {
+            assertTrue("the next Back is not taken by anything here: the screen's own handling gets it",
+                !content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK)))
+        }
     }
 }
