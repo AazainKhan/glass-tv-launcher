@@ -94,13 +94,21 @@ def test_airplay_toggles_phairplay(tv, home, cc):
     running = lambda: "PhairPlayService" in tv.sh("dumpsys activity services com.phairplay.firetv")
     tree = cc.open()
     was_on = cc.tile(tree, "AirPlay").desc.startswith("AirPlay, On") or cc.tile(tree, "AirPlay").desc.startswith("AirPlay, Connected")
-    try:
+    # Since P136 the AirPlay tile opens its platter (tvOS's AirPlay picker); the receiver's switch is the platter's first tile.
+    def toggle():
         cc.press_tile("AirPlay")
+        tv.wait_for(lambda t: t.focused() and t.focused().desc.startswith(("AirPlay, On", "AirPlay, Off")), 6, "the AirPlay platter's switch")
+        home.select()
+    try:
+        toggle()
         tv.wait_until(lambda: running() != was_on, 10, "the receiver to switch")
+        tv.press("back")
         tv.wait_for(lambda t: t.find(desc_prefix="AirPlay") and (t.find(desc_prefix="AirPlay").desc != ("AirPlay, On" if was_on else "AirPlay, Off")), 6, "the pill to show it")
     finally:
         if running() != was_on:
-            cc.press_tile("AirPlay")
+            if not tv.tree().find(rid="control-center"):
+                cc.open()
+            toggle()
             tv.wait_until(lambda: running() == was_on, 10, "AirPlay restored")
 
 
@@ -127,12 +135,11 @@ def test_performance_profile_applies_and_restores(tv, home, cc, rooted):
     try:
         cc.press_tile("Performance, ")
         tv.wait_for(lambda t: t.find(desc_prefix="Performance, ").desc != before, 6, "the profile to switch")
-        fast = tv.tree().find(desc_prefix="Performance, ").desc.endswith("Fast")
-        tv.wait_until(lambda: scale() == ("0" if fast else "1.0"), 6, "window animation scale to follow")
+        # Since P149 Fast frees memory once and changes nothing else: the animation scales stay as they were.
+        assert scale() == start_scale, f"Fast changed the window animation scale ({start_scale} -> {scale()})"
     finally:
         if tv.tree().find(desc_prefix="Performance, ").desc != before:
             cc.press_tile("Performance, ")
-            tv.wait_until(lambda: scale() == start_scale, 6, "animation scale restored")
 
 
 # ── Round of fixes: state, labels, weather, customisation ─────────────────────────────────────────
@@ -232,8 +239,9 @@ def test_every_control_has_a_label_when_focused(tv, home, cc):
     cc.open()
     for name, label in [("Game Controllers", "Game Controllers"), ("Theme, ", "Theme"),
                         ("Screen Saver", "Screen Saver"), ("App Switcher", "App Switcher")]:
+        # F01 (14e36cd4) dropped the caption under the grid: a circle's name is its spoken label when focused.
         cc.focus_desc_prefix(name)
-        tv.wait_for(lambda t: any(n.text.startswith(label) for n in t.nodes()), 3, f"the '{label}' label")
+        tv.wait_for(lambda t: t.focused() and t.focused().desc.startswith(label), 3, f"the '{label}' label")
 
 
 def test_control_center_shows_the_weather_reading(tv, home, cc):

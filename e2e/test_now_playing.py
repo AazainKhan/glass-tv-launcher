@@ -72,6 +72,16 @@ def test_hero_is_centred_with_playback_controls(tv, home, playing):
         assert btn and l <= btn.center[0] <= r and t <= btn.center[1] <= b, f"no '{label}' control in the hero"
 
 
+def _up_to_pill(tv, what: str) -> None:
+    """Up from the Now Playing buttons reaches the pill; when the session can seek, the scrubber above them (b70efa39) is
+    one Up on the way."""
+    tv.press("up")
+    t = tv.wait_for(lambda t: t.focused() and t.focused().rid in ("status-pill", "np-scrubber") and t, 4, what)
+    if t.focused().rid == "np-scrubber":
+        tv.press("up")
+        tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 4, what)
+
+
 def test_up_from_the_tray_reaches_the_controls_then_control_center(tv, home, playing):
     tv.wait_for(lambda t: t.find(rid="now-playing-hero"), 10, "the Now Playing hero")
     # From a Cover Flow app (Spotify) Up enters the Cover Flow first: start from a card-row tray app.
@@ -87,8 +97,7 @@ def test_up_from_the_tray_reaches_the_controls_then_control_center(tv, home, pla
         pytest.skip("the media session didn't accept a pause: no controllable session")
     home.select()
     tv.wait_for(lambda t: t.focused() and t.focused().desc == "Pause", 6, "playing again")
-    tv.press("up")
-    tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 4, "Up again onto the status pill")
+    _up_to_pill(tv, "Up again onto the status pill")
     home.select()
     tv.wait_for(lambda t: t.find(rid="control-center"), 6, "Control Center from the pill while music plays")
     card = tv.wait_for(lambda t: t.find(rid="now-playing-card"), 4, "the Now Playing card")
@@ -151,8 +160,7 @@ def test_down_from_the_controls_and_pill_returns_to_the_tray(tv, home, playing):
     start = tv.tree().focused()
     tv.press("up")
     tv.wait_for(lambda t: t.focused() and not t.focused().rid.startswith("app:"), 3, "the Now Playing controls")
-    tv.press("up")
-    tv.wait_for(lambda t: t.focused() and t.focused().rid == "status-pill", 3, "the status pill")
+    _up_to_pill(tv, "the status pill")
     tv.press("down")
     tv.press("down")
     back = tv.wait_for(lambda t: t.focused() and t.focused().rid.startswith("app:") and t.focused(), 4, "focus back on the tray")

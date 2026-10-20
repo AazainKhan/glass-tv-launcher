@@ -94,39 +94,56 @@ def _datastore_with(text: str) -> bytes:
     return b"\x0a" + _varint(len(entry)) + entry
 
 
-def _write_datastore(t: TV, data: bytes) -> None:
-    """Replaces Glass's saved config with Glass stopped (its DataStore would write its own copy back), then starts Home."""
+HOME_PREFS = f"/data/data/{PKG}/shared_prefs/home.xml"
+
+
+def _su_read(t: TV, path: str) -> bytes:
+    return subprocess.run(["adb", "-s", t.serial, "exec-out", "su", "-c", f"cat {path}"], capture_output=True, timeout=30).stdout
+
+
+def _write_glass_files(t: TV, files: dict[str, bytes]) -> None:
+    """Replaces Glass's saved files with Glass stopped (it would write its own copies back), then starts Home."""
     t.sh(f"am force-stop {PKG}")
-    subprocess.run(["adb", "-s", t.serial, "shell", "su", "-c", f"'cat > {DATASTORE}'"], input=data, timeout=30, check=True)
+    for path, data in files.items():
+        # cat into the existing file keeps its owner and mode.
+        subprocess.run(["adb", "-s", t.serial, "shell", "su", "-c", f"'cat > {path}'"], input=data, timeout=30, check=True)
     t.sh("input keyevent KEYCODE_HOME")
     time.sleep(8)
     subprocess.run([str(ROOT / "scripts" / "ensure-keys-service")], capture_output=True, timeout=60)
 
 
 @pytest.fixture(scope="session", autouse=True)
-def default_control_center(tv: TV):
-    """The Control Center tests measure the default layout. A user's edited layout (the real stick has one) is set aside
-    for the run and put back after, byte for byte. Needs root; without it, or with no edited layout, nothing is touched."""
-    raw = subprocess.run(["adb", "-s", tv.serial, "exec-out", "su", "-c", f"cat {DATASTORE}"], capture_output=True, timeout=30).stdout
-    text = _config_json(raw) if raw else None
-    if text is None:
-        yield
-        return
+def default_glass_state(tv: TV):
+    """The suite measures Glass as installed: the default Control Center layout, and no apps the Top Shelf has already
+    learned to show straight away (feedApps/coverApps, which skip the app's own hero). A user's edited layout and learned
+    apps (the real stick has both) are set aside for the run and put back after, byte for byte. Needs root; without it, or
+    with nothing to set aside, nothing is touched."""
     import json
-    cfg = json.loads(text)
-    if "ccLayout" not in cfg and not cfg.get("ccHidden"):
+    originals, replaced = {}, {}
+    raw = _su_read(tv, DATASTORE)
+    text = _config_json(raw) if raw else None
+    if text is not None:
+        cfg = json.loads(text)
+        if "ccLayout" in cfg or cfg.get("ccHidden"):
+            cfg.pop("ccLayout", None)
+            cfg.pop("ccHidden", None)
+            originals[DATASTORE], replaced[DATASTORE] = raw, _datastore_with(json.dumps(cfg, indent=4))
+            # A test that edits Control Center writes the default layout out in full where the reset left it absent: not a
+            # change it left behind (the user's file comes back at the end either way).
+            VOLATILE.update({"ccLayout", "ccHidden"})
+    prefs = _su_read(tv, HOME_PREFS)
+    if prefs:
+        fresh = re.sub(rb'\s*<set name="(feedApps|coverApps)"\s*/>|\s*<set name="(feedApps|coverApps)">.*?</set>', b"", prefs, flags=re.S)
+        if fresh != prefs:
+            originals[HOME_PREFS], replaced[HOME_PREFS] = prefs, fresh
+    if not replaced:
         yield
         return
-    cfg.pop("ccLayout", None)
-    cfg.pop("ccHidden", None)
-    # A test that edits Control Center writes the default layout out in full where the reset left it absent: not a change it
-    # left behind (the user's file comes back at the end either way).
-    VOLATILE.update({"ccLayout", "ccHidden"})
-    _write_datastore(tv, _datastore_with(json.dumps(cfg, indent=4)))
+    _write_glass_files(tv, replaced)
     try:
         yield
     finally:
-        _write_datastore(tv, raw)
+        _write_glass_files(tv, originals)
 
 
 def _preflight(t: TV) -> None:
