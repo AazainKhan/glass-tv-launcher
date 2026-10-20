@@ -39,11 +39,19 @@ object RecentApps {
         )
     }.getOrDefault(emptyList())
 
-    /** When the task was last in front (system clock ms), from the stack's own record; 0 when this Android does not tell. */
+    /** When the task was last in front (wall-clock ms, like the switcher's close times), from the stack's own record; 0 when this Android does not tell. */
     private fun lastActive(info: Any): Long = runCatching {
-        generateSequence(info.javaClass as Class<*>?) { it.superclass }.firstNotNullOf { c -> runCatching { c.getDeclaredField("lastActiveTime") }.getOrNull() }
+        val sinceBoot = generateSequence(info.javaClass as Class<*>?) { it.superclass }.firstNotNullOf { c -> runCatching { c.getDeclaredField("lastActiveTime") }.getOrNull() }
             .apply { isAccessible = true }.getLong(info)
+        wallTime(sinceBoot, System.currentTimeMillis(), android.os.SystemClock.elapsedRealtime())
     }.getOrDefault(0L)
+
+    /**
+     * P220: TaskInfo.lastActiveTime counts from boot (elapsedRealtime), but a close is stamped with the wall clock, so every task
+     * looked older than any close and a closed app never came back to the switcher, even after it was opened again.
+     */
+    fun wallTime(sinceBootMs: Long, nowWallMs: Long, nowSinceBootMs: Long): Long =
+        if (sinceBootMs <= 0L) 0L else nowWallMs - (nowSinceBootMs - sinceBootMs)
 
     /**
      * The task stack as "when it was last used" pairs for [order]. The real time when the system gives one. Without it every task used

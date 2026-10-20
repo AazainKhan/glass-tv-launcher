@@ -36,4 +36,14 @@ class RecentTasksTest {
         val installed = listOf(AppEntry("a", "A", android.content.ComponentName("a", "A")))
         assertEquals(installed, RecentApps.list(ctx, installed, own = listOf("a")))
     }
+
+    @Test fun aTaskUsedAfterItWasClosedComesBack() {
+        // Booted 1 h ago; the app was closed 10 min ago (wall clock) and opened again 1 min ago (since boot).
+        val now = 1_792_280_000_000L; val up = 3_600_000L
+        val closedAt = now - 600_000L
+        val active = RecentApps.wallTime(up - 60_000L, now, up)
+        org.junit.Assert.assertEquals(now - 60_000L, active)
+        org.junit.Assert.assertEquals(listOf("vlc"), RecentApps.order(listOf("vlc" to active), emptyList(), mapOf("vlc" to closedAt)))
+        org.junit.Assert.assertEquals(0L, RecentApps.wallTime(0L, now, up))
+    }
 }
