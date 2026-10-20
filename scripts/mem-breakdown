@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Where Glass's memory sits on Home vs in the background (read-only: opens another app and goes Home, installs nothing).
+#   scripts/mem-breakdown [other-package] [seconds-in-background]   (default org.videolan.vlc, 60)
+# Prints meminfo categories for both states, the process state the system gives Glass while hidden (P200: services
+# and the parked Control Center window keep it "foreground", so TRIM_MEMORY_UI_HIDDEN may never come), and HWUI's caches.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"; require_device_access
+hold_stick "$0" "$@"
+PKG=dev.glasslauncher; OTHER="${1:-org.videolan.vlc}"; WAIT="${2:-60}"
+pid() { adb shell pidof "$PKG" | tr -d '\r'; }
+cats() { adb shell dumpsys meminfo "$(pid)" | sed -n '/App Summary/,/TOTAL SWAP/p' | grep -E ':' | sed 's/^ *//'; }
+gfx() { adb shell dumpsys gfxinfo "$PKG" | sed -n '/Memory policy/,/Total GPU memory usage/p;/Pipeline=/,/^$/p' | head -30; }
+adb shell input keyevent KEYCODE_HOME; sleep 2; adb shell input keyevent KEYCODE_HOME; sleep 15
+echo "=== Home (pid $(pid))"; cats; echo "--- HWUI"; gfx
+adb shell monkey -p "$OTHER" -c android.intent.category.LEANBACK_LAUNCHER 1 >/dev/null 2>&1; sleep "$WAIT"
+echo "=== Background, ${WAIT}s behind $OTHER (pid $(pid))"; cats; echo "--- HWUI"; gfx
+echo "--- process state"; adb shell dumpsys activity processes "$PKG" | grep -E "curProcState|setProcState|curAdj|lastTrimLevel|trimMemoryLevel|hasShownUi|hasOverlayUi|hasTopUi|foregroundServices" | sed 's/^ *//' | head -12
+adb shell am force-stop "$OTHER"; adb shell input keyevent KEYCODE_HOME
