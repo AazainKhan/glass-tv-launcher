@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -162,13 +163,26 @@ fun SearchScreen(
                 shown.isEmpty() && busy -> Unit
                 shown.isEmpty() && offline && results.isEmpty() -> Notice(SearchText.UNAVAILABLE, SearchText.OFFLINE, ink)
                 shown.isEmpty() -> Notice(SearchText.NO_RESULTS, SearchText.noResults(query), ink)
-                else -> LazyVerticalGrid(GridCells.Fixed(3), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize().testTag("search-results")) {
+                else -> {
+                  // The first row stays in view (P241): the grid keeps the scroll it had, and results arriving or the keyboard resizing the
+                  // window left it scrolled past its first row, cut off under the tabs. While focus is not in it (typing, or just back from
+                  // the keyboard), it goes back to the top when the results or its height change.
+                  val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+                  var gridFocused by remember { mutableStateOf(false) }
+                  var gridHeight by remember { mutableStateOf(0) }
+                  val keys = shown.map { it.key }
+                  LaunchedEffect(keys, gridHeight) { if (!gridFocused) gridState.scrollToItem(0) }
+                  LazyVerticalGrid(
+                    GridCells.Fixed(3), state = gridState, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize().onSizeChanged { gridHeight = it.height }.onFocusChanged { gridFocused = it.hasFocus }.testTag("search-results"),
+                  ) {
                     items(shown, key = { it.key }) { hit ->
                         ResultCard(hit, ink) {
                             recent = RecentSearches.add(recent, query).also { RecentSearches.write(context, it) }
                             onOpen(hit)
                         }
                     }
+                  }
                 }
             }
         }
