@@ -158,7 +158,7 @@ private val CcPillValue @Composable get() = Type.caption.copy(fontSize = 11.5.sp
 internal val CcSectionHeader @Composable get() = Type.caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
 
 /** Whether the tile whose content is being drawn has focus (a pill's long text scrolls only then, F05). */
-private val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { false }
+internal val LocalCcTileFocused = androidx.compose.runtime.compositionLocalOf { false }
 
 /**
  * P206 E: the tiles are the dock's clear glass, so a label can sit on bright art. It gets a subtle shadow of its own
@@ -1692,11 +1692,14 @@ private const val TOGGLE_FADE_MS = 250
 /** The accent as is: the glass is always dark (P188), so the glyph keeps its contrast without deepening. */
 private fun inkAccent(c: Color): Color = c
 
-/** The glyph's colour: it fades to [accent] over tvOS's 0.25 s when a toggle turns on, and focus (near-black on white) wins. */
+/**
+ * The glyph's colour: it fades to [accent] over tvOS's 0.25 s when a toggle turns on. Focus does not change it (P219): an active
+ * glyph stays the accent, focused or not, and an inactive one follows [fg] (which is the focus ink while focused).
+ */
 @Composable
-private fun toggleTint(on: Boolean, fg: Color, accent: Color): Color {
+internal fun toggleTint(on: Boolean, fg: Color, accent: Color): Color {
     val mix by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(TOGGLE_FADE_MS), label = "toggle-tint")
-    return if (LocalCcTileFocused.current) fg else androidx.compose.ui.graphics.lerp(fg, inkAccent(accent), mix)
+    return androidx.compose.ui.graphics.lerp(fg, inkAccent(accent), mix)
 }
 
 /** Icon disc on the left, one or two lines of text on the right, as in tvOS Control Center pills. */
