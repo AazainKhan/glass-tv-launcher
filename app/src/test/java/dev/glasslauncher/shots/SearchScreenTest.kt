@@ -56,7 +56,7 @@ class SearchScreenTest {
         val model = SearchModel(scope, { listOf(app("Netflix"), app("Plex"), app("Netgear")) }, { listOf(item("Net Game", "t1", "Movie", 2020)) }, remote, debounceMs = 0)
         compose.setContent { Box(Modifier.fillMaxSize().background(Color(0xFF14161C))) { SearchScreen(model, active = true, onOpen = {}, askClear = {}) } }
         compose.waitForIdle()
-        // The field takes focus a frame after the screen opens.
+        // The row takes focus a frame after the screen opens.
         compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
         shownModel = model
         return model
@@ -76,13 +76,23 @@ class SearchScreenTest {
         else compose.onNodeWithTag(tag).fetchSemanticsNode().config.getOrNull(SemanticsProperties.Text)?.joinToString("")
     /** Types into the system field (the keyboard itself is the device's, not under test). */
     private fun type(s: String) {
+        // Search opens on its row; Select on it opens the field (and the device's keyboard).
+        if (!exists("search-field")) { press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle() }
         compose.onNodeWithTag("search-field").performTextInput(s)
         compose.waitForIdle()
     }
 
     @Test fun searchHasNoKeyboardOfItsOwnAndTypingFiltersTheResultsLive() {
         show()
-        assertTrue("a normal text field opens the device's keyboard: no key grid", exists("search-field") && compose.onAllNodes(hasTestTag("search-keyboard")).fetchSemanticsNodes().isEmpty())
+        assertTrue("Search opens on its row, focused", exists("search-row") && !exists("search-field"))
+        // P230: no custom key grid anywhere: no keyboard container, no key, no page key, no clear key.
+        val customKeys = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("a Glass keyboard key") { n ->
+            val tag = n.config.getOrNull(SemanticsProperties.TestTag).orEmpty()
+            tag == "search-keyboard" || tag.startsWith("search-key:")
+        }, useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("Glass has no keyboard of its own: ${customKeys.size} key nodes", customKeys.isEmpty())
+        press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("Select on the row opens a normal text field (the device's keyboard)", exists("search-field"))
         type("ne")
         assertEquals("the field shows what was typed", "ne", compose.onNodeWithTag("search-field").fetchSemanticsNode().config.getOrNull(SemanticsProperties.EditableText)?.text)
         assertEquals("ne", text("search-query"))
@@ -98,9 +108,11 @@ class SearchScreenTest {
         assertTrue(exists("search-result:app:p.netflix"))
     }
 
-    @Test fun theFieldOpensWithTheScreenAndTheRowReturnsOnceTypingEnds() {
+    @Test fun theRowOpensTheFieldAndReturnsOnceTypingEnds() {
         show()
-        assertTrue("typing starts at once", exists("search-field") && !exists("search-row"))
+        assertTrue("opens on the row", exists("search-row") && !exists("search-field"))
+        press("search-row"); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        assertTrue("Select opens the field", exists("search-field") && !exists("search-row"))
         compose.onNodeWithTag("search-field").performImeAction()
         compose.waitForIdle(); compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
         assertTrue("the keyboard's Search key ends typing: the query sits in a row again", !exists("search-field") && exists("search-row"))

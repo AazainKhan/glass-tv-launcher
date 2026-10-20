@@ -102,9 +102,9 @@ fun SearchScreen(
     val field = remember { FocusRequester() }
     val row = remember { FocusRequester() }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    // Opens ready to type; the keyboard is the device's own (on Fire TV it is modal, so the field exists only while typing, and a
-    // normal row holds the query otherwise).
-    LaunchedEffect(active) { if (active) { androidx.compose.runtime.withFrameNanos { }; editing = true } }
+    // Opens on the search row; Select on it opens the device's own keyboard (on Fire TV it is modal, so the field exists only while
+    // typing, and a normal row holds the query otherwise). Nothing here draws a keyboard of Glass's own (P230).
+    LaunchedEffect(active) { if (active) { androidx.compose.runtime.withFrameNanos { }; runCatching { row.requestFocus() } } }
     // The keyboard's own Search key puts focus back on the row; focus that left the field some other way (the user moved on to the
     // results) stays where it went.
     var returnToRow by remember { mutableStateOf(false) }
@@ -119,7 +119,8 @@ fun SearchScreen(
     val ink = if (palette.light) Color(0xFF14161C) else Color.White
     Column(Modifier.fillMaxSize().padding(horizontal = 48.dp).padding(top = 26.dp).testTag("search")) {
         // The query, in the same field as every text input in Glass: a magnifying glass, then the field while typing or a row to open it.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth().height(54.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            // The gap leaves room for the focused row to lift without touching the glass.
             Icon(R.drawable.ic_search, ink.copy(alpha = 0.7f), 32)
             if (editing) dev.glasslauncher.home.SystemTextField(
                 value = query, onValueChange = { model.setQuery(it) }, focusRequester = field,
