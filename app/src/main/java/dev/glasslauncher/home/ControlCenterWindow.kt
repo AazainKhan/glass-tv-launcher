@@ -233,7 +233,16 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val counter = android.view.ViewTreeObserver.OnDrawListener { draws++ }
         v.viewTreeObserver.addOnDrawListener(counter)
         val started = android.os.SystemClock.uptimeMillis()
+        // A parked Control Center is static: left alone the window drew 4-5 frames a second on a quiet stick, so the frames
+        // are driven, one invalidate per vsync, while the warm-up lasts (P238 review).
+        var driving = true
+        val choreographer = android.view.Choreographer.getInstance()
+        val drive = object : android.view.Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) { if (!driving) return; v.invalidate(); choreographer.postFrameCallback(this) }
+        }
+        choreographer.postFrameCallback(drive)
         fun finish(ok: Boolean) {
+            driving = false
             handler.post { runCatching { v.viewTreeObserver.removeOnDrawListener(counter) } }
             exiting = true
             lifecycleRegistry.currentState = Lifecycle.State.CREATED
@@ -245,7 +254,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         val check = object : Runnable {
             override fun run() {
                 // A real open took over: stop warming, and say so (it compiled the programs itself).
-                if (open || view !== v) { warmingUp = false; done(false); return }
+                if (open || view !== v) { driving = false; warmingUp = false; done(false); return }
                 val elapsed = android.os.SystemClock.uptimeMillis() - started
                 if (draws >= WARM_DRAWS && elapsed >= WARM_MS) finish(true)
                 else if (elapsed >= WARM_MAX_MS) finish(false)
@@ -518,8 +527,11 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
 
 /** Half a level of white in an 8-bit frame: nothing on screen, but the window is composited and drawn. */
 private const val WARM_ALPHA = 0.002f
-/** At least this long and this many drawn frames: the open's spring reaches full size, so the glass, rims and labels all draw. */
+/**
+ * At least this long (the open's spring reaches full size, so the glass, rims and labels all draw) and this many frames
+ * really drawn. Few: a frame that compiles is slow, and slow frames are the point.
+ */
 private const val WARM_MS = 450L
-private const val WARM_DRAWS = 20
+private const val WARM_DRAWS = 4
 /** Gives up (and Home tries again later) when the frames don't come. */
 private const val WARM_MAX_MS = 2_500L

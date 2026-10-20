@@ -604,7 +604,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             if (attempt > 0) { delay(CC_WARM_RETRY_MS); while (idle.millisSinceInput() < CC_WARM_QUIET_MS) delay(500) }
             // Over Home, Control Center opens in its own window (the accessibility overlay): that window is the one to warm.
             // shortcut: APK mode has no warm-up (in-activity copy draws a different layer path); upgrade when an APK-safe window path exists
-            val window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter ?: return@LaunchedEffect
+            // On a cold boot the service binds after Home is up: wait for it (up to a minute) instead of giving up.
+            var window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter
+            var waited = 0
+            while (window == null && waited < 60) { delay(1_000); waited++; window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter }
+            if (window == null) return@LaunchedEffect
             val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { c -> window.warmShaders { ok -> if (c.isActive) c.resumeWith(Result.success(ok)) } }
             if (ok) { prefs.edit().putLong(CC_WARM_KEY, updatedAt).apply(); return@LaunchedEffect }
         }
