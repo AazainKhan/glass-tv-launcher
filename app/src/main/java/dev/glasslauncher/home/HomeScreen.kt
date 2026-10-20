@@ -558,7 +558,10 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // P216: the scenes left behind are garbage whose native pixels go only when a collection runs (and their cleaners
         // after it): a heap dump after a dock pass found ~40 MB of unreachable bitmaps, and one collection took the grid's
         // PSS from ~133 to ~119 MB. Home is at rest here, so a collection costs nothing on screen.
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
+        // P222: not after the Top Shelf's own autoplay steps (no key since): those slides come every few seconds at rest,
+        // and a collection each was ~2 % of a core for nothing; the next key-driven rest collects what they left.
+        if (idle.millisSinceInput() < GPU_TRIM_AFTER_MS + 2_000L)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
     }
 
     // Loading state: Home stays hidden until its first backdrop is baked and the app list is in, then
