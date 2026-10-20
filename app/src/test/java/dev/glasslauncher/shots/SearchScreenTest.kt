@@ -19,6 +19,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
@@ -52,8 +53,11 @@ class SearchScreenTest {
     private fun app(label: String) = AppEntry("p.${label.lowercase()}", label, ComponentName("p.${label.lowercase()}", "M"))
     private fun item(title: String, id: String, type: String, year: Int) = FeaturedItem(id = id, title = title, type = type, year = year, image = null)
 
-    private fun show(remote: suspend (String) -> List<FeaturedItem> = { emptyList() }): SearchModel {
-        val model = SearchModel(scope, { listOf(app("Netflix"), app("Plex"), app("Netgear")) }, { listOf(item("Net Game", "t1", "Movie", 2020)) }, remote, debounceMs = 0)
+    private fun show(
+        remote: suspend (String) -> List<FeaturedItem> = { emptyList() },
+        apps: List<AppEntry> = listOf(app("Netflix"), app("Plex"), app("Netgear")),
+    ): SearchModel {
+        val model = SearchModel(scope, { apps }, { listOf(item("Net Game", "t1", "Movie", 2020)) }, remote, debounceMs = 0)
         compose.setContent { contentView = androidx.compose.ui.platform.LocalView.current; Box(Modifier.fillMaxSize().background(Color(0xFF14161C))) { SearchScreen(model, active = true, onOpen = {}, askClear = {}) } }
         compose.waitForIdle()
         // The row takes focus a frame after the screen opens.
@@ -190,5 +194,23 @@ class SearchScreenTest {
             assertTrue("the next Back is not taken by anything here: the screen's own handling gets it",
                 !content.dispatchKeyEventPreIme(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK)))
         }
+    }
+
+    /** P241: the grid goes back to its first row when the results change or the keyboard resizes it and focus is not in it. */
+    @Test fun aScrolledResultGridReturnsToItsFirstRowWhenTheQueryChanges() {
+        show(apps = ('a'..'l').map { app("Net$it") })
+        type("net")
+        val grid = compose.onNodeWithTag("search-results")
+        grid.performScrollToIndex(9)
+        compose.waitForIdle()
+        val gridTop = grid.fetchSemanticsNode().boundsInRoot.top
+        val before = compose.onAllNodes(hasTestTag("search-result:app:p.netb"), useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("scrolled: the early cards are off the top (setup)", before.isEmpty() || before[0].boundsInRoot.top < gridTop)
+        // The keyboard's text changes: new results, the grid back to its first row.
+        compose.onNodeWithTag("search-field").performTextReplacement("net"); compose.waitForIdle()
+        compose.onNodeWithTag("search-field").performTextReplacement("netb"); compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(300); compose.waitForIdle()
+        val first = compose.onAllNodes(hasTestTag("search-result:app:p.netb"), useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("the first result is on screen at the grid's top, not cut off above it", first.isNotEmpty() && first[0].boundsInRoot.top >= gridTop - 1f)
     }
 }
