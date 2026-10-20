@@ -13,6 +13,9 @@ import androidx.compose.ui.semantics.getOrNull
  * the drawn bounds (uiautomator pads small targets up to 48 dp).
  */
 object SemanticsDump {
+    /** Tag of a parked Control Center's root (P203): its nodes are composed but not on screen, so the dump leaves the whole subtree out. */
+    const val PARKED = "cc-parked"
+
     fun xml(root: RootForTest): String {
         val owner = root.semanticsOwner
         val merged = HashMap<Int, SemanticsNode>()
@@ -25,6 +28,7 @@ object SemanticsDump {
             // steering toward their empty corner sent focus the wrong way.
             if (n.boundsInWindow.width <= 0f || n.boundsInWindow.height <= 0f) return
             val own = n.config
+            if (own.getOrNull(SemanticsProperties.TestTag) == PARKED) return
             val merging = own.isMergingSemanticsOfDescendants
             val c = if (merging) merged[n.id]?.config ?: own else own
             val tag = own.getOrNull(SemanticsProperties.TestTag).orEmpty()

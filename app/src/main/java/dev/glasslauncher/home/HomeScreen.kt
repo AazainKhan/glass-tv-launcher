@@ -1989,6 +1989,7 @@ private fun Modifier.ccParked(): Modifier = this
     // Not drawn at all, not just at alpha 0: HWUI then lets go of the parked tree's display lists and the textures
     // they hold (drawn at alpha 0 it kept ~12 MB of GPU memory, over P203's 8 MB budget).
     .drawWithContent { }
-    .clearAndSetSemantics { }
+    // Tagged, so the device tests' unmerged dump can leave the parked tree out (it still lists nodes that clearAndSetSemantics hid from TalkBack).
+    .clearAndSetSemantics { this[androidx.compose.ui.semantics.SemanticsProperties.TestTag] = dev.glasslauncher.system.SemanticsDump.PARKED }
     .focusProperties { onEnter = { cancelFocusChange() } }
     .focusGroup()
