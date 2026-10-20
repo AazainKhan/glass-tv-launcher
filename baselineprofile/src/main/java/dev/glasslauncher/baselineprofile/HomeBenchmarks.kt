@@ -69,7 +69,10 @@ class HomeBenchmarks {
     }) { startActivityAndWait(homeIntent); waitForGlass() }
 
     // Hot: the Home button from another app.
-    @Test fun startupHot() = startup(profile, null, setup = { homeAtStart(); openOtherApp() }) { keys(KeyEvent.KEYCODE_HOME, gapMs = 1_500); waitForGlass() }
+    // Hot: back to Home from another app. Started through the HOME intent (what the Home button resolves to):
+    // StartupTimingMetric doesn't see an injected Home key as a launch (1 of 10 iterations measured). No StartupMode:
+    // HOT presses Home before each iteration, which for a launcher brings Glass forward.
+    @Test fun startupHot() = startup(profile, null, setup = { openOtherApp() }) { startActivityAndWait(homeIntent); waitForGlass() }
 
     @Test fun focusDock() = frames(setup = { homeAtStart() }) {
         keys(R, R, R, L, L, L)
