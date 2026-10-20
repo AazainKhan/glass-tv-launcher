@@ -107,8 +107,18 @@ object RemotePairPolicy {
         return Action.Connect
     }
 
-    /** Whether to scan at all: no Amazon remote is connected (screen on or off). */
-    fun shouldScan(remoteConnected: Boolean) = !remoteConnected
+    /**
+     * Whether to scan at all (screen on or off). Never while an Amazon remote is connected. With none bonded the stick needs pairing, so
+     * it scans for as long as that holds. With one bonded that is not connected, the remote is either coming back (it sleeps after
+     * idling and wakes with a press) or its bond needs repair, and the scan is for those first [GRACE_MS] after it went quiet: a
+     * bonded remote that has been gone longer is asleep, and scanning every 25 s through the night was 1,097 back-to-back scans on a
+     * stick (8.5 h, 6.6% of a core, P221). Waking the screen, or the remote's own connection coming and going, opens the window again.
+     */
+    fun shouldScan(remoteConnected: Boolean, haveBondedRemote: Boolean = false, goneForMs: Long = 0L) =
+        !remoteConnected && (!haveBondedRemote || goneForMs < GRACE_MS)
+
+    /** How long a bonded remote that is not connected is looked for before the scan rests (see [shouldScan]). */
+    const val GRACE_MS = 10 * 60_000L
 
     /**
      * The scan is registered again this often while it should run: Fire's BtLeManager logs "stop all scans" about

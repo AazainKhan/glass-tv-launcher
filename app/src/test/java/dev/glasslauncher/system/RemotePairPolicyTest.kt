@@ -172,4 +172,14 @@ class AmazonRemoteNameTest {
         assertEquals(false, RemotePairPolicy.isAmazonRemoteName("DualSense"))
         assertEquals(false, RemotePairPolicy.isAmazonRemoteName(null))
     }
+
+    @Test fun aBondedRemoteThatHasBeenAsleepForLongIsNotScannedFor() {
+        val g = RemotePairPolicy.GRACE_MS
+        assertFalse("connected: never", RemotePairPolicy.shouldScan(remoteConnected = true, haveBondedRemote = true, goneForMs = 0))
+        assertTrue("none bonded: pairing is needed, however long", RemotePairPolicy.shouldScan(false, haveBondedRemote = false, goneForMs = 10 * g))
+        assertTrue("bonded and just went quiet: it is coming back", RemotePairPolicy.shouldScan(false, true, goneForMs = 1_000))
+        assertTrue("still inside the window", RemotePairPolicy.shouldScan(false, true, goneForMs = g - 1))
+        assertFalse("bonded, gone past the window: asleep (P221: 8.5 h of scans)", RemotePairPolicy.shouldScan(false, true, goneForMs = g))
+        assertFalse(RemotePairPolicy.shouldScan(false, true, goneForMs = 8 * 60 * 60_000L))
+    }
 }

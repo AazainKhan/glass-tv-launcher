@@ -49,6 +49,8 @@ class RemotePairer(private val context: Context) {
     private var lastStaleNotice = 0L
     private var scanStartedAt = 0L
     private var lastRemoteAdvert = 0L
+    /** When the remote was first seen missing in this stretch (0 = it is connected, or the window was just opened again). */
+    private var remoteGoneAt = 0L
     private var lastBatteryHint = 0L
     private val failures = HashMap<String, Int>()
     private val lastAction = HashMap<String, Long>()
@@ -58,9 +60,10 @@ class RemotePairer(private val context: Context) {
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             when (i.action) {
-                Intent.ACTION_SCREEN_ON -> { Log.i(TAG, "screen on"); evaluate() }
+                // Each of these opens the look-for-the-remote window again (RemotePairPolicy.shouldScan).
+                Intent.ACTION_SCREEN_ON -> { Log.i(TAG, "screen on"); remoteGoneAt = 0L; evaluate() }
                 Intent.ACTION_SCREEN_OFF -> { Log.i(TAG, "screen off: the scan keeps running while no remote is connected"); evaluate() }
-                BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> evaluate()
+                BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> { remoteGoneAt = 0L; evaluate() }
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED -> onBond(i)
                 BluetoothAdapter.ACTION_STATE_CHANGED -> onAdapterState(i.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR))
             }
@@ -127,14 +130,18 @@ class RemotePairer(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun evaluate() {
         val remoteConnected = anyRemoteConnected()
+        val now = System.currentTimeMillis()
+        if (remoteConnected) remoteGoneAt = 0L else if (remoteGoneAt == 0L) remoteGoneAt = now
+        val bonded = runCatching { adapter?.bondedDevices.orEmpty().any { isAmazonRemote(it) } }.getOrDefault(false)
+        val shouldScan = RemotePairPolicy.shouldScan(remoteConnected, bonded, if (remoteGoneAt == 0L) 0L else now - remoteGoneAt)
         // No scan while Bluetooth audio is connected (P169/P175): a scan every 25 s on the radio carrying A2DP glitched the
         // music, and the stick hard-reset twice under headphones + gamepad + scanning. Pairing waits until they disconnect.
         val audio = btAudioConnected()
         handler.removeCallbacks(audioRecheck)
         // Paused for Bluetooth audio only: look again later, so pairing resumes once the headphones disconnect.
-        if (audio && RemotePairPolicy.shouldScan(remoteConnected)) handler.postDelayed(audioRecheck, RemotePairPolicy.RESCAN_EVERY_MS)
-        if (!audio && RemotePairPolicy.shouldScan(remoteConnected)) startScan() else {
-            if (scanning) Log.i(TAG, "scan stops (remote connected)")
+        if (audio && shouldScan) handler.postDelayed(audioRecheck, RemotePairPolicy.RESCAN_EVERY_MS)
+        if (!audio && shouldScan) startScan() else {
+            if (scanning) Log.i(TAG, if (remoteConnected) "scan stops (remote connected)" else "scan stops (bonded remote quiet for ${(now - remoteGoneAt) / 60_000} min: asleep, not lost)")
             stopScan()
         }
     }
