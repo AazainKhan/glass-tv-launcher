@@ -16,32 +16,28 @@ def test_opens_with_every_control(tv, home, cc, rooted):
         assert cc.tile(tree, "AirPlay"), "PhairPlay is installed but there's no AirPlay toggle"
     if rooted:
         assert cc.tile(tree, "Performance, "), "rooted, but no Performance button"
-        assert cc.tile(tree, "Free Memory"), "rooted, but no Free Memory button"
+        # Free Memory became Clean Up (cb668ee3: Sleep Timer, VPN, Restart and Clean Up controls).
+        assert cc.tile(tree, "Clean Up"), "rooted, but no Clean Up control"
     assert tree.focused() and tree.focused().desc.startswith("Settings"), "focus should start on Settings"
 
 
 def test_header_is_left_aligned_with_the_page_icons_on_the_right(tv, home, cc):
-    """The time with seconds, the date under it, then the weather, left-aligned with the tiles; the page
-    icons stay at the right of the same band, with a gap between the two."""
+    """One line (tvOS 27, F03): the time without seconds and, when there is one, the weather beside it, left-aligned with the tiles;
+    no date line. The page icons stay at the right of the same band, with a gap between the two."""
     tree = cc.open()
     clock = tree.find(rid="cc-clock")
-    assert clock and clock_ok(clock.text, seconds=True), f"clock reads {clock and clock.text!r}"
-    date = tree.find(rid="cc-date")
-    assert date and date_ok(date.text), f"Control Center date reads {date and date.text!r}"
-    lines = [clock, date]
+    assert clock and clock_ok(clock.text, seconds=False), f"clock reads {clock and clock.text!r}"
+    assert not tree.find(rid="cc-date"), "the header has no date line any more (F03)"
     weather = next((n for n in tree.nodes() if n.rid == "weather"), None)
     if weather:
-        lines.append(weather)
-    for upper, lower in zip(lines, lines[1:]):
-        assert lower.bounds[1] >= upper.bounds[3] - 2, f"{lower.rid} should sit under {upper.rid}"
-        assert abs(lower.bounds[0] - upper.bounds[0]) <= 4, f"{lower.rid} isn't left-aligned with {upper.rid}"
+        assert weather.bounds[0] >= clock.bounds[2] - 2, f"the weather should sit beside the time, not over it ({clock.bounds} vs {weather.bounds})"
+        centres = [(n.bounds[1] + n.bounds[3]) / 2 for n in (clock, weather)]
+        assert abs(centres[0] - centres[1]) <= 6, f"the time and the weather share one line (P196): centres {centres}"
     settings_tile = cc.tile(tree, "Settings, Fire TV")
     assert abs(clock.bounds[0] - settings_tile.bounds[0]) <= 24, f"the header should line up with the tiles' left edge ({clock.bounds} vs {settings_tile.bounds})"
     icons = cc.tile(tree, "Controls")
     if icons:
-        assert icons.bounds[0] > clock.bounds[2] + 20, "the page icons sit at the right, apart from the time"
-    first = clock.text
-    tv.wait_for(lambda t: t.find(rid="cc-clock") and t.find(rid="cc-clock").text != first, 4, "the seconds to tick")
+        assert icons.bounds[0] > (weather or clock).bounds[2] + 20, "the page icons sit at the right, apart from the time"
 
 
 def test_control_center_looks_the_same_in_light_and_dark(tv, home, cc):
@@ -110,11 +106,14 @@ def test_airplay_toggles_phairplay(tv, home, cc):
 
 @pytest.mark.root
 def test_free_memory_reports_what_it_freed(tv, home, cc, rooted):
+    """Clean Up (cb668ee3, was Free Memory) shows what it freed on its own tile for a few seconds."""
     if not rooted:
         pytest.skip("needs root")
+    import re
     cc.open()
-    cc.press_tile("Free Memory")
-    tv.wait_for(lambda t: any(n.text.endswith("MB freed") for n in t.nodes()), 8, "the 'MB freed' note")
+    cc.press_tile("Clean Up")
+    done = r"Clean Up, (\d+ MB|[\d.]+ GB|\d+ MB memory|Nothing to clean|Freed no memory)"
+    tv.wait_for(lambda t: any(re.fullmatch(done, n.desc) for n in t.nodes()), 20, "Clean Up's result on its tile")
 
 
 @pytest.mark.root
@@ -201,26 +200,32 @@ def _check_tiles_after_settings(tv, home, cc):
 
 @pytest.mark.parametrize("theme", ["Light", "Dark"])
 def test_focus_is_a_white_capsule_and_others_stay_put(tv, home, cc, theme):
-    """The focused round button is a white capsule (tvOS) in both themes; unfocused ones don't change as focus moves."""
+    """Focus is a lift, not a white fill (P173, P206 recipe E: the dock's clear glass, the same glass focused or not): the focused round
+    button is larger than it is at rest, and the unfocused ones don't change look as focus moves. Both themes."""
     with _theme(tv, home, cc, theme):
         _check_round_focus(tv, cc)
 
 
 def _check_round_focus(tv, cc):
     cc.open()
-    seen = {}
+    seen, size_focused, size_rest = {}, {}, {}
     for name in ROUND:
         cc.focus_desc_prefix(name)
         tv.press("wait:300")
         tree, img = tv.tree(), tv.screen_image()
         f = tree.focused()
-        assert tv.brightness(img, f.bounds) > 0.62, f"focused '{f.desc}' isn't a white capsule"
+        size_focused[name] = f.bounds[2] - f.bounds[0]
         for other in ROUND:
             n = cc.tile(tree, other)
             if n and not n.focused:
                 seen.setdefault(other, []).append(tv.brightness(img, n.bounds))
+                size_rest.setdefault(other, []).append(n.bounds[2] - n.bounds[0])
     for name, vals in seen.items():
         assert max(vals) - min(vals) <= 0.08, f"'{name}' flips look while focus moves: {[round(v, 2) for v in vals]}"
+    for name, focused in size_focused.items():
+        rest = min(size_rest.get(name, [focused]))
+        # tvOS's lift is an absolute 10 dp in total (CcSizes.focusGrowth), 20 px at 1080p.
+        assert focused - rest >= 12, f"focused '{name}' is {focused}px wide, {rest}px at rest: no lift"
 
 
 def test_every_control_has_a_label_when_focused(tv, home, cc):
@@ -362,8 +367,8 @@ def test_alexa_page_can_be_turned_off_in_settings(tv, home, cc, settings):
 
 
 def test_tiles_keep_one_grid_when_focused(tv, home, cc):
-    """The focused Settings tile still lines up with the Wi-Fi/Bluetooth stack beside it (focus may lift it
-    a touch, not push it past the grid)."""
+    """The focused Settings tile still lines up with the Wi-Fi/Bluetooth stack beside it: focus lifts it by CcSizes.focusGrowth (10 dp in
+    total, 5 dp a side: 10 px at 1080p), not past that."""
     cc.open()
     import time
     time.sleep(0.6)
@@ -371,18 +376,17 @@ def test_tiles_keep_one_grid_when_focused(tv, home, cc):
     settings, bluetooth = tree.find(desc_prefix="Settings, Fire TV"), tree.find(desc_prefix="Bluetooth")
     assert tree.focused() and tree.focused().desc.startswith("Settings, Fire TV"), "Settings should have focus"
     wifi = tree.find(desc_prefix="Wi-Fi")
-    img = tv.screen_image()
-    # The focused tile is solid white: its drawn top and bottom, against the pill stack's layout edges.
-    x = settings.bounds[0] + 70  # past the rounded corner (26 dp)
-    white = [y for y in range(settings.bounds[1] - 20, settings.bounds[3] + 20) if img.getpixel((x, y)) > 235]
-    drawn = (white[0], white[-1])
     stack = (wifi.bounds[1], bluetooth.bounds[3])
-    assert abs(drawn[0] - stack[0]) <= 4 and abs(drawn[1] - stack[1]) <= 4, \
-        f"the focused Settings tile spills past the grid: drawn {drawn} vs the pills {stack}"
+    drawn = (settings.bounds[1], settings.bounds[3])
+    lift = 10  # px a side, plus a little for rounding
+    assert stack[0] - drawn[0] <= lift + 4 and drawn[1] - stack[1] <= lift + 4, \
+        f"the focused Settings tile spills past the grid by more than its lift: drawn {drawn} vs the pills {stack}"
+    assert drawn[0] <= stack[0] + 2 and drawn[1] >= stack[1] - 2, f"the focused Settings tile should span the pills it sits beside: drawn {drawn} vs {stack}"
 
 
 def test_header_lines_are_evenly_spaced(tv, home, cc):
-    """Time, date and weather: three lines with equal air between them (measured on the drawn text)."""
+    """The header is one line now (F03, P196): the time and the weather beside it share a midline with air between them
+    (it was three lines with equal gaps)."""
     cc.open()
     import time
     time.sleep(0.8)
@@ -390,52 +394,55 @@ def test_header_lines_are_evenly_spaced(tv, home, cc):
     clock, weather = tree.find(rid="cc-clock"), tree.find(rid="weather")
     if weather is None:
         pytest.skip("no weather location set")
-    img = tv.screen_image()
-    x0, x1 = clock.bounds[0], clock.bounds[0] + 160
-    rows = [y for y in range(clock.bounds[1] - 10, weather.bounds[3] + 10) if max(img.getpixel((x, y)) for x in range(x0, x1, 2)) > 150]
-    bands, start = [], rows[0]
-    for a, b in zip(rows, rows[1:]):
-        if b - a > 2:
-            bands.append((start, a)); start = b
-    bands.append((start, rows[-1]))
-    assert len(bands) == 3, f"expected three lines of text, found {bands}"
-    gaps = [bands[1][0] - bands[0][1], bands[2][0] - bands[1][1]]
-    assert min(gaps) >= 22 and abs(gaps[0] - gaps[1]) <= 4, f"header lines too tight or uneven: gaps {gaps} px"
+    gap = weather.bounds[0] - clock.bounds[2]
+    assert 4 <= gap <= 60, f"the time and the weather should sit side by side with a small gap: {gap}px"
+    centres = [(n.bounds[1] + n.bounds[3]) / 2 for n in (clock, weather)]
+    assert abs(centres[0] - centres[1]) <= 6, f"the time and the weather share one line: centres {centres}"
+
+
+ROUND_NAMES = ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Launcher Settings", "Remotes")
+PILL_NAMES = ("Wi-Fi", "Bluetooth", "Sleep Timer", "Clean Up", "Restart", "Performance", "VPN")
+
+
+def _rows(tiles):
+    """Tiles grouped into rows by their top edge (within 6 px), each row left to right."""
+    rows = []
+    for t in sorted(tiles, key=lambda b: (b[1], b[0])):
+        if rows and abs(rows[-1][0][1] - t[1]) <= 6:
+            rows[-1].append(t)
+        else:
+            rows.append([t])
+    return [sorted(r) for r in rows]
 
 
 def test_one_gap_everywhere_and_smaller_round_buttons(tv, home, cc):
-    """One grid: the same gap between tiles, pills, rows and the round buttons."""
+    """One grid (F01 resizable controls): the same gap between neighbouring tiles, side by side and row under row, and a round button is
+    one cell, as tall as a pill. The big Settings tile is left out of the row gaps (it spans two rows)."""
     cc.open()
     tree = tv.tree()
-    b = lambda d: tree.find(desc_prefix=d).bounds
-    wifi, bt, launcher = b("Wi-Fi"), b("Bluetooth"), b("Launcher Settings")
-    rounds = sorted((n.bounds for n in tree.nodes() if n.desc.split(",")[0] in
-                     ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Performance", "Free Memory")),
-                    key=lambda r: (r[1], r[0]))
-    first_row = [r for r in rounds if r[1] == rounds[0][1]]
-    gaps = {
-        "wifi→bluetooth": bt[1] - wifi[3],
-        "bluetooth→launcher": launcher[1] - bt[3],
-        "launcher→round row": rounds[0][1] - launcher[3],
-        "round→round": first_row[1][0] - first_row[0][2],
-    }
-    if len(rounds) > len(first_row):
-        gaps["round row→round row"] = rounds[len(first_row)][1] - first_row[0][3]
-    base = gaps["wifi→bluetooth"]
-    assert all(abs(g - base) <= 4 for g in gaps.values()), f"uneven gaps: {gaps}"
-    # tvOS's grid (§8.8): a circle is one cell, as tall as a pill.
+    names = ROUND_NAMES + PILL_NAMES
+    tiles = [n.bounds for n in tree.nodes() if n.desc.split(",")[0] in names]
+    wifi, bt = tree.find(desc_prefix="Wi-Fi").bounds, tree.find(desc_prefix="Bluetooth").bounds
+    base = bt[1] - wifi[3]
+    rows = _rows(tiles)
+    gaps = {}
+    for i, row in enumerate(rows):
+        for a, b in zip(row, row[1:]):
+            gaps[f"row {i}: side by side"] = b[0] - a[2]
+    for i, (upper, lower) in enumerate(zip(rows, rows[1:])):
+        gaps[f"row {i}→{i + 1}"] = lower[0][1] - max(t[3] for t in upper)
+    assert gaps, f"no neighbouring tiles found among {names}"
+    assert all(abs(g - base) <= 4 for g in gaps.values()), f"uneven gaps (Wi-Fi→Bluetooth is {base}): {gaps}"
+    rounds = [n.bounds for n in tree.nodes() if n.desc.split(",")[0] in ROUND_NAMES]
     round_size = rounds[0][3] - rounds[0][1]
     pill = bt[3] - bt[1]
     assert abs(round_size - pill) <= 2, f"round buttons ({round_size}px) should be one cell, as tall as the pills ({pill}px)"
 
 
-
-ROUND_NAMES = ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Performance", "Free Memory")
-
-
 def test_panel_is_one_square_grid(tv, home, cc):
-    """tvOS 27's Control Center: square cells of one size u with one gap g. Circles are 1×1, pills 2×1
-    (as tall as a circle), the big tile 2×2 and square, the wide row 4×1; the panel is 4u + 3g wide."""
+    """tvOS 27's Control Center: square cells of one size u with one gap g. Circles are 1×1, pills 2×1 (as tall as a circle), the big
+    tile 2×2 and square; a row of four circles is the panel's width, 4u + 3g, and the big tile and the pills reach its edges.
+    (The default layout has no 4×1 row any more: Launcher Settings is a circle since F01.)"""
     cc.open()
     tv.press("right")  # off the big tile, so its focus lift doesn't change its size
     import time
@@ -444,22 +451,21 @@ def test_panel_is_one_square_grid(tv, home, cc):
     b = lambda d: tree.find(desc_prefix=d).bounds
     rounds = sorted((n.bounds for n in tree.nodes() if n.desc.split(",")[0] in ROUND_NAMES), key=lambda r: (r[1], r[0]))
     u = rounds[0][2] - rounds[0][0]
-    g = rounds[1][0] - rounds[0][2]
+    g = rounds[1][0] - rounds[0][2] if abs(rounds[1][1] - rounds[0][1]) <= 6 else rounds[2][0] - rounds[1][2]
     w = lambda r: r[2] - r[0]
     h = lambda r: r[3] - r[1]
-    big, wifi, bt, wide = b("Settings, Fire TV"), b("Wi-Fi"), b("Bluetooth"), b("Launcher Settings")
+    big, wifi, bt = b("Settings, Fire TV"), b("Wi-Fi"), b("Bluetooth")
+    full_rows = [r for r in _rows(rounds) if len(r) == 4]
     checks = {
         "circle is square": (h(rounds[0]), u),
-        # Bluetooth: Wi-Fi has focus here, and focus lifts a tile 2%.
+        # Bluetooth: Wi-Fi has focus here, and focus lifts a tile.
         "pill width = 2u+g": (w(bt), 2 * u + g),
         "pill height = u": (h(bt), u),
         "big tile width = 2u+g": (w(big), 2 * u + g),
         "big tile is square": (h(big), w(big)),
-        "wide row = 4u+3g": (w(wide), 4 * u + 3 * g),
-        "wide row height = u": (h(wide), u),
-        "pills share the grid's right edge": (bt[2], wide[2]),
-        "big tile shares its left edge": (big[0], wide[0]),
-        "circles span the panel": (rounds[3][2] - rounds[0][0], 4 * u + 3 * g),
+        "pills share the grid's right edge": (bt[2], full_rows[0][3][2]) if full_rows else (bt[2], bt[2]),
+        "big tile shares its left edge": (big[0], full_rows[0][0][0]) if full_rows else (big[0], big[0]),
+        "four circles span the panel": (full_rows[0][3][2] - full_rows[0][0][0], 4 * u + 3 * g) if full_rows else (0, 0),
     }
     bad = {k: v for k, v in checks.items() if abs(v[0] - v[1]) > 2}
     assert not bad, f"off the grid (u={u}, g={g}): {bad}"
@@ -467,14 +473,16 @@ def test_panel_is_one_square_grid(tv, home, cc):
 
 @pytest.mark.emulator_gap  # passes on the stick; the emulator differs (P22)
 def test_header_lines_share_one_opacity(tv, home, cc):
-    """Time, date and weather are drawn at the same opacity (they differed)."""
+    """The time and the weather are drawn at the same opacity (they differed; the date line is gone since F03)."""
     cc.open()
     import time
     time.sleep(0.6)
     tree = tv.tree()
+    weather_node = tree.find(rid="weather")
+    if weather_node is None:
+        pytest.skip("no weather location set")
     img = tv.screen_image()
     peak = lambda r: max(img.getpixel((x, y)) for x in range(r[0], min(r[2], r[0] + 200), 2) for y in range(r[1], r[3]))
-    clock, date, weather = (tree.find(rid=k).bounds for k in ("cc-clock", "cc-date", "weather"))
-    levels = [peak(clock), peak(date), peak(weather)]
-    assert max(levels) - min(levels) <= 14, f"header lines differ in brightness (time, date, weather): {levels}"
-
+    clock, weather = tree.find(rid="cc-clock").bounds, weather_node.bounds
+    levels = [peak(clock), peak(weather)]
+    assert max(levels) - min(levels) <= 14, f"header lines differ in brightness (time, weather): {levels}"

@@ -169,7 +169,7 @@ def test_control_center_music_card_sits_on_the_grid_with_times(tv, home, playing
     gap = bt[1] - wifi[3]
     card = tree.find(rid="now-playing-card").bounds
     above = max(n.bounds[3] for n in tree.nodes() if n.desc.split(",")[0] in
-                ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Performance", "Free Memory"))
+                ("Game Controllers", "Theme", "Screen Saver", "App Switcher", "AirPlay", "Launcher Settings", "Remotes", "Performance", "VPN"))
     assert abs((card[1] - above) - gap) <= 4, f"the card sits {card[1] - above}px below the buttons; the grid's gap is {gap}px"
     assert tree.find(rid="np-times"), "the card should show elapsed and remaining time"
     tv.press("back")
