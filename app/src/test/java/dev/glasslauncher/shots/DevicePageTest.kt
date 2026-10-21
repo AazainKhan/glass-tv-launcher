@@ -129,4 +129,18 @@ class DevicePageTest {
         show(PageKind.Remote, "Amazon Fire TV Remote")
         compose.onRoot().captureRoboImage(shot("device-remote"))
     }
+
+    /** P233: Save keeps the controller's mapping as a profile, Delete drops it, and the bar sits clear of the labels above it. */
+    @Test fun theProfileBarSavesAndDeletes() {
+        show(PageKind.Gamepad, "Xbox Wireless Controller")
+        val bar = bounds("profile-save")
+        val labels = (PadGeometry.rightColumn + PadGeometry.bottomRow).map { bounds("pad-label:$it") }
+        assertTrue("the bar overlaps a label: $bar vs $labels", labels.none { it.overlaps(bar) })
+        cfg = cfg.copy(remoteButtons = mapOf(RemoteButtons.padKey("Xbox Wireless Controller", "a") to "glass:home")); compose.waitForIdle()
+        press("profile-save")
+        assertEquals(listOf("Profile 1"), cfg.mappingProfiles["pad"]!!.map { it.name })
+        assertEquals("Profile 1", cfg.activeProfile["Xbox Wireless Controller"])
+        press("profile-delete")
+        assertTrue(cfg.mappingProfiles["pad"]!!.isEmpty())
+    }
 }

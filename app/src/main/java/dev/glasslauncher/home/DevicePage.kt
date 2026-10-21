@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import dev.glasslauncher.data.ControllerSticks
 import dev.glasslauncher.data.LauncherConfig
+import dev.glasslauncher.data.MappingProfiles
+import dev.glasslauncher.data.ProfileKind
 import dev.glasslauncher.data.StickTuning
 import dev.glasslauncher.system.ControllerList
 import dev.glasslauncher.system.RemoteButton
@@ -195,6 +197,33 @@ internal fun DevicePage(
         }
         if (kind == PageKind.Gamepad) GamepadBody(name, pad, cfg, edit, openMapping)
         else RemoteBody(name, lit, cfg, edit, openMapping)
+        if (name.isNotEmpty()) ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+/**
+ * Saved mappings (P233): the first pill steps through them, loading each onto this device; Save keeps what the device does now under
+ * the loaded profile's name (or the next free "Profile N"); Delete drops the loaded one. A mapping the user changed after loading
+ * reads "Custom" until saved.
+ */
+@Composable
+private fun ProfileBar(kind: ProfileKind, device: String, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit, modifier: Modifier) {
+    val palette = LocalPalette.current
+    val profiles = MappingProfiles.of(cfg, kind)
+    val active = cfg.activeProfile[device]?.let { n -> profiles.firstOrNull { it.name == n } }
+    val dirty = active != null && MappingProfiles.capture(cfg, kind, device, active.name) != active
+    val label = when { active == null -> "Custom"; dirty -> "${active.name} (changed)"; else -> active.name }
+    Row(modifier.padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Profile:", style = Type.secondary, color = palette.secondary)
+        val next = if (profiles.isEmpty()) null else profiles[((profiles.indexOfFirst { it.name == active?.name }) + 1) % profiles.size]
+        DevPill(label, Modifier.testTag("profile-pick"), onClick = { next?.let { p -> edit { c -> MappingProfiles.load(c, kind, device, p) } } }) { fg ->
+            Text(if (profiles.size > 1) "$label  ⇅" else label, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        DevPill("Save", Modifier.testTag("profile-save"), onClick = {
+            val free = generateSequence(1) { it + 1 }.map { "Profile $it" }.first { n -> profiles.none { it.name == n } }
+            edit { c -> MappingProfiles.save(c, kind, device, active?.name ?: free) ?: c }
+        }) { fg -> Text("Save", style = Type.body, color = fg, maxLines = 1) }
+        if (active != null) DevPill("Delete", Modifier.testTag("profile-delete"), onClick = { edit { c -> MappingProfiles.delete(c, kind, active.name) } }) { fg -> Text("Delete", style = Type.body, color = fg, maxLines = 1) }
     }
 }
 
