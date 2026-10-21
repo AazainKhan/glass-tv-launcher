@@ -4,8 +4,9 @@
 #   scripts/debloat apply | revert | status
 # Every change is appended to ~/Documents/firestick-unlocked/DEBLOAT-LOG.md.
 # Kept on purpose: Alexa (vizzini, aria, alexa media), accounts (dcp, imp, tcomm, device.messaging),
-# the phone remote (whisperlink), settings, input. Unidentified cached processes (ceviche, adep,
-# prism, diode) are left alone: lmkd frees cached processes first anyway.
+# the phone remote (whisperlink), settings, input, the Appstore and Prime Video (background-restricted only).
+# Wave 2 adds the audit's background services (ceviche, prism, diode, ...): lmkd frees them, but they
+# cold-start about 20 times per 14 min, which costs frame time.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"; require_device_access
@@ -25,6 +26,16 @@ DISABLE=(
   com.amazon.whisperjoin.middleware.v2.np   # Wi-Fi setup of other Amazon devices
   com.amazon.whad                           # whole-home audio (multi-room Echo groups)
   com.amazon.firetv.troubleshooting         # "FireTV Troubleshooting": a 23 KB stub whose only effect is an app icon
+  # Wave 2 (2026-10-20, docs/research/stick-slowness-audit.md): background services none of the kept features
+  # (Appstore, Alexa, phone remote/casting, Prime Video, app sign-in) use. About 20 cold starts per 14 min.
+  com.amazon.tv.livetv                      # Live TV guide cards: no tuner, Glass is home (52 MB PSS)
+  com.amazon.ceviche                        # remote config and event tracking (38 MB)
+  com.amazon.diode                          # event saver, telemetry family (13.5 MB)
+  com.amazon.dpcclient                      # device-policy / cookie-consent client (12 MB)
+  com.amazon.device.lowstoragemanager       # storage cleaner (9 MB)
+  com.amazon.prism.android.service          # remote config sync job (17-20 MB)
+  com.amazon.aca                            # known cold-start staller
+  com.amazon.whasettings                    # whole-home audio settings (whad is already off)
 )
 # Still usable when opened, just not running in the background.
 BACKGROUND=(
