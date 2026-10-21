@@ -159,6 +159,7 @@ private const val SCENE_TITLE_WAIT_MS = 1_500L
 internal fun titleGateAlpha(ready: Boolean, gate: Float): Float = if (ready) gate else 0f
 /** The next slide's bake starts once input has been quiet this long (never during a scroll). */
 private const val BAKE_AHEAD_QUIET_MS = 1_500L
+private const val BAKE_LEAD_MS = 2_500L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
 private const val APP_HERO_MS = 250L
 private const val GPU_TRIM_AFTER_MS = 4_000L
@@ -800,9 +801,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // Bake the next scene while this one holds (P102), so the step at the end of the hold is only a swap and the
         // bake never lands on the dissolve; but not while a key is still moving things (a scroll or focus move).
         val holdStart = android.os.SystemClock.elapsedRealtime()
+        val hold = if (covers) dev.glasslauncher.featured.CoverAutoplay.STEP_MS else SLIDE_MS
+        // Baked late in the hold, not at its start (P247b): the next scene is a second full-screen backdrop, so it is
+        // held for the last seconds only, and never through an idle pause.
+        delay((hold - BAKE_LEAD_MS - (android.os.SystemClock.elapsedRealtime() - holdStart)).coerceAtLeast(0L))
+        while (dev.glasslauncher.featured.TopShelfIdle.paused(idle.millisSinceInput())) delay(dev.glasslauncher.featured.TopShelfIdle.POLL_MS)
         while (idle.millisSinceInput() < BAKE_AHEAD_QUIET_MS) delay(BAKE_AHEAD_QUIET_MS - idle.millisSinceInput() + 50)
         bakeNext()
-        val hold = if (covers) dev.glasslauncher.featured.CoverAutoplay.STEP_MS else SLIDE_MS
         delay((hold - (android.os.SystemClock.elapsedRealtime() - holdStart)).coerceAtLeast(0L))
         val quiet = if (covers) dev.glasslauncher.featured.CoverAutoplay.QUIET_MS else SLIDE_QUIET_MS
         // The hold may have crossed the minute: wait out the pause here too, then the usual few quiet seconds.
