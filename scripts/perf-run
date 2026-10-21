@@ -41,6 +41,9 @@ pss_now() { adb shell "dumpsys meminfo \$(pidof $PKG)" | tr -d '\r' | awk '/TOTA
 pss_peak_kb="$(pss_now)"
 # Idle CPU: utime+stime ticks (100/s) over 5 quiet seconds. toybox top's %CPU is unreliable here.
 cpu="$(adb shell "p=\$(pidof $PKG); a=\$(awk '{print \$14+\$15}' /proc/\$p/stat); sleep 5; b=\$(awk '{print \$14+\$15}' /proc/\$p/stat); echo \$((b-a))" | tr -d "\r" | awk '{printf "%.1f", $1/5}')"
+# Resting PSS read after a forced GC (SIGUSR1, root only): uncollected garbage made master read 116-139 MB at rest
+# with nothing retained (a GC freed 16.7 MB, a second freed 0). Without root the read is the app's own rest, as before.
+adb shell "su -c 'kill -10 \$(pidof $PKG)'" >/dev/null 2>&1 && sleep 3
 pss_kb="$(pss_now)"
 num() { echo "$gfx" | sed -n "s/.*$1: *\([0-9.]*\).*/\1/p" | head -1; }
 # deadlineMissed and highInputLatency split gfxinfo's "Janky frames": Android 11 also flags frames of an
