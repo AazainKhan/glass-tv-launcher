@@ -161,10 +161,6 @@ internal fun titleGateAlpha(ready: Boolean, gate: Float): Float = if (ready) gat
 private const val BAKE_AHEAD_QUIET_MS = 1_500L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
 private const val APP_HERO_MS = 250L
-private const val CC_WARM_KEY = "ccWarmFor"
-private const val CC_WARM_TRIES = 3
-private const val CC_WARM_RETRY_MS = 20_000L
-private const val CC_WARM_QUIET_MS = 5_000L
 private const val GPU_TRIM_AFTER_MS = 4_000L
 private const val APP_HERO_FADE_MS = 270
 /** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
@@ -590,29 +586,6 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // nothing in it runs (ControlCenter gates its effects on being open).
     var ccParked by remember { mutableStateOf(false) }
     LaunchedEffect(ready) { if (ready) { delay(CC_PARK_AFTER_MS); ccParked = true } }
-    // P238: parked, Control Center draws nothing, so its first open after an install or update compiled ~16 shader programs
-    // (~400 ms on the stick) and recorded every display list. Right after it is parked, once per install, its window draws
-    // the open for a moment at an alpha that rounds to nothing on screen, taking no input, so both happen then.
-    LaunchedEffect(ccParked) {
-        if (!ccParked) return@LaunchedEffect
-        val prefs = context.getSharedPreferences("home", 0)
-        val updatedAt = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
-        if (updatedAt == 0L || !ShaderWarmup.due(updatedAt, prefs.getLong(CC_WARM_KEY, -1L))) return@LaunchedEffect
-        // Marked done only once the frames really drew; else tried again once Home is quiet (P238 review: the user is
-        // often pressing keys right after an update).
-        repeat(CC_WARM_TRIES) { attempt ->
-            if (attempt > 0) { delay(CC_WARM_RETRY_MS); while (idle.millisSinceInput() < CC_WARM_QUIET_MS) delay(500) }
-            // Over Home, Control Center opens in its own window (the accessibility overlay): that window is the one to warm.
-            // shortcut: APK mode has no warm-up (in-activity copy draws a different layer path); upgrade when an APK-safe window path exists
-            // On a cold boot the service binds after Home is up: wait for it (up to a minute) instead of giving up.
-            var window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter
-            var waited = 0
-            while (window == null && waited < 60) { delay(1_000); waited++; window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter }
-            if (window == null) return@LaunchedEffect
-            val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { c -> window.warmShaders { ok -> if (c.isActive) c.resumeWith(Result.success(ok)) } }
-            if (ok) { prefs.edit().putLong(CC_WARM_KEY, updatedAt).apply(); return@LaunchedEffect }
-        }
-    }
 
     fun open(overlay: Overlay) {
         scope.launch {

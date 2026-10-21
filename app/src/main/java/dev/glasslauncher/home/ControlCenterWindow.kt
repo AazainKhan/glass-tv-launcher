@@ -189,13 +189,6 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
          */
         var pillCovered by mutableStateOf(false)
 
-        /**
-         * P238: Control Center is drawing once, unseen, so its shader programs compile and its display lists record before the
-         * first real open after an install or update (that open compiled ~16 programs, ~380 ms). While true it takes no
-         * focus and leaves Home's pill alone.
-         */
-        @Volatile var warmingUp = false
-
         /** Whether Home's pill has focus (white), so Control Center's first frame draws it the same. */
         @Volatile var pillFocused = false
 
@@ -208,60 +201,6 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
     init {
         savedState.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
-    }
-
-    /**
-     * P238: draws the parked window once in its open state at an alpha that rounds to nothing (and taking no input), over
-     * Home only, then parks it again. [done] runs after it is parked.
-     */
-    fun warmShaders(done: (ok: Boolean) -> Unit) {
-        val v = view
-        val home = homeBackdrop
-        if (!warm || v == null || home == null || open || pending) { done(false); return }
-        val lp = v.layoutParams as? WindowManager.LayoutParams ?: run { done(false); return }
-        warmingUp = true
-        overHome = true
-        app.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { backdrop.swap(home, animate = false) }
-        lp.width = WindowManager.LayoutParams.MATCH_PARENT; lp.height = WindowManager.LayoutParams.MATCH_PARENT
-        lp.alpha = WARM_ALPHA; lp.flags = parkedFlags()
-        runCatching { windows.updateViewLayout(v, lp) }
-        exiting = false
-        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
-        // Done once the window has really drawn its open for a while, not after a fixed time: under load (keys, a busy
-        // GPU) a fixed 450 ms drew too few frames and left programs uncompiled (P238 review).
-        var draws = 0
-        val counter = android.view.ViewTreeObserver.OnDrawListener { draws++ }
-        v.viewTreeObserver.addOnDrawListener(counter)
-        val started = android.os.SystemClock.uptimeMillis()
-        // A parked Control Center is static: left alone the window drew 4-5 frames a second on a quiet stick, so the frames
-        // are driven, one invalidate per vsync, while the warm-up lasts (P238 review).
-        var driving = true
-        val choreographer = android.view.Choreographer.getInstance()
-        val drive = object : android.view.Choreographer.FrameCallback {
-            override fun doFrame(frameTimeNanos: Long) { if (!driving) return; v.invalidate(); choreographer.postFrameCallback(this) }
-        }
-        choreographer.postFrameCallback(drive)
-        fun finish(ok: Boolean) {
-            driving = false
-            handler.post { runCatching { v.viewTreeObserver.removeOnDrawListener(counter) } }
-            exiting = true
-            lifecycleRegistry.currentState = Lifecycle.State.CREATED
-            if (view === v && !open) { applyParked(lp); runCatching { windows.updateViewLayout(v, lp) }; overHome = false; backdrop.clear() }
-            warmingUp = false
-            android.util.Log.i("ControlCenterWindow", "warmShaders ok=$ok draws=$draws in ${android.os.SystemClock.uptimeMillis() - started} ms")
-            done(ok)
-        }
-        val check = object : Runnable {
-            override fun run() {
-                // A real open took over: stop warming, and say so (it compiled the programs itself).
-                if (open || view !== v) { driving = false; warmingUp = false; done(false); return }
-                val elapsed = android.os.SystemClock.uptimeMillis() - started
-                if (draws >= WARM_DRAWS && elapsed >= WARM_MS) finish(true)
-                else if (elapsed >= WARM_MAX_MS) finish(false)
-                else handler.postDelayed(this, 50L)
-            }
-        }
-        handler.postDelayed(check, WARM_MS)
     }
 
     fun toggle() = if (showing) hide() else show()
@@ -524,14 +463,3 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         }
     }
 }
-
-/** Half a level of white in an 8-bit frame: nothing on screen, but the window is composited and drawn. */
-private const val WARM_ALPHA = 0.002f
-/**
- * At least this long (the open's spring reaches full size, so the glass, rims and labels all draw) and this many frames
- * really drawn. Few: a frame that compiles is slow, and slow frames are the point.
- */
-private const val WARM_MS = 450L
-private const val WARM_DRAWS = 4
-/** Gives up (and Home tries again later) when the frames don't come. */
-private const val WARM_MAX_MS = 2_500L

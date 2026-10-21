@@ -757,7 +757,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val m = LocalMetrics.current
     val palette = LocalPalette.current
     val first = remember { FocusRequester() }
-    LaunchedEffect(active) { if (active && !ControlCenterWindow.warmingUp) { withFrameNanos { }; runCatching { first.requestFocus() } } }
+    LaunchedEffect(active) { if (active) { withFrameNanos { }; runCatching { first.requestFocus() } } }
     val screen = dev.glasslauncher.ui.LocalScreenDissolve.current
 
     // P203: these are read as Control Center opens, never while it is closed or parked (Home keeps it composed).
@@ -1016,7 +1016,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // attaches, but the effect that takes the sheet only runs after a frame has drawn (bare icons, P29).
             if (!exiting && sheetRef.sheet == null) takeSheet()
             // Home's pill goes once this capsule covers it, not before (a frame of neither read as a blink).
-            if (!exiting && !ControlCenterWindow.warmingUp && (reduceMotion || sheetRef.sheet != null)) ControlCenterWindow.pillCovered = true
+            if (!exiting && (reduceMotion || sheetRef.sheet != null)) ControlCenterWindow.pillCovered = true
             // Closing: back at the pill's size (well before the window goes), Home's pill returns under the capsule.
             if (exiting && enter.value < PILL_BACK_AT) ControlCenterWindow.pillCovered = false
             // The drops start as the pill's two ends; over an app there is no pill.
