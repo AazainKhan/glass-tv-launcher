@@ -35,111 +35,18 @@ class RemoteKeysService : AccessibilityService() {
         runCatching { controlCenter.warmUp() }
     }
 
-    // ── Banner (Sleep Timer's one-minute warning) ─────────────────────────────────────────────────
+    // ── Notices (P229): one glass card at the top left, over any app (an accessibility overlay: never takes focus or touches) ─────────────
 
-    private var banner: android.view.View? = null
-    private var bannerFrom = 0.9f
-    private var bannerMs = 130L
-    private val dropBanner = Runnable { hideBanner(animate = true); handler.postDelayed({ nextBanner() }, 160) }
+    private val notices by lazy {
+        dev.glasslauncher.system.NoticeHost(this, dev.glasslauncher.system.WindowSurface(this, android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY), TAG)
+    }
 
-    /**
-     * Glass's toast (P105 #13): a capsule at the status pill's spot, top right, over any app (an accessibility overlay:
-     * never takes focus or touches). It scales from 0.9 and fades in over 130 ms and leaves the same way, with a soft
-     * 1 dp rim, not the hard stroke and the one-frame pop the Sleep Timer banner had; replaces Android's grey toast.
-     */
     fun showBanner(text: String, forMs: Long, actionable: Boolean = false) = showNotice(Notice(text, forMs, actionable))
 
-    fun showNotice(notice: Notice) {
-        handler.post {
-            val step = bannerQueue.offer(notice)
-            android.util.Log.i("RemoteKeysService", "banner ${step::class.simpleName}: ${notice.text}")
-            when (step) {
-                is BannerQueue.Step.Show -> present(step.notice)
-                is BannerQueue.Step.Extend -> { handler.removeCallbacks(dropBanner); handler.postDelayed(dropBanner, step.ms) }
-                BannerQueue.Step.Wait -> Unit
-            }
-        }
-    }
+    fun showNotice(notice: Notice) = notices.show(notice)
 
     /** Replaces whatever is up and queued (the sleep warning is answered by a key: "Sleep timer cancelled" takes its place at once). */
-    fun showBannerNow(text: String, forMs: Long) {
-        handler.post { bannerQueue.clear(); hideBanner(animate = false); showBanner(text, forMs) }
-    }
-
-    /** One capsule at a time (P163): the notice shown now; the others wait in [bannerQueue]. */
-    private val bannerQueue = BannerQueue()
-
-    private fun nextBanner() {
-        (bannerQueue.finished() as? BannerQueue.Step.Show)?.let { present(it.notice) }
-    }
-
-    private fun present(notice: Notice) {
-        val text = notice.text
-        val forMs = notice.shownMs
-        run {
-            hideBanner(animate = false)
-            val dp = resources.displayMetrics.density
-            fun word(t: String, size: Float, color: Int) = android.widget.TextView(this).apply { this.text = t; setTextColor(color); textSize = size }
-            val capsule = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xE61C1C1E.toInt()); cornerRadius = 40 * dp
-                setStroke((1 * dp).toInt(), 0x1AFFFFFF)
-            }
-            val view: android.view.View = if (notice.detail == null) word(text, 16f, 0xFFFFFFFF.toInt()).apply {
-                setPadding((22 * dp).toInt(), (12 * dp).toInt(), (22 * dp).toInt(), (12 * dp).toInt())
-                background = capsule
-            } else android.widget.LinearLayout(this).apply {
-                // A device notice (P185): its glyph, then its name over Connected or Disconnected.
-                orientation = android.widget.LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding((18 * dp).toInt(), (10 * dp).toInt(), (24 * dp).toInt(), (10 * dp).toInt())
-                background = capsule
-                if (notice.iconRes != 0) addView(android.widget.ImageView(context).apply {
-                    setImageResource(notice.iconRes); setColorFilter(0xFFFFFFFF.toInt())
-                }, android.widget.LinearLayout.LayoutParams((26 * dp).toInt(), (26 * dp).toInt()).apply { marginEnd = (14 * dp).toInt() })
-                addView(android.widget.LinearLayout(context).apply {
-                    orientation = android.widget.LinearLayout.VERTICAL
-                    addView(word(text, 16f, 0xFFFFFFFF.toInt()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = (360 * dp).toInt() })
-                    addView(word(notice.detail, 13f, 0xB3FFFFFF.toInt()))
-                })
-            }
-            // A device notice (P185) grows out of the top-right corner, from Control Center's place, a little further and slower than a plain
-            // line; it leaves the same way, back into that corner.
-            bannerFrom = if (notice.detail != null) 0.6f else 0.9f
-            bannerMs = if (notice.detail != null) 240L else 130L
-            view.apply {
-                alpha = 0f; scaleX = bannerFrom; scaleY = bannerFrom
-                // Grows out of its top-right corner, where the status pill is.
-                pivotX = 1_000f; pivotY = 0f
-            }
-            val params = android.view.WindowManager.LayoutParams(
-                android.view.WindowManager.LayoutParams.WRAP_CONTENT, android.view.WindowManager.LayoutParams.WRAP_CONTENT,
-                android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                android.graphics.PixelFormat.TRANSLUCENT,
-            ).apply {
-                // Right edge in line with Home's status pill (22 dp in, 22–54 dp down) and just under it, so on Home the
-                // two capsules stack instead of overlapping.
-                gravity = android.view.Gravity.TOP or android.view.Gravity.END; x = (22 * dp).toInt(); y = (60 * dp).toInt()
-            }
-            runCatching {
-                (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).addView(view, params)
-                android.util.Log.i("RemoteKeysService", "banner drawn: $text")
-                banner = view
-                view.post { view.pivotX = view.width.toFloat(); view.pivotY = 0f }
-                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(bannerMs)
-                    .setInterpolator(android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).start()
-            }.onFailure { android.util.Log.w("RemoteKeysService", "banner could not be drawn: $text", it) }
-            handler.postDelayed(dropBanner, forMs)
-        }
-    }
-
-    private fun hideBanner(animate: Boolean = true) {
-        handler.removeCallbacks(dropBanner)
-        val v = banner ?: return
-        banner = null
-        val remove = { runCatching { (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).removeView(v) } }
-        if (!animate) { remove(); return }
-        v.animate().alpha(0f).scaleX(bannerFrom).scaleY(bannerFrom).setDuration(bannerMs).withEndAction { remove() }.start()
-    }
+    fun showBannerNow(text: String, forMs: Long) = notices.showNow(text, forMs)
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         // A key from anything but the remote (CEC, a phone app, a controller) says the user is at the TV: the
@@ -436,7 +343,7 @@ class RemoteKeysService : AccessibilityService() {
         controlCenter.hide()
         controlCenter.release()
         handler.removeCallbacks(capture)
-        bannerQueue.clear(); hideBanner(animate = false)
+        notices.clear()
         super.onDestroy()
     }
 

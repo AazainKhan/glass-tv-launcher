@@ -18,7 +18,6 @@ import android.os.Looper
 import android.os.ParcelUuid
 import android.os.PowerManager
 import android.util.Log
-import android.widget.Toast
 import dev.glasslauncher.system.RemotePairPolicy.Action
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

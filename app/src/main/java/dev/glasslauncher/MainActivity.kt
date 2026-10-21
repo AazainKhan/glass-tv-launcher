@@ -138,6 +138,9 @@ class MainActivity : ComponentActivity() {
 
         @Volatile private var current: java.lang.ref.WeakReference<MainActivity>? = null
 
+        /** Home's activity while it is in front (resumed), else null: where an in-app notice card is drawn (P234). */
+        fun resumed(): MainActivity? = current?.get()?.takeIf { it.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) }
+
         /**
          * Home's semantics tree for the device tests (DebugDumpReceiver), only while Glass's window has
          * focus: with an app or a system dialog in front, uiautomator is the right source.

@@ -103,6 +103,8 @@ object TvHarness {
         runCatching {
             Class.forName("dev.glasslauncher.home.AppSwitcherKt").getDeclaredField("lastApps").apply { isAccessible = true }.set(null, emptyList<dev.glasslauncher.apps.AppEntry>())
         }
+        // P229: notices are cards on the screen now (a Toast never was one); keep them out of the goldens and brightness checks.
+        dev.glasslauncher.system.RemoteNotice.overlayHostForTest = dev.glasslauncher.system.NoticeProbe(ApplicationProvider.getApplicationContext()).host
         blockNetwork()
         pinClock()
         useBitmapFactoryForImages()

@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.widget.Toast
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -14,8 +13,12 @@ import kotlinx.coroutines.flow.StateFlow
 object RemoteNotice {
     const val STALE_BOND = "The remote kept an old pairing. Hold Left + Menu + Back for 12 s to reset it, then hold Home for 10 s."
 
-    /** What [show] did with a notice, decided at once (the drawing itself is posted to the main thread). */
-    enum class Outcome { Banner, Toast, Suppressed }
+    /**
+     * What [show] did with a notice, decided at once (the drawing itself is posted to the main thread). Never a raw Android toast (P234):
+     * [Banner] the accessibility service's overlay, [Overlay] an overlay window where the permission is granted, [InApp] Home's own window
+     * while it is in front, [Suppressed] Do Not Disturb, [Dropped] Glass is not in front and has no way to draw over the app.
+     */
+    enum class Outcome { Banner, Overlay, InApp, Suppressed, Dropped }
 
     private const val TAG = "RemoteNotice"
 
@@ -35,19 +38,37 @@ object RemoteNotice {
     /** True while Control Center is up: a device banner would sit over its top tiles, and the device list there already shows the change. */
     @Volatile var controlCenterOpen = false
 
+    /** For tests: a host standing in for the overlay window. */
+    @Volatile internal var overlayHostForTest: NoticeHost? = null
+
+    private var overlayHost: NoticeHost? = null
+    private var decorHost: NoticeHost? = null
+
     private fun show(context: Context, notice: Notice): Outcome {
         if (!notice.actionable && DoNotDisturb.on(context)) {
             android.util.Log.i(TAG, "held back by Do Not Disturb: ${notice.text}")
             return Outcome.Suppressed
         }
-        val viaBanner = RemoteKeysService.instance != null
-        android.util.Log.i(TAG, "${if (viaBanner) "banner" else "toast"}: ${notice.text}")
-        Handler(Looper.getMainLooper()).post {
-            val banner = RemoteKeysService.instance
-            if (banner != null) banner.showNotice(notice)
-            else Toast.makeText(context.applicationContext, listOfNotNull(notice.text, notice.detail).joinToString(": "), Toast.LENGTH_LONG).show()
+        val app = context.applicationContext
+        val outcome: Outcome
+        val host: NoticeHost?
+        val service = RemoteKeysService.instance
+        when {
+            service != null -> { outcome = Outcome.Banner; host = null; Handler(Looper.getMainLooper()).post { service.showNotice(notice) } }
+            overlayHostForTest != null -> { outcome = Outcome.Overlay; host = overlayHostForTest }
+            runCatching { android.provider.Settings.canDrawOverlays(app) }.getOrDefault(false) -> {
+                outcome = Outcome.Overlay
+                host = overlayHost ?: NoticeHost(app, WindowSurface(app, android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY), "NoticeOverlay").also { overlayHost = it }
+            }
+            RemoteWatch.homeInFront -> {
+                outcome = Outcome.InApp
+                host = decorHost ?: NoticeHost(app, DecorSurface { dev.glasslauncher.MainActivity.resumed() }, "NoticeInApp").also { decorHost = it }
+            }
+            else -> { outcome = Outcome.Dropped; host = null }
         }
-        return if (viaBanner) Outcome.Banner else Outcome.Toast
+        android.util.Log.i(TAG, "${outcome.name.lowercase()}: ${notice.text}")
+        host?.show(notice)
+        return outcome
     }
 }
 

@@ -3,7 +3,6 @@ package dev.glasslauncher.system
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Settings
-import android.widget.Toast
 import dev.glasslauncher.app
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

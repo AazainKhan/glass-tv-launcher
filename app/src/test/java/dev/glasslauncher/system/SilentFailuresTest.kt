@@ -23,7 +23,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
-import org.robolectric.shadows.ShadowToast
 
 /** P214: the quiet failures each say so once. */
 @RunWith(AndroidJUnit4::class)
@@ -31,10 +30,15 @@ import org.robolectric.shadows.ShadowToast
 class SilentFailuresTest {
     private val context get() = ApplicationProvider.getApplicationContext<Context>()
 
+    private val probe by lazy { NoticeProbe(context) }
+
     @Before fun clean() {
         context.getSharedPreferences("notices", Context.MODE_PRIVATE).edit().clear().commit()
-        ShadowToast.reset()
+        probe.reset()
+        RemoteNotice.overlayHostForTest = probe.host
     }
+
+    @org.junit.After fun uninstall() { RemoteNotice.overlayHostForTest = null }
 
     @Test fun aNoticeIsDueTheFirstTimeThenOncePerPeriod() {
         assertTrue(Notices.due(0L, 1_000L, Notices.DAY_MS))
@@ -71,14 +75,15 @@ class SilentFailuresTest {
     @Test fun anExpiredFeedSignInIsToldOncePerDay() {
         CredentialNotice.expired(context, FeaturedSourceId.Plex)
         ShadowLooper.idleMainLooper()
-        assertEquals("Plex rejected its saved sign-in. Sign in again in Settings.", ShadowToast.getTextOfLatestToast())
-        ShadowToast.reset()
+        assertEquals("Plex rejected its saved sign-in. Sign in again in Settings.", probe.latest())
+        probe.reset()
         CredentialNotice.expired(context, FeaturedSourceId.Plex)
         ShadowLooper.idleMainLooper()
-        assertNull("the same source again today", ShadowToast.getLatestToast())
+        assertNull("the same source again today", probe.latestOrNull())
+        ShadowLooper.idleMainLooper(10, java.util.concurrent.TimeUnit.SECONDS) // the first card is still up; notices show one at a time
         CredentialNotice.expired(context, FeaturedSourceId.Tmdb)
         ShadowLooper.idleMainLooper()
-        assertEquals("TMDB rejected its saved sign-in. Sign in again in Settings.", ShadowToast.getTextOfLatestToast())
+        assertEquals("TMDB rejected its saved sign-in. Sign in again in Settings.", probe.latest())
     }
 
     @Test fun aRefusedPlexTokenIsAnAuthFailureNotAnEmptyShelf() {
@@ -100,16 +105,16 @@ class SilentFailuresTest {
         assertEquals("kept, not shown, not consumed", now - 3_000, pending)
         assertEquals(0L, seen)
         ShadowLooper.idleMainLooper()
-        assertNull("nothing shown at start", ShadowToast.getLatestToast())
+        assertNull("nothing shown at start", probe.latestOrNull())
         CrashRecovery.showPending(context)
         ShadowLooper.idleMainLooper()
-        assertEquals("Glass restarted after it stopped unexpectedly.", ShadowToast.getTextOfLatestToast())
+        assertEquals("Glass restarted after it stopped unexpectedly.", probe.latest())
         assertEquals("now it is seen", now - 3_000, seen)
         assertEquals(0L, pending)
-        ShadowToast.reset()
+        probe.reset()
         CrashRecovery.showPending(context)
         ShadowLooper.idleMainLooper()
-        assertNull("once", ShadowToast.getLatestToast())
+        assertNull("once", probe.latestOrNull())
     }
 
     @Test fun aQuietExitOrAnOldCrashIsConsumedAndNeverShown() {
@@ -121,7 +126,7 @@ class SilentFailuresTest {
         assertEquals("older than what was seen: ignored", now - 3_000, seen)
         CrashRecovery.showPending(context)
         ShadowLooper.idleMainLooper()
-        assertNull(ShadowToast.getLatestToast())
+        assertNull(probe.latestOrNull())
     }
 
     private fun doNotDisturb(on: Boolean) {
@@ -131,10 +136,10 @@ class SilentFailuresTest {
     }
 
     @Test fun showSaysWhichPathTookTheNotice() {
-        assertEquals("no service up here: the toast fallback", RemoteNotice.Outcome.Toast, RemoteNotice.show(context, "hello"))
+        assertEquals("no service up here: the overlay window", RemoteNotice.Outcome.Overlay, RemoteNotice.show(context, "hello"))
         doNotDisturb(true)
         assertEquals("a plain notice under Do Not Disturb", RemoteNotice.Outcome.Suppressed, RemoteNotice.show(context, "hello"))
-        assertEquals("an actionable one still shows", RemoteNotice.Outcome.Toast, RemoteNotice.show(context, "help", actionable = true))
+        assertEquals("an actionable one still shows", RemoteNotice.Outcome.Overlay, RemoteNotice.show(context, "help", actionable = true))
     }
 
     @Test fun aCrashNoticeHeldBackByDoNotDisturbIsKeptForTheNextResume() {
@@ -147,7 +152,7 @@ class SilentFailuresTest {
         doNotDisturb(false)
         CrashRecovery.showPending(context)
         ShadowLooper.idleMainLooper()
-        assertEquals("Glass restarted after it stopped unexpectedly.", ShadowToast.getTextOfLatestToast())
+        assertEquals("Glass restarted after it stopped unexpectedly.", probe.latest())
         assertEquals(now - 3_000, seen)
         assertEquals(0L, pending)
     }
