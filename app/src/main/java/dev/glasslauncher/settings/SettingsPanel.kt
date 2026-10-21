@@ -214,7 +214,7 @@ fun SettingsPanel(
         if (page is Page.Wallpapers) {
             WallpaperPage(page.dark, model, cfg, pageActive, open)
         } else if (page is Page.Device) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
-            dev.glasslauncher.home.DevicePage(page.kind, page.name, cfg, { model.edit(it) }, pageActive) { id -> push(Page.ButtonAction(id)) }
+            dev.glasslauncher.home.DevicePage(page.kind, page.name, cfg, { model.edit(it) }, pageActive) { id -> push(Page.ButtonApp(id)) }
         } else if (page == Page.ChooseAerials) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
             ChooseAerialsPage(model, cfg, pageActive)
         } else androidx.compose.runtime.CompositionLocalProvider(
@@ -261,7 +261,7 @@ fun SettingsPanel(
                 Page.RootLog -> RootLogPage(f)
                 is Page.ButtonAction -> ButtonActionPage(model, cfg, page.id, f, ::push, ::pop)
                 Page.CcShortcut -> CcShortcutPage(model, cfg, f, ::pop)
-                is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); pop() }
+                is Page.ButtonApp -> ButtonAppPage(model, layout, page.id, f) { pop(); if (stack.lastOrNull() is Page.ButtonAction) pop() }
                 is Page.Wallpapers -> Unit
                 is Page.Device -> Unit
             }

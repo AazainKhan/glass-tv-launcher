@@ -10,7 +10,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performTextReplacement
+import dev.glasslauncher.data.MappingProfiles
+import org.junit.Assert.assertNull
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -21,10 +29,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.home.DevicePage
-import dev.glasslauncher.home.PadGeometry
+import dev.glasslauncher.home.EditorSlots
 import dev.glasslauncher.home.PadLabels
 import dev.glasslauncher.home.PageKind
-import dev.glasslauncher.home.RemoteGeometry
 import dev.glasslauncher.home.sticksOf
 import dev.glasslauncher.system.RemoteButtons
 import org.junit.Assert.assertEquals
@@ -45,7 +52,7 @@ class DevicePageTest {
     private fun show(kind: PageKind, name: String) {
         compose.setContent {
             Box(Modifier.fillMaxSize().background(Color(0xFF181A20))) {
-                DevicePage(kind, name, cfg, { edit -> cfg = edit(cfg) }, active = true, openMapping = { opened += it })
+                DevicePage(kind, name, cfg, { edit -> cfg = edit(cfg) }, active = true, openApp = { opened += it })
             }
         }
         compose.waitForIdle()
@@ -61,37 +68,47 @@ class DevicePageTest {
         compose.waitForIdle()
     }
 
-    @Test fun everyPadButtonHasAnAnchorOnTheDrawingAndALabel() {
-        val all = RemoteButtons.pad.map { PadLabels.shortName(it.id.removePrefix("pad:")) }.toSet()
-        assertEquals("the right column and the bottom row label every mappable button exactly once", all, (PadGeometry.rightColumn + PadGeometry.bottomRow).toSet())
-        assertEquals(PadGeometry.rightColumn.size + PadGeometry.bottomRow.size, all.size)
-        for ((n, o) in PadGeometry.anchors) assertTrue("$n anchor $o inside the drawing", o.x in 0f..PadGeometry.W && o.y in 0f..PadGeometry.H)
-        for ((n, o) in RemoteGeometry.anchors) assertTrue("$n anchor $o inside the remote", o.x in 0f..RemoteGeometry.W && o.y in 0f..RemoteGeometry.H)
-        assertTrue("every mappable remote button is drawn", RemoteButtons.all.all { it.id in RemoteGeometry.anchors })
+    private val xbox = "Xbox Wireless Controller"
+
+    @Test fun theEditorListsEveryMappableButtonOnce() {
+        val pad = EditorSlots.of(PageKind.Gamepad).filterNot { it.isStick }.map { it.id }
+        assertEquals(RemoteButtons.pad.map { it.id }.sorted(), pad.sorted())
+        assertEquals(RemoteButtons.all.map { it.id }.sorted(), EditorSlots.of(PageKind.Remote).map { it.id }.sorted())
     }
 
-    @Test fun theControllerPageLaysOutEveryLabelOnScreenWithoutOverlap() {
-        show(PageKind.Gamepad, "Xbox Wireless Controller")
+    @Test fun theControllerPageLaysOutEveryCapOnScreenWithoutOverlapAndTheGridLeftOfThePane() {
+        show(PageKind.Gamepad, xbox)
         val screen = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        val labels = (PadGeometry.rightColumn + PadGeometry.bottomRow).map { it to bounds("pad-label:$it") }
-        for ((n, b) in labels) assertTrue("$n inside the screen: $b", b.left >= screen.left && b.right <= screen.right && b.top >= screen.top && b.bottom <= screen.bottom)
-        for (i in labels.indices) for (j in i + 1 until labels.size) {
-            val a = labels[i].second; val b = labels[j].second
-            assertTrue("${labels[i].first} overlaps ${labels[j].first}", a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top)
-        }
-        val panel = bounds("stick-panel")
-        assertTrue("the stick panel is left of every label", labels.all { it.second.left >= panel.right })
-        assertTrue(exists("device-switch") && exists("stick-reset") && exists("stick-circle"))
+        val caps = EditorSlots.of(PageKind.Gamepad).map { it.id to bounds("cap:${it.id}") }
+        for ((n, b) in caps) assertTrue("$n inside the screen: $b", b.left >= screen.left && b.right <= screen.right && b.top >= screen.top && b.bottom <= screen.bottom)
+        for (i in caps.indices) for (j in i + 1 until caps.size) assertTrue("${caps[i].first} overlaps ${caps[j].first}", !caps[i].second.overlaps(caps[j].second))
+        val pane = bounds("action-pane")
+        assertTrue("the grid is left of the pane", caps.all { it.second.right <= pane.left })
+        assertTrue("the profile bar clears the caps", caps.none { it.second.overlaps(bounds("profile-saveas")) })
+        assertTrue(exists("device-switch"))
     }
 
-    @Test fun aLabelOpensItsButtonsOwnMappingForThisController() {
-        show(PageKind.Gamepad, "Xbox Wireless Controller")
-        press("pad-label:Start")
-        assertEquals(listOf(RemoteButtons.padKey("Xbox Wireless Controller", "start")), opened)
+    @Test fun theFocusedCapsActionIsShownAndAChoiceSetsItForThisControllerOnly() {
+        show(PageKind.Gamepad, xbox)
+        compose.onNodeWithTag("cap:pad:start").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        compose.onNodeWithTag("action-current").assertTextEquals("Does: Default")
+        press("option:glass:home")
+        assertEquals("glass:home", cfg.remoteButtons[RemoteButtons.padKey(xbox, "start")])
+        assertNull("another controller is untouched", cfg.remoteButtons[RemoteButtons.padKey("Pad B", "start")])
+        compose.onNodeWithTag("action-current").assertTextEquals("Does: Home")
     }
 
-    @Test fun theSticksSlidersMoveWithTheDpadAndResetRestoresTheDefaults() {
+    @Test fun selectOnACapStepsIntoThePickerAndOpenAnotherAppAsksForTheButtonsKey() {
+        show(PageKind.Gamepad, xbox)
+        press("cap:pad:b")
+        compose.onNodeWithTag("option:default").assertIsFocused()
+        press("option:app")
+        assertEquals(listOf(RemoteButtons.padKey(xbox, "b")), opened)
+    }
+
+    @Test fun theSticksHaveATuningPaneWithSlidersThatMoveWithTheDpadAndReset() {
         show(PageKind.Gamepad, "Pad A")
+        compose.onNodeWithTag("cap:stick:left").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
         compose.onNodeWithTag("stick-slider:x").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onRoot().performKeyInput { pressKey(Key.DirectionRight); pressKey(Key.DirectionRight) }
         compose.waitForIdle()
@@ -101,9 +118,9 @@ class DevicePageTest {
         assertEquals(0.12f, cfg.sticksOf("Pad A").left.deadzoneX, 0.001f)
     }
 
-    @Test fun theRightStickAndTheSensitivityTabHaveTheirOwnValues() {
+    @Test fun theRightSticksSensitivityHasItsOwnValues() {
         show(PageKind.Gamepad, "Pad A")
-        press("stick-which")
+        compose.onNodeWithTag("cap:stick:right").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
         press("stick-tab:Sensitivity")
         compose.onNodeWithTag("stick-slider:y").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
@@ -113,16 +130,25 @@ class DevicePageTest {
         assertEquals("the left stick is untouched", 1f, t.left.sensY, 0.001f)
     }
 
-    @Test fun theRemotePageLabelsEveryMappableButton() {
+    @Test fun theRemotePageHasACapForEveryButtonAndAChoiceSetsItsSharedKey() {
         show(PageKind.Remote, "Amazon Fire TV Remote")
-        for (b in RemoteButtons.all) assertTrue("${b.id} labelled", exists("remote-label:${b.id}"))
-        press("remote-label:app1")
-        assertEquals(listOf("app1"), opened)
+        for (b in RemoteButtons.all) assertTrue("${b.id} has a cap", exists("cap:${b.id}"))
+        compose.onNodeWithTag("cap:app1").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        press("option:none")
+        assertEquals("none", cfg.remoteButtons["app1"])
     }
 
     @Test fun goldenGamepad() {
-        show(PageKind.Gamepad, "Xbox Wireless Controller")
+        show(PageKind.Gamepad, xbox)
+        cfg = cfg.copy(remoteButtons = mapOf(RemoteButtons.padKey(xbox, "a") to "glass:home", RemoteButtons.padKey(xbox, "y") to "glass:switcher"))
+        compose.waitForIdle()
         compose.onRoot().captureRoboImage(shot("device-gamepad"))
+    }
+
+    @Test fun goldenGamepadSticks() {
+        show(PageKind.Gamepad, xbox)
+        compose.onNodeWithTag("cap:stick:left").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        compose.onRoot().captureRoboImage(shot("device-gamepad-sticks"))
     }
 
     @Test fun goldenRemote() {
@@ -130,17 +156,29 @@ class DevicePageTest {
         compose.onRoot().captureRoboImage(shot("device-remote"))
     }
 
-    /** P233: Save keeps the controller's mapping as a profile, Delete drops it, and the bar sits clear of the labels above it. */
-    @Test fun theProfileBarSavesAndDeletes() {
-        show(PageKind.Gamepad, "Xbox Wireless Controller")
-        val bar = bounds("profile-save")
-        val labels = (PadGeometry.rightColumn + PadGeometry.bottomRow).map { bounds("pad-label:$it") }
-        assertTrue("the bar overlaps a label: $bar vs $labels", labels.none { it.overlaps(bar) })
-        cfg = cfg.copy(remoteButtons = mapOf(RemoteButtons.padKey("Xbox Wireless Controller", "a") to "glass:home")); compose.waitForIdle()
+    /** P233: Save As asks for a name (default "Profile 1"), keeps the mapping under it; Save updates it; Delete drops it. */
+    @Test fun theProfileBarSavesWithANameAndDeletes() {
+        show(PageKind.Gamepad, xbox)
+        cfg = cfg.copy(remoteButtons = mapOf(RemoteButtons.padKey(xbox, "a") to "glass:home")); compose.waitForIdle()
+        press("profile-saveas")
+        compose.onNodeWithTag("profile-name").performTextReplacement("Racing")
+        compose.onNodeWithTag("profile-name").performImeAction()
+        compose.waitForIdle()
+        assertEquals(listOf("Racing"), cfg.mappingProfiles["pad"]!!.map { it.name })
+        assertEquals("Racing", cfg.activeProfile[xbox])
+        cfg = cfg.copy(remoteButtons = emptyMap()); compose.waitForIdle()
+        compose.onNodeWithTag("profile-pick").assertContentDescriptionEquals("Racing (changed)")
         press("profile-save")
-        assertEquals(listOf("Profile 1"), cfg.mappingProfiles["pad"]!!.map { it.name })
-        assertEquals("Profile 1", cfg.activeProfile["Xbox Wireless Controller"])
+        assertTrue(MappingProfiles.of(cfg, dev.glasslauncher.data.ProfileKind.Pad).single().buttons.isEmpty())
         press("profile-delete")
         assertTrue(cfg.mappingProfiles["pad"]!!.isEmpty())
+    }
+
+    @Test fun leavingTheNameEmptyKeepsTheDefaultProfileName() {
+        show(PageKind.Gamepad, xbox)
+        press("profile-saveas")
+        compose.onNodeWithTag("profile-name").performImeAction()
+        compose.waitForIdle()
+        assertEquals(listOf("Profile 1"), cfg.mappingProfiles["pad"]!!.map { it.name })
     }
 }
