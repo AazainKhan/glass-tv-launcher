@@ -67,6 +67,10 @@ data class LauncherConfig(
     val remoteButtons: Map<String, String> = emptyMap(),
     /** Stick tuning per game controller, by the controller's name (P186): the dead zone and sensitivity of each stick. */
     val controllerSticks: Map<String, ControllerSticks> = emptyMap(),
+    /** Saved button mappings (P233), by device kind (`pad` or `remote`): see [MappingProfiles]. */
+    val mappingProfiles: Map<String, List<MappingProfile>> = emptyMap(),
+    /** The profile last loaded on each device, by device name, so its page can show which one it is on. */
+    val activeProfile: Map<String, String> = emptyMap(),
     /** The remote key that opens Control Center over any app without the key-layout module (P167); see [dev.glasslauncher.system.CcShortcut]. */
     val ccShortcut: String = "menu_hold",
     /** Top Shelf: show the focused app's titles after a dwell (else only its hero). */
