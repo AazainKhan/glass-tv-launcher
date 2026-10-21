@@ -199,12 +199,13 @@ internal fun DevicePage(
                 onClick = { if (names.size > 1) selected = names[(names.indexOf(name) + 1) % names.size] },
             ) { fg -> Text(if (names.size > 1) "$name  ⇅" else name.ifEmpty { "No device" }, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        Row(Modifier.fillMaxSize().padding(top = 44.dp, bottom = 46.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(Modifier.fillMaxSize().padding(top = 40.dp, bottom = 84.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             CapGrid(kind, name, slots, sel, cfg, pad, lit, Modifier.weight(1f).fillMaxHeight(), first, onFocus = { sel = it; EditorMemory.slot = it.id }, enter = { runCatching { paneFirst.requestFocus() } })
             if (sel.isStick) StickPane(name, sel.id == "stick:right", pad, cfg, edit, Modifier.weight(1f).fillMaxHeight())
             else ActionPane(kind, name, sel, cfg, edit, openApp, paneFirst, Modifier.weight(1f).fillMaxHeight())
         }
-        if (name.isNotEmpty()) ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, Modifier.align(Alignment.BottomCenter))
+        // Above Settings' 36 dp bottom fade, or the bar reads as disabled.
+        if (name.isNotEmpty()) ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
     }
 }
 
@@ -229,10 +230,10 @@ private fun CapGrid(
     val pm = LocalContext.current.packageManager
     val groups = slots.groupBy { it.group }
     val tall = groups.filterKeys { it != "Sticks" }
-    Column(modifier.testTag("cap-grid"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier.testTag("cap-grid"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             tall.entries.forEachIndexed { gi, (group, items) ->
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(group.uppercase(), style = Type.overline, color = palette.faint, modifier = Modifier.padding(start = 4.dp))
                     items.forEachIndexed { i, s ->
                         Cap(kind, device, s, s == sel, cfg, pm, EditorSlots.litName(s).let { n -> n in pad.pressed || n in lit }, if (gi == 0 && i == 0) Modifier.focusRequester(first) else Modifier, onFocus, enter)
@@ -264,8 +265,8 @@ private fun Cap(
         else actionOf(kind, device, slot, cfg).let { if (it == RemoteAction.Default) "Default" else dev.glasslauncher.settings.actionLabel(it, pm) }
     val fg = if (focused) palette.onFocusFill else palette.primary
     Row(
-        modifier.fillMaxWidth().height(46.dp)
-            .background(if (focused) palette.focusFill else palette.primary.copy(alpha = if (lit) 0.34f else if (current) 0.16f else 0.08f), RoundedCornerShape(14.dp))
+        modifier.fillMaxWidth().height(40.dp)
+            .background(if (focused) palette.focusFill else if (lit) palette.primary.copy(alpha = 0.34f) else if (current) palette.primary.copy(alpha = 0.18f) else palette.rowFill, RoundedCornerShape(14.dp))
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus(slot) }
             .onPreviewKeyEvent { e ->
                 if (!isSelectKey(e.key.nativeKeyCode)) return@onPreviewKeyEvent false
@@ -327,15 +328,15 @@ private fun ActionPane(
     LaunchedEffect(Unit) { dev.glasslauncher.addons.AddonHost.loadActions(ctx, dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) }
     fun set(a: RemoteAction) = edit { it.copy(remoteButtons = it.remoteButtons + (key to a.key)) }
     fun label(a: RemoteAction) = if (a == RemoteAction.Default) "Default" else dev.glasslauncher.settings.actionLabel(a, pm)
-    Column(modifier.background(palette.primary.copy(alpha = 0.06f), RoundedCornerShape(18.dp)).padding(12.dp).testTag("action-pane"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.background(palette.rowFill, RoundedCornerShape(18.dp)).padding(10.dp).testTag("action-pane"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Glyph(slot, isMapped(kind, device, slot, cfg), false, 44.dp)
+            Glyph(slot, isMapped(kind, device, slot, cfg), false, 40.dp)
             Column {
                 Text(slot.name, style = Type.heading, color = palette.primary, maxLines = 1)
                 Text("Does: ${label(current)}", style = Type.secondary, color = palette.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("action-current"))
             }
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val options = listOf(dflt, RemoteAction.TvSettings, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
             options.forEachIndexed { i, a ->
                 Option(if (a == dflt && a != RemoteAction.Default) "${label(a)} (Default)" else label(a), a == current, if (i == 0) Modifier.focusRequester(firstRow) else Modifier, "option:${a.key}") { set(a) }
@@ -366,14 +367,14 @@ private fun StickPane(controller: String, right: Boolean, pad: PadState, cfg: La
     var tab by remember { mutableStateOf(0) }
     val tuning = cfg.sticksOf(controller).let { if (right) it.right else it.left }
     val ink = palette.primary
-    Column(modifier.background(ink.copy(alpha = 0.06f), RoundedCornerShape(18.dp)).padding(12.dp).testTag("stick-panel"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.background(palette.rowFill, RoundedCornerShape(18.dp)).padding(10.dp).testTag("stick-panel"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(if (right) "Right Stick" else "Left Stick", style = Type.heading, color = ink, maxLines = 1)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("Deadzone", "Sensitivity").forEachIndexed { i, t -> DevPill(t, Modifier.testTag("stick-tab:$t"), selected = tab == i, onClick = { tab = i }) { fg -> Text(t, style = Type.secondary, color = fg, maxLines = 1) } }
         }
         // The live circle: the dead zone as its inner ring, the dot following the stick (scaled by sensitivity on the second tab).
         val sx = if (right) pad.rightX else pad.leftX; val sy = if (right) pad.rightY else pad.leftY
-        Canvas(Modifier.align(Alignment.CenterHorizontally).size(120.dp).testTag("stick-circle")) {
+        Canvas(Modifier.align(Alignment.CenterHorizontally).size(104.dp).testTag("stick-circle")) {
             val r = size.minDimension / 2 - 2.dp.toPx(); val c = center
             drawCircle(ink.copy(alpha = 0.10f), r, c); drawCircle(ink.copy(alpha = 0.40f), r, c, style = Stroke(1.5.dp.toPx()))
             drawLine(ink.copy(alpha = 0.18f), Offset(c.x - r, c.y), Offset(c.x + r, c.y)); drawLine(ink.copy(alpha = 0.18f), Offset(c.x, c.y - r), Offset(c.x, c.y + r))
@@ -415,7 +416,7 @@ private fun ProfileBar(kind: ProfileKind, device: String, cfg: LauncherConfig, e
     var name by remember(naming) { mutableStateOf("") }
     val nameFocus = remember { FocusRequester() }
     val saveAs = remember { FocusRequester() }
-    Row(modifier.padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Profile:", style = Type.secondary, color = palette.secondary)
         if (naming) {
             LaunchedEffect(Unit) { runCatching { nameFocus.requestFocus() } }
