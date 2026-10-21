@@ -178,6 +178,8 @@ internal fun DevicePage(
             .onPreviewKeyEvent { e ->
                 val code = e.key.nativeKeyCode
                 val down = when (e.type) { KeyEventType.KeyDown -> true; KeyEventType.KeyUp -> false; else -> return@onPreviewKeyEvent false }
+                // Fire turns a pad button nothing consumed into a fallback key (L2/R2 -> DPAD_CENTER, Start -> Home): not a button the user pressed.
+                if (e.nativeKeyEvent.flags and android.view.KeyEvent.FLAG_FALLBACK != 0) return@onPreviewKeyEvent false
                 if (kind == PageKind.Gamepad) pad = pad.key(code, down)
                 else RemoteGeometry.idForKey(code)?.let { id -> lit = if (down) lit + id else lit - id }
                 false
