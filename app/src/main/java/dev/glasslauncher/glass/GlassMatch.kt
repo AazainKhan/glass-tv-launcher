@@ -118,6 +118,19 @@ object GlassMatch {
     }
 
     /**
+     * P268: the notice card's sheet, Control Center's material baked from [crop] (the screen region behind the card, root pixels from its own
+     * top-left): the whole crop is the panel. A small hardware bitmap; null if [crop] can't be read.
+     */
+    fun noticeSheet(crop: Bitmap): PanelSheet? {
+        CcAdapt.readVariant()
+        val sheet = panelSheet(crop, crop.width, crop.height, 0f, 0f, crop.width.toFloat(), crop.height.toFloat(), CC_TINT, CC_SHEET_DIM, CC_COLS,
+            blurPasses = CC_BLUR_PASSES, saturation = CC_SATURATION, lift = CC_LIFT, adapt = true) ?: return null
+        val soft = Bitmap.createBitmap(sheet.pixels, sheet.width, sheet.height, Bitmap.Config.ARGB_8888)
+        val bitmap = soft.copy(Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft
+        return PanelSheet(bitmap, 0f, 0f, 1f, 1f, sheet.takeIf { keepPixels }, meanLuma(sheet.pixels))
+    }
+
+    /**
      * A small blurred, tinted and dimmed picture of the rectangle [left],[top],[width],[height] (root pixels) of
      * [source], which covers the root: [cols] cells across, each the mean of a few samples, then one 3x3 box blur,
      * then [fill]. The scene stays visible: nothing is averaged towards one colour. Drawn stretched over the rectangle (bilinear), it is a soft sheet of the scene behind it.

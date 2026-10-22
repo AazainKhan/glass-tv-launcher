@@ -3,7 +3,6 @@ package dev.glasslauncher.system
 import android.app.Activity
 import android.content.Context
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -24,19 +23,31 @@ import dev.glasslauncher.R
  * status pill. Where the card is drawn is a [NoticeSurface]: Glass's accessibility overlay, an overlay window where the permission is
  * granted, or Home's own window while it is in front.
  */
-interface NoticeSurface {
+internal interface NoticeSurface {
     /** Puts [card] on screen; false if it cannot be (no window token, no permission). */
     fun add(card: View): Boolean
     fun remove(card: View)
+
+    /** Gets the glass for the card into [ref] before it shows ([done] when ready, at once if there is nothing to wait for). */
+    fun prepare(ref: dev.glasslauncher.home.CcSheetRef, done: () -> Unit) = done()
 }
 
 /** A system window of [type] (TYPE_ACCESSIBILITY_OVERLAY for the service, TYPE_APPLICATION_OVERLAY with the overlay permission). */
-class WindowSurface(private val context: Context, private val type: Int) : NoticeSurface {
+internal class WindowSurface(private val context: Context, private val type: Int) : NoticeSurface {
+    /** Over an app the glass is baked from a capture of the screen behind the card, which only the accessibility service can take; waits at most [CAPTURE_WAIT_MS]. */
+    override fun prepare(ref: dev.glasslauncher.home.CcSheetRef, done: () -> Unit) {
+        val service = context as? android.accessibilityservice.AccessibilityService ?: return done()
+        var finished = false
+        val finish = { if (!finished) { finished = true; done() } }
+        Handler(Looper.getMainLooper()).postDelayed({ finish() }, CAPTURE_WAIT_MS)
+        NoticeGlass.sheetFor(service, context.resources.displayMetrics.density) { sheet -> if (!finished) { ref.sheet = sheet; finish() } }
+    }
+
     override fun add(card: View): Boolean {
         val dp = context.resources.displayMetrics.density
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START; x = (NoticeCard.MARGIN_DP * dp).toInt(); y = (NoticeCard.MARGIN_DP * dp).toInt() }
         return runCatching { (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).addView(card, params) }
@@ -44,10 +55,12 @@ class WindowSurface(private val context: Context, private val type: Int) : Notic
     }
 
     override fun remove(card: View) { runCatching { (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(card) } }
+
+    private companion object { const val CAPTURE_WAIT_MS = 150L }
 }
 
 /** Home's own window while it is in front: a child of its decor view, which needs no permission. */
-class DecorSurface(private val activity: () -> Activity?) : NoticeSurface {
+internal class DecorSurface(private val activity: () -> Activity?) : NoticeSurface {
     override fun add(card: View): Boolean {
         val a = activity() ?: return false
         val decor = a.window?.decorView as? ViewGroup ?: return false
@@ -61,40 +74,15 @@ class DecorSurface(private val activity: () -> Activity?) : NoticeSurface {
     override fun remove(card: View) { (card.parent as? ViewGroup)?.removeView(card) }
 }
 
-object NoticeCard {
+internal object NoticeCard {
     const val MARGIN_DP = 24
 
-    /** The glass card: glyph, title, one line. A plain notice has the info glyph. */
-    fun build(context: Context, notice: Notice): View {
-        val dp = context.resources.displayMetrics.density
-        val bg = GradientDrawable().apply {
-            // Clear dark glass with a bright upper rim, the dock tray's look at overlay scale.
-            orientation = GradientDrawable.Orientation.TOP_BOTTOM
-            colors = intArrayOf(0xEB26262B.toInt(), 0xEB18181C.toInt())
-            cornerRadius = 22 * dp
-            setStroke((1 * dp).toInt(), 0x33FFFFFF)
-        }
-        fun word(t: String, size: Float, color: Int) = TextView(context).apply { text = t; setTextColor(color); textSize = size }
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding((16 * dp).toInt(), (12 * dp).toInt(), (22 * dp).toInt(), (12 * dp).toInt())
-            background = bg
-            elevation = 0f
-            addView(ImageView(context).apply {
-                setImageResource(if (notice.iconRes != 0) notice.iconRes else R.drawable.ic_info)
-                setColorFilter(0xFFFFFFFF.toInt())
-            }, LinearLayout.LayoutParams((28 * dp).toInt(), (28 * dp).toInt()).apply { marginEnd = (14 * dp).toInt() })
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(word(notice.text, 16f, 0xFFFFFFFF.toInt()).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = (380 * dp).toInt() })
-                notice.detail?.let { addView(word(it, 13f, 0xB3FFFFFF.toInt()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = (380 * dp).toInt() }) }
-            })
-        }
-    }
+    /** The glass card (P268): glyph, title, one line, in Control Center's material; [ref] carries the baked glass once the surface has it. */
+    internal fun build(context: Context, notice: Notice, ref: dev.glasslauncher.home.CcSheetRef = dev.glasslauncher.home.CcSheetRef()): View = NoticeGlass.view(context, notice, ref)
 }
 
 /** One card at a time on one [surface]; the queue is BannerQueue's. */
-class NoticeHost(private val context: Context, private val surface: NoticeSurface, private val tag: String = "NoticeHost") {
+internal class NoticeHost(private val context: Context, private val surface: NoticeSurface, private val tag: String = "NoticeHost") {
     private val handler = Handler(Looper.getMainLooper())
     private val queue = BannerQueue()
     private var card: View? = null
@@ -118,13 +106,22 @@ class NoticeHost(private val context: Context, private val surface: NoticeSurfac
     }
 
     /** Everything off at once (the service is going away). */
-    fun clear() { queue.clear(); hide(animate = false) }
+    fun clear() { presentations++; queue.clear(); hide(animate = false) }
 
     private fun next() { (queue.finished() as? BannerQueue.Step.Show)?.let { present(it.notice) } }
 
+    /** Counts presentations, so a card whose glass was still being captured when another took over or the host was cleared never shows. */
+    private var presentations = 0
+
     private fun present(notice: Notice) {
         hide(animate = false)
-        val view = NoticeCard.build(context, notice)
+        val mine = ++presentations
+        val ref = dev.glasslauncher.home.CcSheetRef()
+        val view = NoticeCard.build(context, notice, ref)
+        surface.prepare(ref) { if (mine == presentations) show(notice, view) }
+    }
+
+    private fun show(notice: Notice, view: View) {
         // Off to the left and invisible until it is measured, then in from the left edge: a spring-like ease with a little overshoot.
         view.alpha = 0f
         if (!surface.add(view)) { queue.finished(); return }
