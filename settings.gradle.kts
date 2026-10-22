@@ -20,3 +20,4 @@ include(":baselineprofile")
 include(":browser")
 include(":addon-api")
 include(":addon-sample")
+include(":p239spike") // P239 spike, not for merge

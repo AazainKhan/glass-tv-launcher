@@ -1,0 +1,17 @@
+[package]
+name = "glasslean"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "P239 spike: the same renderer as rust/, no_std and single-threaded (Kotlin owns the GL thread), to size it"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
