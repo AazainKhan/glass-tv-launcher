@@ -14,7 +14,12 @@ android {
         applicationId = "dev.glasslauncher"
         minSdk = 28
         targetSdk = 36
-        versionCode = 3
+        // A new versionCode for every build (P275), monotonic everywhere: minutes since 2026-01-01 when the APK was built. A system APK
+        // replaced under the same versionCode keeps PackageManager's cached parse across a reboot, and Glass then died on resource IDs
+        // from the old build (Glass Pro/OS updates write the system APK). A commit count would make an older checkout a downgrade,
+        // which a user build refuses, so A/B installs of master and a branch would fail. A ValueSource, so the configuration cache
+        // re-reads it on every build instead of keeping the first one.
+        versionCode = 3 // replaced per build in androidComponents below (BuildMinute)
         versionName = "0.3.0"
         buildConfigField("String", "UPDATE_REPO", "\"AazainKhan/glass-tv-launcher\"")
     }
@@ -130,3 +135,14 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 }
 
+/** P275: minutes since 2026-01-01 when the build runs; Gradle re-reads a ValueSource on every build, so each APK gets a new versionCode. */
+abstract class BuildMinute : ValueSource<Int, ValueSourceParameters.None> {
+    override fun obtain(): Int = ((System.currentTimeMillis() - 1_767_225_600_000L) / 60_000L).toInt()
+}
+
+androidComponents {
+    onVariants { variant ->
+        val minute = providers.of(BuildMinute::class.java) {}
+        variant.outputs.forEach { it.versionCode.set(minute) }
+    }
+}

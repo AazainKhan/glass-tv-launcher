@@ -106,6 +106,8 @@ object RootFeatures {
             chmod 755 ${'$'}M/system/priv-app/GlassLauncher
             chmod 644 ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk ${'$'}M/system/etc/permissions/*.xml ${'$'}M/system/etc/default-permissions/*.xml
             rm -f ${'$'}M/remove ${'$'}M/disable
+            # PackageManager's cached parse of the old system APK would outlive the reboot (P275): it is rebuilt at boot.
+            rm -rf /data/system/package_cache/*
         """.trimIndent().lines().joinToString("\n") { it.trimStart() }
         val r = Root.action(context, "Install as system app (Magisk module glass-system)", script)
         if (r.ok) context.getSharedPreferences(PREFS, 0).edit().putBoolean("systemPending", true).putBoolean("systemRemoving", false).apply()
