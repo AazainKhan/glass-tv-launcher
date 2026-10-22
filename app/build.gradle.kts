@@ -36,9 +36,18 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Fire TV (32-bit userland) and every arm64 box: x86 builds are debug-only (the emulators).
+            ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
+    }
+
+    packaging {
+        // P271: the dex was stored uncompressed (AGP's default from minSdk 28), 90% of the APK. Compressed it is 2.5 MB smaller; the installer inflates it.
+        dex { useLegacyPackaging = true }
+        // Licence texts AndroidX repeats in every artifact (the notices ship in assets/licenses) and the coroutines debug-agent probe file.
+        resources { excludes += setOf("META-INF/androidx/**", "DebugProbesKt.bin") }
     }
 
     buildFeatures {
@@ -120,3 +129,4 @@ dependencies {
     testImplementation(libs.roborazzi.preview.scanner.support)
     debugImplementation(libs.compose.ui.test.manifest)
 }
+
