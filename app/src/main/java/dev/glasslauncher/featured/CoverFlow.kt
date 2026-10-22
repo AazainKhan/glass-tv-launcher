@@ -53,6 +53,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
@@ -388,11 +389,13 @@ fun CoverPreview(
         val reflectionBottom = restCentreY + ((COVER_DP * (1f + CoverReflection.HEIGHT)) / 2f - 24f).dp * REST_SCALE
         // Centred, it sits over the Top Shelf's chevron (28 x 9 dp, 14 dp above the tray): the gap ends above it.
         val gap = (trayTop - CHEVRON_ROOM - reflectionBottom).coerceAtLeast(24.dp)
-        Box(Modifier.offset(y = reflectionBottom).fillMaxWidth().height(gap), contentAlignment = Alignment.Center) {
+        // Top-aligned in that space (P254): centred, a two-line gap put it close to the chevron below.
+        Box(Modifier.offset(y = reflectionBottom).fillMaxWidth().height(gap), contentAlignment = Alignment.TopCenter) {
             Crossfade(
                 item.title, animationSpec = tween(220), label = "cover-preview-caption",
                 modifier = Modifier
                     .padding(horizontal = m.inset)
+                    .padding(top = 4.dp)
                     .widthIn(max = (screenW * 0.6f).dp)
                     .graphicsLayer {
                         alpha = (1f - expand().coerceIn(0f, 1f) * 3f).coerceIn(0f, 1f)
@@ -403,7 +406,7 @@ fun CoverPreview(
             ) { title ->
                 androidx.compose.foundation.text.BasicText(
                     title,
-                    style = Type.title.copy(color = Color.White.copy(alpha = 0.92f), textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                    style = Type.title.copy(fontSize = 20.sp, color = Color.White.copy(alpha = 0.92f), textAlign = androidx.compose.ui.text.style.TextAlign.Center),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth().testTag("cover-preview-title"),
                 )
