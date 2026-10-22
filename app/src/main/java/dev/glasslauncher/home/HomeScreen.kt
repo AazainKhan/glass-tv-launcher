@@ -459,6 +459,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     )
     // The slideshow bakes the next slide before switching, so its art and title dissolve in together.
     val prebaked = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
+    // The Top Shelf scene last shown (P257): coming back to it from an app's hero is a swap, not a bake again. At rest it is
+    // the backdrop on screen itself; it is an extra scene in memory only while an app's hero stands in for it.
+    val lastScene = remember { arrayOfNulls<Pair<String, dev.glasslauncher.glass.Backdrop>>(1) }
     // The app's own icon (no cover published) is no backdrop: it would bake a big blurred logo (Spotify: green).
     val takeoverArt = takeover?.takeIf { !it.artIsIcon }?.art
     // An expanded shelf of square covers (Spotify's albums and playlists) is a Cover Flow (P33): its background is
@@ -514,7 +517,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // Let quick left/right browsing settle before re-baking the glass (a Cover Flow scrolls in quick steps).
         if (ready == null && coverReady == null && expanded) delay(if (coverBackdrop) COVER_SETTLE_MS else 220)
         backdrop.glassFades = true
-        val next = ready ?: coverReady ?: sceneUrl?.let { url ->
+        val sceneKey = "$sceneUrl|$dark|$coverBackdrop"
+        val next = ready ?: coverReady ?: lastScene[0]?.takeIf { it.first == sceneKey && sceneUrl != null }?.second ?: sceneUrl?.let { url ->
             runCatching {
                 if (coverBackdrop) graph.wallpapers.coverFromUrl(url, light = !dark)?.also { HeroCache.cover["$url|$dark"] = it }
                 else graph.wallpapers.fromUrl(url, light = !dark)
@@ -522,6 +526,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         } ?: graph.wallpapers.load(wallpaper, light = !dark)
         // A dissolve, never a cut; it's also what Reduce Motion asks for instead of movement. (The same scene again, as
         // when the network returns with the cover already showing, is left as it is.)
+        lastScene[0] = sceneKey to next
         if (next !== backdrop.backdrop) backdrop.swap(next, animate = backdrop.backdrop != null)
         // The shelf's title and logo may come in now: the art they sit on is on screen (P107).
         sceneShownFor = sceneUrl
