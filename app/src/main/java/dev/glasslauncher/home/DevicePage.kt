@@ -33,6 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -101,20 +104,33 @@ internal fun LauncherConfig.withStick(controller: String, right: Boolean, change
 internal fun stepped(value: Float, delta: Float, lo: Float, hi: Float): Float = ((value + delta).coerceIn(lo, hi) * 1000f).toInt() / 1000f
 
 
+
 /** One thing the editor lists: a mappable button, or one stick's tuning. [id] is the button's id (`pad:a`, `app1`) or `stick:left` / `stick:right`. */
-internal data class Slot(val id: String, val name: String, val group: String) {
+internal data class Slot(val id: String, val name: String) {
     val isStick get() = id.startsWith("stick:")
 }
 
-/** What the editor lists for a kind of device, in its columns: the face buttons, the shoulders, the rest; for a controller the two sticks last. */
+/** What the editor lists for a drawing, with the names that device's own buttons carry (PlayStation or Xbox words), and which side of the drawing each callout sits on. */
 internal object EditorSlots {
-    fun of(kind: PageKind): List<Slot> = when (kind) {
-        PageKind.Gamepad -> {
-            fun pad(group: String, vararg ids: String) = ids.map { Slot("pad:$it", PadLabels.shortName(it), group) }
-            pad("Buttons", "a", "b", "x", "y") + pad("Shoulders", "l1", "r1", "l2", "r2") + pad("System", "select", "start", "mode", "thumbl", "thumbr") +
-                listOf(Slot("stick:left", "Left Stick", "Sticks"), Slot("stick:right", "Right Stick", "Sticks"))
+    private val padIds = listOf("pad:l2", "pad:l1", "pad:select", "pad:mode", "pad:thumbl", "stick:left", "pad:r2", "pad:r1", "pad:y", "pad:x", "pad:b", "pad:a", "pad:start", "pad:thumbr", "stick:right")
+    private val remoteIds = listOf("app1", "app3", "recents", "app2", "app4", "settings")
+
+    /** Left column, top to bottom, then right column. */
+    fun left(style: PadStyle) = if (style == PadStyle.Remote) remoteIds.take(3) else padIds.take(6)
+    fun right(style: PadStyle) = if (style == PadStyle.Remote) remoteIds.drop(3) else padIds.drop(6)
+
+    fun of(style: PadStyle): List<Slot> = (left(style) + right(style)).map { Slot(it, nameOf(it, style)) }
+
+    fun nameOf(id: String, style: PadStyle): String {
+        val ps = style == PadStyle.PlayStation
+        return when (id) {
+            "pad:a" -> if (ps) "Cross" else "A"; "pad:b" -> if (ps) "Circle" else "B"; "pad:x" -> if (ps) "Square" else "X"; "pad:y" -> if (ps) "Triangle" else "Y"
+            "pad:l1" -> if (ps) "L1" else "Left Bumper"; "pad:r1" -> if (ps) "R1" else "Right Bumper"
+            "pad:l2" -> if (ps) "L2" else "Left Trigger"; "pad:r2" -> if (ps) "R2" else "Right Trigger"
+            "pad:select" -> if (ps) "Create" else "View"; "pad:start" -> if (ps) "Options" else "Menu"; "pad:mode" -> if (ps) "PS Button" else "Guide"
+            "pad:thumbl" -> "L3"; "pad:thumbr" -> "R3"; "stick:left" -> "Left Stick"; "stick:right" -> "Right Stick"
+            else -> RemoteButtons.find(id)?.label ?: id
         }
-        PageKind.Remote -> RemoteButtons.all.map { Slot(it.id, it.label, if (it.id.startsWith("app")) "Apps" else "Keys") }
     }
 
     /** The config key a slot's mapping is stored under for [device]: a controller's own button key, or the remote's shared id. */
@@ -124,7 +140,7 @@ internal object EditorSlots {
     fun litName(slot: Slot) = if (slot.id.startsWith("pad:")) PadLabels.shortName(slot.id.removePrefix("pad:")) else slot.id
 }
 
-/** The remote's drawn button a key press belongs to; the editor lights its cell while the key is held. */
+/** The remote's drawn button a key press belongs to; the editor lights its callout while the key is held. */
 object RemoteKeys {
     fun idFor(code: Int): String? = when (code) {
         KeyEvent.KEYCODE_BUTTON_9 -> "app1"; KeyEvent.KEYCODE_BUTTON_10 -> "app2"
@@ -137,11 +153,19 @@ object RemoteKeys {
 /** What the page was last on, so coming back from the app chooser lands on the same button. Process-wide and tiny. */
 private object EditorMemory { var slot: String? = null }
 
+private fun vendorOf(name: String): Int? = runCatching {
+    InputDevice.getDeviceIds().asSequence().mapNotNull { InputDevice.getDevice(it) }.firstOrNull { it.name == name }?.vendorId
+}.getOrNull()
+
+private const val CALLOUT_W = 200f
+private const val CALLOUT_H = 32f
+private const val CALLOUT_GAP = 60f
+
 /**
- * The mapping editor (P233): two panes. The left is the controller's or remote's buttons as key caps, each with its glyph and what it does
- * now (lit while the button is held, so it doubles as the tester); the right is the focused button's action picker, or a stick's tuning,
- * and the profile bar sits under both. D-pad moves inside a pane; Right and Left cross; Select on a cap steps into the picker.
- * Keys are watched, never taken, so the page stays navigable while they light up.
+ * The mapping editor (P233): a centred line drawing of the controller (or the Fire remote), each button with a callout beside it saying what
+ * it does now (blue once the user mapped it), the real glyphs on them (PlayStation symbols or Xbox letters). A button lights on the
+ * drawing while it is held, so it doubles as the tester. Select on a callout opens the action picker (or a stick's tuning) as a sheet;
+ * Back closes it. The profile bar sits under the drawing. Keys are watched, never taken, so the page stays navigable.
  */
 @Composable
 internal fun DevicePage(
@@ -173,18 +197,31 @@ internal fun DevicePage(
         }
         onDispose { view.setOnGenericMotionListener(null) }
     }
-    val slots = remember(kind) { EditorSlots.of(kind) }
-    var sel by remember(kind) { mutableStateOf(slots.firstOrNull { it.id == EditorMemory.slot } ?: slots.first()) }
-    val first = remember { FocusRequester() }
-    val paneFirst = remember { FocusRequester() }
-    LaunchedEffect(active) { if (active) { kotlinx.coroutines.delay(16); runCatching { first.requestFocus() } } }
+    val style = remember(kind, name) { if (kind == PageKind.Remote) PadStyle.Remote else PadStyle.of(name, vendorOf(name)) }
+    val slots = remember(style) { EditorSlots.of(style) }
+    var sheet by remember { mutableStateOf<Slot?>(null) }
+    var focusedId by remember { mutableStateOf<String?>(null) }
+    val requesters = remember(style) { slots.associate { it.id to FocusRequester() } }
+    val sheetFirst = remember { FocusRequester() }
+    var wasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
+        if (active) { kotlinx.coroutines.delay(16); runCatching { (requesters[EditorMemory.slot] ?: requesters.getValue(slots.first().id)).requestFocus() } }
+    }
+    // The sheet takes focus when it opens and gives it back to the callout it came from.
+    LaunchedEffect(sheet) {
+        if (sheet != null) { kotlinx.coroutines.delay(16); runCatching { sheetFirst.requestFocus() } }
+        else if (wasOpen) runCatching { requesters[focusedId]?.requestFocus() }
+        wasOpen = sheet != null
+    }
+    androidx.activity.compose.BackHandler(enabled = active && sheet != null) { sheet = null }
     val palette = LocalPalette.current
+    val open = sheet == null
     Box(
         Modifier.fillMaxSize().testTag("device-page")
             .onPreviewKeyEvent { e ->
                 val code = e.key.nativeKeyCode
                 val down = when (e.type) { KeyEventType.KeyDown -> true; KeyEventType.KeyUp -> false; else -> return@onPreviewKeyEvent false }
-                // Fire turns a pad button nothing consumed into a fallback key (L2/R2 -> DPAD_CENTER, Start -> Home): not a button the user pressed.
+                // Fire's fallback keys (L2 -> DPAD_CENTER and the like) are the system's guess, not a press.
                 if (e.nativeKeyEvent.flags and android.view.KeyEvent.FLAG_FALLBACK != 0) return@onPreviewKeyEvent false
                 if (kind == PageKind.Gamepad) pad = pad.key(code, down)
                 else RemoteKeys.idFor(code)?.let { id -> lit = if (down) lit + id else lit - id }
@@ -195,17 +232,62 @@ internal fun DevicePage(
         Row(Modifier.align(Alignment.TopCenter).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Connected:", style = Type.secondary, color = palette.secondary)
             DevPill(
-                if (names.size > 1) "$name  ⇅" else name.ifEmpty { "No device" }, Modifier.testTag("device-switch"),
+                if (names.size > 1) "$name  ⇅" else name.ifEmpty { "No device" }, Modifier.testTag("device-switch"), enabled = open,
                 onClick = { if (names.size > 1) selected = names[(names.indexOf(name) + 1) % names.size] },
             ) { fg -> Text(if (names.size > 1) "$name  ⇅" else name.ifEmpty { "No device" }, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        Row(Modifier.fillMaxSize().padding(top = 40.dp, bottom = 84.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            CapGrid(kind, name, slots, sel, cfg, pad, lit, Modifier.weight(1f).fillMaxHeight(), first, onFocus = { sel = it; EditorMemory.slot = it.id }, enter = { runCatching { paneFirst.requestFocus() } })
-            if (sel.isStick) StickPane(name, sel.id == "stick:right", pad, cfg, edit, Modifier.weight(1f).fillMaxHeight())
-            else ActionPane(kind, name, sel, cfg, edit, openApp, paneFirst, Modifier.weight(1f).fillMaxHeight())
+        val heldIds = slots.filter { s -> EditorSlots.litName(s).let { n -> n in pad.pressed || n in lit } }.map { it.id }.toSet()
+        val mappedIds = slots.filter { !it.isStick && isMapped(kind, name, it, cfg) }.map { it.id }.toSet()
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(top = 40.dp, bottom = 84.dp).graphicsLayer { alpha = if (open) 1f else 0.3f }) {
+            val ow = OutlineGeometry.size(style)
+            val ox = (maxWidth - ow.x.dp) / 2
+            val oy = ((maxHeight - ow.y.dp) / 2).coerceAtLeast(0.dp)
+            val anchors = OutlineGeometry.placed(style)
+            val leftIds = EditorSlots.left(style); val rightIds = EditorSlots.right(style)
+            // Row centres (dp from the top of this box): a controller's right column is dense, the left one spread to meet it.
+            val centres: Map<String, Float> = if (style == PadStyle.Remote) {
+                (leftIds + rightIds).associateWith { id -> oy.value + anchors.getValue(id).y }
+            } else {
+                val pitch = 33f
+                val leftPitch = pitch * (rightIds.size - 1) / (leftIds.size - 1)
+                leftIds.mapIndexed { i, id -> id to CALLOUT_H / 2 + i * leftPitch }.toMap() + rightIds.mapIndexed { i, id -> id to CALLOUT_H / 2 + i * pitch }.toMap()
+            }
+            val leftX = ox.value - CALLOUT_GAP - CALLOUT_W
+            val rightX = ox.value + ow.x + CALLOUT_GAP
+            val ink = palette.primary; val accent = palette.accent
+            Canvas(Modifier.fillMaxSize()) {
+                for (id in leftIds + rightIds) {
+                    val a = anchors[id] ?: continue
+                    val onLeft = id in leftIds
+                    val from = Offset(((if (onLeft) leftX + CALLOUT_W else rightX)).dp.toPx(), centres.getValue(id).dp.toPx())
+                    val to = Offset((ox.value + a.x).dp.toPx(), (oy.value + a.y).dp.toPx())
+                    val c = when { id in heldIds -> ink; id == focusedId -> Color.White; id in mappedIds -> accent.copy(alpha = 0.8f); else -> ink.copy(alpha = 0.28f) }
+                    drawLine(c, from, to, strokeWidth = (if (id == focusedId || id in heldIds) 2f else 1f).dp.toPx())
+                }
+            }
+            PadOutline(style, OutlineState(heldIds, mappedIds, focusedId, pad), ink, accent, Modifier.offset(ox, oy).size(ow.x.dp, ow.y.dp).testTag("pad-outline"))
+            for (slot in slots) {
+                val onLeft = slot.id in leftIds
+                val text = if (slot.isStick) cfg.sticksOf(name).let { s -> val t = if (slot.id == "stick:right") s.right else s.left; "Stick ${"%.2f".format(t.deadzoneX)} · ${"%.1f".format(t.sensX)}×" }
+                    else actionOf(kind, name, slot, cfg).let { if (it == RemoteAction.Default) "Default" else dev.glasslauncher.settings.actionLabel(it, context.packageManager) }
+                Callout(
+                    slot, style, text, slot.id in mappedIds, slot.id in heldIds, open, requesters.getValue(slot.id),
+                    Modifier.offset((if (onLeft) leftX else rightX).dp, (centres.getValue(slot.id) - CALLOUT_H / 2).dp),
+                    onFocus = { focusedId = slot.id; EditorMemory.slot = slot.id }, onClick = { sheet = slot },
+                )
+            }
         }
-        // Above Settings' 36 dp bottom fade, or the bar reads as disabled.
-        if (name.isNotEmpty()) ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
+        if (name.isNotEmpty()) {
+            // Above Settings' 36 dp bottom fade, or the bar reads as disabled.
+            ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, open, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
+        }
+        sheet?.let { s ->
+            Box(Modifier.fillMaxSize().testTag("picker-sheet"), contentAlignment = Alignment.Center) {
+                val panel = Modifier.width(420.dp).height(330.dp).shadow(24.dp, RoundedCornerShape(18.dp))
+                if (s.isStick) StickPane(name, s.id == "stick:right", pad, cfg, edit, sheetFirst, panel)
+                else ActionPane(kind, style, name, s, cfg, edit, { id -> sheet = null; openApp(id) }, sheetFirst, { sheet = null }, panel)
+            }
+        }
     }
 }
 
@@ -218,105 +300,87 @@ private fun actionOf(kind: PageKind, device: String, slot: Slot, cfg: LauncherCo
 
 /** Mapped: the user gave this button something. For a remote the app buttons always do something, so only a changed one counts. */
 private fun isMapped(kind: PageKind, device: String, slot: Slot, cfg: LauncherConfig): Boolean =
-    if (kind == PageKind.Gamepad) actionOf(kind, device, slot, cfg) != RemoteAction.Default
+    if (slot.isStick) false
+    else if (kind == PageKind.Gamepad) actionOf(kind, device, slot, cfg) != RemoteAction.Default
     else cfg.remoteButtons.containsKey(slot.id)
 
+/** One button's callout: its glyph and what it does (dim on the default, blue once mapped). Select opens the picker. */
 @Composable
-private fun CapGrid(
-    kind: PageKind, device: String, slots: List<Slot>, sel: Slot, cfg: LauncherConfig, pad: PadState, lit: Set<String>,
-    modifier: Modifier, first: FocusRequester, onFocus: (Slot) -> Unit, enter: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val pm = LocalContext.current.packageManager
-    val groups = slots.groupBy { it.group }
-    val tall = groups.filterKeys { it != "Sticks" }
-    Column(modifier.testTag("cap-grid"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            tall.entries.forEachIndexed { gi, (group, items) ->
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(group.uppercase(), style = Type.overline, color = palette.faint, modifier = Modifier.padding(start = 4.dp))
-                    items.forEachIndexed { i, s ->
-                        Cap(kind, device, s, s == sel, cfg, pm, EditorSlots.litName(s).let { n -> n in pad.pressed || n in lit }, if (gi == 0 && i == 0) Modifier.focusRequester(first) else Modifier, onFocus, enter)
-                    }
-                }
-            }
-        }
-        groups["Sticks"]?.let { sticks ->
-            Text("STICK TUNING", style = Type.overline, color = palette.faint, modifier = Modifier.padding(start = 4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                sticks.forEach { s -> Box(Modifier.weight(1f)) { Cap(kind, device, s, s == sel, cfg, pm, false, Modifier, onFocus, enter) } }
-                Spacer(Modifier.weight(if (tall.size > sticks.size) (tall.size - sticks.size).toFloat() else 0.001f))
-            }
-        }
-    }
-}
-
-/** One button as a key cap: its glyph, its name, and what it does (dim while it still does its default). */
-@Composable
-private fun Cap(
-    kind: PageKind, device: String, slot: Slot, current: Boolean, cfg: LauncherConfig, pm: android.content.pm.PackageManager, lit: Boolean,
-    modifier: Modifier, onFocus: (Slot) -> Unit, enter: () -> Unit,
+private fun Callout(
+    slot: Slot, style: PadStyle, text: String, mapped: Boolean, held: Boolean, enabled: Boolean, requester: FocusRequester,
+    modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
     val pressed = remember { booleanArrayOf(false) }
-    val mapped = !slot.isStick && isMapped(kind, device, slot, cfg)
-    val text = if (slot.isStick) cfg.sticksOf(device).let { s -> val t = if (slot.id == "stick:right") s.right else s.left; "${"%.2f".format(t.deadzoneX)} · ${"%.1f".format(t.sensX)}×" }
-        else actionOf(kind, device, slot, cfg).let { if (it == RemoteAction.Default) "Default" else dev.glasslauncher.settings.actionLabel(it, pm) }
     val fg = if (focused) palette.onFocusFill else palette.primary
     Row(
-        modifier.fillMaxWidth().height(40.dp)
-            .background(if (focused) palette.focusFill else if (lit) palette.primary.copy(alpha = 0.34f) else if (current) palette.primary.copy(alpha = 0.18f) else palette.rowFill, RoundedCornerShape(14.dp))
-            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus(slot) }
+        modifier.width(CALLOUT_W.dp).height(CALLOUT_H.dp)
+            .focusRequester(requester)
+            .background(if (focused) palette.focusFill else if (held) palette.primary.copy(alpha = 0.34f) else palette.rowFill, RoundedCornerShape(16.dp))
+            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() }
             .onPreviewKeyEvent { e ->
                 if (!isSelectKey(e.key.nativeKeyCode)) return@onPreviewKeyEvent false
                 if (e.type == KeyEventType.KeyDown) pressed[0] = true
-                if (e.type == KeyEventType.KeyUp && pressed[0]) { pressed[0] = false; enter() }
+                if (e.type == KeyEventType.KeyUp && pressed[0]) { pressed[0] = false; onClick() }
                 true
             }
             .semantics { role = Role.Button; contentDescription = "${slot.name}, $text" }
-            .testTag("cap:${slot.id}")
-            .focusable().padding(horizontal = 8.dp),
+            .testTag("callout:${slot.id}")
+            .focusProperties { canFocus = enabled }
+            .focusable().padding(start = 5.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Glyph(slot, mapped || slot.isStick, focused, 28.dp)
-        Column(Modifier.weight(1f)) {
-            Text(slot.name, style = Type.secondary, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(text, style = Type.caption, color = if (mapped) (if (focused) palette.onFocusFill else palette.accent) else fg.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+        GlyphChip(slot, style, 22.dp, mapped, focused)
+        Text(text, style = Type.secondary, color = if (mapped) (if (focused) palette.onFocusFill else palette.accent) else fg.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
     }
 }
 
-/** The button's picture: a circle for the face buttons and the remote's numbered keys, a capsule for the shoulders and system keys. A mapped one is filled. */
+/** The text on a button's glyph, or null when it is a drawn symbol or an icon. */
+private fun glyphText(slot: Slot, style: PadStyle): String? {
+    val ps = style == PadStyle.PlayStation
+    return when (slot.id) {
+        "pad:a", "pad:b", "pad:x", "pad:y" -> if (ps) null else slot.id.removePrefix("pad:").uppercase()
+        "pad:l1" -> if (ps) "L1" else "LB"; "pad:r1" -> if (ps) "R1" else "RB"; "pad:l2" -> if (ps) "L2" else "LT"; "pad:r2" -> if (ps) "R2" else "RT"
+        "pad:select" -> if (ps) "Create" else "View"; "pad:start" -> if (ps) "Options" else "Menu"
+        "pad:mode" -> if (ps) "PS" else null
+        "pad:thumbl" -> "L3"; "pad:thumbr" -> "R3"; "stick:left" -> "L"; "stick:right" -> "R"
+        "recents", "settings" -> null
+        else -> slot.id.removePrefix("app")
+    }
+}
+
+/** A button's picture: the PlayStation symbol or the letter on a circle for the face buttons, a capsule for the rest. A mapped one is filled. */
 @Composable
-private fun Glyph(slot: Slot, filled: Boolean, onFocusFill: Boolean, size: Dp) {
+private fun GlyphChip(slot: Slot, style: PadStyle, size: Dp, filled: Boolean, onFocusFill: Boolean) {
     val palette = LocalPalette.current
     val ink = if (onFocusFill) palette.onFocusFill else palette.primary
-    val round = slot.group == "Buttons" || slot.group == "Apps" || slot.group == "Sticks"
+    val round = slot.id in setOf("pad:a", "pad:b", "pad:x", "pad:y", "stick:left", "stick:right") || slot.id.startsWith("app")
     val shape = if (round) CircleShape else RoundedCornerShape(size / 3)
-    val label = when {
-        slot.id == "recents" || slot.id == "settings" || slot.id == "pad:mode" -> null
-        slot.id.startsWith("app") -> slot.id.removePrefix("app")
-        slot.isStick -> if (slot.id == "stick:right") "R" else "L"
-        else -> slot.name.let { n -> if (n.length <= 2) n else n.take(3).uppercase() }
-    }
+    val text = glyphText(slot, style)
     Box(
         Modifier.defaultMinSize(size, size).height(size)
             .background(if (filled) ink.copy(alpha = 0.22f) else Color.Transparent, shape)
-            .border(1.5.dp, ink.copy(alpha = if (filled) 0.8f else 0.4f), shape)
-            .padding(horizontal = if (round) 0.dp else 4.dp),
+            .border(1.5.dp, ink.copy(alpha = if (filled) 0.85f else 0.45f), shape)
+            .padding(horizontal = if (round) 0.dp else 5.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (label != null) Text(label, style = Type.caption.copy(fontSize = if (size > 40.dp) 20.sp else 12.sp, fontWeight = FontWeight.Bold), color = ink, maxLines = 1)
-        else Image(painterResource(when (slot.id) { "recents" -> R.drawable.ic_app_switcher; "pad:mode" -> R.drawable.ic_home; else -> R.drawable.ic_settings }), null, colorFilter = ColorFilter.tint(ink), modifier = Modifier.size(size * 0.6f))
+        when {
+            text != null -> Text(text, style = Type.caption.copy(fontSize = if (text.length > 3) (size.value * 0.42f).sp else (size.value * 0.5f).sp, fontWeight = FontWeight.Bold), color = ink, maxLines = 1)
+            slot.id.startsWith("pad:") && slot.id != "pad:mode" -> SymbolMark(slot.id.removePrefix("pad:"), size, ink)
+            else -> Image(
+                painterResource(when (slot.id) { "recents" -> R.drawable.ic_app_switcher; "pad:mode" -> R.drawable.ic_home; else -> R.drawable.ic_settings }),
+                null, colorFilter = ColorFilter.tint(ink), modifier = Modifier.size(size * 0.6f),
+            )
+        }
     }
 }
 
 /** The focused button's action picker: what it does now, and every choice; Select on one sets it. */
 @Composable
 private fun ActionPane(
-    kind: PageKind, device: String, slot: Slot, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit,
-    openApp: (String) -> Unit, firstRow: FocusRequester, modifier: Modifier,
+    kind: PageKind, style: PadStyle, device: String, slot: Slot, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    openApp: (String) -> Unit, firstRow: FocusRequester, onDone: () -> Unit, modifier: Modifier,
 ) {
     val palette = LocalPalette.current
     val ctx = LocalContext.current
@@ -328,9 +392,9 @@ private fun ActionPane(
     LaunchedEffect(Unit) { dev.glasslauncher.addons.AddonHost.loadActions(ctx, dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) }
     fun set(a: RemoteAction) = edit { it.copy(remoteButtons = it.remoteButtons + (key to a.key)) }
     fun label(a: RemoteAction) = if (a == RemoteAction.Default) "Default" else dev.glasslauncher.settings.actionLabel(a, pm)
-    Column(modifier.background(palette.rowFill, RoundedCornerShape(18.dp)).padding(10.dp).testTag("action-pane"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.background((if (palette.light) Color(0xFFF4F5F8) else Color(0xFF23252C)), RoundedCornerShape(18.dp)).padding(12.dp).testTag("action-pane"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Glyph(slot, isMapped(kind, device, slot, cfg), false, 40.dp)
+            GlyphChip(slot, style, 36.dp, isMapped(kind, device, slot, cfg), false)
             Column {
                 Text(slot.name, style = Type.heading, color = palette.primary, maxLines = 1)
                 Text("Does: ${label(current)}", style = Type.secondary, color = palette.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("action-current"))
@@ -339,10 +403,10 @@ private fun ActionPane(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val options = listOf(dflt, RemoteAction.TvSettings, RemoteAction.ControlCenter, RemoteAction.AppSwitcher, RemoteAction.Home, RemoteAction.Nothing).distinct()
             options.forEachIndexed { i, a ->
-                Option(if (a == dflt && a != RemoteAction.Default) "${label(a)} (Default)" else label(a), a == current, if (i == 0) Modifier.focusRequester(firstRow) else Modifier, "option:${a.key}") { set(a) }
+                Option(if (a == dflt && a != RemoteAction.Default) "${label(a)} (Default)" else label(a), a == current, if (i == 0) Modifier.focusRequester(firstRow) else Modifier, "option:${a.key}") { set(a); onDone() }
             }
             dev.glasslauncher.addons.AddonActionPicker.entries(dev.glasslauncher.addons.AddonHost.actionLists, current.key).forEach { e ->
-                Option(e.label, e.key == current.key, Modifier, "option:${e.key}") { if (e.available) set(RemoteAction.parse(e.key)) }
+                Option(e.label, e.key == current.key, Modifier, "option:${e.key}") { if (e.available) { set(RemoteAction.parse(e.key)); onDone() } }
             }
             Option("Open Another App…" + ((current as? RemoteAction.OpenApp)?.takeIf { it != dflt }?.let { " (${label(it)})" } ?: ""), false, Modifier, "option:app") { openApp(key) }
         }
@@ -362,15 +426,15 @@ private fun Option(text: String, ticked: Boolean, modifier: Modifier, tag: Strin
 
 /** A stick's dead zone and sensitivity: the live circle, the X and Y sliders and Reset. */
 @Composable
-private fun StickPane(controller: String, right: Boolean, pad: PadState, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit, modifier: Modifier) {
+private fun StickPane(controller: String, right: Boolean, pad: PadState, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit, first: FocusRequester, modifier: Modifier) {
     val palette = LocalPalette.current
     var tab by remember { mutableStateOf(0) }
     val tuning = cfg.sticksOf(controller).let { if (right) it.right else it.left }
     val ink = palette.primary
-    Column(modifier.background(palette.rowFill, RoundedCornerShape(18.dp)).padding(10.dp).testTag("stick-panel"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.background((if (palette.light) Color(0xFFF4F5F8) else Color(0xFF23252C)), RoundedCornerShape(18.dp)).padding(12.dp).testTag("stick-panel"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(if (right) "Right Stick" else "Left Stick", style = Type.heading, color = ink, maxLines = 1)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Deadzone", "Sensitivity").forEachIndexed { i, t -> DevPill(t, Modifier.testTag("stick-tab:$t"), selected = tab == i, onClick = { tab = i }) { fg -> Text(t, style = Type.secondary, color = fg, maxLines = 1) } }
+            listOf("Deadzone", "Sensitivity").forEachIndexed { i, t -> DevPill(t, (if (i == 0) Modifier.focusRequester(first) else Modifier).testTag("stick-tab:$t"), selected = tab == i, onClick = { tab = i }) { fg -> Text(t, style = Type.secondary, color = fg, maxLines = 1) } }
         }
         // The live circle: the dead zone as its inner ring, the dot following the stick (scaled by sensitivity on the second tab).
         val sx = if (right) pad.rightX else pad.leftX; val sy = if (right) pad.rightY else pad.leftY
@@ -404,7 +468,7 @@ private fun StickPane(controller: String, right: Boolean, pad: PadState, cfg: La
  * after loading reads "(changed)" until saved.
  */
 @Composable
-private fun ProfileBar(kind: ProfileKind, device: String, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit, modifier: Modifier) {
+private fun ProfileBar(kind: ProfileKind, device: String, cfg: LauncherConfig, edit: ((LauncherConfig) -> LauncherConfig) -> Unit, enabled: Boolean, modifier: Modifier) {
     val palette = LocalPalette.current
     val profiles = MappingProfiles.of(cfg, kind)
     val active = cfg.activeProfile[device]?.let { n -> profiles.firstOrNull { it.name == n } }
@@ -432,12 +496,12 @@ private fun ProfileBar(kind: ProfileKind, device: String, cfg: LauncherConfig, e
             }
         } else {
             val next = if (profiles.isEmpty()) null else profiles[((profiles.indexOfFirst { it.name == active?.name }) + 1) % profiles.size]
-            DevPill(label, Modifier.testTag("profile-pick"), onClick = { next?.let { p -> edit { c -> MappingProfiles.load(c, kind, device, p) } } }) { fg ->
+            DevPill(label, Modifier.testTag("profile-pick"), enabled = enabled, onClick = { next?.let { p -> edit { c -> MappingProfiles.load(c, kind, device, p) } } }) { fg ->
                 Text(if (profiles.size > 1) "$label  ⇅" else label, style = Type.body, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (dirty) DevPill("Save", Modifier.testTag("profile-save"), onClick = { edit { c -> MappingProfiles.save(c, kind, device, active!!.name) ?: c } }) { fg -> Text("Save", style = Type.body, color = fg, maxLines = 1) }
-            DevPill("Save As…", Modifier.focusRequester(saveAs).testTag("profile-saveas"), onClick = { naming = true }) { fg -> Text("Save As…", style = Type.body, color = fg, maxLines = 1) }
-            if (active != null) DevPill("Delete", Modifier.testTag("profile-delete"), onClick = { edit { c -> MappingProfiles.delete(c, kind, active.name) } }) { fg -> Text("Delete", style = Type.body, color = fg, maxLines = 1) }
+            if (dirty) DevPill("Save", Modifier.testTag("profile-save"), enabled = enabled, onClick = { edit { c -> MappingProfiles.save(c, kind, device, active!!.name) ?: c } }) { fg -> Text("Save", style = Type.body, color = fg, maxLines = 1) }
+            DevPill("Save As…", Modifier.focusRequester(saveAs).testTag("profile-saveas"), enabled = enabled, onClick = { naming = true }) { fg -> Text("Save As…", style = Type.body, color = fg, maxLines = 1) }
+            if (active != null) DevPill("Delete", Modifier.testTag("profile-delete"), enabled = enabled, onClick = { edit { c -> MappingProfiles.delete(c, kind, active.name) } }) { fg -> Text("Delete", style = Type.body, color = fg, maxLines = 1) }
         }
     }
 }
@@ -481,7 +545,7 @@ private fun StickSlider(label: String, value: Float, lo: Float, hi: Float, modif
 
 /** A focusable capsule: translucent at rest, white (dark text) when focused; [selected] lights it lightly. */
 @Composable
-private fun DevPill(text: String, modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit, content: @Composable (Color) -> Unit) {
+private fun DevPill(text: String, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true, onClick: () -> Unit, content: @Composable (Color) -> Unit) {
     val ink = LocalPalette.current.primary
     var focused by remember { mutableStateOf(false) }
     val pressed = remember { booleanArrayOf(false) }
@@ -496,8 +560,10 @@ private fun DevPill(text: String, modifier: Modifier = Modifier, selected: Boole
                 true
             }
             .semantics { role = Role.Button; contentDescription = text }
+            .focusProperties { canFocus = enabled }
             .focusable().padding(horizontal = 14.dp),
         contentAlignment = Alignment.CenterStart,
     ) { content(if (focused) Color.Black else ink) }
 }
+
 

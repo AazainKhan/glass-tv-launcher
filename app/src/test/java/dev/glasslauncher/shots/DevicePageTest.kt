@@ -30,6 +30,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.home.DevicePage
 import dev.glasslauncher.home.EditorSlots
+import dev.glasslauncher.home.PadStyle
 import dev.glasslauncher.home.PadLabels
 import dev.glasslauncher.home.PageKind
 import dev.glasslauncher.home.sticksOf
@@ -69,46 +70,64 @@ class DevicePageTest {
     }
 
     private val xbox = "Xbox Wireless Controller"
+    private val ds = "DualSense Wireless Controller"
 
-    @Test fun theEditorListsEveryMappableButtonOnce() {
-        val pad = EditorSlots.of(PageKind.Gamepad).filterNot { it.isStick }.map { it.id }
-        assertEquals(RemoteButtons.pad.map { it.id }.sorted(), pad.sorted())
-        assertEquals(RemoteButtons.all.map { it.id }.sorted(), EditorSlots.of(PageKind.Remote).map { it.id }.sorted())
+    private fun focus(tag: String) { compose.onNodeWithTag(tag).performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle() }
+
+    @Test fun theStyleFollowsTheVendorThenTheName() {
+        assertEquals(PadStyle.PlayStation, PadStyle.of("Anything", PadStyle.VENDOR_SONY))
+        assertEquals(PadStyle.Xbox, PadStyle.of("Anything", PadStyle.VENDOR_MICROSOFT))
+        assertEquals(PadStyle.PlayStation, PadStyle.of(ds, null))
+        assertEquals(PadStyle.Xbox, PadStyle.of(xbox, null))
+        assertEquals(PadStyle.Generic, PadStyle.of("Pad A", null))
     }
 
-    @Test fun theControllerPageLaysOutEveryCapOnScreenWithoutOverlapAndTheGridLeftOfThePane() {
+    @Test fun theEditorListsEveryMappableButtonOnceWithItsOwnWords() {
+        for (style in listOf(PadStyle.PlayStation, PadStyle.Xbox, PadStyle.Generic)) {
+            val pad = EditorSlots.of(style).filterNot { it.isStick }.map { it.id }
+            assertEquals(RemoteButtons.pad.map { it.id }.sorted(), pad.sorted())
+        }
+        assertEquals(RemoteButtons.all.map { it.id }.sorted(), EditorSlots.of(PadStyle.Remote).map { it.id }.sorted())
+        assertEquals("Cross", EditorSlots.of(PadStyle.PlayStation).first { it.id == "pad:a" }.name)
+        assertEquals("A", EditorSlots.of(PadStyle.Xbox).first { it.id == "pad:a" }.name)
+    }
+
+    @Test fun theControllerPageLaysOutEveryCalloutOnScreenWithoutOverlapAndTheDrawingBetweenTheColumns() {
         show(PageKind.Gamepad, xbox)
         val screen = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        val caps = EditorSlots.of(PageKind.Gamepad).map { it.id to bounds("cap:${it.id}") }
-        for ((n, b) in caps) assertTrue("$n inside the screen: $b", b.left >= screen.left && b.right <= screen.right && b.top >= screen.top && b.bottom <= screen.bottom)
-        for (i in caps.indices) for (j in i + 1 until caps.size) assertTrue("${caps[i].first} overlaps ${caps[j].first}", !caps[i].second.overlaps(caps[j].second))
-        val pane = bounds("action-pane")
-        assertTrue("the grid is left of the pane", caps.all { it.second.right <= pane.left })
-        assertTrue("the profile bar clears the caps", caps.none { it.second.overlaps(bounds("profile-saveas")) })
+        val callouts = EditorSlots.of(PadStyle.Xbox).map { it.id to bounds("callout:${it.id}") }
+        for ((n, b) in callouts) assertTrue("$n inside the screen: $b", b.left >= screen.left && b.right <= screen.right && b.top >= screen.top && b.bottom <= screen.bottom)
+        for (i in callouts.indices) for (j in i + 1 until callouts.size) assertTrue("${callouts[i].first} overlaps ${callouts[j].first}", !callouts[i].second.overlaps(callouts[j].second))
+        val outline = bounds("pad-outline")
+        val left = EditorSlots.left(PadStyle.Xbox); val right = EditorSlots.right(PadStyle.Xbox)
+        assertTrue("the left callouts are left of the drawing", callouts.filter { it.first in left }.all { it.second.right <= outline.left })
+        assertTrue("the right callouts are right of the drawing", callouts.filter { it.first in right }.all { it.second.left >= outline.right })
+        assertTrue("the profile bar clears the callouts", callouts.none { it.second.overlaps(bounds("profile-saveas")) })
         assertTrue(exists("device-switch"))
     }
 
-    @Test fun theFocusedCapsActionIsShownAndAChoiceSetsItForThisControllerOnly() {
+    @Test fun selectOnACalloutOpensThePickerAndAChoiceSetsItForThisControllerOnlyAndCloses() {
         show(PageKind.Gamepad, xbox)
-        compose.onNodeWithTag("cap:pad:start").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        press("callout:pad:start")
+        compose.onNodeWithTag("option:default").assertIsFocused()
         compose.onNodeWithTag("action-current").assertTextEquals("Does: Default")
         press("option:glass:home")
         assertEquals("glass:home", cfg.remoteButtons[RemoteButtons.padKey(xbox, "start")])
         assertNull("another controller is untouched", cfg.remoteButtons[RemoteButtons.padKey("Pad B", "start")])
-        compose.onNodeWithTag("action-current").assertTextEquals("Does: Home")
+        assertTrue("the sheet closed", !exists("picker-sheet"))
+        compose.onNodeWithTag("callout:pad:start").assertIsFocused()
     }
 
-    @Test fun selectOnACapStepsIntoThePickerAndOpenAnotherAppAsksForTheButtonsKey() {
+    @Test fun openAnotherAppAsksForTheButtonsKey() {
         show(PageKind.Gamepad, xbox)
-        press("cap:pad:b")
-        compose.onNodeWithTag("option:default").assertIsFocused()
+        press("callout:pad:b")
         press("option:app")
         assertEquals(listOf(RemoteButtons.padKey(xbox, "b")), opened)
     }
 
-    @Test fun theSticksHaveATuningPaneWithSlidersThatMoveWithTheDpadAndReset() {
+    @Test fun theSticksHaveATuningSheetWithSlidersThatMoveWithTheDpadAndReset() {
         show(PageKind.Gamepad, "Pad A")
-        compose.onNodeWithTag("cap:stick:left").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        press("callout:stick:left")
         compose.onNodeWithTag("stick-slider:x").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onRoot().performKeyInput { pressKey(Key.DirectionRight); pressKey(Key.DirectionRight) }
         compose.waitForIdle()
@@ -120,7 +139,7 @@ class DevicePageTest {
 
     @Test fun theRightSticksSensitivityHasItsOwnValues() {
         show(PageKind.Gamepad, "Pad A")
-        compose.onNodeWithTag("cap:stick:right").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        press("callout:stick:right")
         press("stick-tab:Sensitivity")
         compose.onNodeWithTag("stick-slider:y").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
@@ -130,29 +149,44 @@ class DevicePageTest {
         assertEquals("the left stick is untouched", 1f, t.left.sensY, 0.001f)
     }
 
-    @Test fun theRemotePageHasACapForEveryButtonAndAChoiceSetsItsSharedKey() {
+    @Test fun theRemotePageHasACalloutForEveryButtonAndAChoiceSetsItsSharedKey() {
         show(PageKind.Remote, "Amazon Fire TV Remote")
-        for (b in RemoteButtons.all) assertTrue("${b.id} has a cap", exists("cap:${b.id}"))
-        compose.onNodeWithTag("cap:app1").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        for (b in RemoteButtons.all) assertTrue("${b.id} has a callout", exists("callout:${b.id}"))
+        press("callout:app1")
         press("option:none")
         assertEquals("none", cfg.remoteButtons["app1"])
     }
 
-    @Test fun goldenGamepad() {
-        show(PageKind.Gamepad, xbox)
-        cfg = cfg.copy(remoteButtons = mapOf(RemoteButtons.padKey(xbox, "a") to "glass:home", RemoteButtons.padKey(xbox, "y") to "glass:switcher"))
+    private fun mapSome(device: String) {
+        cfg = cfg.copy(remoteButtons = mapOf(RemoteButtons.padKey(device, "a") to "glass:home", RemoteButtons.padKey(device, "y") to "glass:switcher"))
         compose.waitForIdle()
+    }
+
+    @Test fun goldenXbox() {
+        show(PageKind.Gamepad, xbox); mapSome(xbox); focus("callout:pad:b")
         compose.onRoot().captureRoboImage(shot("device-gamepad"))
     }
 
-    @Test fun goldenGamepadSticks() {
+    @Test fun goldenPlayStation() {
+        show(PageKind.Gamepad, ds); mapSome(ds); focus("callout:pad:a")
+        compose.onRoot().captureRoboImage(shot("device-gamepad-ps"))
+    }
+
+    @Test fun goldenPickerSheet() {
+        show(PageKind.Gamepad, xbox); mapSome(xbox)
+        press("callout:pad:a")
+        compose.onRoot().captureRoboImage(shot("device-gamepad-picker"))
+    }
+
+    @Test fun goldenSticksSheet() {
         show(PageKind.Gamepad, xbox)
-        compose.onNodeWithTag("cap:stick:left").performSemanticsAction(SemanticsActions.RequestFocus); compose.waitForIdle()
+        press("callout:stick:left")
         compose.onRoot().captureRoboImage(shot("device-gamepad-sticks"))
     }
 
     @Test fun goldenRemote() {
         show(PageKind.Remote, "Amazon Fire TV Remote")
+        focus("callout:app1")
         compose.onRoot().captureRoboImage(shot("device-remote"))
     }
 
