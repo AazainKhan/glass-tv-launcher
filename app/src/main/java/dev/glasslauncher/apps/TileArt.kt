@@ -66,6 +66,24 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
      * banner rendered straight at [w]×[h] (vector banners stay crisp at any size), cropped to fill; without a
      * banner, the launcher icon large and centred on its own edge colour. Never a screenshot.
      */
+    /**
+     * [heroArt] from a disk cache (P257): loading another app's banner through PackageManager and laying out the logo
+     * took ~350 ms of every app-hero bake. Keyed by package, install time and size; an updated app writes a new file.
+     */
+    fun cachedHeroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
+        val dir = File(contextCacheDir, "heroes-v1").apply { mkdirs() }
+        val file = File(dir, "${app.packageName}-${app.updated}-${w}x$h.png")
+        if (file.isFile) runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()?.let { return it }
+        val art = heroArt(app, w, h) ?: return null
+        runCatching {
+            dir.listFiles { f -> f.name.startsWith("${app.packageName}-") }?.forEach { it.delete() }
+            val tmp = File(dir, file.name + ".tmp")
+            tmp.outputStream().use { art.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            tmp.renameTo(file)
+        }
+        return art
+    }
+
     fun heroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
         // The logo art at a sharp size and its own aspect (vector banners crisp), then laid out tvOS's way.
         val banner = hiResBanner(app) ?: runCatching { pm.getActivityBanner(app.component) }.getOrNull()

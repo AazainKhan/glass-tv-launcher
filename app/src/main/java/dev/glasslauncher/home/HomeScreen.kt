@@ -2003,7 +2003,7 @@ private suspend fun appHeroBackdrop(
     graph: dev.glasslauncher.GlassApp, layout: HomeLayout, pkg: String, dark: Boolean,
 ): dev.glasslauncher.glass.Backdrop? = kotlinx.coroutines.withContext(dev.glasslauncher.glass.WallpaperLoader.BakeDispatcher) {
     val app = layout.installed.firstOrNull { it.packageName == pkg } ?: return@withContext null
-    val art = graph.tileArt.heroArt(app) ?: return@withContext null
+    val art = graph.tileArt.cachedHeroArt(app) ?: return@withContext null
     runCatching { graph.wallpapers.fromHeroArt(art, light = !dark) }.getOrNull().also { art.recycle() }
 }
 
