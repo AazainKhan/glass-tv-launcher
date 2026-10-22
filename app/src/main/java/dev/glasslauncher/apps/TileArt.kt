@@ -73,16 +73,24 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
     fun cachedHeroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
         val dir = File(contextCacheDir, "heroes-v1").apply { mkdirs() }
         val file = File(dir, "${app.packageName}-${app.updated}-${w}x$h.png")
-        if (file.isFile) runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()?.let { return it }
+        if (file.isFile) decodeHero(file)?.let { file.setLastModified(System.currentTimeMillis()); return it }
         val art = heroArt(app, w, h) ?: return null
         runCatching {
             dir.listFiles { f -> f.name.startsWith("${app.packageName}-") }?.forEach { it.delete() }
             val tmp = File(dir, file.name + ".tmp")
             tmp.outputStream().use { art.compress(Bitmap.CompressFormat.PNG, 100, it) }
             tmp.renameTo(file)
+            // Bounded: the least recently used heroes go once the folder passes HERO_CACHE_BYTES (the system also clears cacheDir when storage is low).
+            dir.listFiles()?.sortedByDescending { it.lastModified() }?.let { files ->
+                var total = 0L
+                files.forEach { f -> total += f.length(); if (total > HERO_CACHE_BYTES) f.delete() }
+            }
         }
         return art
     }
+
+    /** The one decode of a cached hero (a faster decoder can replace it here). */
+    private fun decodeHero(file: File): Bitmap? = runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()
 
     fun heroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
         // The logo art at a sharp size and its own aspect (vector banners crisp), then laid out tvOS's way.
@@ -467,3 +475,5 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
 
     }
 }
+
+private const val HERO_CACHE_BYTES = 20L * 1024 * 1024
