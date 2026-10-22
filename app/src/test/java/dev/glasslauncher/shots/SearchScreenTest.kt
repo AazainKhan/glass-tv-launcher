@@ -90,6 +90,7 @@ class SearchScreenTest {
     @Test fun searchHasNoKeyboardOfItsOwnAndTypingFiltersTheResultsLive() {
         show()
         assertTrue("Search opens on its row, focused", exists("search-row") && !exists("search-field"))
+        assertTrue("no type tabs before there are results", !exists("search-filter"))
         // P230: no custom key grid anywhere: no keyboard container, no key, no page key, no clear key.
         val customKeys = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("a Glass keyboard key") { n ->
             val tag = n.config.getOrNull(SemanticsProperties.TestTag).orEmpty()

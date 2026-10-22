@@ -116,7 +116,10 @@ fun SearchScreen(
             if (returnToRow) { returnToRow = false; androidx.compose.runtime.withFrameNanos { }; runCatching { row.requestFocus() } }
         }
     }
-    val shown = SearchIndex.filter(results, filter)
+    // Tabs only once there are results to sort (user, 2026-10-21), and only the types the results have; a tab whose results went away falls back to Top.
+    val tabs = if (query.isBlank()) emptyList() else SearchIndex.available(results)
+    val active = if (filter in tabs) filter else SearchIndex.Filter.Top
+    val shown = SearchIndex.filter(results, active)
     val ink = if (palette.light) Color(0xFF14161C) else Color.White
     Column(Modifier.fillMaxSize().padding(horizontal = 48.dp).padding(top = 26.dp).testTag("search")) {
         // The query, in the same field as every text input in Glass: a magnifying glass, then the field while typing or a row to open it.
@@ -132,7 +135,6 @@ fun SearchScreen(
                     query.ifEmpty { "Search" }, style = Type.heading, color = if (query.isEmpty()) pillInk(focused, ink).copy(alpha = 0.45f) else pillInk(focused, ink),
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).testTag("search-query"),
                 )
-                Text("Edit", style = Type.secondary, color = pillInk(focused, ink).copy(alpha = 0.6f))
             }
         }
         Spacer(10)
@@ -145,17 +147,26 @@ fun SearchScreen(
             } }
         } else Spacer(30)
         Spacer(8)
-        // The type filter, centered.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("search-filter")) {
-                SearchIndex.Filter.entries.forEach { f ->
-                    Pill(ink, selected = filter == f, label = f.label, onClick = { filter = f }, modifier = Modifier.testTag("search-filter:${f.name}")) { focused ->
-                        Text(f.label, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = pillInk(focused || filter == f, ink), maxLines = 1)
+        // The type filter, centered; it grows in with the first results instead of popping in (continuity rule).
+        androidx.compose.animation.AnimatedVisibility(tabs.isNotEmpty(), Modifier.fillMaxWidth(),
+            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()) {
+            // The last non-empty set, so the row keeps its pills while it shrinks away.
+            var lastTabs by remember { mutableStateOf(tabs) }
+            if (tabs.isNotEmpty()) lastTabs = tabs
+            Column {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("search-filter")) {
+                        lastTabs.forEach { f ->
+                            Pill(ink, selected = active == f, label = f.label, onClick = { filter = f }, modifier = Modifier.testTag("search-filter:${f.name}")) { focused ->
+                                Text(f.label, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = pillInk(focused || active == f, ink), maxLines = 1)
+                            }
+                        }
                     }
                 }
+                Spacer(12)
             }
         }
-        Spacer(12)
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
                 query.isBlank() -> RecentShelf(recent, ink, onPick = { model.setQuery(it) }, onRemove = { q -> recent = RecentSearches.remove(recent, q).also { RecentSearches.write(context, it) } },

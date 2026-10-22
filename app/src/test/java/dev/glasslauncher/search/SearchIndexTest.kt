@@ -96,6 +96,13 @@ class SearchIndexTest {
         assertEquals(listOf(SearchKind.Music), SearchIndex.filter(hits, SearchIndex.Filter.Music).map { it.kind })
     }
 
+    @Test fun tabsShowOnlyOnceATypeHasResults() {
+        assertEquals("no results, no tabs", emptyList<SearchIndex.Filter>(), SearchIndex.available(emptyList()))
+        assertEquals("apps alone, no tabs", emptyList<SearchIndex.Filter>(), SearchIndex.available(SearchIndex.apps("x", listOf(app("X Game")))))
+        val hits = SearchIndex.music("x y", setOf("com.spotify.tv.android")) + SearchIndex.apps("x", listOf(app("X Game")))
+        assertEquals(listOf(SearchIndex.Filter.Top, SearchIndex.Filter.Music), SearchIndex.available(hits))
+    }
+
     @Test fun everyKindOfResultNamesItsSource() {
         val apps = SearchIndex.apps("plex", listOf(app("Plex")))
         val remote = SearchIndex.remote("matrix", listOf(item("The Matrix", "tt1", year = 1999, type = "Movie")))

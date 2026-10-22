@@ -110,6 +110,12 @@ object SearchIndex {
         Filter.Music -> hits.filter { it.kind == SearchKind.Music }
     }
 
+    /** The tabs worth showing for these results: none until a type tab would have something in it, then Top Results and each type that does. */
+    fun available(hits: List<SearchHit>): List<Filter> {
+        val types = Filter.entries.filter { it != Filter.Top && filter(hits, it).isNotEmpty() }
+        return if (types.isEmpty()) emptyList() else listOf(Filter.Top) + types
+    }
+
     /** Completion pills for the typed text: the names of the best results that begin with it (or have a word that does), at most [n]. */
     fun suggestions(query: String, hits: List<SearchHit>, n: Int = 5): List<String> {
         val q = normTitle(query)
