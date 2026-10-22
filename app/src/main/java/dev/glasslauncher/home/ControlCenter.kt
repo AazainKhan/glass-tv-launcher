@@ -105,7 +105,7 @@ private val Blue = Color(0xFF0091FF)
  * Tile sizes grow with the text size (Settings › Display & Text), so labels keep fitting instead of
  * being cut off: at Larger the Wi-Fi network name was truncated in a fixed 128 dp pill.
  */
-internal class CcSizes(k: Float) {
+internal class CcSizes(private val k: Float) {
     /**
      * tvOS 27's Control Center is one grid of square cells: u is a cell, gap the one space between cells.
      * Circles are 1×1, pills 2×1 (as tall as a circle), the big tile 2×2 and square, wide rows 4×1, and the
@@ -141,7 +141,12 @@ internal class CcSizes(k: Float) {
      * (5 dp) is always under the 8 dp gap and a focused control never touches its neighbours (P138: a x1.21 on a 104 dp pill grew 11 dp a side).
      */
     val focusGrowth = (10 * k).dp
-    fun focusScale(width: Dp): Float = 1f + focusGrowth.value / width.value
+    /**
+     * The big 2x2 tile (the one focused on every open) grows 6 dp in all, 3 a side (P273): at the 10 dp the small controls get it left 3 dp of
+     * the 16 px gap to the Sleep pill below it and read as touching it. Larger items lift less, as tvOS's do.
+     */
+    val bigFocusGrowth = (6 * k).dp
+    fun focusScale(width: Dp, height: Dp = width): Float = 1f + (if (height.value >= 90f * k) bigFocusGrowth else focusGrowth).value / width.value
 }
 
 private val LocalCcPageIconSize = androidx.compose.runtime.staticCompositionLocalOf { CC_PAGE_ICON }
@@ -1830,7 +1835,7 @@ internal fun CcTile(
         // tvOS's focus is a clear lift with a shadow under it (F06): x1.21 (SK: 96 -> 116 px, F27's 2x2 about +21%, P138 F1).
         // A wide tile grows 11 dp each side, past the 8 dp gap, so the grid raises the focused tile above its neighbours
         // (zIndex) and keeps 12 dp of room above the first row inside the scroll viewport.
-        focusedScale = LocalCcSizes.current.focusScale(width),
+        focusedScale = LocalCcSizes.current.focusScale(width, height),
         shadow = true,
         shapedShadow = true,
         // P188: no wide focus shadow; it darkened the tiles around the focused one, which read as tiles changing colour.
