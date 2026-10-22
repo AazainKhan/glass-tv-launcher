@@ -45,6 +45,7 @@ pub const GL_TEXTURE_2D: u32 = 0x0DE1;
 pub const GL_TEXTURE0: u32 = 0x84C0;
 pub const GL_TEXTURE1: u32 = 0x84C1;
 pub const GL_RGBA8: u32 = 0x8058;
+pub const GL_COMPRESSED_RGB8_ETC2: u32 = 0x9274;
 pub const GL_RGBA: u32 = 0x1908;
 pub const GL_UNSIGNED_BYTE: u32 = 0x1401;
 pub const GL_TEXTURE_MAX_LEVEL: u32 = 0x813D;
@@ -55,6 +56,7 @@ pub const GL_TEXTURE_WRAP_T: u32 = 0x2803;
 pub const GL_CLAMP_TO_EDGE: i32 = 0x812F;
 pub const GL_LINEAR: i32 = 0x2601;
 pub const GL_LINEAR_MIPMAP_LINEAR: i32 = 0x2703;
+pub const GL_LINEAR_MIPMAP_NEAREST: i32 = 0x2701;
 pub const GL_BLEND: u32 = 0x0BE2;
 pub const GL_SCISSOR_TEST: u32 = 0x0C11;
 pub const GL_ONE: u32 = 1;
@@ -111,6 +113,8 @@ extern "C" {
     pub fn glBlendFunc(s: u32, d: u32);
     pub fn glDrawArrays(mode: u32, first: i32, count: i32);
     pub fn glGetString(name: u32) -> *const u8;
+    pub fn glGetError() -> u32;
+    pub fn glCompressedTexSubImage2D(target: u32, level: i32, x: i32, y: i32, w: i32, h: i32, fmt: u32, size: i32, data: *const c_void);
 }
 
 #[link(name = "android")]

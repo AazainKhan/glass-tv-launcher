@@ -1,13 +1,14 @@
-//! P239 spike: Home's backdrop, tray glass, tiles and focus shadow drawn in ONE GLES 3 render pass, from Rust.
+//! P239 spike: Home (dock + app grid) drawn in ONE GLES 3 render pass, from Rust.
 //! Spike code (not for merge): std, hand-declared EGL/GLES/NDK FFI, no crates. Kotlin drives it through
-//! `dev.glasslauncher.p239spike.Native`: textures once, then per frame only the animated values (tile scales,
-//! crossfade, blur level). Per frame it logs to logcat (tag P239) when the GPU finished, for the A/B.
-#![allow(non_snake_case, clippy::missing_safety_doc)]
+//! `dev.glasslauncher.p239spike.Native`: textures once, then per frame only the animated values (scroll, scroll blur,
+//! cross-fade, the two animating tiles' scales). Per frame it logs to logcat (tag P239) when the GPU finished.
+#![allow(non_snake_case, clippy::missing_safety_doc, clippy::too_many_arguments)]
 
 use std::ffi::{c_char, c_void, CString};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
 
+mod etc2;
 mod ffi;
 use ffi::*;
 
@@ -21,28 +22,57 @@ const INSET: f32 = 90.0;
 const GUTTER: f32 = 48.0;
 const TRAY: [f32; 4] = [44.0, 768.0, 1832.0, 230.0];
 const TRAY_R: f32 = 60.0;
-const TILE_Y: f32 = 768.0 + 40.0 - 32.0; // pad, raised for the focus label (Metrics.trayLabel)
-/// How far the focus shadow reaches past a tile (px), for damage rects.
+const DOCK_Y: f32 = 776.0;
+/// First grid row's top (tray bottom + trayToGrid 72 px) and the row pitch (tile + labelSpace 110 px).
+const GRID_Y: f32 = 1070.0;
+const ROW: f32 = 260.0;
+pub const SLOTS: usize = 30; // 6 dock tiles, then 4 grid rows of 6
 const SHADOW: f32 = 60.0;
+/// Label atlas: one 200x40 cell per slot, 10 per row, 2000x120 px.
+const CELL: [f32; 2] = [200.0, 40.0];
 
-fn tile_rect(i: usize, scale: f32) -> [f32; 4] {
-    let x = INSET + i as f32 * (TILE_W + GUTTER);
+fn tile_rect(slot: usize, scale: f32, scroll: f32) -> [f32; 4] {
+    let (col, y) = if slot < 6 { (slot, DOCK_Y) } else { ((slot - 6) % 6, GRID_Y + ((slot - 6) / 6) as f32 * ROW) };
+    let x = INSET + col as f32 * (TILE_W + GUTTER);
     let (w, h) = (TILE_W * scale, TILE_H * scale);
-    [x + (TILE_W - w) / 2.0, TILE_Y + (TILE_H - h) / 2.0, w, h]
+    [x + (TILE_W - w) / 2.0, y - scroll + (TILE_H - h) / 2.0, w, h]
+}
+
+/// Where a grid tile's label sits (and its marker bar, at the same y).
+fn label_rect(slot: usize, scroll: f32) -> [f32; 4] {
+    let r = tile_rect(slot, 1.0, scroll);
+    [r[0], r[1] + TILE_H + 12.0, CELL[0], CELL[1]]
 }
 
 #[derive(Clone, Copy, PartialEq)]
 struct Frame {
-    scales: [f32; 6],
-    mix: f32,
+    scroll: f32,
     lod: f32,
+    mix: f32,
     flip: i32,
+    /// The (up to two) tiles not at scale 1: (slot, scale); slot -1 = none.
+    anim: [(i32, f32); 2],
     t0: i64,
+}
+
+impl Frame {
+    fn scale(&self, slot: usize) -> f32 {
+        self.anim.iter().find(|a| a.0 == slot as i32).map(|a| a.1).unwrap_or(1.0)
+    }
+}
+
+struct Upload {
+    slot: i32,
+    level: i32,
+    w: i32,
+    h: i32,
+    etc2: bool,
+    data: Vec<u8>,
 }
 
 struct Shared {
     frame: Option<Frame>,
-    uploads: Vec<(i32, i32, i32, i32, Vec<u8>)>, // slot, level, w, h, rgba
+    uploads: Vec<Upload>,
     quit: bool,
 }
 
@@ -52,13 +82,9 @@ struct Renderer {
 }
 
 static RENDERER: Mutex<Option<Renderer>> = Mutex::new(None);
-/// Partial redraw on (buffer age + swap with damage); off redraws the whole screen every frame.
 static PARTIAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
-#[no_mangle]
-pub extern "system" fn Java_dev_glasslauncher_p239spike_Native_partial(_: *mut c_void, _: *mut c_void, on: u8) {
-    PARTIAL.store(on != 0, std::sync::atomic::Ordering::Relaxed);
-}
+/// Bit 0: draw grid labels natively (from the atlas, slot 8). Bit 1: draw skew marker bars.
+static FLAGS: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 fn now() -> i64 {
     let mut ts = Timespec { tv_sec: 0, tv_nsec: 0 };
@@ -94,9 +120,20 @@ pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_stop(_: *m
     }
 }
 
-/// Copies an ARGB_8888 bitmap's pixels for upload as texture [slot] (0, 1: backdrops; 2..7: tiles) at mip [level].
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_upload(env: *mut c_void, _: *mut c_void, slot: i32, level: i32, bitmap: *mut c_void) {
+pub extern "system" fn Java_dev_glasslauncher_p239spike_Native_partial(_: *mut c_void, _: *mut c_void, on: u8) {
+    PARTIAL.store(on != 0, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_glasslauncher_p239spike_Native_flags(_: *mut c_void, _: *mut c_void, f: i32) {
+    FLAGS.store(f, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Copies an ARGB_8888 bitmap for texture [slot] (0, 1: backdrops; 2..7: tile art; 8: label atlas) at mip [level].
+/// [etc2]: encode it to ETC2 RGB8 here (the caller's thread, off the GL thread) and upload compressed.
+#[no_mangle]
+pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_upload(env: *mut c_void, _: *mut c_void, slot: i32, level: i32, bitmap: *mut c_void, etc2: u8) {
     let mut info = BitmapInfo { width: 0, height: 0, stride: 0, format: 0, flags: 0 };
     if AndroidBitmap_getInfo(env, bitmap, &mut info) != 0 || info.format != 1 {
         log("upload: not ARGB_8888");
@@ -107,23 +144,33 @@ pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_upload(env
         return;
     }
     let (w, h, stride) = (info.width as usize, info.height as usize, info.stride as usize);
-    let mut px = Vec::with_capacity(w * h * 4);
-    for y in 0..h {
-        px.extend_from_slice(std::slice::from_raw_parts((p as *const u8).add(y * stride), w * 4));
-    }
+    let px = std::slice::from_raw_parts(p as *const u8, stride * (h - 1) + w * 4);
+    let data = if etc2 != 0 {
+        let t = now();
+        let blocks = etc2::encode(px, w, h, stride, 4);
+        log(&format!("etc2,{slot},{level},{w}x{h},{}us,{}B", (now() - t) / 1000, blocks.len()));
+        blocks
+    } else {
+        let mut v = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            v.extend_from_slice(&px[y * stride..y * stride + w * 4]);
+        }
+        v
+    };
     AndroidBitmap_unlockPixels(env, bitmap);
     if let Some(r) = RENDERER.lock().unwrap().as_ref() {
-        r.shared.0.lock().unwrap().uploads.push((slot, level, w as i32, h as i32, px));
+        r.shared.0.lock().unwrap().uploads.push(Upload { slot, level, w: w as i32, h: h as i32, etc2: etc2 != 0, data });
+        r.shared.1.notify_all();
     }
 }
 
 /// One frame's animated values; the render thread draws it as soon as it is free (latest wins).
 #[no_mangle]
 pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_frame(
-    _: *mut c_void, _: *mut c_void, s0: f32, s1: f32, s2: f32, s3: f32, s4: f32, s5: f32, mix: f32, lod: f32, flip: i32,
+    _: *mut c_void, _: *mut c_void, scroll: f32, lod: f32, mix: f32, flip: i32, a: i32, sa: f32, b: i32, sb: f32,
 ) {
     if let Some(r) = RENDERER.lock().unwrap().as_ref() {
-        r.shared.0.lock().unwrap().frame = Some(Frame { scales: [s0, s1, s2, s3, s4, s5], mix, lod, flip, t0: now() });
+        r.shared.0.lock().unwrap().frame = Some(Frame { scroll, lod, mix, flip, anim: [(a, sa), (b, sb)], t0: now() });
         r.shared.1.notify_all();
     }
 }
@@ -149,13 +196,7 @@ unsafe fn shader(kind: u32, src: &str) -> u32 {
 
 struct Prog {
     id: u32,
-    rect: i32,
-    screen: i32,
-    a: i32,
-    b: i32,
-    mix: i32,
-    lod: i32,
-    radius: i32,
+    u: [i32; 8], // rect, screen, a, b, mix, lod, radius, uv
 }
 
 unsafe fn program(frag: &str) -> Prog {
@@ -171,16 +212,17 @@ unsafe fn program(frag: &str) -> Prog {
         glGetProgramInfoLog(id, 2048, &mut n, buf.as_mut_ptr() as *mut c_char);
         log(&format!("link error: {}", String::from_utf8_lossy(&buf[..n as usize])));
     }
-    let u = |n: &str| {
-        let c = CString::new(n).unwrap();
-        glGetUniformLocation(id, c.as_ptr())
-    };
-    Prog { id, rect: u("uRect"), screen: u("uScreen"), a: u("uA"), b: u("uB"), mix: u("uMix"), lod: u("uLod"), radius: u("uRadius") }
+    let mut u = [0; 8];
+    for (k, n) in ["uRect", "uScreen", "uA", "uB", "uMix", "uLod", "uRadius", "uUv"].iter().enumerate() {
+        let c = CString::new(*n).unwrap();
+        u[k] = glGetUniformLocation(id, c.as_ptr());
+    }
+    Prog { id, u }
 }
 
 const VERT: &str = "#version 300 es
-uniform vec4 uRect; uniform vec2 uScreen;
-out vec2 vPx; out vec2 vLocal;
+uniform highp vec4 uRect; uniform highp vec2 uScreen;
+out highp vec2 vPx; out vec2 vLocal;
 void main() {
   vec2 c = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
   vec2 p = uRect.xy + c * uRect.zw;
@@ -191,13 +233,15 @@ void main() {
 const FRAG_HEAD: &str = "#version 300 es
 precision mediump float;
 uniform highp vec4 uRect; uniform highp vec2 uScreen; uniform sampler2D uA; uniform sampler2D uB;
-uniform float uMix; uniform float uLod; uniform float uRadius;
+uniform float uMix; uniform float uLod; uniform float uRadius; uniform highp vec4 uUv;
 in highp vec2 vPx; in vec2 vLocal; out vec4 o;
 float sdRound(highp vec2 p, highp vec2 h, float r) { vec2 q = abs(p) - h + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
-vec3 scene(vec2 uv, float lod) { vec3 a = textureLod(uA, uv, lod).rgb; return uMix > 0.0 ? mix(a, textureLod(uB, uv, lod).rgb, uMix) : a; }
+// Two explicit integer-level fetches blended here: hardware trilinear at a fractional lod measured 2-3x slower here.
+vec3 lodBlend(sampler2D t, vec2 uv, float lod) { float l0 = floor(lod); vec3 a = textureLod(t, uv, l0).rgb; float f = lod - l0; return f > 0.004 ? mix(a, textureLod(t, uv, l0 + 1.0).rgb, f) : a; }
+vec3 scene(vec2 uv, float lod) { vec3 a = lodBlend(uA, uv, lod); return uMix > 0.0 ? mix(a, lodBlend(uB, uv, lod), uMix) : a; }
 ";
 
-/// The backdrop: the scene's pre-blurred mip chain at the scroll blur level (one fetch; two while cross-fading).
+/// The backdrop: the scene's pre-blurred mip chain at the scroll-blur level (one fetch; two while cross-fading).
 const BACKDROP: &str = "void main() { o = vec4(scene(vLocal, uLod), 1.0); }";
 
 /// Tray glass: the blurred scene at a lens-displaced UV, Glass's face colour matrix and tint, analytic rim and specular.
@@ -208,7 +252,7 @@ const GLASS: &str = "void main() {
   if (a <= 0.0) discard;
   float edge = clamp(1.0 + d / 28.0, 0.0, 1.0);
   vec2 uv = (vPx - p * edge * edge * 0.10) / uScreen;
-  vec3 bg = scene(uv, 3.0);
+  vec3 bg = scene(uv, max(3.0, uLod));
   float l = dot(bg, vec3(0.2126, 0.7152, 0.0722));
   vec3 col = clamp(mix(vec3(l), bg, 1.59) * 0.629 + 0.235 * 0.25, 0.0, 1.0);
   col = mix(col, vec3(1.0), 0.06);
@@ -221,8 +265,7 @@ const GLASS: &str = "void main() {
 const SHADOW_FS: &str = "void main() {
   highp vec2 h = uRect.zw * 0.5 - vec2(48.0); highp vec2 p = vPx - (uRect.xy + uRect.zw * 0.5) - vec2(0.0, 14.0);
   float d = sdRound(p, h, uRadius);
-  float a = (1.0 - smoothstep(-16.0, 40.0, d)) * 0.45 * uMix;
-  o = vec4(0.0, 0.0, 0.0, a);
+  o = vec4(0.0, 0.0, 0.0, (1.0 - smoothstep(-16.0, 40.0, d)) * 0.45 * uMix);
 }";
 
 /// A tile: its art clipped by an analytic rounded rect (anti-aliased, no stencil or layer).
@@ -233,6 +276,11 @@ const TILE: &str = "void main() {
   o = texture(uA, vLocal) * a;
 }";
 
+/// An atlas cell (premultiplied text), or with uMix > 0 a flat colour (the skew markers).
+const SPRITE: &str = "void main() {
+  o = uMix > 0.0 ? vec4(uUv.rgb, 1.0) : texture(uA, uUv.xy + vLocal * uUv.zw);
+}";
+
 // ---- render thread
 
 struct Gl {
@@ -240,55 +288,88 @@ struct Gl {
     glass: Prog,
     shadow: Prog,
     tile: Prog,
-    tex: [u32; 8],
+    sprite: Prog,
+    tex: [u32; 9],
 }
 
-unsafe fn draw(p: &Prog, rect: [f32; 4], a: u32, b: u32, mix: f32, lod: f32, radius: f32) {
+unsafe fn draw(p: &Prog, rect: [f32; 4], a: u32, b: u32, mix: f32, lod: f32, radius: f32, uv: [f32; 4]) {
     glUseProgram(p.id);
-    glUniform4f(p.rect, rect[0], rect[1], rect[2], rect[3]);
-    glUniform2f(p.screen, W, H);
+    glUniform4f(p.u[0], rect[0], rect[1], rect[2], rect[3]);
+    glUniform2f(p.u[1], W, H);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, a);
-    glUniform1i(p.a, 0);
+    glUniform1i(p.u[2], 0);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, b);
-    glUniform1i(p.b, 1);
-    glUniform1f(p.mix, mix);
-    glUniform1f(p.lod, lod);
-    glUniform1f(p.radius, radius);
+    glUniform1i(p.u[3], 1);
+    glUniform1f(p.u[4], mix);
+    glUniform1f(p.u[5], lod);
+    glUniform1f(p.u[6], radius);
+    glUniform4f(p.u[7], uv[0], uv[1], uv[2], uv[3]);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+fn visible(r: [f32; 4]) -> bool {
+    r[1] + r[3] > -SHADOW && r[1] < H + SHADOW
+}
+
 unsafe fn draw_frame(gl: &Gl, f: &Frame) {
+    let flags = FLAGS.load(std::sync::atomic::Ordering::Relaxed);
     let (from, to) = if f.flip == 0 { (gl.tex[0], gl.tex[1]) } else { (gl.tex[1], gl.tex[0]) };
+    let z = [0.0; 4];
     glDisable(GL_BLEND);
-    draw(&gl.backdrop, [0.0, 0.0, W, H], from, to, f.mix, f.lod, 0.0);
+    draw(&gl.backdrop, [0.0, 0.0, W, H], from, to, f.mix, f.lod, 0.0, z);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    draw(&gl.glass, TRAY, from, to, f.mix, 0.0, TRAY_R);
-    for (i, &s) in f.scales.iter().enumerate() {
+    let tray = [TRAY[0], TRAY[1] - f.scroll, TRAY[2], TRAY[3]];
+    if visible(tray) {
+        draw(&gl.glass, tray, from, to, f.mix, f.lod, TRAY_R, z);
+    }
+    for &(slot, s) in &f.anim {
         let focus = ((s - 1.0) / 0.224).clamp(0.0, 1.0);
-        if focus > 0.01 {
-            let r = tile_rect(i, s);
-            draw(&gl.shadow, [r[0] - SHADOW, r[1] - SHADOW, r[2] + 2.0 * SHADOW, r[3] + 2.0 * SHADOW], 0, 0, focus, 0.0, TILE_R * s);
+        if slot >= 0 && focus > 0.01 {
+            let r = tile_rect(slot as usize, s, f.scroll);
+            draw(&gl.shadow, [r[0] - SHADOW, r[1] - SHADOW, r[2] + 2.0 * SHADOW, r[3] + 2.0 * SHADOW], 0, 0, focus, 0.0, TILE_R * s, z);
         }
     }
-    for (i, &s) in f.scales.iter().enumerate() {
-        draw(&gl.tile, tile_rect(i, s), gl.tex[2 + i], 0, 0.0, 0.0, TILE_R * s);
+    for slot in 0..SLOTS {
+        let s = f.scale(slot);
+        let r = tile_rect(slot, s, f.scroll);
+        if visible(r) {
+            draw(&gl.tile, r, gl.tex[2 + slot % 6], 0, 0.0, 0.0, TILE_R * s, z);
+        }
+    }
+    for slot in 6..SLOTS {
+        let l = label_rect(slot, f.scroll);
+        if !visible(l) {
+            continue;
+        }
+        if flags & 1 != 0 {
+            let (cx, cy) = ((slot % 10) as f32 * CELL[0] / 2000.0, (slot / 10) as f32 * CELL[1] / 120.0);
+            draw(&gl.sprite, l, gl.tex[8], 0, 0.0, 0.0, 0.0, [cx, cy, CELL[0] / 2000.0, CELL[1] / 120.0]);
+        }
+        if flags & 2 != 0 {
+            // Skew markers: magenta from the tile's frame; cyan where its label is (native labels only; else Compose draws it).
+            draw(&gl.sprite, [l[0], l[1] - 8.0, 40.0, 6.0], 0, 0, 1.0, 0.0, 0.0, [1.0, 0.0, 1.0, 0.0]);
+            if flags & 1 != 0 {
+                draw(&gl.sprite, [l[0] + 50.0, l[1] - 8.0, 40.0, 6.0], 0, 0, 1.0, 0.0, 0.0, [0.0, 1.0, 1.0, 0.0]);
+            }
+        }
     }
 }
 
 /// Screen rect (x0, y0, x1, y1) this frame changes against [prev]; None = full screen.
 fn damage(prev: &Option<Frame>, f: &Frame) -> Option<[f32; 4]> {
     let p = (*prev)?;
-    if p.mix != f.mix || p.lod != f.lod || p.flip != f.flip {
+    if p.mix != f.mix || p.lod != f.lod || p.flip != f.flip || p.scroll != f.scroll {
         return None;
     }
     let mut d: Option<[f32; 4]> = None;
-    for i in 0..6 {
-        if p.scales[i] != f.scales[i] {
-            for s in [p.scales[i], f.scales[i]] {
-                let r = tile_rect(i, s);
+    for slot in 0..SLOTS {
+        let (a, b) = (p.scale(slot), f.scale(slot));
+        if a != b {
+            for s in [a, b] {
+                let r = tile_rect(slot, s, f.scroll);
                 let e = [r[0] - SHADOW, r[1] - SHADOW, r[0] + r[2] + SHADOW, r[1] + r[3] + SHADOW];
                 d = Some(match d { None => e, Some(o) => [o[0].min(e[0]), o[1].min(e[1]), o[2].max(e[2]), o[3].max(e[3])] });
             }
@@ -323,33 +404,32 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
         let create_sync: CreateSync = std::mem::transmute(eglGetProcAddress(c"eglCreateSyncKHR".as_ptr()));
         let wait_sync: WaitSync = std::mem::transmute(eglGetProcAddress(c"eglClientWaitSyncKHR".as_ptr()));
         let destroy_sync: DestroySync = std::mem::transmute(eglGetProcAddress(c"eglDestroySyncKHR".as_ptr()));
-        let gl_ext = std::ffi::CStr::from_ptr(glGetString(GL_EXTENSIONS) as *const c_char).to_string_lossy().into_owned();
-        log(&format!("init n={n} buffer_age={age_ok} swap_damage={} timer_query={} gl={}", swap_damage.is_some(), gl_ext.contains("timer_query"),
+        log(&format!("init n={n} buffer_age={age_ok} swap_damage={} gl={}", swap_damage.is_some(),
             std::ffi::CStr::from_ptr(glGetString(GL_RENDERER) as *const c_char).to_string_lossy()));
         eglSwapInterval(dpy, 1);
 
-        let gl = Gl { backdrop: program(BACKDROP), glass: program(GLASS), shadow: program(SHADOW_FS), tile: program(TILE), tex: {
-            let mut t = [0u32; 8];
-            glGenTextures(8, t.as_mut_ptr());
+        let gl = Gl { backdrop: program(BACKDROP), glass: program(GLASS), shadow: program(SHADOW_FS), tile: program(TILE), sprite: program(SPRITE), tex: {
+            let mut t = [0u32; 9];
+            glGenTextures(9, t.as_mut_ptr());
             t
         } };
         glViewport(0, 0, W as i32, H as i32);
 
-        // The GPU-completion waiter: logs one line per frame (start, submit, GPU done, damaged pixels).
-        let (tx, rx) = mpsc::channel::<(usize, i64, i64, i64, i32, i64)>();
+        // The GPU-completion waiter: logs one line per frame (values posted, submit, GPU done, damaged pixels, scroll).
+        let (tx, rx) = mpsc::channel::<(usize, i64, i64, i64, f32)>();
         let dpy_u = dpy as usize;
         let waiter = thread::spawn(move || {
-            for (sync, t0, submit, area, age, swapped) in rx {
+            for (sync, t0, submit, area, scroll) in rx {
                 wait_sync(dpy_u as *mut c_void, sync as *mut c_void, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, u64::MAX);
                 let done = now();
                 destroy_sync(dpy_u as *mut c_void, sync as *mut c_void);
-                log(&format!("frame,{t0},{submit},{done},{area},{age},{swapped}"));
+                log(&format!("frame,{t0},{submit},{done},{area},{scroll}"));
             }
         });
 
         let mut prev: Option<Frame> = None;
-        let mut history: Vec<Option<[f32; 4]>> = Vec::new(); // damage of the last frames, newest first
-        let mut allocated = [0u8; 8];
+        let mut history: Vec<Option<[f32; 4]>> = Vec::new();
+        let mut allocated = [false; 9];
         loop {
             let (frame, uploads) = {
                 let (m, cv) = &*shared;
@@ -363,29 +443,36 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
                 (s.frame.take(), std::mem::take(&mut s.uploads))
             };
             if !uploads.is_empty() {
-                prev = None; // new textures: redraw everything
+                prev = None;
                 history.clear();
             }
-            for (slot, level, w, h, px) in uploads {
-                let t = gl.tex[slot as usize];
-                glBindTexture(GL_TEXTURE_2D, t);
-                if allocated[slot as usize] == 0 {
-                    let levels = if slot < 2 { 5 } else { 1 };
-                    glTexStorage2D(GL_TEXTURE_2D, levels, GL_RGBA8, w, h);
+            for u in uploads {
+                let k = u.slot as usize;
+                glBindTexture(GL_TEXTURE_2D, gl.tex[k]);
+                if !allocated[k] {
+                    let levels = if k < 2 { 5 } else { 1 };
+                    glTexStorage2D(GL_TEXTURE_2D, levels, if u.etc2 { GL_COMPRESSED_RGB8_ETC2 } else { GL_RGBA8 }, u.w, u.h);
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, if slot < 2 { GL_LINEAR_MIPMAP_LINEAR } else { GL_LINEAR });
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, if k < 2 { GL_LINEAR_MIPMAP_NEAREST } else { GL_LINEAR });
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                    allocated[slot as usize] = 1;
+                    allocated[k] = true;
                 }
-                glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.as_ptr() as *const c_void);
+                if u.etc2 {
+                    glCompressedTexSubImage2D(GL_TEXTURE_2D, u.level, 0, 0, u.w, u.h, GL_COMPRESSED_RGB8_ETC2, u.data.len() as i32, u.data.as_ptr() as *const c_void);
+                } else {
+                    glTexSubImage2D(GL_TEXTURE_2D, u.level, 0, 0, u.w, u.h, GL_RGBA, GL_UNSIGNED_BYTE, u.data.as_ptr() as *const c_void);
+                }
+                let e = glGetError();
+                if e != 0 {
+                    log(&format!("upload slot {} level {}: GL error 0x{e:x}", u.slot, u.level));
+                }
             }
-            let Some(f) = frame.or(prev).or(Some(Frame { scales: [1.0; 6], mix: 0.0, lod: 0.0, flip: 0, t0: now() })) else { continue };
-            // Partial redraw: this frame's damage, plus whatever the reused buffer missed (EGL_EXT_buffer_age).
+            let Some(f) = frame.or(prev) else { continue };
+            let partial = PARTIAL.load(std::sync::atomic::Ordering::Relaxed);
             let mine = damage(&prev, &f);
             let mut age = 0;
-            let partial = PARTIAL.load(std::sync::atomic::Ordering::Relaxed);
             if age_ok && partial {
                 eglQuerySurface(dpy, surf, EGL_BUFFER_AGE_EXT, &mut age);
             }
@@ -425,7 +512,7 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
                     eglSwapBuffers(dpy, surf);
                 }
             }
-            let _ = tx.send((sync as usize, f.t0, submit, area, age, now()));
+            let _ = tx.send((sync as usize, f.t0, submit, area, f.scroll));
             prev = Some(f);
         }
         drop(tx);

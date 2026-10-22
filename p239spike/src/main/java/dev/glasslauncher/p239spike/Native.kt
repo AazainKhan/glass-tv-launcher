@@ -11,8 +11,10 @@ object Native {
     @JvmStatic external fun stop()
     /** Partial redraw (buffer age + swap with damage) on or off. */
     @JvmStatic external fun partial(on: Boolean)
-    /** Texture [slot] (0, 1: backdrops; 2..7: tiles), mip [level]. */
-    @JvmStatic external fun upload(slot: Int, level: Int, bitmap: Bitmap)
-    /** One frame: the 6 tile scales, the cross-fade (0..1), the blur level (mip), and which backdrop is current. */
-    @JvmStatic external fun frame(s0: Float, s1: Float, s2: Float, s3: Float, s4: Float, s5: Float, mix: Float, lod: Float, flip: Int)
+    /** Bit 0: grid labels drawn natively from the atlas (slot 8). Bit 1: skew marker bars. */
+    @JvmStatic external fun flags(flags: Int)
+    /** Texture [slot] (0, 1: backdrops; 2..7: tile art; 8: label atlas), mip [level]; [etc2] encodes it first. */
+    @JvmStatic external fun upload(slot: Int, level: Int, bitmap: Bitmap, etc2: Boolean)
+    /** One frame: scroll (px), scroll blur (mip level), cross-fade, current backdrop, and the two animating tiles. */
+    @JvmStatic external fun frame(scroll: Float, lod: Float, mix: Float, flip: Int, a: Int, sa: Float, b: Int, sb: Float)
 }
