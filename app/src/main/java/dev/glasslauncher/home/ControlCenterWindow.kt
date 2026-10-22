@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -438,6 +439,7 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             // Laid out at the screen's size even while the window is parked at 1x1 (P253): the open only grows the window, so
             // its first frame re-uses a measured tree instead of measuring Control Center from scratch (33-47 ms on the stick).
             // The parked window's buffer stays 1x1 (a full-size parked buffer cost dock frames, P238).
+            val hostView = androidx.compose.ui.platform.LocalView.current
             val screen = remember { context.resources.displayMetrics.let { androidx.compose.ui.unit.IntSize(it.widthPixels, it.heightPixels) } }
             Box(
                 Modifier
@@ -445,6 +447,9 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
                         val p = m.measure(androidx.compose.ui.unit.Constraints.fixed(screen.width, screen.height))
                         layout(c.maxWidth, c.maxHeight) { p.place(0, 0) }
                     }
+                    // Laid out, not drawn, while parked: drawing the tree into the 1x1 window still uploaded and kept its textures
+                    // (+3-4 MB graphics at rest on the stick).
+                    .drawWithContent { if (hostView.width > 1) drawContent() }
                     .semantics { testTagsAsResourceId = true }
                     .testTag("overlay-top:ControlCenter")
                     // Glass maps the captured screen onto itself by its position in this full-screen window.
