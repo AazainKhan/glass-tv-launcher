@@ -51,8 +51,8 @@ class Backdrop(
     private val luma: FloatArray = FloatArray(0),
     /** Control Center's material (see [GlassMatch.ccSheet]), baked here so opening Control Center does no work. */
     val ccSheet: GlassMatch.PanelSheet? = null,
-    /** P205: the ladder's blur rungs, baked but not yet on the GPU (see [ensureLadder]). */
-    private var pendingRungs: List<Bitmap>? = null,
+    /** P205/P257: the ladder's blur rungs, baked only once Home settles on this scene (see [ensureLadder]). */
+    private var pendingRungs: (() -> List<Bitmap>)? = null,
 ) {
     /**
      * The ladder in use: sharp to blurred. Its in-between rungs go to the GPU only once Home settles on this scene
@@ -62,10 +62,10 @@ class Backdrop(
     var ladder: List<ImageBitmap> by androidx.compose.runtime.mutableStateOf(ladder)
         private set
 
-    /** Puts the pending rungs on the GPU, off the main thread, and swaps in the full ladder. Idempotent. */
+    /** Bakes the pending rungs and puts them on the GPU, off the main thread, and swaps in the full ladder. Idempotent. */
     suspend fun ensureLadder() {
-        val rungs = synchronized(this) { pendingRungs.also { pendingRungs = null } } ?: return
-        val gpu = withContext(Dispatchers.Default) { rungs.map { b -> (b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b).asImageBitmap() } }
+        val bakeRungs = synchronized(this) { pendingRungs.also { pendingRungs = null } } ?: return
+        val gpu = withContext(Dispatchers.Default) { bakeRungs().map { b -> (b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b).asImageBitmap() } }
         val now = ladder
         ladder = listOf(now.first()) + gpu + now.last()
     }
@@ -235,9 +235,15 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
             Triple(800, 450, 1), Triple(640, 360, 1), Triple(544, 306, 2), Triple(448, 252, 2),
             Triple(384, 216, 3), Triple(320, 180, 3), Triple(272, 153, 4), Triple(240, 135, 4),
         )
-        val steps = rungs.mapIndexed { i, (w, h, r) ->
-            val t = (i + 1f) / (rungs.size + 1)
-            Blur.backdrop(mid, w, h, radius = r, saturation = 1f + 0.35f * t).also { bakeScrim(it, light, scene, wash * t, tint); Blur.legible(it, light, t * t); it.setHasAlpha(false) }
+        // P257: the rungs are only for the scroll's blur ramp, so they're baked once Home settles (ensureLadder), not before the swap:
+        // they were ~240 ms of every scene's bake. Until then the scroll cross-fades sharp and blurred (P205's path). They keep a
+        // copy of the half-size intermediate (2 MB, less than the eight rungs it replaces) until then.
+        val rungSource = mid.copy(Bitmap.Config.ARGB_8888, false)
+        val steps = {
+            rungs.mapIndexed { i, (w, h, r) ->
+                val t = (i + 1f) / (rungs.size + 1)
+                Blur.backdrop(rungSource, w, h, radius = r, saturation = 1f + 0.35f * t).also { bakeScrim(it, light, scene, wash * t, tint); Blur.legible(it, light, t * t); it.setHasAlpha(false) }
+            }.also { rungSource.recycle() }
         }
         check()
         val clear = Blur.backdrop(mid, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { bakeScrim(it, light, scene, 0f); it.setHasAlpha(false) }
