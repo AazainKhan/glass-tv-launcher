@@ -52,14 +52,18 @@ class GlassMatchTest {
         assertTrue(android.graphics.Color.red(sheet.pixels[0]) < android.graphics.Color.red(sheet.pixels[sheet.width - 1]))
     }
 
-    // Over another app the capture is baked by glassOnly: it carries the sheet too, so the open has nothing to bake.
+    // Over another app the capture is baked by glassOnly. The default variant (E) draws its clear texture, so no sheet is baked
+    // (P257); another variant gets its sheet from that capture.
     @Test fun theOverAppCaptureCarriesTheSheet() {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         val loader = WallpaperLoader(context, okhttp3.OkHttpClient())
         val shot = bitmap(192, 108) { x, _ -> if (x < 96) 0xFF0A0C12.toInt() else 0xFF8A2A24.toInt() }
         GlassMatch.keepPixels = true
-        val backdrop = try { kotlinx.coroutines.runBlocking { loader.glassOnly(shot) } } finally { GlassMatch.keepPixels = false }
-        val sheet = backdrop.ccSheet
+        val (backdrop, sheet) = try {
+            val b = kotlinx.coroutines.runBlocking { loader.glassOnly(shot) }
+            b to b.sheetFor("A")
+        } finally { GlassMatch.keepPixels = false }
+        org.junit.Assert.assertNull("the default variant bakes no sheet", backdrop.sheetFor("E"))
         org.junit.Assert.assertNotNull("glassOnly made no Control Center sheet", sheet)
         // The right three quarters of the screen (edit mode's pop-up sits in the middle), full height, at ~6 dp cells: tens of KB, not a screen-sized copy.
         val px = sheet!!.pixels!!
