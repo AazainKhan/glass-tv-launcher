@@ -937,6 +937,9 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             phase.landed = false
             // Re-opening during a close that is still visible keeps the sheet it has; otherwise take the backdrop's.
             if (sheetRef.sheet == null || enter.value < 0.02f) takeSheet()
+            // The window's first full-size frame lays the tree out; the spring starts on the next, so the two don't stack on one
+            // frame (that frame was 33-47 ms of layout plus 8-19 ms of animation on the stick, P253).
+            if (enter.value < 0.02f) androidx.compose.runtime.withFrameNanos { }
         }
         // Reduce Motion: no growing bubble, a plain fade (a bounce would pulse the opacity).
         if (reduceMotion) enter.animateTo(if (exiting) 0f else 1f, dev.glasslauncher.ui.Motion.overlay())

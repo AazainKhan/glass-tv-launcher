@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -434,9 +435,16 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
             LocalDensity provides Density(density.density, density.fontScale * cfg.textScale),
             LocalOverlayExiting provides exiting,
         ) {
+            // Laid out at the screen's size even while the window is parked at 1x1 (P253): the open only grows the window, so
+            // its first frame re-uses a measured tree instead of measuring Control Center from scratch (33-47 ms on the stick).
+            // The parked window's buffer stays 1x1 (a full-size parked buffer cost dock frames, P238).
+            val screen = remember { context.resources.displayMetrics.let { androidx.compose.ui.unit.IntSize(it.widthPixels, it.heightPixels) } }
             Box(
                 Modifier
-                    .fillMaxSize()
+                    .layout { m, c ->
+                        val p = m.measure(androidx.compose.ui.unit.Constraints.fixed(screen.width, screen.height))
+                        layout(c.maxWidth, c.maxHeight) { p.place(0, 0) }
+                    }
                     .semantics { testTagsAsResourceId = true }
                     .testTag("overlay-top:ControlCenter")
                     // Glass maps the captured screen onto itself by its position in this full-screen window.
