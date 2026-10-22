@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Rebuilds Glass's native image kernels (rust/, libglassimg.so) into app/src/main/jniLibs for armeabi-v7a and
+# arm64-v8a. The .so files are committed, so a normal Gradle build needs no Rust; run this after changing rust/.
+#   scripts/rust-build          rebuild and copy
+#   scripts/rust-build --test   also run the kernels' unit tests on this Mac
+# Needs rustup (targets armv7-linux-androideabi, aarch64-linux-android), cargo-ndk and the Android NDK.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PATH="$HOME/.cargo/bin:$PATH"
+SDK="${ANDROID_HOME:-$(sed -n 's/^sdk.dir=//p' "$ROOT/local.properties" 2>/dev/null)}"
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1)}"
+[ -d "$ANDROID_NDK_HOME" ] || { echo "rust-build: no Android NDK (set ANDROID_NDK_HOME)" >&2; exit 1; }
+command -v cargo-ndk >/dev/null || { echo "rust-build: needs cargo-ndk (cargo install cargo-ndk)" >&2; exit 1; }
+cd "$ROOT/rust"
+[ "${1:-}" = --test ] && cargo test --release
+# No build paths in the binaries (the repo is public and leak-check rejects home paths).
+export RUSTFLAGS="--remap-path-prefix=$ROOT=. --remap-path-prefix=$HOME/.cargo=cargo --remap-path-prefix=$HOME/.rustup=rustup"
+cargo ndk -t armeabi-v7a -t arm64-v8a -P 28 -o "$ROOT/app/src/main/jniLibs" build --release
+if grep -l -a -e "$HOME" -e /Users/ -e /home/ "$ROOT"/app/src/main/jniLibs/*/libglassimg.so; then echo "rust-build: a build path leaked into the .so" >&2; exit 1; fi
+ls -l "$ROOT"/app/src/main/jniLibs/*/libglassimg.so

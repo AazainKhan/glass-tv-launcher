@@ -28,9 +28,11 @@ object Blur {
 
     fun backdrop(source: Bitmap, width: Int, height: Int, radius: Int, saturation: Float = 1.35f): Bitmap {
         val small = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        // A colour filter forces Skia's slow per-pixel path (139 ms of a ladder bake on the stick); the native
+        // saturation after a plain downscale is the same matrix in a quarter of the time.
+        val native = saturation != 1f && NativeImage.ok
         val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
-            // A colour filter forces Skia's slow per-pixel path; skip it when it would do nothing.
-            if (saturation != 1f) colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(saturation) })
+            if (saturation != 1f && !native) colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(saturation) })
         }
         Canvas(small).drawBitmap(
             source,
@@ -38,6 +40,9 @@ object Blur {
             android.graphics.Rect(0, 0, width, height),
             paint,
         )
+        if (native && !NativeImage.saturate(small, saturation)) {
+            Canvas(small).drawBitmap(small, 0f, 0f, Paint().apply { colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(saturation) }) })
+        }
         blurInPlace(small, radius)
         return small
     }
@@ -135,6 +140,8 @@ object Blur {
         if (strength <= 0f) return
         val scale = if (light) 1f - 0.5f * strength else 1f - 0.55f * strength
         val offset = if (light) 255f * 0.5f * strength else 0f
+        // Native: bit-exact with the matrix below, 62 -> 13 ms over a ladder bake on the stick.
+        if (NativeImage.ok && NativeImage.scaleOffset(bitmap, scale, offset)) return
         val m = ColorMatrix(floatArrayOf(
             scale, 0f, 0f, 0f, offset,
             0f, scale, 0f, 0f, offset,

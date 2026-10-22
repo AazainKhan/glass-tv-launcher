@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# The merge gates: JVM tests, lint and the release APK's size (perf-budget.json apkMaxBytes). On success it stamps the exact tree it checked, so the pre-push
+# The merge gates: JVM tests, the native kernels' tests, lint and the release APK's size (perf-budget.json apkMaxBytes). On success it stamps the exact tree it checked, so the pre-push
 # hook doesn't run them again for that tree. Push with: scripts/gates && git push …
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "gates: uncommitted changes; commit first so the stamp matches what is pushed" >&2; exit 1; }
 ./gradlew -q :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+# The native kernels' tests (rust/); skipped where Rust isn't installed (the .so files are prebuilt, see scripts/rust-build).
+if command -v cargo >/dev/null || [ -x "$HOME/.cargo/bin/cargo" ]; then (cd rust && PATH="$HOME/.cargo/bin:$PATH" cargo test -q --release); fi
 scripts/apk-size-check
 git rev-parse 'HEAD^{tree}' > "$(git rev-parse --git-dir)/gates-ok"
 echo "gates: passed for $(git rev-parse --short HEAD)"
