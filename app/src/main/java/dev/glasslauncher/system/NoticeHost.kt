@@ -76,6 +76,8 @@ internal class DecorSurface(private val activity: () -> Activity?) : NoticeSurfa
 
 internal object NoticeCard {
     const val MARGIN_DP = 24
+    /** The card's fixed corner (P268): tvOS's banner uses 30 pt, 15 dp here. */
+    const val CORNER_DP = 15
 
     /** The glass card (P268): glyph, title, one line, in Control Center's material; [ref] carries the baked glass once the surface has it. */
     internal fun build(context: Context, notice: Notice, ref: dev.glasslauncher.home.CcSheetRef = dev.glasslauncher.home.CcSheetRef()): View = NoticeGlass.view(context, notice, ref)

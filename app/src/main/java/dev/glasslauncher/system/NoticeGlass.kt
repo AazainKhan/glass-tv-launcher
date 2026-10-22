@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -47,7 +48,7 @@ import dev.glasslauncher.ui.Type
 internal object NoticeGlass {
     /** The screen behind the card that the sheet covers, in dp from the top-left margin: wide enough for the longest card. */
     const val REGION_W_DP = 480
-    const val REGION_H_DP = 96
+    const val REGION_H_DP = 48
 
     /** A card's view: Compose over [ref]'s glass. [Notice] rides along as the view's tag (the tests read it). */
     fun view(context: Context, notice: Notice, ref: CcSheetRef): View = ComposeView(context).apply {
@@ -101,19 +102,24 @@ internal object NoticeGlass {
     }
 }
 
-/** The card: glyph, title, one line, on the glass. */
+/**
+ * The card on the glass, after tvOS 26.6's banner (TVSPToastBackgroundView, decoded by REA): a rounded rectangle with a FIXED 15 dp corner
+ * (30 pt, continuous; not a capsule), about 30 dp tall on one line, a 20 dp glyph at its left. A notice with a second line (a device's
+ * "Connected · 80%") keeps it on the same line, lighter.
+ */
 @Composable
 internal fun NoticeCardContent(notice: Notice, ref: CcSheetRef) {
     Row(
-        Modifier.ccSurface(RoundedCornerShape(22.dp), ref).padding(start = 16.dp, end = 22.dp, top = 12.dp, bottom = 12.dp),
+        Modifier.ccSurface(RoundedCornerShape(NoticeCard.CORNER_DP.dp), ref).padding(start = 7.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(painterResource(if (notice.iconRes != 0) notice.iconRes else R.drawable.ic_info), null, colorFilter = ColorFilter.tint(Color.White), modifier = Modifier.size(28.dp))
-        Spacer(Modifier.width(14.dp))
-        Column {
-            BasicText(notice.text, style = Type.body.copy(color = Color.White), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 380.dp))
-            notice.detail?.let { BasicText(it, style = Type.caption.copy(color = Color.White.copy(alpha = 0.72f)), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 380.dp)) }
+        Image(painterResource(if (notice.iconRes != 0) notice.iconRes else R.drawable.ic_info), null, colorFilter = ColorFilter.tint(Color.White), modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(7.dp))
+        val line = androidx.compose.ui.text.buildAnnotatedString {
+            append(notice.text)
+            notice.detail?.let { withStyle(androidx.compose.ui.text.SpanStyle(color = Color.White.copy(alpha = 0.72f))) { append("  $it") } }
         }
+        BasicText(line, style = Type.secondary.copy(color = Color.White), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 420.dp))
     }
 }
 
