@@ -112,12 +112,9 @@ internal data class Slot(val id: String, val name: String) {
 
 /** What the editor lists for a drawing, with the names that device's own buttons carry (PlayStation or Xbox words), and which side of the drawing each callout sits on. */
 internal object EditorSlots {
-    private val padIds = listOf("pad:l2", "pad:l1", "pad:select", "pad:mode", "pad:thumbl", "stick:left", "pad:r2", "pad:r1", "pad:y", "pad:x", "pad:b", "pad:a", "pad:start", "pad:thumbr", "stick:right")
-    private val remoteIds = listOf("app1", "app3", "recents", "app2", "app4", "settings")
-
-    /** Left column, top to bottom, then right column. */
-    fun left(style: PadStyle) = if (style == PadStyle.Remote) remoteIds.take(3) else padIds.take(6)
-    fun right(style: PadStyle) = if (style == PadStyle.Remote) remoteIds.drop(3) else padIds.drop(6)
+    /** Left column, top to bottom, then right column, in the order of their buttons on the drawing. */
+    fun left(style: PadStyle) = OutlineLayout.ordered(style).first
+    fun right(style: PadStyle) = OutlineLayout.ordered(style).second
 
     fun of(style: PadStyle): List<Slot> = (left(style) + right(style)).map { Slot(it, nameOf(it, style)) }
 
@@ -157,9 +154,6 @@ private fun vendorOf(name: String): Int? = runCatching {
     InputDevice.getDeviceIds().asSequence().mapNotNull { InputDevice.getDevice(it) }.firstOrNull { it.name == name }?.vendorId
 }.getOrNull()
 
-private const val CALLOUT_W = 200f
-private const val CALLOUT_H = 32f
-private const val CALLOUT_GAP = 60f
 
 /**
  * The mapping editor (P233): a centred line drawing of the controller (or the Fire remote), each button with a callout beside it saying what
@@ -240,39 +234,24 @@ internal fun DevicePage(
         val mappedIds = slots.filter { !it.isStick && isMapped(kind, name, it, cfg) }.map { it.id }.toSet()
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(top = 40.dp, bottom = 84.dp).graphicsLayer { alpha = if (open) 1f else 0.3f }) {
             val ow = OutlineGeometry.size(style)
-            val ox = (maxWidth - ow.x.dp) / 2
-            val oy = ((maxHeight - ow.y.dp) / 2).coerceAtLeast(0.dp)
-            val anchors = OutlineGeometry.placed(style)
-            val leftIds = EditorSlots.left(style); val rightIds = EditorSlots.right(style)
-            // Row centres (dp from the top of this box): a controller's right column is dense, the left one spread to meet it.
-            val centres: Map<String, Float> = if (style == PadStyle.Remote) {
-                (leftIds + rightIds).associateWith { id -> oy.value + anchors.getValue(id).y }
-            } else {
-                val pitch = 33f
-                val leftPitch = pitch * (rightIds.size - 1) / (leftIds.size - 1)
-                leftIds.mapIndexed { i, id -> id to CALLOUT_H / 2 + i * leftPitch }.toMap() + rightIds.mapIndexed { i, id -> id to CALLOUT_H / 2 + i * pitch }.toMap()
-            }
-            val leftX = ox.value - CALLOUT_GAP - CALLOUT_W
-            val rightX = ox.value + ow.x + CALLOUT_GAP
+            val lay = OutlineLayout.compute(style, maxWidth.value, maxHeight.value)
+            val ox = lay.ox.dp; val oy = lay.oy.dp
             val ink = palette.primary; val accent = palette.accent
             Canvas(Modifier.fillMaxSize()) {
-                for (id in leftIds + rightIds) {
-                    val a = anchors[id] ?: continue
-                    val onLeft = id in leftIds
-                    val from = Offset(((if (onLeft) leftX + CALLOUT_W else rightX)).dp.toPx(), centres.getValue(id).dp.toPx())
-                    val to = Offset((ox.value + a.x).dp.toPx(), (oy.value + a.y).dp.toPx())
+                for ((id, ld) in lay.leaders) {
                     val c = when { id in heldIds -> ink; id == focusedId -> Color.White; id in mappedIds -> accent.copy(alpha = 0.8f); else -> ink.copy(alpha = 0.28f) }
-                    drawLine(c, from, to, strokeWidth = (if (id == focusedId || id in heldIds) 2f else 1f).dp.toPx())
+                    val w = (if (id == focusedId || id in heldIds) 2f else 1f).dp.toPx()
+                    for (k in 0 until ld.points.lastIndex) drawLine(c, Offset(ld.points[k].x.dp.toPx(), ld.points[k].y.dp.toPx()), Offset(ld.points[k + 1].x.dp.toPx(), ld.points[k + 1].y.dp.toPx()), strokeWidth = w)
                 }
             }
             PadOutline(style, OutlineState(heldIds, mappedIds, focusedId, pad), ink, accent, Modifier.offset(ox, oy).size(ow.x.dp, ow.y.dp).testTag("pad-outline"))
             for (slot in slots) {
-                val onLeft = slot.id in leftIds
+                val ld = lay.leaders.getValue(slot.id)
                 val text = if (slot.isStick) cfg.sticksOf(name).let { s -> val t = if (slot.id == "stick:right") s.right else s.left; "Stick ${"%.2f".format(t.deadzoneX)} · ${"%.1f".format(t.sensX)}×" }
                     else actionOf(kind, name, slot, cfg).let { if (it == RemoteAction.Default) "Default" else dev.glasslauncher.settings.actionLabel(it, context.packageManager) }
                 Callout(
                     slot, style, text, slot.id in mappedIds, slot.id in heldIds, open, requesters.getValue(slot.id),
-                    Modifier.offset((if (onLeft) leftX else rightX).dp, (centres.getValue(slot.id) - CALLOUT_H / 2).dp),
+                    Modifier.offset((if (ld.onLeft) lay.leftX else lay.rightX).dp, (ld.rowY - OutlineLayout.CALLOUT_H / 2).dp),
                     onFocus = { focusedId = slot.id; EditorMemory.slot = slot.id }, onClick = { sheet = slot },
                 )
             }
@@ -315,7 +294,7 @@ private fun Callout(
     val pressed = remember { booleanArrayOf(false) }
     val fg = if (focused) palette.onFocusFill else palette.primary
     Row(
-        modifier.width(CALLOUT_W.dp).height(CALLOUT_H.dp)
+        modifier.width(OutlineLayout.CALLOUT_W.dp).height(OutlineLayout.CALLOUT_H.dp)
             .focusRequester(requester)
             .background(if (focused) palette.focusFill else if (held) palette.primary.copy(alpha = 0.34f) else palette.rowFill, RoundedCornerShape(16.dp))
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() }

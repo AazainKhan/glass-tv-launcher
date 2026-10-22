@@ -49,7 +49,7 @@ internal object OutlineGeometry {
     const val REMOTE_H = 270f
 
     /** How much the drawing is enlarged on the page (the callouts and lines use the same factor). */
-    fun scale(style: PadStyle) = if (style == PadStyle.Remote) 1.1f else 1.4f
+    fun scale(style: PadStyle) = if (style == PadStyle.Remote) 1.1f else 1.3f
 
     /** The drawing's size on the page, scale included. */
     fun size(style: PadStyle) = (if (style == PadStyle.Remote) Offset(REMOTE_W, REMOTE_H) else Offset(PAD_W, PAD_H)) * scale(style)
@@ -71,7 +71,7 @@ internal object OutlineGeometry {
                 "pad:y" to face + Offset(0f, -22f), "pad:x" to face + Offset(-22f, 0f), "pad:b" to face + Offset(22f, 0f), "pad:a" to face + Offset(0f, 22f),
                 "pad:select" to if (ps) Offset(112f, 62f) else Offset(128f, 78f),
                 "pad:start" to if (ps) Offset(188f, 62f) else Offset(172f, 78f),
-                "pad:mode" to if (ps) Offset(150f, 130f) else Offset(150f, 58f),
+                "pad:mode" to if (ps) Offset(150f, 118f) else Offset(150f, 58f),
                 "pad:thumbl" to left, "stick:left" to left, "pad:thumbr" to right, "stick:right" to right,
             )
         }
@@ -207,4 +207,62 @@ internal fun drawSymbol(scope: DrawScope, face: String, c: Offset, r: Float, col
 @Composable
 internal fun SymbolMark(face: String, size: Dp, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size)) { drawSymbol(this, face, center, this.size.minDimension * 0.28f, color) }
+}
+
+/** One callout's line: from its edge, a short horizontal run, then to the button. Points in dp inside the editor's box. */
+internal data class Leader(val id: String, val onLeft: Boolean, val rowY: Float, val points: List<Offset>)
+
+/** Where everything sits in the editor's box, from the box size. Pure, so the "no two lines cross" and "inside the safe area" rules are tests. */
+internal data class OutlineLayout(val ox: Float, val oy: Float, val leftX: Float, val rightX: Float, val callout: Offset, val leaders: Map<String, Leader>) {
+    companion object {
+        const val CALLOUT_W = 176f
+        const val CALLOUT_H = 32f
+        const val MIN_PITCH = 34f
+        const val STUB = 14f
+
+        /** Which callouts sit on which side: centre buttons go to the side nearest them. */
+        fun members(style: PadStyle): Pair<List<String>, List<String>> = when (style) {
+            PadStyle.Remote -> listOf("app1", "app3", "recents") to listOf("app2", "app4", "settings")
+            else -> listOf("pad:l2", "pad:l1", "pad:select", "pad:mode", "pad:thumbl", "stick:left") to
+                listOf("pad:r2", "pad:r1", "pad:y", "pad:x", "pad:b", "pad:a", "pad:start", "pad:thumbr", "stick:right")
+        }
+
+        /** Each side top to bottom by where its button is on the drawing, so the lines run in the same order and don't cross. */
+        fun ordered(style: PadStyle): Pair<List<String>, List<String>> {
+            val a = OutlineGeometry.anchors(style)
+            val (l, r) = members(style)
+            // Same height: the outermost button first, so the line to the inner one runs under it and they don't cross.
+            // (Heights within about 10 dp count as the same.)
+            return l.sortedWith(compareBy({ Math.round(a.getValue(it).y / 10f) }, { a.getValue(it).x })) to
+                r.sortedWith(compareBy({ Math.round(a.getValue(it).y / 10f) }, { -a.getValue(it).x }))
+        }
+
+        fun compute(style: PadStyle, width: Float, height: Float): OutlineLayout {
+            val size = OutlineGeometry.size(style)
+            val ox = (width - size.x) / 2f
+            val oy = ((height - size.y) / 2f).coerceAtLeast(0f)
+            val gap = ((width - size.x - 2 * CALLOUT_W) / 2f).coerceIn(16f, 60f)
+            val leftX = ox - gap - CALLOUT_W
+            val rightX = ox + size.x + gap
+            val anchors = OutlineGeometry.placed(style)
+            val (left, right) = ordered(style)
+            val leaders = HashMap<String, Leader>()
+            for ((ids, onLeft) in listOf(left to true, right to false)) {
+                // Rows start at the button's own height and are pushed apart to the pitch, then back up if the last ran off the bottom.
+                val ys = ids.map { oy + anchors.getValue(it).y }.toMutableList()
+                for (i in 1 until ys.size) if (ys[i] < ys[i - 1] + MIN_PITCH) ys[i] = ys[i - 1] + MIN_PITCH
+                val over = ys.last() + CALLOUT_H / 2 - height
+                if (over > 0) for (i in ys.indices) ys[i] -= over
+                for (i in ys.indices.reversed()) { if (i < ys.lastIndex && ys[i] > ys[i + 1] - MIN_PITCH) ys[i] = ys[i + 1] - MIN_PITCH }
+                val shift = CALLOUT_H / 2 - ys.first()
+                if (shift > 0) for (i in ys.indices) ys[i] += shift
+                ids.forEachIndexed { i, id ->
+                    val edge = Offset(if (onLeft) leftX + CALLOUT_W else rightX, ys[i])
+                    val stub = Offset(edge.x + if (onLeft) STUB else -STUB, ys[i])
+                    leaders[id] = Leader(id, onLeft, ys[i], listOf(edge, stub, Offset(ox + anchors.getValue(id).x, oy + anchors.getValue(id).y)))
+                }
+            }
+            return OutlineLayout(ox, oy, leftX, rightX, Offset(CALLOUT_W, CALLOUT_H), leaders)
+        }
+    }
 }
