@@ -50,10 +50,12 @@ class DevicePageTest {
     private var cfg by mutableStateOf(LauncherConfig())
     private val opened = mutableListOf<String>()
 
-    private fun show(kind: PageKind, name: String) {
+    private fun show(kind: PageKind, name: String, light: Boolean = false) {
         compose.setContent {
-            Box(Modifier.fillMaxSize().background(Color(0xFF181A20))) {
-                DevicePage(kind, name, cfg, { edit -> cfg = edit(cfg) }, active = true, openApp = { opened += it })
+            androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.ui.LocalPalette provides dev.glasslauncher.ui.Palette(light = light)) {
+                Box(Modifier.fillMaxSize().background(if (light) Color(0xFFE6E9F0) else Color(0xFF181A20))) {
+                    DevicePage(kind, name, cfg, { edit -> cfg = edit(cfg) }, active = true, openApp = { opened += it })
+                }
             }
         }
         compose.waitForIdle()
@@ -182,6 +184,16 @@ class DevicePageTest {
         show(PageKind.Gamepad, xbox)
         press("callout:stick:left")
         compose.onRoot().captureRoboImage(shot("device-gamepad-sticks"))
+    }
+
+    @Test fun goldenXboxLight() {
+        show(PageKind.Gamepad, xbox, light = true); mapSome(xbox); focus("callout:pad:b")
+        compose.onRoot().captureRoboImage(shot("device-gamepad-light"))
+    }
+
+    @Test fun goldenRemoteLight() {
+        show(PageKind.Remote, "Amazon Fire TV Remote", light = true); focus("callout:app2")
+        compose.onRoot().captureRoboImage(shot("device-remote-light"))
     }
 
     @Test fun goldenRemote() {

@@ -239,12 +239,12 @@ internal fun DevicePage(
             val ink = palette.primary; val accent = palette.accent
             Canvas(Modifier.fillMaxSize()) {
                 for ((id, ld) in lay.leaders) {
-                    val c = when { id in heldIds -> ink; id == focusedId -> Color.White; id in mappedIds -> accent.copy(alpha = 0.8f); else -> ink.copy(alpha = 0.28f) }
-                    val w = (if (id == focusedId || id in heldIds) 2f else 1f).dp.toPx()
+                    val c = when { id in heldIds -> OutlineColors.held(palette.light); id == focusedId -> ink; id in mappedIds -> accent.copy(alpha = 0.85f); else -> OutlineColors.stroke(palette.light).copy(alpha = 0.85f) }
+                    val w = (if (id == focusedId || id in heldIds) 1.4f else 0.8f).dp.toPx()
                     for (k in 0 until ld.points.lastIndex) drawLine(c, Offset(ld.points[k].x.dp.toPx(), ld.points[k].y.dp.toPx()), Offset(ld.points[k + 1].x.dp.toPx(), ld.points[k + 1].y.dp.toPx()), strokeWidth = w)
                 }
             }
-            PadOutline(style, OutlineState(heldIds, mappedIds, focusedId, pad), ink, accent, Modifier.offset(ox, oy).size(ow.x.dp, ow.y.dp).testTag("pad-outline"))
+            PadOutline(style, OutlineState(heldIds, mappedIds, focusedId, pad), OutlineColors.stroke(palette.light), OutlineColors.held(palette.light), accent, ink, Modifier.offset(ox, oy).size(ow.x.dp, ow.y.dp).testTag("pad-outline"))
             for (slot in slots) {
                 val ld = lay.leaders.getValue(slot.id)
                 val text = if (slot.isStick) cfg.sticksOf(name).let { s -> val t = if (slot.id == "stick:right") s.right else s.left; "Stick ${"%.2f".format(t.deadzoneX)} · ${"%.1f".format(t.sensX)}×" }
