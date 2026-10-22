@@ -11,8 +11,8 @@
   },
   "_dockP99": "2026-10-20 (P245): the dock route judges p99 at 31 ms, the grid keeps 25. Over a 2x-interleaved bisect the dock's median-of-3 p99 read 25-31 ms on every build, the known-good ea491f70 included (26, 30), so 25 failed the baseline itself. The dock reads p99 from 3-4 frames per sample, so a single slow frame moves it. Deadline-missed % stays the dock's judged jank metric. Lower this when the dock's p99 drops.",
   "_dock": "2026-10-13 (P122): the dock route's PSS limit is 135 MB, the grid keeps 120. On the dock the Top Shelf's Cover Flow and scene stay resident; HWUI's GPU caches hold ~39 MB there (34 MB purgeable). Trimming them would bring re-upload hitches back, and smoothness comes first (user). 2026-10-13: raised to 145 MB. The dock's PSS depends on what the Top Shelf shows (measured 131-146 MB the same day on one build), the pre-P119 build 0be5053 already read 141 MB (P119, A1 and the browser link add ~2 MB), trimming the Cover Flow preview pool 10->6 MB changed nothing, and the peak is GL mtrack (~44 MB of GPU layers and textures), which we don't trim.",
-  "apkMaxBytes": 5900000,
-  "_apk": "2026-10-20 (P92 step 7): a ratchet, not the target. master's release APK is 5,788,484 bytes; the user-approved target is 5.0 MB. Lower this as the APK shrinks; raise it only with the reason in the commit.",
+  "apkMaxBytes": 3563000,
+  "_apk": "2026-10-22 (P271): a ratchet, not the target. The release APK is 3,262,745 bytes (was 5,869,982): the dex is compressed in the APK (-2.5 MB; AGP stores it uncompressed from minSdk 28), release ships only armeabi-v7a and arm64-v8a, and the repeated androidx licence texts are replaced by one set in assets/licenses. Limit = size + 300 KB. The user-approved target was 5.0 MB. Lower this as the APK shrinks; raise it only with the reason in the commit.",
   "macrobench": {
     "startupCold": {
       "timeToInitialDisplayMs": 900
