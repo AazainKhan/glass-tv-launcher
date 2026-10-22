@@ -2084,13 +2084,14 @@ internal object TrayHost {
             }
             view = tray
             // Read before the grid, as when the tray was part of Home's view.
-            val home = group.getChildAt(0)
+            // Home's own view (the composition this item lives in), not whichever child happens to be first.
+            val home = generateSequence(main) { it.parent as? android.view.View }.first { it.parent === group }
             if (home.id == android.view.View.NO_ID) home.id = android.view.View.generateViewId()
             tray.accessibilityTraversalBefore = home.id
             group.addView(tray, android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
             onDispose { group.removeView(tray); view = null }
         }
         val y = TrayHost.y - padTop
-        androidx.compose.runtime.SideEffect { main.rootView.findViewById<android.view.ViewGroup>(android.R.id.content)?.let { g -> (1 until g.childCount).map(g::getChildAt).forEach { it.translationY = y } } }
+        androidx.compose.runtime.SideEffect { view?.translationY = y }
     }
 }
