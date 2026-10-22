@@ -926,7 +926,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             val px = if (GlassMatch.keepPixels && bmp.config != android.graphics.Bitmap.Config.HARDWARE)
                 GlassMatch.Sheet(IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) }, bmp.width, bmp.height) else null
             GlassMatch.PanelSheet(bmp, 0f, 0f, 1f, 1f, px)
-        } else glassState.backdrop?.ccSheet
+        } else glassState.backdrop?.sheetFor(dev.glasslauncher.glass.CcAdapt.variant)
         sheetRef.sheet = if (root == androidx.compose.ui.unit.IntSize.Zero) null else CcSheet(material, root, light = false)
         inkTarget.floatValue = 0f
         if (CcMaterial.recordLast) CcMaterial.last = sheetRef.sheet
@@ -950,9 +950,11 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     // A backdrop (or the window's size) that arrives before the open has visibly started is still taken; once the
     // bubble is under way the open keeps what it has.
     LaunchedEffect(Unit) {
-        androidx.compose.runtime.snapshotFlow { glassState.backdrop?.ccSheet to glassState.rootSize }.collect { (offered, root) ->
+        // Keyed on the backdrop, not its sheet: the default variant (E) has no sheet and takes the backdrop's clear texture.
+        var taken: dev.glasslauncher.glass.Backdrop? = null
+        androidx.compose.runtime.snapshotFlow { glassState.backdrop to glassState.rootSize }.collect { (offered, root) ->
             val have = sheetRef.sheet
-            if (!exitingNow.value && enter.value < 0.02f && offered != null && (have?.baked !== offered || have.root != root)) takeSheet()
+            if (!exitingNow.value && enter.value < 0.02f && offered != null && (offered !== taken || have?.root != root)) { takeSheet(); taken = offered }
         }
     }
     LaunchedEffect(Unit) {

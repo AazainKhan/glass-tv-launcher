@@ -2,6 +2,7 @@ package dev.glasslauncher.glass
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.graphics.BitmapFactory
@@ -61,6 +62,21 @@ class Backdrop(
      */
     var ladder: List<ImageBitmap> by androidx.compose.runtime.mutableStateOf(ladder)
         private set
+
+    @Volatile private var sheetOnDemand: GlassMatch.PanelSheet? = null
+
+    /**
+     * Control Center's sheet for [variant]: none for the default (E draws [clearLegible]). A scene baked under E has no sheet,
+     * so a switch to another variant bakes it here once, from the clear texture, and keeps it (P257).
+     */
+    fun sheetFor(variant: String): GlassMatch.PanelSheet? {
+        if (variant == "E") return null
+        ccSheet?.let { return it }
+        sheetOnDemand?.let { return it }
+        val clear = clearSoftware.asAndroidBitmap()
+        val soft = if (clear.config == Bitmap.Config.HARDWARE) clear.copy(Bitmap.Config.ARGB_8888, false) else clear
+        return GlassMatch.ccSheet(soft, isLight).also { sheetOnDemand = it; if (soft !== clear) soft.recycle() }
+    }
 
     /** Bakes the pending rungs and puts them on the GPU, off the main thread, and swaps in the full ladder. Idempotent. */
     suspend fun ensureLadder() {
@@ -272,7 +288,10 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
         val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
         // Control Center's sheet comes from the same clear texture, here, so its open has nothing to bake.
-        val ccSheet = GlassMatch.ccSheet(clear, light)
+        // Control Center's own sheet, for the variants that draw it. The default (E, P206) draws the dock's clear texture instead,
+        // so baking a sheet there was ~180 ms of every scene's bake for nothing (P257).
+        CcAdapt.readVariant()
+        val ccSheet = if (CcAdapt.variant == "E") null else GlassMatch.ccSheet(clear, light)
         val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
         val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
         return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, ccSheet, pendingRungs = steps)
@@ -286,7 +305,8 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
     suspend fun glassOnly(source: Bitmap, light: Boolean = false): Backdrop = withContext(Dispatchers.Default) {
         blurReady
         val clear = Blur.backdrop(source, CLEAR_W, CLEAR_H, radius = 2, saturation = 1.15f).also { it.setHasAlpha(false) }
-        val ccSheet = GlassMatch.ccSheet(clear, light)
+        CcAdapt.readVariant()
+        val ccSheet = if (CcAdapt.variant == "E") null else GlassMatch.ccSheet(clear, light)
         val gpuClear = (clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear).asImageBitmap()
         Backdrop(gpuClear, gpuClear, listOf(gpuClear), gpuClear, gpuClear, gpuClear, isLight = light, ccSheet = ccSheet)
     }
