@@ -55,7 +55,7 @@ internal object OutlineGeometry {
     const val REMOTE_Y0 = 34f
 
     /** How much the drawing is enlarged on the page (the callouts and lines use the same factor). */
-    fun scale(style: PadStyle) = if (style == PadStyle.Remote) 0.43f else 1.3333f
+    fun scale(style: PadStyle) = if (style == PadStyle.Remote) 0.55f else 1.3333f
 
     /** The drawing's size on the page, scale included. */
     fun size(style: PadStyle) = (if (style == PadStyle.Remote) Offset(REMOTE_W, REMOTE_H) else Offset(PAD_W, PAD_H)) * scale(style)
@@ -78,7 +78,7 @@ internal object OutlineGeometry {
                 "pad:y" to face + Offset(0f, -22f), "pad:x" to face + Offset(-22f, 0f), "pad:b" to face + Offset(22f, 0f), "pad:a" to face + Offset(0f, 22f),
                 "pad:select" to if (ps) Offset(112f, 62f) else Offset(128f, 78f),
                 "pad:start" to if (ps) Offset(188f, 62f) else Offset(172f, 78f),
-                "pad:mode" to if (ps) Offset(150f, 118f) else Offset(150f, 58f),
+                "pad:mode" to if (ps) Offset(150f, 118f) else Offset(150f, 52f),
                 "pad:thumbl" to left, "stick:left" to left, "pad:thumbr" to right, "stick:right" to right,
             )
         }
@@ -320,8 +320,9 @@ internal data class OutlineLayout(val ox: Float, val oy: Float, val leftX: Float
         /** Which callouts sit on which side: centre buttons go to the side nearest them. */
         fun members(style: PadStyle): Pair<List<String>, List<String>> = when (style) {
             PadStyle.Remote -> listOf("recents", "app1", "app3") to listOf("settings", "app2", "app4")
-            else -> listOf("pad:l2", "pad:l1", "pad:select", "pad:mode", "pad:thumbl", "stick:left") to
-                listOf("pad:r2", "pad:r1", "pad:y", "pad:x", "pad:b", "pad:a", "pad:start", "pad:thumbr", "stick:right")
+            // The centre buttons and X go left so no line crosses the face buttons (Y, B, A) on the right.
+            else -> listOf("pad:l2", "pad:l1", "pad:select", "pad:start", "pad:mode", "pad:x", "pad:thumbl", "stick:left") to
+                listOf("pad:r2", "pad:r1", "pad:y", "pad:b", "pad:a", "pad:thumbr", "stick:right")
         }
 
         /** Each side top to bottom by where its button is on the drawing, so the lines run in the same order and don't cross. */

@@ -50,4 +50,24 @@ class OutlineLayoutTest {
             assertEquals((l + r).toSet(), OutlineLayout.compute(style, w, h).leaders.keys)
         }
     }
+
+    /** No line runs across a face button that is not its own (the user's complaint with X and Menu). */
+    @Test fun noLineCutsAcrossAFaceButton() {
+        for (style in listOf(PadStyle.PlayStation, PadStyle.Xbox, PadStyle.Generic)) {
+            val lay = OutlineLayout.compute(style, w, h)
+            val k = OutlineGeometry.scale(style)
+            val placed = OutlineGeometry.placed(style)
+            for (face in listOf("pad:a", "pad:b", "pad:x", "pad:y")) {
+                val c = Offset(lay.ox + placed.getValue(face).x, lay.oy + placed.getValue(face).y)
+                for ((id, ld) in lay.leaders) {
+                    if (id == face) continue
+                    val p = ld.points[1]; val q = ld.points[2]
+                    val dx = q.x - p.x; val dy = q.y - p.y
+                    val t = (((c.x - p.x) * dx + (c.y - p.y) * dy) / (dx * dx + dy * dy)).coerceIn(0f, 1f)
+                    val dist = Math.hypot((p.x + t * dx - c.x).toDouble(), (p.y + t * dy - c.y).toDouble()).toFloat()
+                    assertTrue("$style: the line to $id passes $dist from $face", dist >= 11f * k)
+                }
+            }
+        }
+    }
 }

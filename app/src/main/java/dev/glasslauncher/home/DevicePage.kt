@@ -222,8 +222,9 @@ internal fun DevicePage(
                 false
             },
     ) {
-        // Connected: <name> (Select cycles through the connected ones).
-        Row(Modifier.align(Alignment.TopCenter).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val tall = style == PadStyle.Remote
+        // Connected: <name> (Select cycles through the connected ones). The tall remote takes the whole height, so this and the profile bar move to its left.
+        Row(Modifier.align(if (tall) Alignment.TopStart else Alignment.TopCenter).padding(top = if (tall) 44.dp else 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Connected:", style = Type.secondary, color = palette.secondary)
             DevPill(
                 if (names.size > 1) "$name  ⇅" else name.ifEmpty { "No device" }, Modifier.testTag("device-switch"), enabled = open,
@@ -232,7 +233,7 @@ internal fun DevicePage(
         }
         val heldIds = slots.filter { s -> EditorSlots.litName(s).let { n -> n in pad.pressed || n in lit } }.map { it.id }.toSet()
         val mappedIds = slots.filter { !it.isStick && isMapped(kind, name, it, cfg) }.map { it.id }.toSet()
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(top = 40.dp, bottom = 84.dp).graphicsLayer { alpha = if (open) 1f else 0.3f }) {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(top = if (tall) 0.dp else 40.dp, bottom = if (tall) 36.dp else 84.dp).graphicsLayer { alpha = if (open) 1f else 0.3f }) {
             val ow = OutlineGeometry.size(style)
             val lay = OutlineLayout.compute(style, maxWidth.value, maxHeight.value)
             val ox = lay.ox.dp; val oy = lay.oy.dp
@@ -258,7 +259,7 @@ internal fun DevicePage(
         }
         if (name.isNotEmpty()) {
             // Above Settings' 36 dp bottom fade, or the bar reads as disabled.
-            ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, open, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
+            ProfileBar(if (kind == PageKind.Gamepad) ProfileKind.Pad else ProfileKind.Remote, name, cfg, edit, open, Modifier.align(if (tall) Alignment.BottomStart else Alignment.BottomCenter).padding(bottom = 40.dp))
         }
         sheet?.let { s ->
             Box(Modifier.fillMaxSize().testTag("picker-sheet"), contentAlignment = Alignment.Center) {
