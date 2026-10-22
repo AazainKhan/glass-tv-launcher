@@ -192,7 +192,7 @@ internal fun NowPlayingTile(
                 val art = np?.art
                 if (art != null) androidx.compose.foundation.Image(
                     art.asImageBitmap(), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                    modifier = Modifier.androidxSize(70.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
+                    modifier = Modifier.androidxSize(70.dp),
                 ) else androidx.compose.foundation.Image(
                     androidx.compose.ui.res.painterResource(R.drawable.ic_music_note), null,
                     colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(fg), modifier = Modifier.androidxSize(36.dp),

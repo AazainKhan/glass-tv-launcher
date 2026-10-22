@@ -78,6 +78,9 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 
+/** Now Playing's cover has the shape of the Cover Flow albums: square, no rounding (P236). */
+internal val COVER_RADIUS = 0.dp
+
 /** The playing app's name ("Spotify"), for the "Now Playing" line. */
 @Composable
 private fun appName(pkg: String): String {
@@ -307,7 +310,7 @@ fun NowPlayingHero(
     val scrubRescue = rememberFocusRescue(scrubbing, playFocus)
     LaunchedEffect(scrubbing) { if (!scrubbing) onScrubFocus(false) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.testTag("now-playing-hero")) {
-        Artwork(item, 200.dp, 16.dp)
+        Artwork(item, 200.dp, COVER_RADIUS)
         Column(Modifier.padding(start = 36.dp).width(470.dp)) {
             Text(
                 ("Now Playing" + appName(item.packageName).takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()).uppercase(),
@@ -378,7 +381,7 @@ fun NowPlayingCard(item: NowPlaying, width: Dp, scale: Float) {
         val scrubRescue = rememberFocusRescue(item.canSeek && item.durationMs > 0, playReq)
         // Art, track and the controls on one row; the progress under it, the card's full width (the times never wrap).
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Artwork(item, (46 * scale).dp, (9 * scale).dp)
+            Artwork(item, (46 * scale).dp, COVER_RADIUS)
             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                 Text(item.title, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 item.artist?.let { Text(it, style = Type.caption, color = palette.primary.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
