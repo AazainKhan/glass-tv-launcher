@@ -24,7 +24,10 @@ import kotlinx.coroutines.Job
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -224,6 +227,30 @@ private fun SeekableProgress(
  */
 @Composable
 private fun Artwork(item: NowPlaying, size: Dp, radius: Dp) {
+    // The playing app's icon rides the cover's bottom-right corner (P235), outside the cover's clip, so it reads as a badge on it.
+    Box(Modifier.size(size)) {
+        CoverArt(item, size, radius)
+        SourceBadge(item.packageName, size * 0.28f, Modifier.align(Alignment.BottomEnd).offset(size * 0.08f, size * 0.08f))
+    }
+}
+
+/** The app that is playing, as a small rounded icon with a thin rim; nothing when its icon can't be read. AirPlay has its own glyph. */
+@Composable
+private fun SourceBadge(pkg: String, size: Dp, modifier: Modifier) {
+    val context = LocalContext.current
+    val icon = remember(pkg) {
+        if (pkg == "airplay") null else runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+    }
+    val shape = RoundedCornerShape(size * 0.24f)
+    if (pkg != "airplay" && icon == null) return
+    Box(modifier.size(size).testTag("np-source-badge").shadow(2.dp, shape).clip(shape).background(Color(0xFF2A2C33)).border(1.dp, Color.White.copy(alpha = 0.28f), shape), contentAlignment = Alignment.Center) {
+        if (icon != null) Image(icon, null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
+        else Image(painterResource(R.drawable.ic_airplay), null, colorFilter = ColorFilter.tint(Color.White), modifier = Modifier.size(size * 0.6f))
+    }
+}
+
+@Composable
+private fun CoverArt(item: NowPlaying, size: Dp, radius: Dp) {
     val blend = remember { ArtBlend<Bitmap>(initial = item.art) }
     var base by remember { mutableStateOf(item.art) }
     var top by remember { mutableStateOf<Bitmap?>(null) }
