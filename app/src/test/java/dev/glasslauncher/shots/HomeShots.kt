@@ -86,6 +86,8 @@ class HomeShots {
     }
 
     @Test fun appMenu() = home {
+        // At rest first (P270): the menu's frosted snapshot of Home is taken on a real thread, so a tile still springing would land at a different phase each run.
+        compose.settle()
         compose.press(Button.Menu)
         capture("app-menu", tolerance = 0.02f, colourNoise = 0.03f)
     }

@@ -81,12 +81,24 @@ import androidx.compose.ui.focus.FocusRequester
 /** Now Playing's cover has the shape of the Cover Flow albums: square, no rounding (P236). */
 internal val COVER_RADIUS = 0.dp
 
-/** The playing app's name ("Spotify"), for the "Now Playing" line. */
+/** The playing app's icon for the badge (P235); null when it can't be read, and for AirPlay, which has its own glyph. */
 @Composable
-private fun appName(pkg: String): String {
-    if (pkg == "airplay") return "AirPlay"
+private fun sourceIcon(pkg: String): androidx.compose.ui.graphics.ImageBitmap? {
+    val context = LocalContext.current
+    return remember(pkg) {
+        if (pkg == "airplay") null else runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+    }
+}
+
+/**
+ * The words after "Now Playing": nothing when the cover wears the app's badge (the badge says it), else the app's name; never a raw
+ * package name (an app with no label reads as its package, so that counts as none).
+ */
+@Composable
+private fun sourceName(pkg: String): String {
+    if (pkg == "airplay" || sourceIcon(pkg) != null) return ""
     val pm = LocalContext.current.packageManager
-    return remember(pkg) { runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault("") }
+    return remember(pkg) { runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault("").takeIf { it != pkg && !it.contains('.') }.orEmpty() }
 }
 
 /** Ticks once a second while playing and Home is resumed (P159: not while another app is in front), so progress moves without recomposing anything else. */
@@ -230,20 +242,17 @@ private fun SeekableProgress(
  */
 @Composable
 private fun Artwork(item: NowPlaying, size: Dp, radius: Dp) {
-    // The playing app's icon rides the cover's bottom-right corner (P235), outside the cover's clip, so it reads as a badge on it.
+    // The playing app's icon sits inside the cover's bottom-right corner (P235), inset a little, large enough to read from the sofa.
     Box(Modifier.size(size)) {
         CoverArt(item, size, radius)
-        SourceBadge(item.packageName, size * 0.28f, Modifier.align(Alignment.BottomEnd).offset(size * 0.08f, size * 0.08f))
+        SourceBadge(item.packageName, maxOf(size * 0.3f, 16.dp), Modifier.align(Alignment.BottomEnd).padding(size * 0.05f))
     }
 }
 
 /** The app that is playing, as a small rounded icon with a thin rim; nothing when its icon can't be read. AirPlay has its own glyph. */
 @Composable
 private fun SourceBadge(pkg: String, size: Dp, modifier: Modifier) {
-    val context = LocalContext.current
-    val icon = remember(pkg) {
-        if (pkg == "airplay") null else runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
-    }
+    val icon = sourceIcon(pkg)
     val shape = RoundedCornerShape(size * 0.24f)
     if (pkg != "airplay" && icon == null) return
     Box(modifier.size(size).testTag("np-source-badge").shadow(2.dp, shape).clip(shape).background(Color(0xFF2A2C33)).border(1.dp, Color.White.copy(alpha = 0.28f), shape), contentAlignment = Alignment.Center) {
@@ -313,7 +322,7 @@ fun NowPlayingHero(
         Artwork(item, 200.dp, COVER_RADIUS)
         Column(Modifier.padding(start = 36.dp).width(470.dp)) {
             Text(
-                ("Now Playing" + appName(item.packageName).takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()).uppercase(),
+                ("Now Playing" + sourceName(item.packageName).takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()).uppercase(),
                 style = Type.overline, color = fg.copy(alpha = 0.78f),
             )
             Text(item.title, style = Type.title, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))

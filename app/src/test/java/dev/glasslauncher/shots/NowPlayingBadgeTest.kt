@@ -17,6 +17,7 @@ import dev.glasslauncher.widgets.Like
 import dev.glasslauncher.widgets.NowPlaying
 import dev.glasslauncher.widgets.NowPlayingHero
 import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.semantics.getOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -62,4 +63,15 @@ class NowPlayingBadgeTest {
         compose.waitForIdle()
         compose.onRoot().captureRoboImage(shot("now-playing-source-badge"))
     }
+
+    private fun overline(pkg: String): List<String> {
+        val item = NowPlaying("Song", "Artist", "Album", pkg, null, durationMs = 0, positionMs = 0, positionAt = 0, speed = 1f, playing = false, controller = Spy(), canSeek = false, like = Like.None)
+        compose.setContent { Box(Modifier.fillMaxSize().padding(16.dp)) { NowPlayingHero(item, false, androidx.compose.runtime.remember { FocusRequester() }, androidx.compose.runtime.remember { FocusRequester() }) } }
+        compose.waitForIdle()
+        return compose.onAllNodes(androidx.compose.ui.test.hasText("NOW PLAYING", substring = true)).fetchSemanticsNodes().map { n -> n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString { it.text }.orEmpty() }
+    }
+
+    /** P235: the overline names the app only when there is no badge, and never prints a raw package name. */
+    @Test fun theOverlineHasNoNameWhereTheBadgeShows() = assertEquals(listOf("NOW PLAYING"), overline("airplay"))
+    @Test fun aPackageWithNoLabelAndNoIconShowsNoName() = assertEquals(listOf("NOW PLAYING"), overline("com.example.not.installed"))
 }

@@ -53,6 +53,9 @@ android {
         unitTests.all {
             it.systemProperty("robolectric.graphicsMode", "NATIVE")
             it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+            // No unit test touches the real network: every request fails fast against a dead proxy (localhost stays direct). Without this a golden
+            // that shows Cinemeta data depended on whether an earlier test in the JVM had blocked the network (TvHarness does), so it flaked run to run.
+            for (scheme in listOf("http", "https")) { it.systemProperty("$scheme.proxyHost", "127.0.0.1"); it.systemProperty("$scheme.proxyPort", "9") }
             it.maxHeapSize = "3g"
             // A flaky failure on CI must leave its whole stack in the log (P218: "IllegalStateException at LifecycleRegistry.kt:382" was all there was).
             it.testLogging { exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL; showCauses = true; showStackTraces = true }
