@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
@@ -196,7 +197,7 @@ private class GlassNode(
     private val matrix = Matrix()
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
-        val p = coordinates.positionInRoot()
+        val p = coordinates.positionInWindow()
         if (p != origin) {
             origin = p
             invalidateDraw()

@@ -43,6 +43,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -74,9 +75,13 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -283,6 +288,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val overlays = remember { mutableStateListOf<Overlay>() }
+    val trayInMain = overlays.isNotEmpty() || !TrayHost.split
+    androidx.compose.runtime.SideEffect { if (TrayHost.inMain != trayInMain) TrayHost.inMain = trayInMain }
     var moving by remember { mutableStateOf<String?>(null) }
     // Settings was opened from its tile (with the zoom): its close plays back into that tile.
     var settingsFromTile by remember { mutableStateOf(false) }
@@ -1014,26 +1021,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
 
     val scaledDensity = Density(density.density, density.fontScale * cfg.textScale)
-    CompositionLocalProvider(
-        LocalMenuAnchor provides menuAnchor,
-        dev.glasslauncher.ui.LocalScreenDissolve provides dissolve,
-        LocalAppTransition provides transition.takeUnless { prefs.reduceMotion },
-        LocalBackdrop provides backdrop,
-        LocalPalette provides palette,
-        LocalUiPrefs provides prefs,
-        LocalMetrics provides metrics,
-        LocalDensity provides scaledDensity,
-        LocalTextStyle provides Type.body,
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .semantics { testTagsAsResourceId = true }
-                .onSizeChanged { backdrop.rootSize = it }
-                .onFocusChanged { rootFocused = it.hasFocus }
-                // Black under the fade-in only; afterwards the backdrop is the only full-screen fill.
-                .drawBehind { if (reveal.value < 1f) drawRect(Color.Black) }
-                .onPreviewKeyEvent { ev ->
+    // Home's keys (P248): the tray's own view sends its keys here first, so both views behave as one.
+    val rootKeys: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = rootKeys@{ ev ->
                     val e = ev.nativeKeyEvent
                     idle.touch()
                     if (e.action == AndroidKeyEvent.ACTION_DOWN) idle.noteKey(e.repeatCount)
@@ -1043,26 +1032,31 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         AndroidKeyEvent.KEYCODE_DPAD_UP -> { KeyDirection.dx = 0; KeyDirection.dy = -1 }
                         AndroidKeyEvent.KEYCODE_DPAD_DOWN -> { KeyDirection.dx = 0; KeyDirection.dy = 1 }
                     }
-                    if (overlays.isNotEmpty()) { backDownOnHome = false; return@onPreviewKeyEvent false }
+                    if (overlays.isNotEmpty()) { backDownOnHome = false; return@rootKeys false }
                     val key = moving
                     if (key != null) {
                         if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, model, metrics.columns) { moving = null }
-                        return@onPreviewKeyEvent true
+                        return@rootKeys true
                     }
                     // Compose treats Back as "leave the focus group" first, so from the grid the first press
                     // only dropped focus and a second one went back up (found by e2e/test_home.py).
                     // Only a Back that went down on Home: the key-up of a Back that closed a menu isn't one.
-                    if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK && shelfSheet) return@onPreviewKeyEvent false
+                    if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK && shelfSheet) return@rootKeys false
                     if (e.keyCode == AndroidKeyEvent.KEYCODE_BACK) {
                         if (e.action == AndroidKeyEvent.ACTION_DOWN) backDownOnHome = e.repeatCount == 0 || backDownOnHome
                         if (e.action == AndroidKeyEvent.ACTION_UP && backDownOnHome) { backDownOnHome = false; homeBack() }
-                        return@onPreviewKeyEvent true
+                        return@rootKeys true
                     }
-                    if (e.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                    if (e.action != AndroidKeyEvent.ACTION_DOWN) return@rootKeys false
                     when {
                         e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { openControlCenter(); true }
                         // The info card keeps Up and Down until Back (P231): Home's "Down leaves full screen" below must not see them.
                         dev.glasslauncher.featured.InfoCardOpen.open && (e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN || e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) -> false
+                        // Up from the grid's first row goes back to the tray app focus left from (the tray is its own view, P248).
+                        e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 2 && moving == null -> {
+                            val key = lastDockFocused?.takeIf { exists(it) } ?: firstKey()
+                            key != null && runCatching { requester(key).requestFocus() }.isSuccess
+                        }
                         // Up from the tray opens the featured shelf full screen ("Swipe up for full screen").
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && feed != null && cfg.topShelfTitles && takeover == null -> { setExpanded(true); true }
                         e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && !expanded && focusedRow == 1 && takeover != null && !pillFocused && !heroFocused ->
@@ -1093,7 +1087,28 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                         }
                         else -> false
                     }
-                },
+                }
+    TrayHost.keys = rootKeys
+    CompositionLocalProvider(
+        LocalMenuAnchor provides menuAnchor,
+        dev.glasslauncher.ui.LocalScreenDissolve provides dissolve,
+        LocalAppTransition provides transition.takeUnless { prefs.reduceMotion },
+        LocalBackdrop provides backdrop,
+        LocalPalette provides palette,
+        LocalUiPrefs provides prefs,
+        LocalMetrics provides metrics,
+        LocalDensity provides scaledDensity,
+        LocalTextStyle provides Type.body,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .semantics { testTagsAsResourceId = true }
+                .onSizeChanged { backdrop.rootSize = it }
+                .onFocusChanged { rootFocused = it.hasFocus }
+                // Black under the fade-in only; afterwards the backdrop is the only full-screen fill.
+                .drawBehind { if (reveal.value < 1f) drawRect(Color.Black) }
+                .onPreviewKeyEvent(rootKeys),
         ) {
             Box(
                 Modifier
@@ -1598,16 +1613,31 @@ private fun HomeList(
             }
         }
         item(key = "dock") {
-            DockTray(
-                apps = dockShown,
-                model = model,
-                moving = moving,
-                requester = requester,
-                onFocused = { onFocused(it, 1) },
-                onAppMenu = { onAppMenu(it, true) },
-                launch = launch,
-                modifier = Modifier.onFocusChanged { if (it.hasFocus) onRowFocused(1) },
-            )
+            // The tray draws in its own ComposeView beside Home's (TrayHost, P248); this is only its slot.
+            TrayHost.Attach()
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            // Under an overlay (folder, menu) the tray draws here, in Home's view, so the overlay's dim and frosted snapshot cover it too.
+            val tray: @Composable () -> Unit = {
+                DockTray(
+                    apps = dockShown,
+                    model = model,
+                    moving = moving,
+                    requester = requester,
+                    onFocused = { k -> TrayHost.col = dockShown.indexOfFirst { appKey(it.packageName) == k }; onFocused(k, 1) },
+                    onAppMenu = { onAppMenu(it, true) },
+                    launch = launch,
+                    modifier = Modifier.onFocusChanged { if (it.hasFocus) onRowFocused(1) },
+                )
+            }
+            // Called here directly, never through TrayHost.content: reading the state this item writes would recompose it forever.
+            if (TrayHost.inMain) tray()
+            else Box(Modifier.fillMaxWidth().height(with(d) { TrayHost.h.toDp() }).onGloballyPositioned { TrayHost.y = it.positionInWindow().y })
+            androidx.compose.runtime.SideEffect {
+                TrayHost.slotCompositions++
+                TrayHost.content = tray
+                // Down from the tray: the grid's first row, same column (the views don't search each other).
+                TrayHost.down = { rows.firstOrNull()?.let { r -> runCatching { requester(cellKey(r[TrayHost.col.coerceIn(0, r.lastIndex)])).requestFocus() }.isSuccess } ?: false }
+            }
         }
         // Keyed by the row's first cell, not its place: a row that moves keeps its composition (P159).
         itemsIndexed(rows, key = { _, row -> "row-" + cellKey(row.first()) }) { i, row ->
@@ -2003,3 +2033,59 @@ private fun Modifier.ccParked(): Modifier = this
     .clearAndSetSemantics { this[androidx.compose.ui.semantics.SemanticsProperties.TestTag] = dev.glasslauncher.system.SemanticsDump.PARKED }
     .focusProperties { onEnter = { cancelFocusChange() } }
     .focusGroup()
+
+/** P248: the dock tray in its own ComposeView, a sibling of Home's, so a focus move repaints only the tray's band, not the whole screen (Compose invalidates its whole view). */
+internal object TrayHost {
+    var y by mutableFloatStateOf(0f)
+    var h by mutableIntStateOf(0)
+    var content: (@Composable () -> Unit)? by mutableStateOf(null)
+    var view: android.view.View? = null
+    var inMain by mutableStateOf(false)
+    /** Off in the JVM screenshot tests: their harness drives one ComposeView, so the tray stays in Home's (the overlay path). */
+    @Volatile var split = true
+    /** For tests: compositions of the tray's slot in Home (bounded while nothing changes). */
+    var slotCompositions = 0
+    // The view's band reaches past the tray so a focused tile's lift and shadow aren't cut at its edge.
+    private val SHADOW_TOP = 12.dp
+    private val SHADOW_BOTTOM = 32.dp
+    private var padTop by mutableFloatStateOf(0f)
+    var col = 0
+    var down: () -> Boolean = { false }
+    var keys: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
+
+    @Composable
+    fun Attach() {
+        if (!split) return
+        val main = androidx.compose.ui.platform.LocalView.current
+        val parent = androidx.compose.runtime.rememberCompositionContext()
+        androidx.compose.runtime.DisposableEffect(main) {
+            val group = main.rootView.findViewById<android.view.ViewGroup>(android.R.id.content)
+            val tray = androidx.compose.ui.platform.ComposeView(main.context).apply {
+                setParentCompositionContext(parent)
+                setContent {
+                    val fm = androidx.compose.ui.platform.LocalFocusManager.current
+                    padTop = with(androidx.compose.ui.platform.LocalDensity.current) { SHADOW_TOP.toPx() }
+                    Box(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.padding(top = SHADOW_TOP, bottom = SHADOW_BOTTOM).onPreviewKeyEvent { e ->
+                        if (keys?.invoke(e) == true) return@onPreviewKeyEvent true
+                        val up = e.key == androidx.compose.ui.input.key.Key.DirectionUp
+                        if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown || !(up || e.key == androidx.compose.ui.input.key.Key.DirectionDown)) return@onPreviewKeyEvent false
+                        // Up and Down leave the tray: Home's view takes focus in that direction, from the tray's band.
+                        val band = android.graphics.Rect(0, y.toInt(), main.width, y.toInt() + h)
+                        if (!fm.moveFocus(if (up) androidx.compose.ui.focus.FocusDirection.Up else androidx.compose.ui.focus.FocusDirection.Down) && !(!up && down()))
+                            main.requestFocus(if (up) android.view.View.FOCUS_UP else android.view.View.FOCUS_DOWN, band)
+                        true
+                    }) { Box(Modifier.fillMaxWidth().onSizeChanged { if (!inMain) h = it.height }) { if (!inMain) content?.invoke() } }
+                }
+            }
+            view = tray
+            // Read before the grid, as when the tray was part of Home's view.
+            val home = group.getChildAt(0)
+            if (home.id == android.view.View.NO_ID) home.id = android.view.View.generateViewId()
+            tray.accessibilityTraversalBefore = home.id
+            group.addView(tray, android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+            onDispose { group.removeView(tray); view = null }
+        }
+        val y = TrayHost.y - padTop
+        androidx.compose.runtime.SideEffect { main.rootView.findViewById<android.view.ViewGroup>(android.R.id.content)?.let { g -> (1 until g.childCount).map(g::getChildAt).forEach { it.translationY = y } } }
+    }
+}

@@ -3,6 +3,7 @@ package dev.glasslauncher.system
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.launch
 
 /**
  * For the device tests (`adb shell am broadcast -n dev.glasslauncher/.system.DebugDumpReceiver`): returns
@@ -11,6 +12,14 @@ import android.content.Intent
  */
 class DebugDumpReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // The appearance for the device tests, debug builds only: `--es theme Light|Dark|System`.
+        intent.getStringExtra("theme")?.takeIf { dev.glasslauncher.BuildConfig.DEBUG }?.let { name ->
+            val mode = dev.glasslauncher.data.ThemeMode.entries.firstOrNull { it.name.equals(name, true) } ?: return@let
+            val app = context.applicationContext as dev.glasslauncher.GlassApp
+            val done = goAsync()
+            app.scope.launch { try { app.config.update { it.copy(theme = mode) } } finally { done.finish() } }
+            return
+        }
         // A device's page for the device tests: `--es open_device gamepad:Xbox` (or remote:Name) opens Settings on it.
         intent.getStringExtra("open_device")?.let { spec ->
             val kind = if (spec.startsWith("remote:")) dev.glasslauncher.home.PageKind.Remote else dev.glasslauncher.home.PageKind.Gamepad
