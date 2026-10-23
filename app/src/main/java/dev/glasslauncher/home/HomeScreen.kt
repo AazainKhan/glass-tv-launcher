@@ -741,6 +741,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (!cfg.tipsSeen) {
             delay(1500) // let the backdrop draw so the card's glass has something to blur
             open(Overlay.Tips)
+            // Seen once shown: Back closes the card too, and it shouldn't come back on every launch.
+            model.edit { it.copy(tipsSeen = true) }
         }
     }
     // The top shelf advances on its own, to the right, at rest and in full screen, as on tvOS. Any
@@ -876,6 +878,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(Unit) {
         snapshotFlow { overlays.isEmpty() }.collect { empty ->
             if (empty) {
+                // The tray goes back to its own view first (P248): focusing now would land on its old node in Home's view,
+                // which leaves a frame later and takes the focus with it (nothing focused, keys dead).
+                snapshotFlow { TrayHost.inMain }.first { !it || !TrayHost.split }
                 if (expanded) runCatching { cardRequester.requestFocus() } else focusKey(lastFocused ?: firstKey())
                 // The leaving overlay's glass still samples the snapshot until its exit finishes.
                 snapshotFlow { exiting.isEmpty() }.first { it }

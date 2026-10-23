@@ -1,7 +1,10 @@
 package dev.glasslauncher.shots
 
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -14,6 +17,7 @@ import dev.glasslauncher.home.TrayHost
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -62,5 +66,25 @@ class TrayHostTest {
         scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.settle()
         assertFalse("closing it hands the tray back", TrayHost.inMain)
+    }
+
+    private fun focusedTag(): String? = compose.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes()
+        .firstNotNullOfOrNull { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag) }
+
+    @Test(timeout = 120_000)
+    fun aDockTileHasFocusAgainAfterItsMenuCloses() = withFolder(split = true) { scenario ->
+        compose.focusTag("app:com.netflix.ninja")
+        compose.settle()
+        // Keys go to the root that holds the focus (the tray's view).
+        compose.onNode(isFocused(), useUnmergedTree = true).performKeyInput { pressKey(Key.Menu) }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("App Info").fetchSemanticsNodes().isNotEmpty() }
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        // Checked before Home's focus watchdog (two 500 ms looks) could put it back.
+        compose.mainClock.advanceTimeBy(300)
+        compose.waitForIdle()
+        assertEquals("focus comes back to the tile whose menu closed", "app:com.netflix.ninja", focusedTag())
+        compose.onNode(isFocused(), useUnmergedTree = true).performKeyInput { pressKey(Key.DirectionRight) }
+        compose.settle()
+        assertEquals("and Right moves it", "app:com.amazon.firetv.youtube", focusedTag())
     }
 }
