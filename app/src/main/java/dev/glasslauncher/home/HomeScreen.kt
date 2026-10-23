@@ -171,6 +171,8 @@ private const val BAKE_LEAD_MS = 2_500L
 private const val APP_HERO_MS = 250L
 /** P257b: how long without input before a hero's neighbours' art is prefetched (never during a move or a bake). */
 private const val NEIGHBOUR_HEROES_MS = 1_000L
+/** Log tag for hero-swap timing (P257b); silent unless enabled with `setprop log.tag.GlassHero DEBUG`. */
+private const val HERO_LOG = "GlassHero"
 private const val GPU_TRIM_AFTER_MS = 4_000L
 private const val APP_HERO_FADE_MS = 270
 /** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
@@ -518,7 +520,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             // twice, only for these 200 ms.
             if (baked != null) {
             // Off unless `setprop log.tag.GlassHero DEBUG`: the fade start on the uptime clock, for timing hero swaps from a key (P257b).
-            if (android.util.Log.isLoggable("GlassHero", android.util.Log.DEBUG)) android.util.Log.d("GlassHero", "swap $appHeroPkg at ${android.os.SystemClock.uptimeMillis()} inMemory=$inMemory")
+            if (android.util.Log.isLoggable(HERO_LOG, android.util.Log.DEBUG)) android.util.Log.d(HERO_LOG, "swap $appHeroPkg at ${android.os.SystemClock.uptimeMillis()} inMemory=$inMemory")
             backdrop.glassFades = true
             backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); sceneOfApp = appHeroPkg; return@LaunchedEffect }
         }
