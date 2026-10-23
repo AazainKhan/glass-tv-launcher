@@ -504,6 +504,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         if (appHeroPkg != null) {
             // The app's update time is part of the key: an updated app gets a hero drawn from its new art.
             val key = "$appHeroPkg|${layout.installed.firstOrNull { it.packageName == appHeroPkg }?.updated ?: 0L}|$dark"
+            val inMemory = appHeroes[key] != null
             val baked = appHeroes[key] ?: run {
                 // The app's logo art full screen: Amazon's Fire TV icon, else its own banner (or icon) drawn sharp.
                 val art = dev.glasslauncher.apps.AppArt.url(context, appHeroPkg)
@@ -516,6 +517,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             // (state.fade), else their glass changes colour before the background does. Only those two draw
             // twice, only for these 200 ms.
             if (baked != null) {
+            // Off unless `setprop log.tag.GlassHero DEBUG`: the fade start on the uptime clock, for timing hero swaps from a key (P257b).
+            if (android.util.Log.isLoggable("GlassHero", android.util.Log.DEBUG)) android.util.Log.d("GlassHero", "swap $appHeroPkg at ${android.os.SystemClock.uptimeMillis()} inMemory=$inMemory")
             backdrop.glassFades = true
             backdrop.swap(baked, animate = backdrop.backdrop != null, fadeMs = APP_HERO_FADE_MS); sceneOfApp = appHeroPkg; return@LaunchedEffect }
         }
