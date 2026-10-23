@@ -3,7 +3,6 @@ package dev.glasslauncher.shots
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.isFocused
-import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performKeyInput
@@ -59,8 +58,8 @@ class TrayHostTest {
         assertFalse(TrayHost.inMain)
         compose.focusTag(folderKey("media"))
         compose.settle()
-        // Two Compose roots now (Home's and the tray's): keys go to Home's, where the folder has focus.
-        compose.onAllNodes(isRoot())[0].performKeyInput { pressKey(Key.DirectionCenter) }
+        // Several Compose roots now (Home's, the tray's, the grid's, P258): keys go to the one where the folder has focus.
+        compose.onNode(isFocused(), useUnmergedTree = true).performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitForTag("folder-title")
         assertTrue("an open folder draws the tray in Home's view", TrayHost.inMain)
         scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }

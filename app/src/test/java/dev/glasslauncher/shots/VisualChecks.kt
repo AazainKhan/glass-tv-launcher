@@ -396,7 +396,8 @@ class VisualChecks {
     private fun tagged(): Map<String, Box> =
         compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.TestTag), useUnmergedTree = true)
             .fetchSemanticsNodes().groupBy { it.config[SemanticsProperties.TestTag] }
-            .filterValues { it.size == 1 }.mapValues { it.value.single().toBox() }
+            // Fully clipped nodes are off screen, as if not composed: the grid's rows share one item (P258), so rows below the screen still exist.
+            .filterValues { it.size == 1 && !it.single().boundsInRoot.isEmpty }.mapValues { it.value.single().toBox() }
 
     private fun descendants(n: SemanticsNode): List<SemanticsNode> = n.children.flatMap { listOf(it) + descendants(it) }
 

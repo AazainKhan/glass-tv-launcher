@@ -83,6 +83,8 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -679,13 +681,14 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
 
     suspend fun focusKey(key: String?) {
         val target = key?.let { if (exists(it)) it else replacement(it) } ?: return
-        withFrameNanos { }
-        if (tryFocus(target)) return
+        // A few frames: when an overlay closes, the tray and grid move back to their own views (P248, P258) and attach a frame or two later.
+        repeat(4) { withFrameNanos { }; if (tryFocus(target)) return }
         // Grid rows off screen aren't composed yet: bring the row in, then focus it.
         val index = layout.grid.indexOfFirst { it.key == target }.takeIf { it >= 0 }
             ?: if (target == SETTINGS_TILE_KEY) layout.grid.size else null
         if (index != null) {
-            listState.scrollToItem(2 + index / metrics.columns, -with(density) { metrics.gridPivot.roundToPx() })
+            val within = GridHost.rowTops.getOrElse(index / metrics.columns) { 0 }
+            listState.scrollToItem(2, within - with(density) { metrics.gridPivot.roundToPx() })
             withFrameNanos { }
             if (tryFocus(target)) return
         }
@@ -714,10 +717,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 // The focused row's tiles settle at the pivot; the first row has the tray gap above it.
                 val pad = if (index == 2) metrics.trayToGrid else 0.dp
                 val target = with(density) { (metrics.gridPivot - pad).toPx() }
-                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                // Grid rows share one item (P258): aim at the row's top inside it. Add-on rows follow as their own items.
+                val n = GridHost.rowTops.size
+                val (item, within) = if (index - 2 < n) 2 to GridHost.rowTops[index - 2] else (index - n + 1) to 0
+                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == item }
                 // tvOS: full speed on the first frame, then exponential deceleration (not a spring from rest).
-                if (info != null) listState.animateScrollBy(info.offset - target, Motion.scroll())
-                else listState.animateScrollToItem(index, -target.toInt())
+                if (info != null) listState.animateScrollBy(info.offset + within - target, Motion.scroll())
+                else listState.animateScrollToItem(item, within - target.toInt())
             }
         }
     }
@@ -878,8 +884,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     LaunchedEffect(Unit) {
         snapshotFlow { overlays.isEmpty() }.collect { empty ->
             if (empty) {
-                // The tray goes back to its own view first (P248): focusing now would land on its old node in Home's view,
-                // which leaves a frame later and takes the focus with it (nothing focused, keys dead).
+                // The tray and grid go back to their own views first: focusing now would land on their old nodes in Home's view,
+                // which leave a frame later and take the focus with them (nothing focused, keys dead).
                 snapshotFlow { TrayHost.inMain }.first { !it || !TrayHost.split }
                 if (expanded) runCatching { cardRequester.requestFocus() } else focusKey(lastFocused ?: firstKey())
                 // The leaving overlay's glass still samples the snapshot until its exit finishes.
@@ -1099,6 +1105,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     }
                 }
     TrayHost.keys = rootKeys
+    GridHost.keys = rootKeys
     CompositionLocalProvider(
         LocalMenuAnchor provides menuAnchor,
         dev.glasslauncher.ui.LocalScreenDissolve provides dissolve,
@@ -1650,10 +1657,17 @@ private fun HomeList(
             }
         }
         // Keyed by the row's first cell, not its place: a row that moves keeps its composition (P159).
-        itemsIndexed(rows, key = { _, row -> "row-" + cellKey(row.first()) }) { i, row ->
+        item(key = "grid") {
+            GridHost.Attach()
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            if (GridHost.rowTops.size != rows.size) GridHost.rowTops = IntArray(rows.size)
+            // shortcut: every grid row is composed (no laziness); measured with 15 apps, re-measure PSS if libraries of 100+ apps matter.
+            val grid: @Composable () -> Unit = { Column { rows.forEachIndexed { i, row -> androidx.compose.runtime.key("row-" + cellKey(row.first())) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(m.gutter),
                 modifier = Modifier
+                    // Measured outside the padding: the row's item-relative top, as when each row was an item.
+                    .onPlaced { if (i < GridHost.rowTops.size) GridHost.rowTops[i] = it.positionInParent().y.toInt() }
                     .fillMaxWidth()
                     .padding(start = m.inset, end = m.inset, top = if (i == 0) m.trayToGrid else 0.dp)
                     .onFocusChanged { if (it.hasFocus) onRowFocused(i + 2) }
@@ -1662,7 +1676,7 @@ private fun HomeList(
                 row.forEach { cell ->
                     // Keyed: a cell's composition (its focus, its glide) moves with it when its row shifts.
                     androidx.compose.runtime.key(cellKey(cell)) {
-                    Box(Modifier.weight(1f).glide(cellKey(cell))) {
+                    Box(Modifier.weight(1f).glide(cellKey(cell)).onFocusChanged { if (it.hasFocus) GridHost.col = row.indexOf(cell) }) {
                         when (cell) {
                             is Cell.Settings -> SettingsCell(requester(SETTINGS_TILE_KEY), { onFocused(SETTINGS_TILE_KEY, i + 2) }, onSettings)
                             is Cell.Item -> when (val item = cell.item) {
@@ -1690,6 +1704,16 @@ private fun HomeList(
                     }
                 }
                 repeat(m.columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        } } } }
+            if (TrayHost.inMain) grid()
+            else Box(Modifier.fillMaxWidth().height(with(d) { GridHost.h.toDp() }).onGloballyPositioned { GridHost.y = it.positionInWindow().y })
+            androidx.compose.runtime.SideEffect {
+                GridHost.content = grid
+                // Down from the last row: the add-on rows in Home's view when there are any, else focus stays (Home's view has nothing below).
+                GridHost.down = { dev.glasslauncher.addons.AddonSurfaces.homeRows.isEmpty() }
+                // Up from the grid's first row: the tray, same column (the views don't search each other).
+                GridHost.up = { dockShown.getOrNull(GridHost.col.coerceIn(0, (dockShown.size - 1).coerceAtLeast(0)))?.let { a -> runCatching { requester(appKey(a.packageName)).requestFocus() }.isSuccess } ?: false }
             }
         }
         // Add-ons' rows come after the apps, so nothing above them moves; they count as grid rows for focus.
@@ -2045,14 +2069,29 @@ private fun Modifier.ccParked(): Modifier = this
     .focusGroup()
 
 /** P248: the dock tray in its own ComposeView, a sibling of Home's, so a focus move repaints only the tray's band, not the whole screen (Compose invalidates its whole view). */
-internal object TrayHost {
+internal object TrayHost : SiblingHost()
+
+/** P258: the app grid's rows in their own sibling view, like the tray. */
+internal object GridHost : SiblingHost() {
+    /** Each grid row's top inside the grid's slot, px: rows are no longer LazyColumn items, so scrolls aim at slot offsets. */
+    var rowTops = IntArray(0)
+    override var split: Boolean
+        get() = TrayHost.split
+        set(v) { TrayHost.split = v }
+    // Under an overlay the grid moves into Home's view with the tray.
+    override var inMain: Boolean
+        get() = TrayHost.inMain
+        set(v) { TrayHost.inMain = v }
+}
+
+internal open class SiblingHost {
     var y by mutableFloatStateOf(0f)
     var h by mutableIntStateOf(0)
     var content: (@Composable () -> Unit)? by mutableStateOf(null)
     var view: android.view.View? = null
-    var inMain by mutableStateOf(false)
+    open var inMain by mutableStateOf(false)
     /** Off in the JVM screenshot tests: their harness drives one ComposeView, so the tray stays in Home's (the overlay path). */
-    @Volatile var split = true
+    @Volatile open var split = true
     /** For tests: compositions of the tray's slot in Home (bounded while nothing changes). */
     var slotCompositions = 0
     // The view's band reaches past the tray so a focused tile's lift and shadow aren't cut at its edge.
@@ -2061,6 +2100,7 @@ internal object TrayHost {
     private var padTop by mutableFloatStateOf(0f)
     var col = 0
     var down: () -> Boolean = { false }
+    var up: () -> Boolean = { false }
     var keys: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
 
     @Composable
@@ -2081,7 +2121,7 @@ internal object TrayHost {
                         if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown || !(up || e.key == androidx.compose.ui.input.key.Key.DirectionDown)) return@onPreviewKeyEvent false
                         // Up and Down leave the tray: Home's view takes focus in that direction, from the tray's band.
                         val band = android.graphics.Rect(0, y.toInt(), main.width, y.toInt() + h)
-                        if (!fm.moveFocus(if (up) androidx.compose.ui.focus.FocusDirection.Up else androidx.compose.ui.focus.FocusDirection.Down) && !(!up && down()))
+                        if (!fm.moveFocus(if (up) androidx.compose.ui.focus.FocusDirection.Up else androidx.compose.ui.focus.FocusDirection.Down) && !(if (up) this@SiblingHost.up() else down()))
                             main.requestFocus(if (up) android.view.View.FOCUS_UP else android.view.View.FOCUS_DOWN, band)
                         true
                     }) { Box(Modifier.fillMaxWidth().onSizeChanged { if (!inMain) h = it.height }) { if (!inMain) content?.invoke() } }
@@ -2096,7 +2136,7 @@ internal object TrayHost {
             group.addView(tray, android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
             onDispose { group.removeView(tray); view = null }
         }
-        val y = TrayHost.y - padTop
+        val y = this@SiblingHost.y - padTop
         androidx.compose.runtime.SideEffect { view?.translationY = y }
     }
 }
