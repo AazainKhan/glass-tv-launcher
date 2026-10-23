@@ -169,6 +169,8 @@ private const val BAKE_AHEAD_QUIET_MS = 1_500L
 private const val BAKE_LEAD_MS = 2_500L
 /** Focus resting this long on a tray app shows its hero (browsing past apps doesn't bake). */
 private const val APP_HERO_MS = 250L
+/** P257b: how long a hero has been up before its neighbours' art is prefetched (after its own bake, never during it). */
+private const val NEIGHBOUR_HEROES_MS = 600L
 private const val GPU_TRIM_AFTER_MS = 4_000L
 private const val APP_HERO_FADE_MS = 270
 /** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
@@ -230,6 +232,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         val pkg = lastDockFocused?.removePrefix("app:") ?: return@LaunchedEffect
         delay(APP_HERO_MS)
         heroApp = pkg
+    }
+    // P257b: once a hero is up, its tray neighbours' hero art is written to the disk cache (rendering one took ~350 ms
+    // of a cold app-hero swap). Nothing is kept in memory: each bitmap is dropped as soon as it is on disk.
+    LaunchedEffect(heroApp) {
+        val pkg = heroApp ?: return@LaunchedEffect
+        delay(NEIGHBOUR_HEROES_MS)
+        val i = layout.dock.indexOfFirst { it.packageName == pkg }.takeIf { it >= 0 } ?: return@LaunchedEffect
+        val neighbours = listOfNotNull(layout.dock.getOrNull(i + 1), layout.dock.getOrNull(i - 1))
+        kotlinx.coroutines.withContext(dev.glasslauncher.glass.WallpaperLoader.BakeDispatcher) {
+            neighbours.forEach { graph.tileArt.prefetchHeroArt(it) }
+        }
     }
     var dwelled by remember { mutableStateOf(false) }
     LaunchedEffect(heroApp) {

@@ -71,10 +71,8 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
      * took ~350 ms of every app-hero bake. Keyed by package, install time and size; an updated app writes a new file.
      */
     fun cachedHeroArt(app: AppEntry, w: Int = 1280, h: Int = 720): Bitmap? {
-        val dir = File(contextCacheDir, "heroes-v2").apply { mkdirs() }
-        // WebP at q90 (P264): a 720p PNG took ~57 ms to decode on the stick, this ~30; the hero sits under glass and scrims anyway.
-        File(contextCacheDir, "heroes-v1").takeIf { it.exists() }?.deleteRecursively()
-        val file = File(dir, "${app.packageName}-${app.updated}-${w}x$h.webp")
+        val file = heroFile(app, w, h)
+        val dir = file.parentFile!!
         if (file.isFile) decodeHero(file)?.let { file.setLastModified(System.currentTimeMillis()); return it }
         val art = heroArt(app, w, h) ?: return null
         runCatching {
@@ -89,6 +87,19 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
             }
         }
         return art
+    }
+
+    private fun heroFile(app: AppEntry, w: Int, h: Int): File {
+        val dir = File(contextCacheDir, "heroes-v2").apply { mkdirs() }
+        // WebP at q90 (P264): a 720p PNG took ~57 ms to decode on the stick, this ~30; the hero sits under glass and scrims anyway.
+        File(contextCacheDir, "heroes-v1").takeIf { it.exists() }?.deleteRecursively()
+        return File(dir, "${app.packageName}-${app.updated}-${w}x$h.webp")
+    }
+
+    /** P257b: [cachedHeroArt] written to disk ahead of a visit, holding nothing in memory; a hero already on disk costs nothing. */
+    fun prefetchHeroArt(app: AppEntry, w: Int = 1280, h: Int = 720) {
+        if (heroFile(app, w, h).isFile) return
+        cachedHeroArt(app, w, h)?.recycle()
     }
 
     /** The one decode of a cached hero (a faster decoder can replace it here). */
