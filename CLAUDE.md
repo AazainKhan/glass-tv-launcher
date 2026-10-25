@@ -11,7 +11,7 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 
 **Lanes.** Stay in yours. Findings for someone else's area go on the board, never as a patch.
 
-**No subagents** (user, 2026-10-13: too many tokens). The team is four sessions, and each does its own work directly: no Agent/Task tool, no workflows, no parallel helpers.
+**Subagents are allowed again** (user lifted the ban, 2026-10-25): spawn them for parallel or context-heavy work, one board item each, no grandchildren. The four lanes stay the default and the team is still four sessions.
 
 | Agent | Lane |
 |---|---|
@@ -30,10 +30,10 @@ Pushes to the public repo happen only with the user's OK, relayed by Agent Manag
 - SendMessage is for urgent interrupts only (a broken build, a stick collision, a decision blocking someone), not status updates.
 
 **Devices: the emulator is the queue, the stick is for looks and speed.**
-- **Functional, focus and e2e checks run on the emulator.** `scripts/e2e` defaults to it: it boots `scripts/emulator`, installs a debug build, and skips stick-only tests (marked `@pytest.mark.stick`, or listed in `STICK_ONLY_MODULES` in e2e/conftest.py). For your own commands: `eval "$(scripts/emulator env)"`, then `scripts/key`, `shot`, `tv` act on it.
+- **Functional, focus and e2e checks run on the emulator.** `scripts/e2e` defaults to it: it boots `scripts/emulator`, installs a debug build, and skips stick-only tests (marked `@pytest.mark.stick`, or listed in `STICK_ONLY_MODULES` in e2e/conftest.py). For your own commands: `eval "$(scripts/emulator env)"`, then `scripts/key`, `shot`, `tv` act on it. **The stick is for looks, perf, and anything the emulator cannot measure** — frame damage/partial redraw, native library load, frame-exact motion. Take the stick lock for any input; only Yin installs on it.
 - **The stick is only for looks** (`scripts/clip`, tv-live) **and performance** (`scripts/perf-gate`, `scripts/bench`, `scripts/e2e --stick -m perf`). Always use a time-boxed lock: `scripts/stick-lock hold <who> [--max 30] -- <command>` renews itself while the command runs and releases it at the end. `bench`, `perf-gate`, `clip` and `e2e --stick` do this on their own. If someone else holds the lock, they fail fast instead of colliding.
 
-**Models.** Each session keeps its own model: Yin Opus 5.5, Yang Sonnet 5.5. Don't spawn cheaper helpers; run scripts yourself and read only their short summaries.
+**Models.** Each session keeps its own model: Yin Opus 5.5, Yang Sonnet 5.5. For ordinary work prefer running scripts yourself and reading only their short summaries; spawn a subagent when the work is parallel or would flood your context.
 
 **Context:**
 - Read logs with `tail`/`grep`, never whole.
@@ -89,13 +89,13 @@ Each feature defines its behaviour for the plain APK (no root), Glass Pro (roote
 
 ## Test device
 
-Fire TV Stick 4K 2nd Gen (AFTKRT, Fire OS 8 = API 30, armeabi-v7a, Imagination GE9215 GPU, 2 GB). Rooted with Magisk. Connected over adb.
+Fire TV Stick 4K **Max** 2nd Gen (AFTKRT / `ro.product.device=karat`, Fire OS 8 = API 30, armeabi-v7a, Imagination GE9215 GPU, 1.67 GB usable). Rooted with Magisk. Connected over adb.
 
 - **Glass TV Launcher is the default home** (set with `cmd package set-home-activity`; the Magisk boot script `/data/adb/service.d/start-launcher.sh` starts it). AT4K (`com.overdevs.at4k`) stays installed as the fallback. To revert: `adb shell cmd package set-home-activity com.overdevs.at4k/.MainActivity` and edit the boot script back.
 - The user has given broad permission for device changes. Still restore anything you change only for a test (e.g. screensaver settings).
 - Fire OS ignores third-party DreamServices, even with Ambient Experience disabled; `Somnambulator` won't start one. Use the in-app "Start Aerials on Home after" (set to 3 min on this stick).
 - `WRITE_SECURE_SETTINGS` and the Now Playing notification listener are granted to the app on this device.
-- The stick sleeps after about 5 minutes; a black screenshot usually means it's asleep. Wake it with `adb shell input keyevent KEYCODE_WAKEUP`.
+- **A black screenshot usually means the stick is asleep** — wake it with `adb shell input keyevent KEYCODE_WAKEUP`. Sleep is set to never (`settings get secure sleep_timeout` = `-1`, set 2026-10-11, logged in DEBLOAT-LOG.md); anything shorter is drift.
 - To simulate a Home press to the launcher: `adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME -n dev.glasslauncher/.MainActivity`. **Always start Glass this way** (`scripts/build` and the boot script do): a plain `am start -n` puts it in an ordinary task, and the first Home press then creates a second Glass in the home task (state lost, double memory).
 - Fire OS drops `Log.d`/`Log.v` from apps; use `Log.i`/`Log.w` for temporary debugging.
 - Netflix (and other DRM apps) set FLAG_SECURE: screenshots and `scripts/clip` show black. Use YouTube, Stremio or TizenTube to judge app open/close.
@@ -206,7 +206,7 @@ Settings › Root (shown only when su is granted; `system/Root.kt`, `system/Root
 Glass draws both itself; measured on the stick 2026-10-07 against the HotshotTek reference.
 - **Open:** PixelCopy of the window straight into 480×270 (async, off the UI thread), blurred, shown as the cover in one frame; a rounded window grows from the tile's focused rect (`tween(450)`, exp-decelerate k=3.5, starting 12% in), crossfading from the tile art to a launch colour plus the logo lifted off the banner in grey. `startActivity` at 170 ms with `makeCustomAnimation(app_open_enter, app_open_hold)`; the app's first window fades in over it. Home's own content is hidden (alpha 0) while the cover is opaque.
 - **Close:** on return the window (left full screen through ON_STOP, so the system's task snapshot matches Home's late first frame) waits for steady frames, shrinks into the tile (`tween(220)` ease-in-out, art back by half size), lands 1.3× and settles (125 ms), then Home sharpens (120 ms) before the window goes.
-- **Fire OS's Home key flash:** SystemUI's `KeyFeedbackUI` plays a `BlackEffect` (screen fades to black and back, ~250 ms) on every real Home key press, over whatever is on screen; it was the "glitch" in the close. It's gated by `persist.perfanimation.enabled` (was true); set to false on this stick (logged in DEBLOAT-LOG.md). A Home *intent* never showed it.
+- **Fire OS's Home key flash:** SystemUI's `KeyFeedbackUI` plays a `BlackEffect` (screen fades to black and back, ~250 ms) on every real Home key press, over whatever is on screen; it was the "glitch" in the close. It's gated by `persist.perfanimation.enabled` (was true); **pinned to false by the `glass-props` Magisk module** (source `firestick-unlocked/tools/magisk/glass-props/`) because Fire OS drifts it back to true part-way through boot — the module's `service.sh` re-asserts across the boot window, and a bare `setprop` alone does not survive. Logged in DEBLOAT-LOG.md. A Home *intent* never showed it.
 - Measuring: `scripts/key` now falls back to a temporary virtual remote (`tools/uinput/glass-press`, vendor 0171/product 0427 so the remote's key layout applies) when the Bluetooth remote sleeps; `scripts/clip`'s settle can stop recording during the hand-off, so add `wait:1500` after `home`.
 - What didn't work: `makeThumbnailScaleUpAnimation` draws no zoom at all on Fire OS 8; `GraphicsLayer.toImageBitmap` for the cover cost 50–90 ms of main thread per press; `clipPath` for the window made its first frames 80–150 ms; the theme's `windowAnimationStyle` is ignored for the home task (Fire faded Home in from black ~300 ms after the Home press), but `overridePendingTransition(0, 0)` in `onRestart` works.
 - A Home intent that arrives while Glass isn't resumed is a return from an app: it keeps focus and scroll (Home pressed on Home still goes to the top). The slideshow pauses while Home is stopped.

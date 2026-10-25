@@ -12,6 +12,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- OS takeover (P292): start exported=false components of other apps (Fire OS Settings' ExtensionHostActivity). -->
+    <uses-permission android:name="android.permission.START_ANY_ACTIVITY" />
+    <!-- OS takeover (P292): open Amazon's guarded settings pages (PREFERENCES, DISPLAY_AND_SOUNDS, MY_ACCOUNT...). -->
+    <uses-permission android:name="com.amazon.tv.permission.LAUNCHER_SETTINGS" />
     <!-- Downloads (dataSync foreground service). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
