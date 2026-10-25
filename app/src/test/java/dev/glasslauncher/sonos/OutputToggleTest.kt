@@ -1,16 +1,13 @@
 package dev.glasslauncher.sonos
 
 import dev.glasslauncher.data.AudioOutputConfig
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.Collections
 
 /** P136: the tvOS picker's toggle (select, deselect, switch) and the volume row that never fires on select. */
 class OutputToggleTest {
@@ -71,16 +68,18 @@ class OutputToggleTest {
         assertEquals(95, m.volume)
     }
 
-    @Test fun throttleSendsFirstAtOnceThenOnlyTheLatest() = runBlocking {
-        val sent = Collections.synchronizedList(mutableListOf<Int>())
-        val t = ThrottledVolume(CoroutineScope(Dispatchers.Default), 80) { sent += it }
+    @Test fun throttleSendsFirstAtOnceThenOnlyTheLatest() = runTest {
+        // Virtual time: the old version used Dispatchers.Default and real delay(), so on a loaded Mac the two delay(20)
+        // calls overran the 80 ms window and the "nothing sent yet" assertions failed at random (P291).
+        val sent = mutableListOf<Int>()
+        val t = ThrottledVolume(backgroundScope, 80) { sent += it }
         t.set(10)
-        delay(20)
+        advanceTimeBy(20)
         assertEquals(listOf(10), sent.toList())
         for (v in listOf(15, 20, 25)) t.set(v)
-        delay(20)
+        advanceTimeBy(20)
         assertEquals(listOf(10), sent.toList())
-        delay(250)
+        advanceTimeBy(250)
         assertEquals(25, sent.last())
         assertTrue("at most first and latest: $sent", sent.size <= 2)
         t.close()

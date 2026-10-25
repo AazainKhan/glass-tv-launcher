@@ -123,6 +123,7 @@ dependencies {
     implementation(libs.zxing.core)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.okhttp.mockwebserver3)
     testImplementation(platform(libs.compose.bom))
