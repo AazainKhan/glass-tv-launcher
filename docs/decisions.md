@@ -21,3 +21,7 @@ The user approved: the status pill pinches into two liquid drops (Settings page,
 
 ## 2026-10-09 · No glow under unfocused app icons (P60)
 The user decided: remove the icon-coloured resting glow entirely (it was uneven between apps). Like tvOS, only the focused tile gets its soft shadow and lift.
+
+## 2026-10-25 · Glass becomes the OS: the launcher settings merge into the main Settings
+The user decided: going forward Glass takes over the entire OS on the stick, and Glass's own settings merge into the main (system) Settings rather than living as a separate panel inside the launcher. The Amazon launcher and its companions are to be removed, not merely disabled, and the debloat goes much deeper than wave 2. Root (Magisk 30.7), system-app installs and heavy debloat are all in scope; there is no longer a "protect the token budget" constraint.
+Open on the mechanism (REA spec, board P280): whether Glass injects rows into `com.amazon.tv.settings.v2` (it ships `com.amazon.firetvsettingsextensions.*` AIDL services, e.g. `IExternalHddSettingsService`, `IFactoryResetExtensionService`, and `quicksettings.ui` has a non-exported `com.amazon.tv.settingslib.ExtensionHostActivity`), or Glass hosts a unified Settings surface that deep-links into Amazon's pages, or a Magisk module overlays the Settings APK.
