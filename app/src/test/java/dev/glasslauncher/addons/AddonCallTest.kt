@@ -60,7 +60,11 @@ class AddonCallTest {
         delay(30)
         job.cancelAndJoin()
         assertTrue(job.isCancelled)
-        assertEquals("ok", call.run("a", { 1 }, { "ok" }))
+        // The slot is given back by a 200 ms join inside the cancelled call (AddonClient), so the next call can still be
+        // refused if it arrives first: on a loaded machine 30 ms of wall clock is not enough (P304). Wait for the slot.
+        var reply: String? = null
+        repeat(40) { if (reply == null) { delay(25); reply = call.run("a", { 1 }, { "ok" }) } }
+        assertEquals("ok", reply)
     }
 
     // The add-on side: junk and failures become error replies, a caller without the permission gets nothing.
