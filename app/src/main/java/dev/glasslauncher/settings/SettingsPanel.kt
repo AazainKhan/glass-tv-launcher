@@ -368,12 +368,12 @@ private fun ColumnScope.AppearancePage(model: HomeModel, cfg: LauncherConfig, f:
         help = "Top Shelf: the focused app and its titles. Motion: Apple's Aerial videos behind your apps.")
     MenuRow("Dark Mode Wallpaper", { push(Page.Wallpapers(dark = true)) }, value = wallpaperName(cfg.wallpaperDark), chevron = true)
     MenuRow("Light Mode Wallpaper", { push(Page.Wallpapers(dark = false)) }, value = wallpaperName(cfg.wallpaperLight), chevron = true)
-    val fadeOptions = listOf(1, 3, 5, 10, 0)
-    MenuRow("Fade Clock When Idle", {
+    val fadeOptions = listOf(1, 2, 3, 5, 10, 0)
+    MenuRow("Hide UI When Idle", {
         val next = fadeOptions[(fadeOptions.indexOf(cfg.idleFadeMinutes).coerceAtLeast(0) + 1) % fadeOptions.size]
         model.edit { it.copy(idleFadeMinutes = next) }
     }, value = if (cfg.idleFadeMinutes == 0) "Never" else "${cfg.idleFadeMinutes} min",
-        help = "Fades the clock when nothing is happening, to protect OLED and plasma screens.")
+        help = "Fades your apps and the clock out when nothing is happening, leaving the background, and stops Home's animation. Any button brings them back. Protects OLED and plasma screens.")
 }
 
 private fun wallpaperName(w: Wallpaper) = when (w.kind) {
