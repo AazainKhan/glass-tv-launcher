@@ -17,7 +17,7 @@ data class LauncherConfig(
     val wallpaperLight: Wallpaper = Wallpaper(WallpaperKind.Preset, "dawn"),
     val featured: FeaturedConfig = FeaturedConfig(),
     val screensaver: ScreensaverConfig = ScreensaverConfig(),
-    val idleFadeMinutes: Int = 3,
+    val idleFadeMinutes: Int = 2,
     val clock24h: Boolean = false,
     val weather: WeatherConfig? = null,
     val showNowPlaying: Boolean = true,

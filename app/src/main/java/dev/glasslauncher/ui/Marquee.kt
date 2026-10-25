@@ -47,7 +47,8 @@ fun marqueeScrolls(overflows: Boolean, active: Boolean, reduceMotion: Boolean) =
 @Composable
 fun MarqueeText(text: String, style: TextStyle, color: Color, active: Boolean, modifier: Modifier = Modifier) {
     var overflows by remember(text) { mutableStateOf(false) }
-    val scrolls = marqueeScrolls(overflows, active, LocalUiPrefs.current.reduceMotion)
+    // Not while Home is hidden by its idle fade (P226): an infinite scroll is a frame every 16 ms of nothing visible.
+    val scrolls = marqueeScrolls(overflows, active && !dev.glasslauncher.widgets.LocalHomeHidden.current, LocalUiPrefs.current.reduceMotion)
     Text(
         text, style = style, color = color, maxLines = 1, softWrap = false,
         // Not focused: the ellipsis. Focused and too long: clipped, so the text can scroll under a soft edge.

@@ -1126,6 +1126,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     GridHost.keys = rootKeys
     CompositionLocalProvider(
         LocalMenuAnchor provides menuAnchor,
+        dev.glasslauncher.widgets.LocalHomeHidden provides idle.hidden,
         dev.glasslauncher.ui.LocalScreenDissolve provides dissolve,
         LocalAppTransition provides transition.takeUnless { prefs.reduceMotion },
         LocalBackdrop provides backdrop,
@@ -1219,6 +1220,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
                     HomeList(
                         target = layout,
+                        idle = idle,
                         onSwap = { heldFocus = lastFocused; swaps++ },
                         model = model,
                         listState = listState,
@@ -1255,7 +1257,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                             .graphicsLayer {
                                 // Expanding the shelf slides the tray and grid off the bottom of the screen.
                                 translationY = expand.value * size.height * 0.62f
-                                alpha = 1f - expand.value * 0.999f
+                                // The apps fade out with the rest of the chrome when Home is idle (P226), and back in with any key.
+                                alpha = (1f - expand.value * 0.999f) * idle.chromeAlpha
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                             }
                             .focusProperties { canFocus = !expanded }
@@ -1551,6 +1554,8 @@ private fun cellKey(cell: Cell): String = when (cell) {
 @Composable
 private fun HomeList(
     target: HomeLayout,
+    /** The idle state, for the chrome alpha: the tray and grid draw in their own views, out of reach of the list's (P226). */
+    idle: dev.glasslauncher.widgets.IdleState,
     /** The list is about to swap to a new layout after a tile's fade: focus will be re-resolved by position. */
     onSwap: () -> Unit,
     model: HomeModel,
@@ -1653,6 +1658,12 @@ private fun HomeList(
             val d = androidx.compose.ui.platform.LocalDensity.current
             // Under an overlay (folder, menu) the tray draws here, in Home's view, so the overlay's dim and frosted snapshot cover it too.
             val tray: @Composable () -> Unit = {
+                // The tray usually draws in its own ComposeView (TrayHost, P248), which Home's LazyColumn alpha cannot reach,
+                // so the idle fade (P226) is applied here too — but not when the tray is in Home's view, where the list already did it.
+                Box(Modifier.graphicsLayer {
+                    alpha = if (TrayHost.inMain) 1f else idle.chromeAlpha
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                }) {
                 DockTray(
                     apps = dockShown,
                     model = model,
@@ -1663,6 +1674,7 @@ private fun HomeList(
                     launch = launch,
                     modifier = Modifier.onFocusChanged { if (it.hasFocus) onRowFocused(1) },
                 )
+                }
             }
             // Called here directly, never through TrayHost.content: reading the state this item writes would recompose it forever.
             if (TrayHost.inMain) tray()
@@ -1680,7 +1692,12 @@ private fun HomeList(
             val d = androidx.compose.ui.platform.LocalDensity.current
             if (GridHost.rowTops.size != rows.size) GridHost.rowTops = IntArray(rows.size)
             // shortcut: every grid row is composed (no laziness); measured with 15 apps, re-measure PSS if libraries of 100+ apps matter.
-            val grid: @Composable () -> Unit = { Column { rows.forEachIndexed { i, row -> androidx.compose.runtime.key("row-" + cellKey(row.first())) {
+            val grid: @Composable () -> Unit = { Column(Modifier.graphicsLayer {
+                // The grid also draws in its own ComposeView (GridHost, P258), out of reach of Home's list alpha (P226);
+                // not when it is in Home's view, where the list already applied it.
+                alpha = if (TrayHost.inMain) 1f else idle.chromeAlpha
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            }) { rows.forEachIndexed { i, row -> androidx.compose.runtime.key("row-" + cellKey(row.first())) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(m.gutter),
                 modifier = Modifier
