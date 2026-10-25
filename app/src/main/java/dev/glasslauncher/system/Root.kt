@@ -86,12 +86,78 @@ object Root {
     /** Runs [script] as root; returns its exit code and combined output. */
     suspend fun run(script: String): Result = withContext(Dispatchers.IO) { exec(script) }
 
-    private fun exec(script: String): Result = runCatching {
-        val p = ProcessBuilder("su").redirectErrorStream(true).start()
-        p.outputStream.bufferedWriter().use { it.write(script); it.write("\nexit\n") }
-        val out = p.inputStream.bufferedReader().readText()
-        if (!p.waitFor(20, TimeUnit.SECONDS)) { p.destroy(); Result(124, out) } else Result(p.exitValue(), out.trim())
-    }.getOrElse { Result(127, it.message ?: "su failed") }
+    /**
+     * One long-lived `su` for every root command (P299). Magisk pops "granted superuser rights" for each *new* su
+     * process, and a fresh one per command had the toast firing over and over; a single session toasts once. It is
+     * also much cheaper for the repeated calls (the boot reapply, memory tuning, the Control Center root buttons).
+     *
+     * A line-delimited protocol: each command is followed by `echo MARK:$?`, and the reader thread hands lines back
+     * through a queue so a command can time out without the process being killed by a stuck read.
+     */
+    private object Shell {
+        private const val EOF = "\u0000__glass_shell_eof__"
+        private val lock = java.util.concurrent.locks.ReentrantLock()
+        private var proc: Process? = null
+        private var writer: java.io.BufferedWriter? = null
+        private var queue: java.util.concurrent.LinkedBlockingQueue<String>? = null
+        private var seq = 0
+
+        private fun start(): Process? = runCatching {
+            val p = ProcessBuilder("su", "--mount-master").redirectErrorStream(true).start()
+            val q = java.util.concurrent.LinkedBlockingQueue<String>()
+            queue = q
+            writer = p.outputStream.bufferedWriter()
+            Thread {
+                runCatching {
+                    p.inputStream.bufferedReader().forEachLine { q.put(it) }
+                }
+                runCatching { q.put(EOF) }
+            }.apply { isDaemon = true; name = "glass-su-reader"; start() }
+            p
+        }.getOrNull()
+
+        private fun stop() {
+            runCatching { writer?.close() }
+            runCatching { proc?.destroy() }
+            proc = null; writer = null; queue = null
+        }
+
+        fun run(script: String, timeoutMs: Long): Result {
+            lock.lock()
+            try {
+                if (proc?.isAlive != true) { stop(); proc = start() }
+                val p = proc ?: return Result(127, "su failed")
+                val q = queue ?: return Result(127, "su failed")
+                val w = writer ?: return Result(127, "su failed")
+                val n = ++seq
+                val mark = "__GLASS_$n"
+                runCatching {
+                    w.write(script); w.write("\n")
+                    w.write("echo $mark:\$?\n")
+                    w.flush()
+                }.onFailure { stop(); return Result(127, "su write failed") }
+
+                val out = StringBuilder()
+                val deadline = System.currentTimeMillis() + timeoutMs
+                while (true) {
+                    val left = deadline - System.currentTimeMillis()
+                    if (left <= 0) { stop(); return Result(124, out.toString().trim()) }
+                    val line = q.poll(left, TimeUnit.MILLISECONDS) ?: run { stop(); return Result(124, out.toString().trim()) }
+                    if (line == EOF) { stop(); return Result(127, out.toString().trim().ifBlank { "su exited" }) }
+                    if (line.startsWith("$mark:")) {
+                        // Anything older than this command's marker is leftover from a killed one: keep only what follows it.
+                        val code = line.removePrefix("$mark:").trim().toIntOrNull() ?: 0
+                        return Result(code, out.toString().trim())
+                    }
+                    out.appendLine(line)
+                }
+            } finally {
+                lock.unlock()
+            }
+        }
+    }
+
+    private fun exec(script: String): Result = Shell.run(script, 20_000)
 
     /** Runs a root action and records it (what, and whether it worked) in the log. */
     suspend fun action(context: Context, what: String, script: String): Result {

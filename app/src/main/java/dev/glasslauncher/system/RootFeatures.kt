@@ -216,9 +216,10 @@ object RootFeatures {
         // Only where the property exists (Fire OS): elsewhere it would create one nothing reads.
         Root.run("p=\"$(getprop persist.perfanimation.enabled)\"; [ -z \"\$p\" ] || [ \"\$p\" = false ] || setprop persist.perfanimation.enabled false")
         val prefs = context.getSharedPreferences(PREFS, 0)
-        if (fast(context) && !prefs.getBoolean("fastV2", false)) {
-            // The old Fast set system animations to 0; Glass's motion is tuned to 1.0. Put them back once.
-            Root.action(context, "Performance: old Fast profile undone", "settings put global window_animation_scale 1.0\nsettings put global transition_animation_scale 1.0")
+        if (!prefs.getBoolean("fastV2", false)) {
+            // The old Fast profile set system animations to 0; Glass's motion is tuned to 1.0. Put them back once, always
+            // (P298: Speed is gone as a toggle, so nothing gates this any more).
+            Root.action(context, "Performance: system animations back to 1.0", "settings put global window_animation_scale 1.0\nsettings put global transition_animation_scale 1.0\nsettings put global animator_duration_scale 1.0")
             prefs.edit().putBoolean("fastV2", true).apply()
         }
     }

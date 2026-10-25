@@ -13,7 +13,6 @@ import android.content.Intent
 object AmazonStore {
     const val PACKAGE = "com.amazon.venezia"
     private const val STOCK = "com.amazon.tv.launcher"
-    private const val STOCK_HOME = "$STOCK/.ui.HomeActivity_vNext"
     private const val PREFS = "amazon-store"
 
     /** A Home intent asking for one of the stock launcher's pages (what the Appstore sends). */
@@ -35,9 +34,11 @@ object AmazonStore {
         val node = safeExtra(node, "l_apps")
         val source = safeExtra(source, "appstore")
         context.getSharedPreferences(PREFS, 0).edit().putBoolean("open", true).apply()
-        val ok = Root.action(context, "Open Appstore (Amazon launcher on)", """
-            pm enable $STOCK
-            am start -n $STOCK_HOME -a android.intent.action.MAIN -c android.intent.category.HOME --es navigate_node '$node' --es source '$source'
+        // P300: no longer turns Amazon's launcher on. Enabling it and starting its home put the *stock Fire OS home* on
+        // screen, not the store, and Fire OS then made that launcher Home (so the press stayed there). The Appstore's own
+        // ADE home opens the store directly with the launcher left disabled, so the launcher stays off throughout.
+        val ok = Root.action(context, "Open Appstore", """
+            am start -n $PACKAGE/.ade.ADEHomeActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --es navigate_node '$node' --es source '$source'
         """.trimIndent()).ok
         if (ok) watchForHome(context.applicationContext)
         return ok
@@ -90,7 +91,8 @@ object AmazonStore {
         if (!prefs.getBoolean("open", false)) return
         prefs.edit().putBoolean("open", false).apply()
         watcher?.destroy(); watcher = null
-        Root.action(context, "Close Appstore (Amazon launcher off)", buildString {
+        Root.action(context, "Close Appstore", buildString {
+            // The launcher is normally already off; disabling is idempotent and covers a store visit that turned it on.
             appendLine("pm disable-user --user 0 $STOCK")
             appendLine("cmd package set-home-activity ${context.packageName}/.MainActivity")
             if (bringHome) appendLine("am start -a android.intent.action.MAIN -c android.intent.category.HOME -n ${context.packageName}/.MainActivity")

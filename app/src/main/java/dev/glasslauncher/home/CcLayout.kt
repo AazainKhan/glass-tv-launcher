@@ -196,6 +196,14 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
     )
 
     /**
+     * One-time: the Speed control is gone (P298) — the stick runs its processor flat out anyway and the toggle only ever did a
+     * one-off free-memory, so it is not a state worth showing. Strips it wherever a saved layout still has it.
+     */
+    internal fun withoutPerformance(): CcLayout =
+        if (pages.none { p -> p.tiles.any { it.id == "performance" } }) this
+        else copy(pages = pages.map { p -> p.copy(tiles = p.tiles.filter { it.id != "performance" }) })
+
+    /**
      * Built-ins that arrived after a layout was saved are put in once: each id in [CcControls.AUTO_ADD] that this layout
      * has never been given and doesn't show. It goes after its neighbour ([CcControls.AUTO_ADD_AFTER]) or at the end of
      * the last editable page; the id is then in [autoAdded], so a user's removal sticks.
@@ -260,7 +268,7 @@ data class CcLayout(val pages: List<CcPage>, val parked: List<String> = emptyLis
         }
 
         /** The stored layout, or the default carrying over the old per-tile switches (migration of ccHidden, once). */
-        fun resolve(stored: String?, hidden: Set<String>): CcLayout = (fromJson(stored) ?: default(hidden)).withNewBuiltins()
+        fun resolve(stored: String?, hidden: Set<String>): CcLayout = (fromJson(stored) ?: default(hidden)).withNewBuiltins().withoutPerformance()
     }
 }
 
@@ -284,8 +292,6 @@ object CcControls {
         "controllers" to CIRCLE_PILL, "remotes" to CIRCLE_PILL, "screensaver" to CIRCLE_PILL, "switcher" to CIRCLE_PILL,
         "search" to CIRCLE_PILL, "accessibility" to CIRCLE_PILL,
         "appearance" to CIRCLE_PILL_BIG, "airplay" to CIRCLE_PILL_BIG,
-        // A toggle shows its state as a glyph tint and a value line, which a circle never draws (P129): a pill or the big tile.
-        "performance" to listOf(CcSize.S2x1, CcSize.S2x2),
         "memory" to PILL_FIRST,
         "downloads" to CIRCLE_PILL_BIG,
     )
@@ -302,7 +308,7 @@ object CcControls {
     /** Today's packed order of the Controls page (the spec's default grid, before the new built-ins arrive). */
     val DEFAULT_ORDER = listOf(
         "fire_settings", "wifi", "bluetooth", "sleep_timer", "cleanup", "restart", "airplay",
-        "appearance", "screensaver", "switcher", "launcher", "controllers", "performance", "vpn",
+        "appearance", "screensaver", "switcher", "launcher", "controllers", "vpn",
     )
 
     /**
@@ -319,7 +325,7 @@ object CcControls {
     /** The rest of the default page, after [DEFAULT_CONTROLS] (once a separate second page). */
     val DEFAULT_MORE = listOf(
         CcTile("screensaver", CcSize.S1x1), CcTile("switcher", CcSize.S1x1), CcTile("launcher", CcSize.S1x1), CcTile("controllers", CcSize.S1x1),
-        CcTile("remotes", CcSize.S1x1), CcTile("performance", CcSize.S2x1), CcTile("vpn", CcSize.S2x1),
+        CcTile("remotes", CcSize.S1x1), CcTile("vpn", CcSize.S2x1),
     )
 
     /** Ids that were renamed: Free Memory became Clean Up (it does both jobs, one tap). */

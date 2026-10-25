@@ -1256,7 +1256,6 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     var freed by remember { mutableStateOf<Int?>(null) }
     val system = remember(tick) { rf.systemAppState(context) }
     val takeover = remember(tick) { rf.homeTakeoverOn(context) }
-    val fast = remember(tick) { rf.fast(context) }
     val memory by androidx.compose.runtime.produceState<Boolean?>(null, tick) { value = rf.memoryTuningOn() }
     fun act(what: String, block: suspend () -> Unit) {
         if (busy != null) return
@@ -1293,10 +1292,6 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     var ownPairing by remember { mutableStateOf(rf.ownRemotePairing(context)) }
     if (dev.glasslauncher.system.HomeSetup.isFireTv) ToggleRow("Own Remote Pairing", ownPairing, { v -> ownPairing = v; act("pairing") { rf.setOwnRemotePairing(context, v) } }, enabled = on,
         help = "Turns off Fire's auto-pair, which drops a sleeping remote's pairing, and lets Glass pair the remote itself. Needs System App on, and a restart.")
-    SectionLabel("Performance")
-    MenuRow("Balanced", { act("perf") { rf.setFast(context, false) } }, value = if (!fast) "✓" else null, enabled = on)
-    MenuRow("Fast", { act("perf") { rf.setFast(context, true) } }, value = if (fast) "✓" else null, enabled = on,
-        help = "Closes apps running in the background to free memory. Nothing else changes: this TV already runs its processor at full speed.")
     if (dev.glasslauncher.system.DeviceProfile.memoryTuningApplies(context)) ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on,
         help = "Keeps the apps you return to ready (1.2 GB compressed swap, a gentler low-memory killer, 12 cached apps). After a restart.")
     MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)

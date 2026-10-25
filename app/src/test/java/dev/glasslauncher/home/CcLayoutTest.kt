@@ -24,17 +24,18 @@ class CcLayoutTest {
         assertEquals(listOf(3 to 2, 3 to 3), listOf("airplay", "appearance").map { at(p, it) })
         assertEquals("the first four rows are the old first page", listOf("fire_settings", "wifi", "bluetooth", "sleep_timer", "cleanup", "restart", "airplay", "appearance"),
             p.filter { it.row < 4 }.map { it.tile.id })
-        assertEquals("every default control is on this one page and it fits the panel's rows", 7, p.maxOf { it.row + it.tile.size.h })
-        assertTrue(p.maxOf { it.row + it.tile.size.h } <= CcControls.MAX_ROWS)
+        // Every default control is on this one page and it fits the panel's rows. The exact count is not pinned: removing a
+        // control (Speed, P298) legitimately shortens the page.
+        assertTrue("every default control is on this one page and it fits the panel's rows", p.maxOf { it.row + it.tile.size.h } <= CcControls.MAX_ROWS)
     }
 
-    @Test fun performanceIsAToggleSoItNeverStaysACircle() {
-        assertEquals(listOf(S2x1, S2x2), CcControls.sizes("performance"))
-        assertEquals(S2x1, CcLayout.default().page("controls")!!.tiles.first { it.id == "performance" }.size)
-        // A layout saved when it was a 1x1 circle loads with the pill.
+    @Test fun theSpeedControlIsGoneEvenFromASavedLayout() {
+        // P298: the tile did only a one-off free-memory and the stick is always fast, so it is not a default any more...
+        assertTrue(CcLayout.default().page("controls")!!.tiles.none { it.id == "performance" })
+        // ...and a layout saved while it existed loses it on resolve, with everything else and its sizes kept.
         val old = CcLayout(listOf(CcPage("more", "more", listOf(CcTile("performance", S1x1), CcTile("wifi", S1x1))))).toJson()
-        val back = CcLayout.fromJson(old)!!.page("more")!!.tiles
-        assertEquals(S2x1, back.first { it.id == "performance" }.size)
+        val back = CcLayout.resolve(old, emptySet()).page("more")!!.tiles
+        assertTrue("performance is stripped", back.none { it.id == "performance" })
         assertEquals("a size the control allows is kept", S1x1, back.first { it.id == "wifi" }.size)
     }
 

@@ -98,11 +98,11 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
 
     /** Opens an app; with a source view and tile bounds the system zooms it out of the tile (MOTION-03). */
     fun launch(app: AppEntry, from: android.view.View? = null, bounds: androidx.compose.ui.geometry.Rect? = null) {
-        val options = if (from != null && bounds != null) {
-            android.app.ActivityOptions.makeScaleUpAnimation(
-                from, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt(),
-            ).toBundle()
-        } else null
+        // A fade, not makeScaleUpAnimation (P302): the scale-up is the "genie" that stuttered and then snapped, and it
+        // also fights the zoom Glass draws itself. Both the resume path and the plain launch use the same short fade.
+        val options = android.app.ActivityOptions.makeCustomAnimation(
+            getApplication(), dev.glasslauncher.R.anim.app_resume_enter, dev.glasslauncher.R.anim.app_open_hold,
+        ).toBundle()
         noteLaunched(app.packageName)
         // The real task, with its state, when this build can see one (I08): looked up off the main thread (a binder
         // call), with the same zoom options. Anything else (no task, no privilege) launches normally.

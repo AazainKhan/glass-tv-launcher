@@ -1124,6 +1124,11 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
     TrayHost.keys = rootKeys
     GridHost.keys = rootKeys
+    // Home's own content alpha (P300): also applied to the tray and grid, which draw in *their own* ComposeViews and so
+    // are untouched by it. Without this they stay on top of an app's open cover and of a hidden Home.
+    val homeChromeAlpha: () -> Float = {
+        if ((transition.coverAlpha.value >= 1f && transition.cover != null) || backdrop.homeHidden) 0f else reveal.value
+    }
     CompositionLocalProvider(
         LocalMenuAnchor provides menuAnchor,
         dev.glasslauncher.widgets.LocalHomeHidden provides idle.hidden,
@@ -1152,7 +1157,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     .graphicsLayer {
                         translationX = idle.shift.x; translationY = idle.shift.y
                         // Hidden while an app open/close covers it completely: one less full screen to draw.
-                        alpha = if ((transition.coverAlpha.value >= 1f && transition.cover != null) || backdrop.homeHidden) 0f else reveal.value
+                        alpha = homeChromeAlpha()
                         val settle = 1.04f - 0.04f * homeSettle.value
                         scaleX = settle; scaleY = settle
                     }
@@ -1221,6 +1226,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     HomeList(
                         target = layout,
                         idle = idle,
+                        homeChromeAlpha = homeChromeAlpha,
                         onSwap = { heldFocus = lastFocused; swaps++ },
                         model = model,
                         listState = listState,
@@ -1556,6 +1562,8 @@ private fun HomeList(
     target: HomeLayout,
     /** The idle state, for the chrome alpha: the tray and grid draw in their own views, out of reach of the list's (P226). */
     idle: dev.glasslauncher.widgets.IdleState,
+    /** Home's own content alpha: the tray and grid are separate views, so the app-open cover would not hide them (P300). */
+    homeChromeAlpha: () -> Float,
     /** The list is about to swap to a new layout after a tile's fade: focus will be re-resolved by position. */
     onSwap: () -> Unit,
     model: HomeModel,
@@ -1661,7 +1669,7 @@ private fun HomeList(
                 // The tray usually draws in its own ComposeView (TrayHost, P248), which Home's LazyColumn alpha cannot reach,
                 // so the idle fade (P226) is applied here too — but not when the tray is in Home's view, where the list already did it.
                 Box(Modifier.graphicsLayer {
-                    alpha = if (TrayHost.inMain) 1f else idle.chromeAlpha
+                    alpha = if (TrayHost.inMain) 1f else homeChromeAlpha() * idle.chromeAlpha
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 }) {
                 DockTray(
@@ -1694,8 +1702,8 @@ private fun HomeList(
             // shortcut: every grid row is composed (no laziness); measured with 15 apps, re-measure PSS if libraries of 100+ apps matter.
             val grid: @Composable () -> Unit = { Column(Modifier.graphicsLayer {
                 // The grid also draws in its own ComposeView (GridHost, P258), out of reach of Home's list alpha (P226);
-                // not when it is in Home's view, where the list already applied it.
-                alpha = if (TrayHost.inMain) 1f else idle.chromeAlpha
+                // and of the app-open cover (P300). Not when it is in Home's view, where the list already applied both.
+                alpha = if (TrayHost.inMain) 1f else homeChromeAlpha() * idle.chromeAlpha
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             }) { rows.forEachIndexed { i, row -> androidx.compose.runtime.key("row-" + cellKey(row.first())) {
             Row(

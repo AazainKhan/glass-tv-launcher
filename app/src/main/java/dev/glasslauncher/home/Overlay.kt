@@ -593,7 +593,16 @@ fun AnchoredMenu(
             val fitsRight = right + panel.width <= c.maxWidth - margin
             originX.floatValue = if (fitsRight) 0f else 1f
             val px = if (fitsRight) right else (a.left.toInt() - gap - panel.width).coerceAtLeast(margin)
-            val py = (a.center.y - panel.height / 2f).toInt().coerceIn(margin, (c.maxHeight - margin - panel.height).coerceAtLeast(margin))
+            // Beside the tile, vertically centred on it. A tile near the bottom (the dock sits at the very edge) would
+            // otherwise clamp upward and the menu would land over the Top Shelf instead of beside what it acts on (P301):
+            // so when centring does not fit, sit it *above* the tile rather than at the bottom margin.
+            val centred = (a.center.y - panel.height / 2f).toInt()
+            val maxY = (c.maxHeight - margin - panel.height).coerceAtLeast(margin)
+            val py = when {
+                centred in margin..maxY -> centred
+                a.top.toInt() - gap - panel.height >= margin -> a.top.toInt() - gap - panel.height
+                else -> centred.coerceIn(margin, maxY)
+            }
             px to py
         }
         layout(c.maxWidth, c.maxHeight) { panel.place(x, y) }

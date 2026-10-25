@@ -708,7 +708,7 @@ private val CC_DIM_COLOR_LIGHT = Color.Black.copy(alpha = GlassMatch.CC_DIM_LIGH
 val CONTROL_CENTER_TILES = listOf(
     "alexa" to "Alexa Page", "wifi" to "Wi-Fi", "bluetooth" to "Bluetooth", "launcher" to "Launcher Settings", "airplay" to "AirPlay",
     "controllers" to "Game Controllers", "remotes" to "Remotes", "appearance" to "Theme", "screensaver" to "Screen Saver",
-    "switcher" to "App Switcher", "performance" to "Performance", "sleep_timer" to "Sleep Timer", "vpn" to "VPN",
+    "switcher" to "App Switcher", "sleep_timer" to "Sleep Timer", "vpn" to "VPN",
     "cleanup" to "Clean Up", "restart" to "Restart", "search" to "Search", "accessibility" to "Accessibility",
 )
 
@@ -827,8 +827,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val airPlay = dev.glasslauncher.system.AirPlay.rememberAirPlay(active).takeIf { it.first.availability != dev.glasslauncher.system.AirPlayAvailability.Absent }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val rooted by produceState(dev.glasslauncher.system.Root.known, active) { if (active) value = dev.glasslauncher.system.Root.available() }
-    val fastNow = rememberWhileOpen(active, false) { dev.glasslauncher.system.RootFeatures.fast(context) }
-    var fast by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf(fastNow) }
     var freed by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<Int?>(null) }
     // Clean Up's result line ("cleaning…", then what it freed, for a few seconds).
     var cleaned by androidx.compose.runtime.remember(active) { androidx.compose.runtime.mutableStateOf<String?>(null) }
@@ -1243,7 +1241,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             // CcPacking (next-fit, so it reproduces the fixed layout this was). Edit mode changes a draft of it.
             val u = sz.round
             val pid = layout.page(shownPage)?.id ?: layout.pages.first().id
-            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "performance" -> rooted; "vpn" -> vpnApps.isNotEmpty(); else -> !CcApps.isApp(id) || CcApps.installed(context, id) } }
+            val avail: (String) -> Boolean = { id -> when (id) { "airplay" -> airPlay != null; "vpn" -> vpnApps.isNotEmpty(); else -> !CcApps.isApp(id) || CcApps.installed(context, id) } }
             // Edit mode (P101): Add a Control is a 2x1 cell of the grid itself, after the last tile (first fit, same pitch),
             // not a pill floating under it. It is not part of the layout: only drawn and focusable.
             val tilesNow = layout.page(pid)?.tiles.orEmpty().filter { avail(it.id) } +
@@ -1472,10 +1470,6 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                 androidx.compose.runtime.CompositionLocalProvider(LocalRouteInk provides inkAccent(Blue)) {
                                     SizedRound(tile.size, w, h, pill.title, null, if (pill.speaker) R.drawable.ic_speaker else R.drawable.ic_airplay, if (pill.speaker) pill.title else "AirPlay, $value", onLabel = label, modifier = focusMod.platterAnchor(platterSource, "airplay"), onLongClick = hold, wiggle = wobbleOn, onPlay = playOr { platterSource.id = "airplay"; airplayPlatter = true }) { tap { platterSource.id = "airplay"; airplayPlatter = true }() }
                                 }
-                            }
-                            "performance" -> SizedRound(tile.size, w, h, "Speed", if (fast) "On" else "Off", R.drawable.ic_speed, if (fast) "Performance, Fast" else "Performance, Balanced", on = fast, onLabel = label, modifier = focusMod, onLongClick = hold, wiggle = wobbleOn,
-                                onPlay = playOr { }) {
-                                tap { val next = !fast; fast = next; scope.launch { dev.glasslauncher.system.RootFeatures.setFast(context, next) } }()
                             }
                             "now_playing" -> NowPlayingTile(np, tile.size, w, h, focusMod, hold, wobbleOn, ::tap, ::playOr, label)
                             "sleep_timer" -> {

@@ -40,10 +40,26 @@ class AppRepository(private val context: Context) {
         .map { queryApps() }
         .flowOn(Dispatchers.IO)
 
-    fun launchIntent(app: AppEntry): Intent? =
-        (pm.getLeanbackLaunchIntentForPackage(app.packageName)
+    fun launchIntent(app: AppEntry): Intent? {
+        // P300: Fire OS packages whose own launcher entry is a trampoline back into Amazon's launcher. The Appstore's
+        // CATEGORY_LAUNCHER activity (`.grid.AppsGridLauncherActivity`) asks Home for Amazon's app grid and, with that
+        // launcher disabled, lands on the *stock Fire OS home* instead of the store. Its ADE home opens the store
+        // directly, so it is used in place of the launcher entry.
+        LAUNCH_OVERRIDES[app.packageName]?.let { cls ->
+            val explicit = Intent(Intent.ACTION_MAIN).setComponent(ComponentName(app.packageName, cls))
+            if (pm.resolveActivity(explicit, 0) != null) return explicit.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return (pm.getLeanbackLaunchIntentForPackage(app.packageName)
             ?: pm.getLaunchIntentForPackage(app.packageName))
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    companion object {
+        /** Packages whose launcher entry is the wrong door (see [launchIntent]). */
+        private val LAUNCH_OVERRIDES = mapOf(
+            "com.amazon.venezia" to "com.amazon.venezia.ade.ADEHomeActivity",
+        )
+    }
 
     private fun queryApps(): List<AppEntry> {
         val byPackage = LinkedHashMap<String, AppEntry>()
