@@ -89,6 +89,27 @@ object SystemControls {
         return true
     }
 
+    /**
+     * Fire OS's own quick menu (the Settings-key panel), started directly (P280).
+     *
+     * It is `exported=false`, but `am start -n` reaches it without START_ANY_ACTIVITY, so no permission is needed. This
+     * is the reliable way in: the quick-menu DB row is only discoverability, and an OTA wipes it.
+     */
+    fun openQuickMenu(context: Context): Boolean {
+        val intent = Intent().setClassName(QUICK_MENU, "$QUICK_MENU.StartQSUIActivity")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { context.startActivity(intent) }.isSuccess) return true
+        val app = context.applicationContext
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val ok = Root.available() && Root.run("am start -n $QUICK_MENU/.StartQSUIActivity -f 0x10000000").ok
+            if (!ok) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                dev.glasslauncher.system.RemoteNotice.show(app, "Could not open the quick menu", 3_000)
+            }
+        }
+        return true
+    }
+
+    private const val QUICK_MENU = "com.amazon.tv.quicksettings.ui"
     private const val FIRE_SETTINGS = "com.amazon.tv.settings.v2"
 
     // Control Center's Alexa page: Amazon's own screens (resolved on Fire OS 8, Fire TV Stick 4K).

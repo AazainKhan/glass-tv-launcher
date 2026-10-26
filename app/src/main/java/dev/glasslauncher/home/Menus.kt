@@ -168,8 +168,11 @@ fun OverlayContent(
             val context = androidx.compose.ui.platform.LocalContext.current
             MenuList(active) { first ->
                 PanelTitle("Settings")
+                // Fire OS's own quick menu first: it is the panel the Settings key opens, and the one place the TV's
+                // picture/audio/sleep controls live together (P280).
+                MenuRow("Quick Menu", { dev.glasslauncher.system.SystemControls.openQuickMenu(context) }, Modifier.focusRequester(first), chevron = true)
                 dev.glasslauncher.system.SystemControls.tvSettingsSections.forEachIndexed { i, section ->
-                    MenuRow(section.title, { dev.glasslauncher.system.SystemControls.openTvSettings(context, section) }, if (i == 0) Modifier.focusRequester(first) else Modifier, chevron = true)
+                    MenuRow(section.title, { dev.glasslauncher.system.SystemControls.openTvSettings(context, section) }, Modifier, chevron = true)
                 }
             }
         }
