@@ -35,6 +35,15 @@ object GpuCaches {
     fun homeHidden() { hidden = true }
     fun homeShown() { hidden = false }
 
+    /**
+     * P247: Home has been behind an app long enough (see GlassApp's grace timer) — release the renderer's textures
+     * now. This is not a memory emergency, but Home is off screen, so the release's ~250 ms first frame is paid on
+     * the way back instead of by a frame anyone watches. Short trips never reach here.
+     */
+    fun releaseWhileHidden() {
+        if (hidden) trimAt(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+    }
+
     /** RUNNING_LOW/CRITICAL or a background level while Home is hidden: release the GPU context now. */
     fun onPressure(level: Int) {
         val pressure = level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||

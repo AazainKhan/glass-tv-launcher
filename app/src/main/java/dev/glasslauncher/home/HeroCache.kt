@@ -18,6 +18,11 @@ class HeroCache<V>(private val max: Int) {
     /** Drops everything but [key] (the scene that is showing): what a Cover Flow browse left behind (P92). */
     fun keepOnly(key: String?) = synchronized(map) { map.keys.retainAll { it == key } }
 
+    /** P247: after Home rests, keep only heroes whose key starts with [prefix] (null: none). The rest re-bake on demand. */
+    fun retain(prefix: String?) = synchronized(map) {
+        if (prefix == null) map.clear() else map.keys.retainAll { it.startsWith("$prefix|") }
+    }
+
     companion object {
         /** Home's app heroes. Two: the one showing and the one just left. */
         val app = HeroCache<dev.glasslauncher.glass.Backdrop>(max = 2)

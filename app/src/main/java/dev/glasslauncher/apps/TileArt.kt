@@ -53,7 +53,12 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
     /** How many tiles were drawn (not found in memory or on disk): for tests and the cold-start measurements. */
     private val renderCount = java.util.concurrent.atomic.AtomicInteger()
     val rendered: Int get() = renderCount.get()
-    private val cache = object : LruCache<TileSpec, LoadedTile>(16 * 1024 * 1024) {
+    /**
+     * P247: a tile is 340×204×4 = 277 KB, so 16 MB held ~60 of them on the GPU (more than a Home screen shows) and
+     * the preload filled it on every start. 8 MB is two screens' worth and still covers the tray plus the first grid
+     * page; the rest re-read from the disk cache as they scroll into view.
+     */
+    private val cache = object : LruCache<TileSpec, LoadedTile>(8 * 1024 * 1024) {
         override fun sizeOf(key: TileSpec, value: LoadedTile) = value.image.width * value.image.height * 4
     }
 
@@ -130,6 +135,9 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
 
     /** Under memory pressure: keep the most recently drawn half (the rest re-render when scrolled to). */
     fun trim() = cache.trimToSize(cache.maxSize() / 2)
+
+    /** P247: Home has been behind an app for a while; every tile re-reads from the disk cache on the way back. */
+    fun empty() = cache.evictAll()
 
     suspend fun load(spec: TileSpec): ImageBitmap = loadTile(spec).image
 
@@ -483,7 +491,8 @@ class TileArt(context: Context, private val iconPacks: IconPacks, private val di
         const val HEIGHT = 204
         /** Bumped whenever the drawing changes, so tiles drawn by an older build are not reused from disk. */
         const val DISK_VERSION = 2
-        const val PRELOAD_LIMIT = 48
+        /** P247: the tray and the first grid page, not the whole app list (48 tiles was ~13 MB of GPU textures). */
+        const val PRELOAD_LIMIT = 24
         private const val PROBE = 96
 
     }
