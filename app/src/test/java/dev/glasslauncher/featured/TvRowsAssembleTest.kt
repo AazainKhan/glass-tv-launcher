@@ -27,6 +27,32 @@ class TvRowsAssembleTest {
         assertEquals(listOf("tv:2", "tv:4", "tv:1", "tv:3"), row.map { it.id })
     }
 
+    /**
+     * P94: the row follows what was watched most recently, and art is only the tiebreak. The old art-first hoist
+     * re-sorted the Watch Next query's own `last_engagement_time DESC`, so a just-watched item with no cover fell
+     * behind an older one that had art.
+     */
+    @Test fun mostRecentlyWatchedComesFirstAndArtOnlyBreaksTies() {
+        val row = TvRows.assemble(
+            listOf(
+                item(1, image = "https://img/1.jpg").copy(watchedAt = 100L),
+                item(2, image = null).copy(watchedAt = 300L),        // newest, and no art: must still lead
+                item(3, image = "https://img/3.jpg").copy(watchedAt = 200L),
+            ),
+        )
+        assertEquals(listOf("tv:2", "tv:3", "tv:1"), row.map { it.id })
+    }
+
+    @Test fun artDecidesOnlyWhenTheSourceGivesNoRecency() {
+        // Same timestamp (and the no-recency case) keeps the previous art-first behaviour, so nothing regressed.
+        val tied = TvRows.assemble(
+            listOf(item(1, image = null).copy(watchedAt = 5L), item(2).copy(watchedAt = 5L)),
+        )
+        assertEquals(listOf("tv:2", "tv:1"), tied.map { it.id })
+        val noRecency = TvRows.assemble(listOf(item(1, image = null), item(2)))
+        assertEquals(listOf("tv:2", "tv:1"), noRecency.map { it.id })
+    }
+
     @Test fun aShapeFilterNeverShrinksTheRowToAFew() {
         // 5 square covers among 6 portrait posters: uniform would keep 5 (square majority is false here: 5 of 11 -> no
         // filter); with a square majority and only 5 left (< 8) the whole row stays.

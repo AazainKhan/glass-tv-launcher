@@ -69,7 +69,13 @@ object TvRows {
      */
     fun assemble(items: List<FeaturedItem>, cap: Int = ROW_CAP, rotation: Int = 0): List<FeaturedItem> {
         val distinct = items.distinctBy { it.link ?: (it.title + "|" + (it.subtitle ?: "")) }
-        val ordered = distinct.sortedBy { if (it.image.isNullOrBlank()) 1 else 0 }   // stable: art first, own order kept
+        // Most recently watched first, then art as the tiebreak only (P94). The old art-first hoist re-sorted the
+        // provider's own recency order (the Watch Next query is already ordered by last_engagement_time), so a
+        // recently watched item without a cover fell behind an older one that had one.
+        val ordered = distinct.sortedWith(
+            compareByDescending<FeaturedItem> { it.watchedAt ?: Long.MIN_VALUE }
+                .thenBy { if (it.image.isNullOrBlank()) 1 else 0 },
+        )
         val uniform = CardShape.uniform(ordered)
         return window(if (uniform.size >= MIN_UNIFORM || uniform.size == ordered.size) uniform else ordered, cap, rotation)
     }
@@ -137,6 +143,7 @@ object TvRows {
             link = str("intent_uri"),
             packages = listOf(pkg),
             owner = pkg,
+            watchedAt = long("last_engagement_time_utc_millis"),
             year = str("release_date")?.take(4)?.toIntOrNull(),
             rating = str("content_rating")?.substringAfterLast('/')?.substringAfterLast('_'),
             genre = str("genre")?.split(',')?.firstOrNull()?.trim()?.lowercase()?.replaceFirstChar { it.uppercase() },

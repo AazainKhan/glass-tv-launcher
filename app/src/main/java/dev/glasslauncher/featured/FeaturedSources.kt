@@ -49,6 +49,12 @@ data class FeaturedItem(
     val aspect: Float? = null,
     /** "Movie" or "TV Show" when the source says (search results; the info line reads it from Cinemeta otherwise). */
     val type: String? = null,
+    /**
+     * When the user last watched it (epoch millis, TV provider's `last_engagement_time_utc_millis`), or null when the
+     * source does not say. A row orders on this first and on art only as a tiebreak (P94), so "what I watched most
+     * recently" is not re-sorted out of order by whether an item happens to have a cover.
+     */
+    val watchedAt: Long? = null,
 ) {
     /**
      * The hero's info line in tvOS's order (P156): kind · genre · genre · year · episode · runtime. [extra] fills what the row lacks
