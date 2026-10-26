@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
@@ -25,7 +26,31 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 
 /** Exists only so the launcher may read active media sessions; it ignores notifications. */
-class NowPlayingService : NotificationListenerService()
+import dev.glasslauncher.system.NoticeStore
+
+class NowPlayingService : NotificationListenerService() {
+    /**
+     * The drawer's source (P98). Now Playing runs off media *sessions*, so this listener was empty; the same grant
+     * (`cmd notification allow_listener`) is what lets Glass see other apps' notifications at all.
+     */
+    override fun onListenerConnected() { super.onListenerConnected(); NoticeStore.connected() }
+
+    override fun onListenerDisconnected() { super.onListenerDisconnected(); NoticeStore.disconnected() }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        super.onNotificationPosted(sbn)
+        sbn ?: return
+        dev.glasslauncher.system.noticeOf(sbn)?.let { NoticeStore.posted(it) }
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
+        sbn?.key?.let { NoticeStore.removed(it) }
+    }
+
+    /** What Select on a row does: drop it from the shade, as the drawer does. */
+    fun dismiss(key: String) = runCatching { cancelNotification(key) }
+}
 
 /**
  * The media session in front: what's playing (or paused) in any app that publishes one (Spotify, Amazon
