@@ -120,7 +120,10 @@ fun noticeOf(pkg: String, whenMs: Long, notification: Notification?, key: String
         text = text,
         whenMs = whenMs,
         ongoing = (n.flags and Notification.FLAG_ONGOING_EVENT) != 0,
-        media = category == Notification.CATEGORY_TRANSPORT || category == Notification.CATEGORY_SERVICE && "media" in (n.extras?.keySet() ?: emptySet()),
+        // A media notification: the transport category, or - more reliable, since plenty of players never set one -
+        // whether it carries a media session. Without the second test the drawer shows "Alexa Media Controller" and
+        // the like, which Now Playing already owns.
+        media = category == Notification.CATEGORY_TRANSPORT || n.extras?.containsKey(Notification.EXTRA_MEDIA_SESSION) == true,
         icon = n.smallIcon,
     )
 }

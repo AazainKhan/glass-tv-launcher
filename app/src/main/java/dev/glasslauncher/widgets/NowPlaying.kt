@@ -33,14 +33,23 @@ class NowPlayingService : NotificationListenerService() {
      * The drawer's source (P98). Now Playing runs off media *sessions*, so this listener was empty; the same grant
      * (`cmd notification allow_listener`) is what lets Glass see other apps' notifications at all.
      */
-    override fun onListenerConnected() { super.onListenerConnected(); instance = this; NoticeStore.onConnected() }
+    override fun onListenerConnected() {
+        super.onListenerConnected(); instance = this; NoticeStore.onConnected()
+        // The system does NOT re-post what is already up when a listener connects, so a listener that binds late
+        // (after a boot, or after the app was force-stopped) would show an empty drawer while the shade is full.
+        val active = runCatching { activeNotifications }.getOrNull()
+        android.util.Log.e("P98x", "connected, active=${active?.size}")
+        active?.forEach { sbn -> dev.glasslauncher.system.noticeOf(sbn)?.let { NoticeStore.posted(it) } }
+    }
 
     override fun onListenerDisconnected() { super.onListenerDisconnected(); NoticeStore.disconnected() }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         sbn ?: return
-        dev.glasslauncher.system.noticeOf(sbn)?.let { NoticeStore.posted(it) }
+        val n = dev.glasslauncher.system.noticeOf(sbn)?.let { if (it.media || !playsMedia(it.pkg)) it else it.copy(media = true) }
+        android.util.Log.e("P98x", "posted ${sbn.packageName} -> ${n?.title ?: "FILTERED"} flags=${sbn.notification?.flags} cat=${sbn.notification?.category}")
+        n?.let { NoticeStore.posted(it) }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
@@ -50,6 +59,16 @@ class NowPlayingService : NotificationListenerService() {
 
     /** What Select on a row does: drop it from the shade, as the drawer does. */
     fun dismiss(key: String) = runCatching { cancelNotification(key) }
+
+    /**
+     * Whether [pkg] is playing something right now, by its media session rather than by anything on the notification.
+     * Plenty of players (Fire's own Alexa media controller among them) post a bare foreground-service notification with
+     * no category and no session extra, so the notification alone cannot say - and Now Playing already owns those.
+     */
+    private fun playsMedia(pkg: String): Boolean = runCatching {
+        val mgr = getSystemService(android.media.session.MediaSessionManager::class.java) ?: return false
+        mgr.getActiveSessions(ComponentName(this, NowPlayingService::class.java)).any { it.packageName == pkg }
+    }.getOrDefault(false)
 
     companion object {
         /** The connected listener, for the one thing the drawer has to ask it: drop this notification. */
