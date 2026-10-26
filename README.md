@@ -26,7 +26,15 @@ An open-source, Apple TV–style home screen for Android TV, Google TV and Fire 
 
 ## Install
 
-Download the latest APK from [Releases](https://github.com/AazainKhan/glass-tv-launcher/releases) and sideload it (for example with the Downloader app). Requires Android 9 or newer.
+```bash
+curl -sL https://raw.githubusercontent.com/AazainKhan/glass-tv-launcher/master/install.sh | sh
+```
+
+That fetches the latest release and installs it. Add `--home` to also make it your home screen, `--permissions` for the
+optional one-time permissions, `--uninstall` to undo. It works from a computer with `adb`, or on the TV itself with
+Termux, and needs no root. [**Step-by-step guide →**](docs/install.md)
+
+Prefer doing it by hand? Download the latest APK from [Releases](https://github.com/AazainKhan/glass-tv-launcher/releases) and sideload it (for example with the Downloader app). Requires Android 9 or newer.
 
 ### Make it your home screen
 
