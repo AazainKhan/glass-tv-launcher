@@ -52,6 +52,26 @@ class CcAdaptTest {
         }
     }
 
+    /**
+     * P289: the control fill takes the colour behind it, and the scrim stays on the scrim. GlassMatch bakes the sheet
+     * with CC_SHEET_DIM = 0 for exactly this reason (F02), so the tiles are the scene, not the scene under the dim.
+     * Measured on mid grey: on a white scene CcAdapt's luminance cap binds and hides the difference.
+     */
+    @Test fun theControlFillTakesTheSceneRatherThanTheDim() {
+        val grey = scene(0xFF808080.toInt())
+        fun luma(dim: Float) = GlassMatch.panelSheet(
+            grey, 480, 270, 480 * GlassMatch.CC_LEFT, 0f, 480 * (1f - GlassMatch.CC_LEFT), 270f,
+            GlassMatch.CC_TINT, dim, GlassMatch.CC_COLS,
+            blurPasses = GlassMatch.CC_BLUR_PASSES, saturation = GlassMatch.CC_SATURATION,
+            lift = GlassMatch.CC_LIFT, adapt = true,
+        )!!.pixels.map { CcAdapt.relLuminance(it or (0xFF shl 24)) }.average()
+        val undimmed = luma(GlassMatch.CC_SHEET_DIM)
+        val dimmed = luma(0.42f)
+        assertTrue("the fill must not carry the scrim ($undimmed vs $dimmed)", undimmed > dimmed + 0.002)
+        // And the scrim is still a real dim, so it is on the backdrop and not simply gone.
+        assertTrue("the scrim still dims (${GlassMatch.CC_DIM})", GlassMatch.CC_DIM > 0.2f)
+    }
+
     /** P195: any colour becomes neutral grey (no saturation boost, P188), within Apple's compressed, washed range. */
     @Test fun anyColourBecomesNeutralGlass() {
         for (c in listOf(0xFF000000.toInt(), 0xFF101820.toInt(), 0xFFFF3030.toInt(), 0xFF2050FF.toInt(), 0xFFFFFFFF.toInt())) {

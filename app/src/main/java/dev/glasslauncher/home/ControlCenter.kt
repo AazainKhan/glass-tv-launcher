@@ -1572,6 +1572,25 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
             }
             }
         }
+        // The focused round button's name (P288). The rounds are icons only, so the caption is the only thing that
+        // says what one is; roundLabel was written by every Round and read nowhere. Sits under the tiles and above
+        // the edit hint, and is suppressed while editing, where the hint already owns the bottom.
+        val caption = roundLabel
+        androidx.compose.animation.AnimatedVisibility(
+            visible = caption != null && !editing,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90)),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hintShown && gallery == null) 78.dp else 30.dp),
+        ) {
+            Text(
+                caption.orEmpty(),
+                style = Type.caption,
+                color = LocalPalette.current.primary.copy(alpha = 0.78f),
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.testTag("cc-round-label"),
+            )
+        }
         // Edit mode's hint (P101): one toast on the panel's own glass, at the bottom centre, never over the tiles.
         CcEditHint(shown = hintShown && gallery == null, lifted = lifted != null, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp))
         // Home's pill itself on the first frame (same glass, clock and gear, at its spot), fading as the drops form

@@ -79,11 +79,11 @@ object GlassMatch {
     /** What the sheet itself is dimmed by: nothing (the tint and lift keep labels legible). */
     const val CC_SHEET_DIM = 0f
     /**
-     * Light appearance carries white labels on a light material, and ControlCenterMotionTest holds them at 4.5:1: 0.2 and
-     * 0.31 both fell short (4.29:1 at 0.31), so it keeps the scene's whole dim baked in. The undimmed sheet is dark only
-     * until the labels go dark on light glass (as tvOS's light appearance does).
+     * Light appearance's sheet dim. Dead on the live path since P173 made Control Center one style (`val light = false`
+     * in [panelSheetFor]); kept so the branch still reads correctly if the light material comes back. It was 0.38 for
+     * white-label contrast, but that was measured against the dimmed scene, which the fill no longer carries.
      */
-    const val CC_SHEET_DIM_LIGHT = 0.38f
+    const val CC_SHEET_DIM_LIGHT = 0f
     /** Light appearance mutes less (tvOS: x0.69 light, x0.57 dark; P105 #14). 0.31 is tvOS but left white text on light tiles at 4.29:1, under the 4.5:1 test, so 0.38. */
     const val CC_DIM_LIGHT = 0.38f
     /**
