@@ -104,6 +104,8 @@ private sealed interface Page {
     data object Featured : Page
     data object PlexLink : Page
     data object Hidden : Page
+    /** Which apps may put a row in the notifications drawer (P98). */
+    data object Notifications : Page
     data object HideMore : Page
     data object IconPack : Page
     data object Screensaver : Page
@@ -229,6 +231,7 @@ fun SettingsPanel(
                 Page.Featured -> FeaturedPage(model, cfg, f, open, ::push)
                 Page.PlexLink -> PlexLinkPage(model, cfg, f, ::pop)
                 Page.Hidden -> HiddenPage(model, cfg, layout, f, ::push) { refocus(first) }
+                Page.Notifications -> NotificationsPage(model, cfg, layout, f) { refocus(first) }
                 Page.HideMore -> HideMorePage(model, layout, f) { refocus(first) }
                 Page.IconPack -> IconPackPage(model, cfg, f)
                 Page.Screensaver -> ScreensaverPage(model, cfg, f, ::push)
@@ -291,6 +294,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     if (addons.isNotEmpty()) MenuRow("Add-ons", { push(Page.Addons) }, value = addons.count { dev.glasslauncher.addons.AddonTrust.isEnabled(cfg.addonsEnabled, it.pkg, it.cert) }.toString(), chevron = true)
     MenuRow("Top Shelf Content", { push(Page.Featured) }, value = featuredSummary(cfg.featured), chevron = true)
     MenuRow("Hidden Apps", { push(Page.Hidden) }, value = cfg.hidden.size.toString(), chevron = true)
+    MenuRow("Notifications", { push(Page.Notifications) }, value = if (cfg.blockedNoticePackages.isEmpty()) "All" else "${cfg.blockedNoticePackages.size} blocked", chevron = true)
     MenuRow("Icon Pack", { push(Page.IconPack) }, value = if (cfg.iconPack == null) "None" else "On", chevron = true)
     MenuRow("Screen Saver", { push(Page.Screensaver) }, chevron = true)
     MenuRow("Widgets", { push(Page.Widgets) }, chevron = true)
@@ -578,6 +582,31 @@ private fun ColumnScope.HiddenPage(model: HomeModel, cfg: LauncherConfig, layout
     val hidden = layout.installed.filter { it.packageName in cfg.hidden }
     if (hidden.isEmpty()) Hint("No apps are hidden.") else SectionLabel("Select to show again")
     hidden.forEach { app -> MenuRow(app.label, { model.unhide(app.packageName); refocus() }, value = "Show") }
+}
+
+/**
+ * Which apps may put a row in the notifications drawer (P98). Every app that can show on Home is listed, switched on
+ * unless it has been silenced, because the useful question is "what is noisy" and an app that has never posted is
+ * indistinguishable from one that has until it does.
+ */
+@Composable
+private fun ColumnScope.NotificationsPage(model: HomeModel, cfg: LauncherConfig, layout: HomeLayout, f: Modifier, refocus: () -> Unit) {
+    PanelTitle("Notifications")
+    Hint("Switch an app off to keep it out of the drawer.")
+    val blocked = cfg.blockedNoticePackages.toSet()
+    layout.installed.sortedBy { it.label.lowercase() }.forEachIndexed { i, app ->
+        MenuRow(
+            app.label,
+            {
+                model.edit { c ->
+                    c.copy(blockedNoticePackages = if (app.packageName in blocked) c.blockedNoticePackages - app.packageName else c.blockedNoticePackages + app.packageName)
+                }
+                refocus()
+            },
+            if (i == 0) f else Modifier,
+            checked = app.packageName !in blocked,
+        )
+    }
 }
 
 @Composable
