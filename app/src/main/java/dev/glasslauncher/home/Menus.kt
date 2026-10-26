@@ -152,7 +152,7 @@ fun OverlayContent(
         is Overlay.Confirm -> ConfirmCard(overlay, active, close)
         is Overlay.InstallConfirm -> InstallConfirmHost(overlay, active, close)
         is Overlay.AirPlayCode -> AirPlayCodeCard(overlay, active, close)
-        Overlay.Tips -> FullOverlay(active, paneTitle = "Welcome to Glass") { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
+        Overlay.Tips -> FullOverlay(active, paneTitle = "Welcome to VITRE") { TipsCard(active) { model.edit { it.copy(tipsSeen = true) }; close() } }
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll, close)
@@ -753,7 +753,7 @@ private fun TipsCard(active: Boolean, dismiss: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Scrim), contentAlignment = Alignment.Center) {
         GlassBoxCard(Modifier.width(620.dp)) {
             Column(Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Welcome to Glass", style = Type.title, color = palette.primary)
+                Text("Welcome to VITRE", style = Type.title, color = palette.primary)
                 Tip(dev.glasslauncher.R.drawable.ic_edit_square, "Press Menu, or hold Select, on any app to move it, hide it, change its icon or put it in a folder.")
                 Tip(dev.glasslauncher.R.drawable.ic_settings, "Settings are at the top right. Press Up from the top row.")
                 Tip(dev.glasslauncher.R.drawable.ic_play_arrow, "Press Play/Pause on an app or a featured title to open it straight away.")
@@ -873,7 +873,7 @@ private fun RemotesPanel(active: Boolean) {
         // Plain text, not a row: nothing here can be selected, so focus never lands on it.
         Hint("To pair a remote: hold Home on it for 10 seconds.")
         MenuRow("Fire TV remote settings", { runCatching { dev.glasslauncher.system.SystemControls.openGameControllers(context) } }, chevron = true)
-        Hint("Glass pairs a remote on its own while none is connected. If the remote still doesn't pair, hold Left + Menu + Back for 12 seconds, then hold Home for 10 seconds.")
+        Hint("VITRE pairs a remote on its own while none is connected. If the remote still doesn't pair, hold Left + Menu + Back for 12 seconds, then hold Home for 10 seconds.")
     }
 }
 

@@ -19,7 +19,7 @@ object KeysService {
     fun cardShown() { _card.value = false }
 
     private val _homeCard = MutableStateFlow(false)
-    /** True when Home should show its one "Make Glass your Home" card (P95 gap 1); consumed with [homeCardShown]. */
+    /** True when Home should show its one "Make VITRE your Home" card (P95 gap 1); consumed with [homeCardShown]. */
     val homeCard: StateFlow<Boolean> = _homeCard
 
     fun homeCardShown() { _homeCard.value = false }
@@ -72,7 +72,7 @@ object KeysService {
             }
             KeysServicePolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(instantBack = false) }
-                RemoteNotice.show(app, "Remote buttons off. Turn on in Glass Settings", 4_000)
+                RemoteNotice.show(app, "Remote buttons off. Turn on in VITRE Settings", 4_000)
             }
             KeysServicePolicy.Action.ShowCard -> {
                 // Robolectric has no root and no secure write, so every UI test would open the card over Home.
@@ -101,7 +101,7 @@ object KeysService {
             }
             HomeGuardPolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(homeGuard = false) }
-                RemoteNotice.show(app, "Home Button Takeover off. Turn on in Glass Settings", 4_000)
+                RemoteNotice.show(app, "Home Button Takeover off. Turn on in VITRE Settings", 4_000)
                 return
             }
             HomeGuardPolicy.Action.Nothing -> Unit

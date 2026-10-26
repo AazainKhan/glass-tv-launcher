@@ -20,7 +20,7 @@ class SonosControl(
     private val baseUrl: String,
     private val http: LanHttp = LanHttp(),
 ) {
-    suspend fun setAvTransportUri(uri: String, metadata: String = radioDidl("Glass")) {
+    suspend fun setAvTransportUri(uri: String, metadata: String = radioDidl("VITRE")) {
         call(AVT, "SetAVTransportURI", "<InstanceID>0</InstanceID><CurrentURI>${SafeXml.escape(uri)}</CurrentURI>" +
             "<CurrentURIMetaData>${SafeXml.escape(metadata)}</CurrentURIMetaData>")
     }

@@ -384,7 +384,7 @@ object YouTube : FeaturedSource {
 }
 
 object Plex : FeaturedSource {
-    const val PRODUCT = "Glass TV Launcher"
+    const val PRODUCT = "VITRE"
 
     fun headers(clientId: String, token: String? = null) = buildMap {
         put("Accept", "application/json")
@@ -483,7 +483,7 @@ fun FeaturedItem.resume(context: Context): Boolean {
     if (!opened || target == null) return opened
     val service = dev.glasslauncher.system.RemoteKeysService.instance
     if (service != null) service.autoPlay(ResumePlayback.Request(target, android.os.SystemClock.uptimeMillis()))
-    else dev.glasslauncher.system.RemoteNotice.show(context, "Turn on Glass remote keys in Settings to resume playing automatically.")
+    else dev.glasslauncher.system.RemoteNotice.show(context, "Turn on VITRE remote keys in Settings to resume playing automatically.")
     return true
 }
 

@@ -363,7 +363,7 @@ private val SETTINGS_ICONS = mapOf(
     "Remote Buttons" to dev.glasslauncher.R.drawable.ic_settings_remote,
     "Updates" to dev.glasslauncher.R.drawable.ic_system_update,
     "Backup & Restore" to dev.glasslauncher.R.drawable.ic_backup,
-    "Glass TV Launcher" to dev.glasslauncher.R.drawable.ic_info,
+    "VITRE" to dev.glasslauncher.R.drawable.ic_info,
     "Root" to dev.glasslauncher.R.drawable.ic_code,
     "App Freezer" to dev.glasslauncher.R.drawable.ic_code,
     "Root Log" to dev.glasslauncher.R.drawable.ic_code,

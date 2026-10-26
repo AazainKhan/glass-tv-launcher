@@ -97,7 +97,7 @@ object BrowserLink {
     /** Hands [ask] to Home; false when Home isn't there to run it. The browser is told, so it never reports a success that didn't happen. */
     private fun post(ask: Ask, to: Messenger?, showGlass: Boolean): Boolean {
         val ok = _asks.subscriptionCount.value > 0 && _asks.tryEmit(ask)
-        if (!ok) reply(to, Msg.Notice("Glass can't show that right now"))
+        if (!ok) reply(to, Msg.Notice("VITRE can't show that right now"))
         else if (showGlass) reply(to, Msg.ShowGlass)
         return ok
     }
@@ -129,8 +129,8 @@ object BrowserLink {
 
     private fun text(c: Context, r: Msg.TextRequest, to: Messenger?) {
         val prompt = TextPrompt.of(r)
-        if (prompt == null) { reply(to, Msg.Notice("Glass can't type into that")); return }
-        if (!gate.tryBegin(r.id, SystemClock.elapsedRealtime())) { reply(to, Msg.Notice("Glass is waiting for the last keyboard")); return }
+        if (prompt == null) { reply(to, Msg.Notice("VITRE can't type into that")); return }
+        if (!gate.tryBegin(r.id, SystemClock.elapsedRealtime())) { reply(to, Msg.Notice("VITRE is waiting for the last keyboard")); return }
         val shown = post({ _, _, open ->
             open(Overlay.TextInput(
                 prompt.title, prompt.initial, prompt.hint, isPassword = prompt.password, offerPhone = prompt.phoneOk,

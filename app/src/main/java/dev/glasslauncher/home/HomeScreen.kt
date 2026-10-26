@@ -1004,13 +1004,13 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // P93: a plain-APK install can't turn Glass's accessibility service on itself: once, a card that opens Fire's
     // Accessibility settings (never again until the setting is turned back on).
-    // P95: the first-run "Make Glass your Home" card (a plain APK isn't Home until the user does one of two things).
+    // P95: the first-run "Make VITRE your Home" card (a plain APK isn't Home until the user does one of two things).
     val homeCard by dev.glasslauncher.system.KeysService.homeCard.collectAsStateWithLifecycle()
     LaunchedEffect(homeCard, overlays.isEmpty()) {
         if (!homeCard || overlays.isNotEmpty()) return@LaunchedEffect
         dev.glasslauncher.system.KeysService.homeCardShown()
         open(Overlay.Confirm(
-            "Make Glass your Home",
+            "Make VITRE your Home",
             // The adb command names Fire's launcher: any other device is pointed at its own Home setting instead.
             dev.glasslauncher.system.HomeSetup.homeCardText(dev.glasslauncher.system.HomeSetup.isFireTv),
             // Short: the card's buttons are half-width, and a longer label was cut to "Open A…".
@@ -1036,7 +1036,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         dev.glasslauncher.system.KeysService.cardShown()
         open(Overlay.Confirm(
             "Turn on remote buttons?",
-            "Glass needs its accessibility service for the remote's app buttons and instant Back. Turn it on in Accessibility settings.",
+            "VITRE needs its accessibility service for the remote's app buttons and instant Back. Turn it on in Accessibility settings.",
             "Settings",
         ) {
             runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -1433,7 +1433,7 @@ private fun BoxScope.StartupMark(loading: Boolean, alpha: () -> Float) {
         if (loading) breath.animateTo(0.7f, androidx.compose.animation.core.infiniteRepeatable(tween(1400), androidx.compose.animation.core.RepeatMode.Reverse))
     }
     Text(
-        "Glass",
+        "VITRE",
         style = Type.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
         color = Color.White,
         modifier = Modifier.align(Alignment.Center).graphicsLayer { this.alpha = breath.value * alpha() },

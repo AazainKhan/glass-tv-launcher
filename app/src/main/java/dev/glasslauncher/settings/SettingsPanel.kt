@@ -301,7 +301,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     SectionLabel("System")
     MenuRow("Set Up from Phone", {
         open(Overlay.PhoneSetup(
-            "Glass TV Launcher Setup",
+            "VITRE Setup",
             listOf(
                 PhoneField("tmdb", "TMDB API key or read token", cfg.featured.tmdbKey, "For Netflix, Prime Video, Apple TV+… rows", secret = true),
                 PhoneField("youtube", "YouTube Data API key", cfg.featured.youtubeKey, "For the YouTube row", secret = true),
@@ -971,15 +971,15 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
     val canWrite = remember { Screensaver.canWriteSecureSettings(context) }
     val requestIntent = remember(refresh) { HomeSetup.requestDefaultHomeIntent(context) }
     PanelTitle("Home Button")
-    MenuRow("Default Home App", { refresh++ }, f, value = if (isDefault) "Glass TV Launcher" else "Another app")
+    MenuRow("Default Home App", { refresh++ }, f, value = if (isDefault) "VITRE" else "Another app")
     val keysContext = LocalContext.current
     ToggleRow("Remote buttons & instant Back", cfg.instantBack, { on ->
         model.edit { it.copy(instantBack = on) }
         dev.glasslauncher.system.KeysService.onSettingChanged(keysContext, on)
     },
-        help = "Maps the remote's app buttons and Recent Apps, and lets Back or Home cancel an app that is still loading. Needs Glass's accessibility service: rooted installs keep it on for you; otherwise Glass asks once, and you turn it on in Fire's Accessibility settings. Back inside a running app is never changed.")
+        help = "Maps the remote's app buttons and Recent Apps, and lets Back or Home cancel an app that is still loading. Needs VITRE's accessibility service: rooted installs keep it on for you; otherwise VITRE asks once, and you turn it on in Fire's Accessibility settings. Back inside a running app is never changed.")
     if (!isDefault && requestIntent != null) {
-        MenuRow("Make Glass TV Launcher the Default", { runCatching { HomeSetup.startRequest(context, requestIntent) } })
+        MenuRow("Make VITRE the Default", { runCatching { HomeSetup.startRequest(context, requestIntent) } })
     }
     if (HomeSetup.isFireTv || !isDefault) {
         SectionLabel("Fallback")
@@ -991,7 +991,7 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
                 refresh++
             }
             // Turning it off can leave the stock home screen in charge: ask first.
-            if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, Glass TV Launcher won't take over again.", "Turn Off", destructive = true) { apply() })
+            if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, VITRE won't take over again.", "Turn Off", destructive = true) { apply() })
         }, help = "When the stock home screen appears, Glass takes over. It never intercepts buttons.")
         if (cfg.homeGuard && !guardOn) {
             Hint(if (canWrite) "Couldn't enable the accessibility service." else "Grant once from a computer: ${Screensaver.GRANT_COMMAND}, then toggle again. Or enable it in Accessibility settings.")
@@ -1026,10 +1026,10 @@ private fun ColumnScope.UpdatesPage(f: Modifier) {
     })
     release?.let { r ->
         val askUpdate = dev.glasslauncher.home.LocalConfirm.current
-        MenuRow("Install ${r.version}", { askUpdate(dev.glasslauncher.home.Overlay.Confirm("Glass TV Launcher ${r.version}", "Download and install it now? Glass restarts when it's done.", "Download and Install") {
+        MenuRow("Install ${r.version}", { askUpdate(dev.glasslauncher.home.Overlay.Confirm("VITRE ${r.version}", "Download and install it now? VITRE restarts when it's done.", "Download and Install") {
             if (!Updater.canInstall(context)) {
                 runCatching { context.startActivity(Updater.unknownSourcesIntent(context)) }
-                status = "Allow Glass TV Launcher to install apps, then select Install again."
+                status = "Allow VITRE to install apps, then select Install again."
             } else scope.launch {
                 runCatching {
                     Updater.downloadAndInstall(context, graph.http, r) { p -> status = "Downloading… ${(p * 100).toInt()}%" }
@@ -1050,7 +1050,7 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             val text = Backup.readUri(context, uri)
-            status = if (text != null && runCatching { graph.config.import(text) }.isSuccess) "Restored." else "That file isn't a Glass TV Launcher backup."
+            status = if (text != null && runCatching { graph.config.import(text) }.isSuccess) "Restored." else "That file isn't a VITRE backup."
         }
     }
     val canBrowse = remember {
@@ -1079,7 +1079,7 @@ private fun ColumnScope.BackupPage(model: HomeModel, f: Modifier) {
 
 @Composable
 private fun ColumnScope.AboutPage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
-    PanelTitle("Glass TV Launcher")
+    PanelTitle("VITRE")
     // Select on Version seven times reveals the developer switch below (hidden otherwise; off by default).
     var taps by remember { mutableStateOf(0) }
     MenuRow("Version", { taps++ }, f, value = "${BuildConfig.VERSION_NAME} (${Build.MODEL})",
@@ -1087,7 +1087,7 @@ private fun ColumnScope.AboutPage(model: HomeModel, cfg: LauncherConfig, f: Modi
     MenuRow("Content Sources", {},
         help = "Aerials from Apple; titles from the apps, JustWatch, Stremio, TMDB, YouTube or Plex; weather by Open-Meteo. Uses the TMDB API but isn't endorsed by TMDB.")
     SectionLabel("Privacy")
-    MenuRow("Glass TV Launcher Collects No Data", {},
+    MenuRow("VITRE Collects No Data", {},
         help = "No accounts, analytics, ads or tracking. It only contacts the services you turn on, and sends nothing but the request.")
     if (taps >= 7 || cfg.ccDemoTiles) {
         SectionLabel("Developer")
@@ -1152,12 +1152,12 @@ private fun ColumnScope.RemoteButtonsPage(cfg: LauncherConfig, f: Modifier, push
     // Control Center over any app without the key-layout module (P167): a remote key the accessibility service sees.
     MenuRow("Control Center Shortcut", { push(Page.CcShortcut) }, value = dev.glasslauncher.system.CcShortcut.parse(cfg.ccShortcut).label, chevron = true)
     if (!HomeSetup.isRemoteKeysEnabled(context) && dev.glasslauncher.system.CcShortcut.parse(cfg.ccShortcut) != dev.glasslauncher.system.CcShortcut.Off) {
-        Hint("The shortcut needs Glass TV Launcher Remote Buttons turned on in the TV's Accessibility settings.")
+        Hint("The shortcut needs VITRE Remote Buttons turned on in the TV's Accessibility settings.")
     }
     Hint(when {
-        !HomeSetup.isFireTv -> if (HomeSetup.isRemoteKeysEnabled(context)) "Buttons left on Default keep working as usual." else "Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings."
+        !HomeSetup.isFireTv -> if (HomeSetup.isRemoteKeysEnabled(context)) "Buttons left on Default keep working as usual." else "Turn on VITRE Remote Buttons in the TV's Accessibility settings."
         !active -> "Fire TV keeps these buttons to itself. On a rooted TV, run once from a computer, then restart: ${RemoteButtons.INSTALL_COMMAND}"
-        !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings."
+        !HomeSetup.isRemoteKeysEnabled(context) -> "Turn on VITRE Remote Buttons in the TV's Accessibility settings."
         else -> "Home, Back, volume, power, Alexa and the TV button keep working as usual."
     })
 }
@@ -1172,7 +1172,7 @@ private fun ColumnScope.ControllerButtonsPage(cfg: LauncherConfig, f: Modifier, 
     RemoteButtons.pad.forEachIndexed { i, b ->
         MenuRow(b.label, { push(Page.ButtonAction(b.id)) }, if (i == 0) f else Modifier.testTag("pad-button-${b.id.substringAfter(':')}"), value = actionName(RemoteButtons.action(b, cfg.remoteButtons), apps), chevron = true)
     }
-    if (!HomeSetup.isRemoteKeysEnabled(context)) Hint("Turn on Glass TV Launcher Remote Buttons in the TV's Accessibility settings so Glass can see these buttons.")
+    if (!HomeSetup.isRemoteKeysEnabled(context)) Hint("Turn on VITRE Remote Buttons in the TV's Accessibility settings so VITRE can see these buttons.")
     else Hint("A button you leave on Default keeps working in the app in front.")
 }
 
@@ -1269,7 +1269,7 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
     val on = rooted == true
     PanelTitle("Root")
     MenuRow("Superuser", { rootCheck++ }, f, value = when (rooted) { null -> "Checking…"; true -> "Detected"; false -> "Not detected" },
-        help = if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select to check again after granting Glass TV Launcher root.")
+        help = if (on) "Root changes are reversible and logged. Some need a restart." else "These need root (Magisk). Select to check again after granting VITRE root.")
     SectionLabel("System")
     val askSystem = dev.glasslauncher.home.LocalConfirm.current
     MenuRow("System App", {
@@ -1365,7 +1365,7 @@ private fun ColumnScope.FontPage(model: HomeModel, cfg: LauncherConfig, f: Modif
             if (i == 0) f else Modifier, value = if (cfg.font == font) "✓" else null,
         )
     }
-    Hint("Inter is Glass's own face. System, Condensed and Serif are the TV's.")
+    Hint("Inter is VITRE's own face. System, Condensed and Serif are the TV's.")
 }
 
 /** A five-step slider: Left/Right changes the size, and the page grows with it as you go. */
