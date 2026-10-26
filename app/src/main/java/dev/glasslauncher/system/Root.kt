@@ -20,11 +20,16 @@ object Root {
 
     @Volatile private var granted: Boolean? = null
 
-    /** Whether su exists and grants root to Glass. Cached after the first check (~100 ms). */
+    /**
+     * Whether su exists and grants root to Glass. Cached after the first check (~100 ms).
+     *
+     * The path list is only a cheap pre-check, and it is NOT sufficient on this build: `/debug_ramdisk/su` is a Magisk
+     * mount that a normal app cannot see (only a `--mount-master` shell can), so every path test fails while su works
+     * perfectly. The authoritative test is running `id` and reading `uid=0` - if that works, su exists.
+     */
     suspend fun available(): Boolean {
         granted?.let { return it }
-        val exists = listOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/debug_ramdisk/su").any { File(it).exists() }
-        val ok = exists && withContext(Dispatchers.IO) { withTimeoutOrNull(4_000) { exec("id").out.contains("uid=0") } } == true
+        val ok = withContext(Dispatchers.IO) { withTimeoutOrNull(4_000) { exec("id").out.contains("uid=0") } } == true
         granted = ok
         return ok
     }

@@ -92,21 +92,27 @@ object SystemControls {
     /**
      * Fire OS's own quick menu (the Settings-key panel), started directly (P280).
      *
-     * It is `exported=false`, but `am start -n` reaches it without START_ANY_ACTIVITY, so no permission is needed. This
-     * is the reliable way in: the quick-menu DB row is only discoverability, and an OTA wipes it.
+     * The panel is guarded by `com.amazon.tv.permission.LAUNCHER_SETTINGS`, which a non-Amazon app cannot hold (P292),
+     * so it has to be started *as root*: `su -c am start` works, `su <glass uid> -c am start` is still denied. A plain
+     * `startActivity` also *succeeds* and is then refused asynchronously, so the success of the call proves nothing and
+     * root has to be the first attempt rather than a fallback.
      */
-    fun openQuickMenu(context: Context): Boolean {
-        val intent = Intent().setClassName(QUICK_MENU, "$QUICK_MENU.StartQSUIActivity")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (runCatching { context.startActivity(intent) }.isSuccess) return true
+    fun openQuickMenu(context: Context) {
         val app = context.applicationContext
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             val ok = Root.available() && Root.run("am start -n $QUICK_MENU/.StartQSUIActivity -f 0x10000000").ok
-            if (!ok) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            if (ok) return@launch
+            // No root: try anyway, and say so if the panel does not come up.
+            val started = runCatching {
+                context.startActivity(
+                    Intent().setClassName(QUICK_MENU, "$QUICK_MENU.StartQSUIActivity")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.isSuccess
+            if (!started) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 dev.glasslauncher.system.RemoteNotice.show(app, "Could not open the quick menu", 3_000)
             }
         }
-        return true
     }
 
     private const val QUICK_MENU = "com.amazon.tv.quicksettings.ui"
