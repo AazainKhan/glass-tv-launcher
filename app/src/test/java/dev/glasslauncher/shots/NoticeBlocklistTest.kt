@@ -39,14 +39,15 @@ class NoticeBlocklistTest {
     }
 
     /** Walk Down until the focused row's text contains [text]; returns whether it got there. */
-    /** Poll for a row's state: one read races the recomposition after a toggle on a loaded machine. */
-    private fun awaitState(label: String, want: ToggleableState, max: Int = 25): ToggleableState? {
-        repeat(max) {
-            val now = stateOf(label)
-            if (now == want) return now
-            compose.mainClock.advanceTimeBy(120)
-            compose.waitForIdle()
-        }
+    /**
+     * Wait for a row's state, in REAL time.
+     *
+     * `mainClock.advanceTimeBy` moves virtual time instantly, but the config write goes through DataStore on a real
+     * dispatcher - so a poll on the virtual clock finishes before the write lands and reads the old value. It passed
+     * alone and failed under the gates run for exactly that reason.
+     */
+    private fun awaitState(label: String, want: ToggleableState, timeoutMs: Long = 10_000): ToggleableState? {
+        runCatching { compose.waitUntil(timeoutMs) { stateOf(label) == want } }
         return stateOf(label)
     }
 
