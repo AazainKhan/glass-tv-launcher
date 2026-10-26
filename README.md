@@ -2,6 +2,26 @@
 
 An open-source, Apple TV–style home screen for Android TV, Google TV and Fire TV. It has liquid-glass surfaces, tvOS-like focus motion, folders, a featured "top shelf" from the services you use, and Apple's Aerial screensaver videos. It's built to stay smooth on a Fire TV Stick.
 
+## Performance
+
+Measured on the same Fire TV Stick 4K Max (2nd gen, 1.67 GB RAM, Fire OS 8) against Fire OS's own launcher, release
+build, `adb` over Wi-Fi. Each figure is a mean of 3-5 runs taken back to back so the two are comparable; the method is
+below, because a single run on this hardware varies by more than these gaps.
+
+| | Glass | Fire OS launcher |
+|---|---|---|
+| Resident memory at rest (PSS) | **~123 MB** | ~182 MB |
+| Cold start (`am start -W`, TotalTime) | **~413 ms** (388/444/406) | ~789 ms (840/787/741) |
+| Idle CPU, app in the foreground | **0.0%** | 0.2% |
+
+Glass uses about two thirds of the memory and starts in about half the time. Idle CPU is near zero for both - the
+difference there is small enough to be noise on one device.
+
+Method: PSS read from `dumpsys meminfo <pkg> | grep 'TOTAL PSS'` once the launcher had been in the foreground and quiet
+for 30+ seconds (both settle well below their first-sample values, so the settling matters); cold start after
+`am force-stop`, timed with `am start -W`; CPU from `/proc/<pid>/stat` over a 15-second window in the foreground. The
+stock launcher was started directly rather than made the default home, so no device state changed to measure it.
+
 ## Features
 
 - **Liquid glass that's fast on cheap sticks.** Frosted panels, dock and folders without Android 12's blur APIs: one pre-blurred backdrop is mapped under every glass surface in a single GPU pass. Measured on a Fire TV Stick 4K (2nd gen): under 1% janky frames, roughly 0% CPU when idle.
