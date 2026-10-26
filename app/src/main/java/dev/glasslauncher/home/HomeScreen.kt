@@ -1328,6 +1328,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 }
             }
 
+            val noticeTick = dev.glasslauncher.system.NoticeStore.state.value
             StatusPill(
                 cfg = cfg,
                 idle = idle,
@@ -1336,6 +1337,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 onSearch = { open(Overlay.Search) },
                 // P93 #7: the time is the one piece of chrome worth leaving over the wallpaper when Home fades out.
                 keepClockWhenIdle = true,
+                onNotices = { open(Overlay.Notices) },
+                // Read the store's state here so a posted notification re-draws the dot (P98).
+                noticeCount = noticeTick.let { dev.glasslauncher.system.NoticeStore.count(cfg.blockedNoticePackages.toSet()) },
                 modifier = Modifier.align(Alignment.TopEnd).focusRequester(pillRequester).onFocusChanged { pillFocused = it.hasFocus; ControlCenterWindow.pillFocused = it.hasFocus },
                 // Control Center draws its own clock in this corner.
                 fade = { if (ControlCenterWindow.pillCovered) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },

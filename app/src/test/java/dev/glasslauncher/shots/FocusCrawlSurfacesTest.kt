@@ -153,7 +153,8 @@ class FocusCrawlSurfacesTest {
 
     @Test fun search() = check(crawl("search") {
         compose.press(Button.Up, Button.Up, Button.Up)
-        compose.press(Button.Left, Button.Select)
+        // Two circles sit beside the pill now (notices: P98, then search: P161).
+        compose.press(Button.Left, Button.Left, Button.Select)
         compose.waitForTag("search")
     })
 

@@ -61,12 +61,12 @@ class AppNoticesTest {
 
     /** The listener's own state, so the drawer can say "grant me" instead of "nothing here". */
     @Test fun connectionStateIsTracked() {
-        assertFalse(NoticeStore.connected)
-        NoticeStore.connected()
-        assertTrue(NoticeStore.connected)
+        assertFalse(NoticeStore.connected())
+        NoticeStore.onConnected()
+        assertTrue(NoticeStore.connected())
         NoticeStore.posted(notice("a", "x", 1))
         NoticeStore.disconnected()
-        assertFalse(NoticeStore.connected)
+        assertFalse(NoticeStore.connected())
         assertEquals(0, NoticeStore.count())     // and the snapshot is dropped, not left stale
     }
 

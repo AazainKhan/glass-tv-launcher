@@ -33,7 +33,7 @@ class NowPlayingService : NotificationListenerService() {
      * The drawer's source (P98). Now Playing runs off media *sessions*, so this listener was empty; the same grant
      * (`cmd notification allow_listener`) is what lets Glass see other apps' notifications at all.
      */
-    override fun onListenerConnected() { super.onListenerConnected(); NoticeStore.connected() }
+    override fun onListenerConnected() { super.onListenerConnected(); instance = this; NoticeStore.onConnected() }
 
     override fun onListenerDisconnected() { super.onListenerDisconnected(); NoticeStore.disconnected() }
 
@@ -50,6 +50,11 @@ class NowPlayingService : NotificationListenerService() {
 
     /** What Select on a row does: drop it from the shade, as the drawer does. */
     fun dismiss(key: String) = runCatching { cancelNotification(key) }
+
+    companion object {
+        /** The connected listener, for the one thing the drawer has to ask it: drop this notification. */
+        @Volatile var instance: NowPlayingService? = null
+    }
 }
 
 /**

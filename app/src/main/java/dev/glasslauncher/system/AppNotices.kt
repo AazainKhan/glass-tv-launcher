@@ -36,19 +36,24 @@ data class AppNotice(
 object NoticeStore {
     private val items = java.util.concurrent.ConcurrentHashMap<String, AppNotice>()
 
-    /** Bumped on every change so Compose can observe the drawer without diffing. */
-    @Volatile var version: Int = 0
-        private set
+    /**
+     * Bumped on every change. Snapshot state, so the drawer re-reads when it moves and nothing has to diff - and it
+     * works outside a composition, which is what lets this object stay testable without a Compose host.
+     */
+    private val _state = androidx.compose.runtime.mutableIntStateOf(0)
+    val state: androidx.compose.runtime.State<Int> get() = _state
 
     /** True once the listener is connected, so the drawer can say "grant me" rather than "nothing here". */
-    @Volatile var connected: Boolean = false
+    @Volatile private var live = false
 
-    private fun bump() { version++ }
+    fun connected(): Boolean = live
 
-    fun connected() { connected = true }
+    private fun bump() { _state.intValue++ }
+
+    fun onConnected() { live = true }
 
     fun disconnected() {
-        connected = false
+        live = false
         items.clear()
         bump()
     }

@@ -156,6 +156,7 @@ fun OverlayContent(
         is Overlay.FolderOpen -> FolderView(overlay.folderId, overlay.anchor, model, layout, active, open, close, folderMoving, stopFolderMove)
         Overlay.Settings -> SettingsPage(active) { SettingsPanel(model, cfg, layout, active, open, close) }
         Overlay.ControlCenter -> ControlCenter({ model.edit(it) }, cfg, active, open, closeAll, close)
+        Overlay.Notices -> NoticeDrawer(cfg, active, open, close)
         Overlay.AppSwitcher -> AppSwitcher(model, layout, cfg, active, closeAll)
         Overlay.Search -> SearchHost(model, layout, active, closeAll)
         Overlay.Remotes -> SettingsPage(active) { RemotesPanel(active) }

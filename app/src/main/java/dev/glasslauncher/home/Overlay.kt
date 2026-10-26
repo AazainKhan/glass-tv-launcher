@@ -80,6 +80,8 @@ sealed interface Overlay {
     data object Search : Overlay
     data object Tips : Overlay
     data object ControlCenter : Overlay
+    /** Other apps' notifications, newest first (P98). */
+    data object Notices : Overlay
     data object AppSwitcher : Overlay
     /** Fire TV's own settings, as a top-level list (the stock home screen normally provides it). */
     data object TvSettings : Overlay

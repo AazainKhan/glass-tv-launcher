@@ -29,6 +29,8 @@ data class LauncherConfig(
     /** Start the Aerial screensaver after this many idle minutes on Home; 0 = leave it to the system. */
     val aerialsOnIdleMinutes: Int = 0,
     val tipsSeen: Boolean = false,
+    /** Packages whose notifications the drawer hides (P98). Empty = show everything. */
+    val blockedNoticePackages: List<String> = emptyList(),
     /** What fills the screen behind Home: featured artwork, the wallpaper, or Aerial video. */
     val background: BackgroundMode = BackgroundMode.Featured,
     /** Text Size, tvOS-style: 1.0 default, up to 1.3; tiles and gutters grow with it. */

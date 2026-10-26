@@ -49,10 +49,11 @@ class FocusCrawlTest {
                 if (to == null || to.startsWith("featured:")) problems += "$card Down -> $to (stays in the featured row)"
             }
 
-            // Left/Right at the end of a row stays put instead of jumping to the status pill or another row (the search circle beside the pill is its neighbour: P161).
+            // Left/Right at the end of a row stays put instead of jumping to the status pill or another row. The circles
+            // beside the pill are its neighbours (search: P161, notices: P98), so they may reach it.
             graph.nodes.forEach { n ->
                 listOf(Button.Left, Button.Right).forEach { b ->
-                    if (graph.from(n, b) == "status-pill" && n != "status-pill" && n != "status-search") problems += "$n $b -> status-pill"
+                    if (graph.from(n, b) == "status-pill" && n != "status-pill" && n != "status-search" && n != "status-notices") problems += "$n $b -> status-pill"
                 }
             }
             graph.from("settings-tile", Button.Right)?.let { if (it != "settings-tile") problems += "settings-tile Right -> $it" }

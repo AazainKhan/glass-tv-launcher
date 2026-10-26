@@ -1,6 +1,6 @@
 package dev.glasslauncher.widgets
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import androidx.compose.runtime.remember
 import androidx.compose.ui.focus.focusRequester
@@ -66,6 +66,10 @@ fun StatusPill(
      * is. The pill's glass and gear go with the rest of the chrome; only the digits stay.
      */
     keepClockWhenIdle: Boolean = false,
+    /** Opens the notifications drawer (P98): a glass circle beside the pill, focusable with it. Null: none. */
+    onNotices: (() -> Unit)? = null,
+    /** Drawn as a filled dot: what the drawer would show, so the pill is worth pressing. */
+    noticeCount: Int = 0,
 ) {
     val palette = LocalPalette.current
     val m = LocalMetrics.current
@@ -94,6 +98,16 @@ fun StatusPill(
             modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-search")
                 .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier),
         ) { focused -> SearchFace(focused, onLight) }
+        if (onNotices != null) FocusTile(
+            label = if (noticeCount > 0) "$noticeCount notifications" else "Notifications",
+            onClick = onNotices,
+            onLongClick = onNotices,
+            shape = CircleShape,
+            focusedScale = 1.08f,
+            shadow = false,
+            modifier = Modifier.focusProperties { canFocus = focusable }.testTag("status-notices")
+                .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier),
+        ) { focused -> NoticeFace(focused, onLight, noticeCount) }
         // Now Playing is a Home takeover and a Control Center card now, not a pill.
         FocusTile(
             label = "Status and Control Center",
@@ -127,6 +141,21 @@ internal fun Modifier.statusGlass(shape: androidx.compose.ui.graphics.Shape, onL
 }
 
 /** The search button as drawn: a glass circle with a magnifying glass, the pill's material. */
+/**
+ * The notifications target: a dot when there is something to read, a ring when there is not, so whoever is holding the
+ * remote can tell at a glance whether pressing it is worth it. No bell glyph: at ten feet a bell and a dot read alike.
+ */
+@Composable
+private fun NoticeFace(focused: Boolean, onLight: Boolean, count: Int) {
+    androidx.compose.foundation.Canvas(Modifier.size(32.dp)) {
+        val ink = if (onLight) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White
+        val r = size.minDimension * 0.2f
+        val a = if (focused) 1f else 0.82f
+        if (count > 0) drawCircle(ink.copy(alpha = a), r)
+        else drawCircle(ink.copy(alpha = a * 0.85f), r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.4f))
+    }
+}
+
 @Composable
 private fun SearchFace(focused: Boolean, onLight: Boolean) {
     val palette = LocalPalette.current

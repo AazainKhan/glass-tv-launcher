@@ -45,7 +45,8 @@ class A11ySurfacesTest {
 
     @Test fun search() = surface("Search", pane = "Search") {
         compose.press(Button.Up, Button.Up, Button.Up)
-        compose.press(Button.Left, Button.Select)
+        // Two circles sit beside the pill now (notices: P98, then search: P161).
+        compose.press(Button.Left, Button.Left, Button.Select)
         compose.waitForTag("search")
     }
 
