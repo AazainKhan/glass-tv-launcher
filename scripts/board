@@ -6,10 +6,20 @@
 # Edit notes by hand if you must, but always take new ids from `add`.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-B="$ROOT/.superpowers/pair/board.md"; LOCK="$B.lock"
+B="$ROOT/.superpowers/pair/board.md"; LOCK="$B.lock"; SEQ="$ROOT/.superpowers/pair/.last-id"
 with_lock() { local n=0; until mkdir "$LOCK" 2>/dev/null; do n=$((n + 1)); [ $n -gt 50 ] && { echo "board is locked ($LOCK)" >&2; exit 1; }; sleep 0.1; done; trap 'rmdir "$LOCK"' EXIT; "$@"; }
 add() {
-  local next; next=$(( $(grep -oE '^P[0-9]+' "$B" | tr -d P | sort -n | tail -1) + 1 ))
+  # Never reuse an id (P282). Taking max(board)+1 alone reissues an id as soon as the highest row is removed by a hand
+  # edit or moved into a log, and then `git log --grep=P<n>` finds two unrelated pieces of work. A high-water mark file
+  # remembers the last id ever issued, so an id is spent even when its row is gone.
+  #
+  # .superpowers/ is gitignored, so the mark is local: on a fresh clone it is absent and the board's own max seeds it.
+  # That is the best available, because the ids that matter are the ones this checkout has already spent.
+  local seen next
+  seen=$(cat "$SEQ" 2>/dev/null || echo 0)
+  next=$(( $(grep -oE '^P[0-9]+' "$B" | tr -d P | sort -n | tail -1) + 1 ))
+  [ "$next" -le "$seen" ] && next=$(( seen + 1 ))
+  echo "$next" > "$SEQ"
   echo "P$next | $1 | todo | - | $2" >> "$B"; echo "P$next"
 }
 set_status() {
