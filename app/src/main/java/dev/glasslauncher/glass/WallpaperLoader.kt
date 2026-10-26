@@ -466,10 +466,18 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
          * 8.3, and they are all already marked opaque so nothing is lost semantically. It was dropped once on GPU
          * time (correct: the conversion is a copy either way) but PSS is the binding limit here, not the GPU.
          *
-         * OFF by default because turning it on changes 15 screen goldens (measured: mean 1.7/255, max 8 - one 565
-         * step - across home/featured/grid/dock/folder/app-menu/control-center, light and dark). That is the expected
-         * quantisation and the dither keeps it from banding, so enabling is a deliberate act: flip this, re-record the
-         * screenshots, and check PSS on the stick. The dither itself is in [Dither], measured there.
+         * OFF by default, and here is the measured cost/benefit rather than the hoped one.
+         *
+         * Saving is ~4.5 MB, NOT the ~21 MB the ticket assumed. Measured on the stick as a settled PSS at rest, in an
+         * adjacent A/B (same build, one const flipped): 122,910 KB off vs 118,268 KB on, while GL mtrack barely moved
+         * (36,794 -> 35,775). The reason is that `copy(HARDWARE)` returns a bitmap in the platform's display format,
+         * so the GPU buffers stay 32-bit; only the short-lived software copies are ever actually narrow. Halving the
+         * GPU buffers would need the hardware bitmap built at 565 rather than converted into.
+         *
+         * Cost is 15 changed screen goldens (mean 1.7/255, max 8 = one 565 step, across home/featured/grid/dock/
+         * folder/app-menu/control-center, light and dark), which the dither keeps from banding (see [Dither]: longest
+         * flat run 39 rows -> 10). Worth having, but not worth churning every golden on its own, so: flip this,
+         * re-record the screenshots.
          */
         const val RGB565_BACKDROP = false
 
