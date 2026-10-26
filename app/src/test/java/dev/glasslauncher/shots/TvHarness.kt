@@ -91,8 +91,14 @@ object TvHarness {
      * Call before launching the activity. [config] edits the stored [LauncherConfig]; by default the
      * first-run tips are marked seen so they don't trap focus.
      */
-    fun setUp(featured: Boolean = true, squareFeed: Boolean = false, config: (LauncherConfig) -> LauncherConfig = { it }) {
-        dev.glasslauncher.home.TrayHost.split = false
+    /**
+     * [split] on: the tray and grid draw in their *own* ComposeViews, as they do on the device (TrayHost P248,
+     * GridHost P258). The default (off) keeps them inside Home's view, which is the overlay path. Bugs live in the
+     * difference — P226's fade and P300's tray-over-an-app were both invisible here because this line was always
+     * false — so at least one screen is captured with it on (P295).
+     */
+    fun setUp(featured: Boolean = true, squareFeed: Boolean = false, split: Boolean = false, config: (LauncherConfig) -> LauncherConfig = { it }) {
+        dev.glasslauncher.home.TrayHost.split = split
         // Keep Control Center's sheet (baked with each backdrop) readable, so tests can compare the tiles with it.
         dev.glasslauncher.home.CcMaterial.recordLast = true
         // P206: Control Center's default is the dock's clear glass (E), which this software canvas can't draw (it shows the

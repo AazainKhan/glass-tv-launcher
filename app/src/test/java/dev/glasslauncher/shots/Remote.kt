@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import java.io.File
+import androidx.compose.ui.test.isRoot
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
@@ -26,11 +27,16 @@ enum class Button(val key: Key) {
     Select(Key.DirectionCenter), Back(Key.Back), Menu(Key.Menu), PlayPause(Key.MediaPlayPause),
 }
 
-/** Presses each button in turn and lets the UI settle after each. */
+/**
+ * Presses each button in turn and lets the UI settle after each.
+ *
+ * [rootIndex] picks the compose root when there is more than one: with TrayHost.split on, the tray and grid are their
+ * own ComposeViews (P295), so `onRoot()` is ambiguous. Root 0 is Home's, which owns the key handling.
+ */
 @OptIn(ExperimentalTestApi::class)
-fun ComposeTestRule.press(vararg buttons: Button) {
+fun ComposeTestRule.press(vararg buttons: Button, rootIndex: Int = 0) {
     for (b in buttons) {
-        onRoot().performKeyInput { pressKey(b.key) }
+        onAllNodes(isRoot(), useUnmergedTree = true)[rootIndex].performKeyInput { pressKey(b.key) }
         waitForIdle()
     }
 }

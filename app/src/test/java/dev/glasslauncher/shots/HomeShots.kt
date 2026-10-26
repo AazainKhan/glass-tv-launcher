@@ -10,6 +10,8 @@ import dev.glasslauncher.data.Folder
 import dev.glasslauncher.data.LauncherConfig
 import dev.glasslauncher.data.ThemeMode
 import dev.glasslauncher.data.folderKey
+import org.junit.Assert.assertTrue
+import java.io.File
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -52,6 +54,89 @@ class HomeShots {
     )
 
     @Test fun dock() = home { capture("home-dock") }
+
+    /**
+     * The same Home with the tray and grid in their own ComposeViews, as on the device (P295). `stableImage()` only
+     * captures the compose rule's own root, which is Home's view, so the sibling views need a whole-screen capture.
+     */
+    @Test fun dockSplit() {
+        TvHarness.setUp(split = true)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.settle()
+            com.github.takahirom.roborazzi.captureScreenRoboImage(shot("home-dock-split"))
+        }
+    }
+
+    /**
+     * Home idle-fades with the tray in its own view (P295). This is the case P226 and P300 shipped broken: the tray is a
+     * sibling ComposeView, so Home's own alpha never reaches it, and a screenshot of Home's view alone cannot tell.
+     * Asserts the tray band actually goes dark and comes back, rather than comparing goldens.
+     */
+    @Test fun theIdleFadeReachesTheTrayWhenItDrawsInItsOwnView() {
+        TvHarness.setUp(split = true, config = { it.copy(idleFadeMinutes = 1) })
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitForHome()
+            compose.settle()
+            // Two readings at rest give the noise floor, so "it changed" cannot be jitter.
+            val awake = trayBrightness(it)
+            compose.waitForIdle()
+            val jitter = kotlin.math.abs(trayBrightness(it) - awake) / awake
+            assertTrue("the tray must be steady at rest (jitter $jitter)", jitter < 0.05)
+
+            // Both clocks: the loop's delay() is driven by compose's frame clock, while the idle *timer* reads
+            // SystemClock.uptimeMillis (the main looper's clock). One without the other leaves the loop waiting.
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(70, java.util.concurrent.TimeUnit.SECONDS)
+            compose.mainClock.advanceTimeBy(70_000)
+            compose.waitForIdle()
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS)
+            compose.mainClock.advanceTimeBy(3_000)
+            compose.waitForIdle()
+            val hidden = trayBrightness(it)
+            // A bright blurred backdrop shows through the faded tray, so this is a drop, not a blackout.
+            val drop = (awake - hidden) / awake
+            assertTrue("the tray must fade out with the rest of Home (awake $awake, hidden $hidden)", drop > 0.08)
+
+            // Any key brings it back. Back, not Down: any key calls touch() before dispatch, and Back does not move
+            // focus, so the backdrop behind the tray stays put and the reading is comparable. Sent through the
+            // Activity, which routes to the focused view; compose's onRoot() is ambiguous with three roots.
+            it.onActivity { a ->
+                val t = android.os.SystemClock.uptimeMillis()
+                for (action in intArrayOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP)) {
+                    a.dispatchKeyEvent(android.view.KeyEvent(t, t, action, android.view.KeyEvent.KEYCODE_BACK, 0))
+                }
+            }
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS)
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.waitForIdle()
+            val back = trayBrightness(it)
+            assertTrue("a key must bring the tray back (awake $awake, hidden $hidden, back $back)", (back - hidden) / (awake - hidden) > 0.5)
+        }
+    }
+
+    /**
+     * Mean brightness of the tray strip (the bottom 12%) of the *whole window*. Drawn synchronously from the decor
+     * view, so it includes the tray's sibling ComposeView; captureScreenRoboImage writes its file only at task
+     * finalize, which is too late to read back inside the test.
+     */
+    private fun trayBrightness(scenario: ActivityScenario<MainActivity>): Double {
+        var out = 0.0
+        scenario.onActivity { activity ->
+            val v = activity.window.decorView
+            require(v.width > 0 && v.height > 0) { "decor view not laid out" }
+            val bmp = android.graphics.Bitmap.createBitmap(v.width, v.height, android.graphics.Bitmap.Config.ARGB_8888)
+            v.draw(android.graphics.Canvas(bmp))
+            val top = v.height * 88 / 100
+            var sum = 0L; var n = 0
+            for (y in top until v.height) for (x in 0 until v.width step 4) {
+                val p = bmp.getPixel(x, y)
+                sum += (android.graphics.Color.red(p) + android.graphics.Color.green(p) + android.graphics.Color.blue(p)) / 3
+                n++
+            }
+            out = sum.toDouble() / n.coerceAtLeast(1)
+        }
+        return out
+    }
 
     @Test fun featuredRow() = home {
         compose.press(Button.Up)
