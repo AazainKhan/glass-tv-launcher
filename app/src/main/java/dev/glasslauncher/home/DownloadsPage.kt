@@ -83,7 +83,7 @@ fun DownloadsPage(
                 is Plan.Start -> {
                     model.edit { it.copy(downloads = it.downloads.copy(history = dev.glasslauncher.downloads.DownloadInput.pushHistory(it.downloads.history, text))) }
                     if (plan.confirmHost == null) begin(plan) else open(
-                        Overlay.Confirm("Download from ${plan.confirmHost}?", "Code “${plan.code}” points to ${plan.url}. Glass asks once for each link.${DownloadText.checksumNote(plan.url, plan.name, plan.sha256)}", "Download") {
+                        Overlay.Confirm("Download from ${plan.confirmHost}?", "Code “${plan.code}” points to ${plan.url}. VITRE asks once for each link.${DownloadText.checksumNote(plan.url, plan.name, plan.sha256)}", "Download") {
                             model.edit { it.copy(downloads = it.downloads.copy(acceptedUrls = dev.glasslauncher.downloads.DownloadInput.accept(it.downloads.acceptedUrls, plan.url))) }
                             begin(plan)
                         },

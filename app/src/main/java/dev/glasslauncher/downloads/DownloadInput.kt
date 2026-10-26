@@ -13,7 +13,7 @@ sealed interface Entry {
 
 object DownloadInput {
     const val HISTORY_MAX = 20
-    const val NEEDS_HTTPS = "That link needs https. Glass doesn't download over plain http."
+    const val NEEDS_HTTPS = "That link needs https. VITRE doesn't download over plain http."
 
     /** A bare host gets https://; a word or number with no dot or slash is a code. */
     fun parse(text: String): Entry {

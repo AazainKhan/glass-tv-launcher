@@ -102,7 +102,7 @@ object RootFeatures {
             GLASSSVC
             chmod 755 ${'$'}M/service.sh
             touch ${'$'}M/uninstall-updates
-            printf 'id=glass-system\nname=Glass TV Launcher as a system app\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=Installs Glass TV Launcher as a privileged system app (Continue Watching from other apps, secure settings). Remove to revert.\n' > ${'$'}M/module.prop
+            printf 'id=glass-system\nname=VITRE as a system app\nversion=1\nversionCode=1\nauthor=VITRE\ndescription=Installs VITRE as a privileged system app (Continue Watching from other apps, secure settings). Remove to revert.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/system/priv-app/GlassLauncher
             chmod 644 ${'$'}M/system/priv-app/GlassLauncher/GlassLauncher.apk ${'$'}M/system/etc/permissions/*.xml ${'$'}M/system/etc/default-permissions/*.xml
             rm -f ${'$'}M/remove ${'$'}M/disable
@@ -171,7 +171,7 @@ object RootFeatures {
         if (!context.getSharedPreferences(PREFS, 0).getBoolean("takeover", true)) return
         if (AmazonStore.isOpen(context) || stockHome(context).none { isEnabled(context, it) }) return
         if (!Root.available()) return
-        Root.action(context, "The stock launcher was on: Glass back as Home", stockHome(context).joinToString("\n") { "pm disable-user --user 0 $it" } +
+        Root.action(context, "The stock launcher was on: VITRE back as Home", stockHome(context).joinToString("\n") { "pm disable-user --user 0 $it" } +
             "\ncmd package set-home-activity ${context.packageName}/.MainActivity")
     }
 
@@ -250,7 +250,7 @@ object RootFeatures {
             settings delete global activity_manager_constants
             device_config put activity_manager max_cached_processes 12
             GLASSSH
-            printf 'id=glass-tuning\nname=Glass Memory Tuning\nversion=1\nversionCode=1\nauthor=Glass TV Launcher\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
+            printf 'id=glass-tuning\nname=Glass Memory Tuning\nversion=1\nversionCode=1\nauthor=VITRE\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/service.sh; chmod 644 ${'$'}M/system/vendor/etc/fstab.enableswap
             rm -f ${'$'}M/remove ${'$'}M/disable
         """.trimIndent().lines().joinToString("\n") { it.trimStart() })

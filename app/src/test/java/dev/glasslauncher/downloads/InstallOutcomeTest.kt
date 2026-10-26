@@ -19,7 +19,7 @@ class InstallOutcomeTest {
         val o = installOutcome(InstallResult.NeedsUserAction(Intent()), "Kodi", keepApk = false)
         assertFalse(o.removeDownload)
         assertTrue(o.openSettings)
-        assertEquals("Allow Glass to install apps, then press Select again", o.notice)
+        assertEquals("Allow VITRE to install apps, then press Select again", o.notice)
     }
 
     @Test fun failureShowsTheReasonAndKeepsTheFile() {

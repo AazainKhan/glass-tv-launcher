@@ -1915,7 +1915,7 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column).testTag("cc-gallery")) {
         if (group == "") {
             val groups = listOf(
-                Triple("glass", "Glass", R.drawable.ic_tune),
+                Triple("glass", "VITRE", R.drawable.ic_tune),
                 Triple("addons", "Add-ons", R.drawable.ic_widgets),
                 Triple("byapp", "By App", R.drawable.ic_apps),
                 Triple("apps", "Apps", R.drawable.ic_app_switcher),
@@ -1952,7 +1952,7 @@ private fun CcGallery(group: String, layout: CcLayout, sz: CcSizes, setGroup: (S
     }
 }
 
-internal fun ccGalleryTitle(group: String?): String = when (group) { "" -> "Add a Control"; "glass" -> "Glass"; "addons" -> "Add-ons"; "apps" -> "Apps"; else -> "By App" }
+internal fun ccGalleryTitle(group: String?): String = when (group) { "" -> "Add a Control"; "glass" -> "VITRE"; "addons" -> "Add-ons"; "apps" -> "Apps"; else -> "By App" }
 
 /** The Apps group (P152): every installed app with a launcher entry, each addable as a launch control. One already on the page just returns. */
 @Composable
@@ -2134,8 +2134,8 @@ internal fun CcPairPlatter(
     Column(verticalArrangement = Arrangement.spacedBy(sz.gap), modifier = Modifier.width(sz.column + CC_BLEED * 2).padding(horizontal = CC_BLEED).testTag(tag)) {
         Text(title, style = CcSectionHeader, color = LocalPalette.current.primary, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         if (!canScan) {
-            CcTile("Open Bluetooth settings", "Glass can't scan from here", Shapes.pill, sz.column, sz.pill, onClick = onSystem, modifier = Modifier.focusRequester(first).testTag("cc-pair-system")) { fg ->
-                PillContent(R.drawable.ic_bluetooth, "Open Bluetooth settings", "Glass can't scan from here", fg, on = false, accent = fg)
+            CcTile("Open Bluetooth settings", "VITRE can't scan from here", Shapes.pill, sz.column, sz.pill, onClick = onSystem, modifier = Modifier.focusRequester(first).testTag("cc-pair-system")) { fg ->
+                PillContent(R.drawable.ic_bluetooth, "Open Bluetooth settings", "VITRE can't scan from here", fg, on = false, accent = fg)
             }
         } else {
             val status = if (scanning) "Searching\u2026" else if (found.isEmpty()) "Nothing found. Put the device in pairing mode." else "Choose a device"

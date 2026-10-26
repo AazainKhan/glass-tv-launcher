@@ -7,6 +7,6 @@ internal data class InstallOutcome(val notice: String, val removeDownload: Boole
 
 internal fun installOutcome(result: InstallResult, label: String, keepApk: Boolean) = when (result) {
     InstallResult.Success -> InstallOutcome("Installed $label", removeDownload = !keepApk)
-    is InstallResult.NeedsUserAction -> InstallOutcome("Allow Glass to install apps, then press Select again", removeDownload = false, openSettings = true)
+    is InstallResult.NeedsUserAction -> InstallOutcome("Allow VITRE to install apps, then press Select again", removeDownload = false, openSettings = true)
     is InstallResult.Failed -> InstallOutcome(result.reason.ifBlank { "Install failed" }, removeDownload = false)
 }

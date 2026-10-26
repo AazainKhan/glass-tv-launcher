@@ -112,7 +112,7 @@ class RemotePairer(private val context: Context) {
                 Root.action(app, "Grant location for remote pairing", "pm grant ${app.packageName} android.permission.ACCESS_FINE_LOCATION")
             }
             if (hasLocation()) { Log.i(TAG, "ACCESS_FINE_LOCATION granted"); handler.post { evaluate() } }
-            else RemoteNotice.show(app, "Remote pairing needs the Location permission. Update Glass Pro, or allow Location in Glass's app settings.", 10_000, actionable = true)
+            else RemoteNotice.show(app, "Remote pairing needs the Location permission. Update VITRE Pro, or allow Location in VITRE's app settings.", 10_000, actionable = true)
         }
     }
 
