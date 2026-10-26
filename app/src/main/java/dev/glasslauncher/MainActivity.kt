@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         stoppedSinceResume = true
-        dev.glasslauncher.ui.GpuCaches.homeHidden()
+        (application as GlassApp).homeHidden()
     }
 
     /** Any key or touch Home receives cancels a Sleep Timer that is showing its one-minute banner. */
@@ -48,16 +48,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        dev.glasslauncher.ui.GpuCaches.homeShown()
+        (application as GlassApp).homeShown()
     }
 
     override fun onPause() {
         super.onPause()
         dev.glasslauncher.system.RemoteWatch.homeInFront = false
+        // P247: Home loses the foreground. On this Fire OS build it never gets onStop (the Home task stays
+        // "visible" under the app), so onPause is the only reliable "an app is in front now" signal.
+        (application as GlassApp).homeHidden()
     }
 
     override fun onResume() {
         super.onResume()
+        (application as GlassApp).homeShown()
         stoppedSinceResume = false
         dev.glasslauncher.system.RemoteWatch.homeInFront = true
         dev.glasslauncher.system.RemoteWatch.evaluate(this)

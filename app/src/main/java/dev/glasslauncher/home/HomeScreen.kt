@@ -174,6 +174,8 @@ private const val NEIGHBOUR_HEROES_MS = 1_000L
 /** Log tag for hero-swap timing (P257b); silent unless enabled with `setprop log.tag.GlassHero DEBUG`. */
 private const val HERO_LOG = "GlassHero"
 private const val GPU_TRIM_AFTER_MS = 4_000L
+/** P247: the shortest gap between two idle collections (an autoplay slide must not become a collection each). */
+private const val GC_MIN_INTERVAL_MS = 20_000L
 private const val APP_HERO_FADE_MS = 270
 /** The Cover Flow preview fades in and out over this (with the backdrop's dissolve; P86). */
 private const val PREVIEW_FADE_MS = 450
@@ -585,16 +587,27 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     // P205: once Home has stayed on a scene for a moment (focus rests, before a scroll to the grid can start), its blur
     // ladder goes to the GPU, off the main thread. Moving on cancels it, so a quick pass along the dock uploads nothing.
     LaunchedEffect(backdrop.backdrop) { val b = backdrop.backdrop ?: return@LaunchedEffect; delay(LADDER_AFTER_MS); b.ensureLadder() }
+    val lastCollectAt = remember { longArrayOf(0L) }
     LaunchedEffect(backdrop.backdrop, expanded, overlays.size) {
         delay(GPU_TRIM_AFTER_MS)
         dev.glasslauncher.ui.GpuCaches.trim()
+        // P247: a hero visited while browsing the tray stayed on the GPU (7-9 MB of textures) long after Home settled
+        // somewhere else. Keep the one on screen; the others re-bake from the hero disk cache when focus returns.
+        dev.glasslauncher.home.HeroCache.app.retain(appHeroPkg)
         // P216: the scenes left behind are garbage whose native pixels go only when a collection runs (and their cleaners
         // after it): a heap dump after a dock pass found ~40 MB of unreachable bitmaps, and one collection took the grid's
         // PSS from ~133 to ~119 MB. Home is at rest here, so a collection costs nothing on screen.
-        // P222: not after the Top Shelf's own autoplay steps (no key since): those slides come every few seconds at rest,
-        // and a collection each was ~2 % of a core for nothing; the next key-driven rest collects what they left.
-        if (idle.millisSinceInput() < GPU_TRIM_AFTER_MS + 2_000L)
+        // P222 skipped it after the Top Shelf's own autoplay steps, because one collection per slide was ~2 % of a core.
+        // P247: that left a Home nobody touches (a TV on the shelf for a few minutes) holding every slide it had drawn:
+        // 58 MB of graphics against the same screen's 36 MB after a collection. Collect at rest too, but at most once
+        // every [GC_MIN_INTERVAL_MS], with no fade running and no key in the last few seconds (never mid-scroll).
+        val now = android.os.SystemClock.uptimeMillis()
+        if (backdrop.previous == null &&
+            idle.millisSinceInput() > 3_000L && now - lastCollectAt[0] > GC_MIN_INTERVAL_MS
+        ) {
+            lastCollectAt[0] = now
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
+        }
     }
 
     // Loading state: Home stays hidden until its first backdrop is baked and the app list is in, then

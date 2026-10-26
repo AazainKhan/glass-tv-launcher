@@ -121,6 +121,46 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     val weather by lazy { dev.glasslauncher.widgets.WeatherRepository(http, scope) }
     val nowPlaying by lazy { dev.glasslauncher.widgets.NowPlayingRepository(this, scope) }
 
+    /**
+     * P247: how long Home may stay behind an app before its caches are released. Long enough that stepping into an
+     * app and straight back keeps everything (the common case, and the one that must stay smooth); a real sit in
+     * another app gives back the textures nobody can see.
+     */
+    private var hiddenRelease: kotlinx.coroutines.Job? = null
+
+    fun homeHidden() {
+        dev.glasslauncher.ui.GpuCaches.homeHidden()
+        hiddenRelease?.cancel()
+        hiddenRelease = scope.launch {
+            kotlinx.coroutines.delay(HIDDEN_RELEASE_MS)
+            releaseBehindApp()
+        }
+    }
+
+    fun homeShown() {
+        dev.glasslauncher.ui.GpuCaches.homeShown()
+        hiddenRelease?.cancel()
+        hiddenRelease = null
+    }
+
+    /**
+     * Everything here re-reads from disk (tiles, hero art), from the network's own disk cache (Coil) or is
+     * rebuilt by the renderer: nothing that shows on the way back has to be fetched again.
+     */
+    private suspend fun releaseBehindApp() {
+        dev.glasslauncher.system.AppPreviews.trim()
+        dev.glasslauncher.home.HeroCache.app.trim()
+        dev.glasslauncher.home.HeroCache.cover.trim()
+        tileArt.empty()
+        SingletonImageLoader.get(this).memoryCache?.clear()
+        dev.glasslauncher.ui.GpuCaches.releaseWhileHidden()
+        kotlinx.coroutines.withContext(Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
+    }
+
+    private companion object {
+        const val HIDDEN_RELEASE_MS = 20_000L
+    }
+
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader.Builder(context)
             // Images get tighter timeouts than the API calls: a stalled fetch must fail (and be retried) in seconds,
