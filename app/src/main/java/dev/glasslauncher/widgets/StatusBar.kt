@@ -60,6 +60,12 @@ fun StatusPill(
     fade: () -> Float = { 1f },
     /** Opens search (P161): a glass circle left of the pill, focusable with it. Null: none. */
     onSearch: (() -> Unit)? = null,
+    /**
+     * Keep the time on screen once Home has faded out (P93 #7). tvOS leaves the clock over the wallpaper when the top
+     * shelf goes full-bleed, and it is the one piece of chrome worth keeping: it says the TV is awake and what time it
+     * is. The pill's glass and gear go with the rest of the chrome; only the digits stay.
+     */
+    keepClockWhenIdle: Boolean = false,
 ) {
     val palette = LocalPalette.current
     val m = LocalMetrics.current
@@ -72,7 +78,7 @@ fun StatusPill(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier
             .padding(top = m.chromeInset, end = m.chromeInset)
-            .graphicsLayer { alpha = idle.chromeAlpha * fade() }
+            .graphicsLayer { alpha = (if (keepClockWhenIdle && idle.hidden) 1f else idle.chromeAlpha) * fade() }
             .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.chromeBounds = it.boundsInWindow() }
             .focusProperties { enter = { pillFocus } }
             .focusGroup(),
@@ -102,7 +108,7 @@ fun StatusPill(
                 .then(if (onLight) Modifier.drawBehind { drawHalo() } else Modifier)
                 // Control Center grows out of exactly this capsule.
                 .onGloballyPositioned { dev.glasslauncher.home.ControlCenterWindow.pillBounds = it.boundsInWindow() },
-        ) { focused -> PillFace(cfg, focused, onLight) }
+        ) { focused -> if (keepClockWhenIdle && idle.hidden) IdleClock(cfg, onLight) else PillFace(cfg, focused, onLight) }
     }
 }
 
@@ -202,6 +208,25 @@ private fun DrawScope.drawHalo() {
             style = androidx.compose.ui.graphics.drawscope.Stroke(width = band),
         )
     }
+}
+
+/**
+ * The bare time left on the wallpaper once Home has faded out (P93 #7): no glass, no gear, and it does not take focus
+ * (there is nothing to focus while the chrome is gone; any key brings the rest back). A soft shadow keeps the digits
+ * readable over a bright frame.
+ */
+@Composable
+private fun IdleClock(cfg: LauncherConfig, onLight: Boolean) {
+    val ink = if (onLight) Color(0xFF0E1015) else Color.White
+    Text(
+        rememberClock(cfg.clock24h),
+        style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"),
+        color = ink,
+        modifier = Modifier
+            .testTag("idle-clock")
+            .graphicsLayer { shadowElevation = 6.dp.toPx() }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    )
 }
 
 @Composable

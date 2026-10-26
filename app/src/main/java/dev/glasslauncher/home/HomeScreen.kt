@@ -1321,6 +1321,8 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                 focusable = expanded || feed == null || takeover != null,
                 onSelect = { openControlCenter() },
                 onSearch = { open(Overlay.Search) },
+                // P93 #7: the time is the one piece of chrome worth leaving over the wallpaper when Home fades out.
+                keepClockWhenIdle = true,
                 modifier = Modifier.align(Alignment.TopEnd).focusRequester(pillRequester).onFocusChanged { pillFocused = it.hasFocus; ControlCenterWindow.pillFocused = it.hasFocus },
                 // Control Center draws its own clock in this corner.
                 fade = { if (ControlCenterWindow.pillCovered) 0f else (1f - backdrop.wallpaperBlur.value) * reveal.value },
