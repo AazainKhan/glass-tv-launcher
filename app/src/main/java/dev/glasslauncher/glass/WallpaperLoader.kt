@@ -110,6 +110,25 @@ data class Preset(val id: String, val name: String, val light: Boolean, val base
 data class Blob(val color: Int, val x: Float, val y: Float, val r: Float)
 
 class WallpaperLoader(private val context: Context, private val http: OkHttpClient) {
+    /** The config the backdrop's opaque bitmaps go to the GPU as, or null for "leave as ARGB_8888". */
+    private val gpuConfig get() = if (RGB565_BACKDROP) Bitmap.Config.RGB_565 else null
+
+    /**
+     * Copies an opaque software bitmap for the GPU, dithering first when the 565 flag is on (see [Dither]).
+     *
+     * Two steps, not one: `copy(HARDWARE)` keeps the source's pixel format, so ARGB_8888 would stay 32-bit. Converting
+     * to a software RGB_565 first and only then to HARDWARE is what actually halves the memory. Recycles [b] on the
+     * way, like the copies it replaces, and falls back to whatever it has so a caller never null-checks.
+     */
+    private fun gpuOf(b: Bitmap): Bitmap {
+        if (gpuConfig == null) return b.copy(Bitmap.Config.HARDWARE, false)?.also { b.recycle() } ?: b
+        Dither.apply(b)
+        val narrow = b.copy(Bitmap.Config.RGB_565, false) ?: return b
+        b.recycle()
+        val gpu = narrow.copy(Bitmap.Config.HARDWARE, false) ?: return narrow
+        narrow.recycle()
+        return gpu
+    }
 
     private val dir = File(context.filesDir, "wallpapers").apply { mkdirs() }
     // RenderScript setup takes tens of ms, so it happens on the first bake (a background thread).
@@ -279,21 +298,21 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         source.setHasAlpha(false)
         blurredScreen.setHasAlpha(false)
         blurred.setHasAlpha(false)
-        val sharp = source.copy(Bitmap.Config.HARDWARE, false)?.also { source.recycle() } ?: source
-        val blurredGpu = blurredScreen.copy(Bitmap.Config.HARDWARE, false)?.also { blurredScreen.recycle() } ?: blurredScreen
+        val sharp = gpuOf(source)
+        val blurredGpu = gpuOf(blurredScreen)
         // P205: the rungs stay software until Home settles on this scene (Backdrop.ensureLadder).
         val ladder = listOf(sharp, blurredGpu)
         // The glass samples these through a BitmapShader every frame: as software bitmaps the GPU re-uploads
         // them each frame of a scroll (measured: glass off cut janky frames from 39% to 15%), so they live
         // on the GPU too. The names say "Software" for history; they're only read by shaders.
-        val glassBlur = blurred.copy(Bitmap.Config.HARDWARE, false)?.also { blurred.recycle() } ?: blurred
+        val glassBlur = gpuOf(blurred)
         // Control Center's sheet comes from the same clear texture, here, so its open has nothing to bake.
         // Control Center's own sheet, for the variants that draw it. The default (E, P206) draws the dock's clear texture instead,
         // so baking a sheet there was ~180 ms of every scene's bake for nothing (P257).
         CcAdapt.readVariant()
         val ccSheet = if (CcAdapt.variant == "E") null else GlassMatch.ccSheet(clear, light)
-        val glassClear = clear.copy(Bitmap.Config.HARDWARE, false)?.also { clear.recycle() } ?: clear
-        val glassClearText = clearText.copy(Bitmap.Config.HARDWARE, false)?.also { clearText.recycle() } ?: clearText
+        val glassClear = gpuOf(clear)
+        val glassClearText = gpuOf(clearText)
         return Backdrop(sharp.asImageBitmap(), blurredGpu.asImageBitmap(), ladder.map { it.asImageBitmap() }, glassBlur.asImageBitmap(), glassClear.asImageBitmap(), glassClearText.asImageBitmap(), light, luma, ccSheet, pendingRungs = steps)
     }
 
@@ -441,6 +460,18 @@ class WallpaperLoader(private val context: Context, private val http: OkHttpClie
         const val BLUR_H = 108
         const val CLEAR_W = 480
         const val CLEAR_H = 270
+
+        /**
+         * P285: the backdrop's full-screen bitmaps go to the GPU as RGB_565 when this is on - 4.0 MB each instead of
+         * 8.3, and they are all already marked opaque so nothing is lost semantically. It was dropped once on GPU
+         * time (correct: the conversion is a copy either way) but PSS is the binding limit here, not the GPU.
+         *
+         * OFF by default because turning it on changes 15 screen goldens (measured: mean 1.7/255, max 8 - one 565
+         * step - across home/featured/grid/dock/folder/app-menu/control-center, light and dark). That is the expected
+         * quantisation and the dither keeps it from banding, so enabling is a deliberate act: flip this, re-record the
+         * screenshots, and check PSS on the stick. The dither itself is in [Dither], measured there.
+         */
+        const val RGB565_BACKDROP = false
 
         val presets = listOf(
             Preset("aurora", "Aurora", false, 0xFF0B1026.toInt(), listOf(
