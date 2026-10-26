@@ -120,10 +120,10 @@ class NoticeDrawerTest {
 
     /** With something posted, the row is there and carries its age. */
     @Test fun aPostedNotificationBecomesARow() {
-        NoticeStore.clear()
+        // After setUp, which clears the store so the pill's golden does not depend on test order.
+        TvHarness.setUp()
         NoticeStore.onConnected()
         NoticeStore.posted(notice("Dinner is ready", agoMs = 4 * 60_000))
-        TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use { _ ->
             openDrawer()
             val seen = texts()
@@ -135,11 +135,10 @@ class NoticeDrawerTest {
 
     /** Newest first, and older ones keep their place below. */
     @Test fun newestIsAtTheTop() {
-        NoticeStore.clear()
+        TvHarness.setUp()
         NoticeStore.onConnected()
         NoticeStore.posted(notice("older", agoMs = 60 * 60_000))
         NoticeStore.posted(notice("newer", agoMs = 0))
-        TvHarness.setUp()
         ActivityScenario.launch(MainActivity::class.java).use { _ ->
             openDrawer()
             val seen = texts()
@@ -151,11 +150,10 @@ class NoticeDrawerTest {
 
     /** A blocked package is not shown, and nothing else is affected. */
     @Test fun aBlockedPackageStaysOut() {
-        NoticeStore.clear()
+        TvHarness.setUp(config = { it.copy(blockedNoticePackages = listOf("com.spam.app")) })
         NoticeStore.onConnected()
         NoticeStore.posted(notice("wanted", pkg = "com.keep.app"))
         NoticeStore.posted(notice("noisy", pkg = "com.spam.app"))
-        TvHarness.setUp(config = { it.copy(blockedNoticePackages = listOf("com.spam.app")) })
         ActivityScenario.launch(MainActivity::class.java).use { _ ->
             openDrawer()
             val seen = texts()
