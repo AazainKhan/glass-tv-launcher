@@ -35,30 +35,27 @@ object Root {
     /** Last known result of [available] without checking (false until checked). */
     val known: Boolean get() = granted == true
 
-    /** A file only root can read, as bytes (null if unreadable). Glass writes any copy itself, so the copy
-     *  carries Glass's own SELinux label rather than su's. */
+    /**
+     * A file only root can read, as bytes (null if unreadable). Glass writes any copy itself, so the copy carries
+     * Glass's own SELinux label rather than su's.
+     *
+     * Read through the one persistent shell (P301): a fresh `su` per file made Magisk toast "granted superuser
+     * rights" once per tile. base64 keeps the bytes intact over the line protocol, which is text.
+     */
     suspend fun readBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
-        runCatching {
-            // In the global mount namespace: Android 11 hides other apps' data dirs in Glass's own (app data
-            // isolation), even from root. Script on stdin, as in [run]; stdout is the file.
-            val p = ProcessBuilder("su", "--mount-master").start()
-            p.outputStream.bufferedWriter().use { it.write("cat '" + path.replace("'", "'\\''") + "'\nexit\n") }
-            val bytes = p.inputStream.use { it.readBytes() }
-            if (p.waitFor(20, TimeUnit.SECONDS) && bytes.isNotEmpty()) bytes else null
-        }.getOrNull()
+        val quoted = "'" + path.replace("'", "'\\''") + "'"
+        val r = Shell.run("base64 -w0 $quoted 2>/dev/null", 20_000)
+        if (!r.ok) return@withContext null
+        runCatching { android.util.Base64.decode(r.out, android.util.Base64.DEFAULT) }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
     /**
-     * Streams a file only root can read into [block] (a zip reader, say) without holding it all in memory; the
-     * process is stopped when [block] returns. Null if su or the read failed.
+     * Reads a file only root can read into [block] (a zip reader, say). The file is held whole in memory, which is
+     * fine for what this is used on (icon-pack manifests); it goes through the persistent shell for the same reason
+     * as [readBytes].
      */
-    suspend fun <T> streamFile(path: String, block: (java.io.InputStream) -> T): T? = withContext(Dispatchers.IO) {
-        runCatching {
-            val p = ProcessBuilder("su", "--mount-master").start()
-            p.outputStream.bufferedWriter().use { it.write("cat '" + path.replace("'", "'\\''") + "'\nexit\n") }
-            try { block(p.inputStream) } finally { p.destroy() }
-        }.getOrNull()
-    }
+    suspend fun <T> streamFile(path: String, block: (java.io.InputStream) -> T): T? =
+        readBytes(path)?.let { bytes -> runCatching { block(java.io.ByteArrayInputStream(bytes)) }.getOrNull() }
 
     /**
      * Runs [command] as root with the bytes of [input] on its standard input (`pm install -S size` reads the package

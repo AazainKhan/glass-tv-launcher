@@ -56,10 +56,19 @@ object AmazonStore {
         // Every Home press logs wm_new_intent (pressed in Amazon's launcher) or wm_set_resumed_activity on
         // it (pressed in an app opened from the store). Epoch times keep out anything logged before.
         val started = System.currentTimeMillis() / 1000.0
+        // Its own su, but with the command written to stdin rather than passed with -c, which is the form the rest of
+        // Root uses. logcat runs in the foreground of that shell, so the stream stays open until the watcher is
+        // destroyed; closing stdin afterwards is harmless.
         val p = runCatching {
-            ProcessBuilder("su", "-c", "logcat -T 1 -b events -v epoch wm_new_intent:I wm_set_resumed_activity:I '*:S'").redirectErrorStream(true).start()
+            ProcessBuilder("su", "--mount-master").redirectErrorStream(true).start()
         }.getOrNull() ?: return
         watcher = p
+        runCatching {
+            p.outputStream.bufferedWriter().use {
+                it.write("logcat -T 1 -b events -v epoch wm_new_intent:I wm_set_resumed_activity:I '*:S'\n")
+                it.flush()
+            }
+        }
         Thread {
             runCatching {
                 p.inputStream.bufferedReader().useLines { lines ->
