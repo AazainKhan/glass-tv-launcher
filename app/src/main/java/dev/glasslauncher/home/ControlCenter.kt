@@ -923,7 +923,12 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
         // P206 E (user: "the dock's glass is better"): the dock's own clear texture in its text-safe range (clearLegible: lightly blurred art, its colour
         // kept), the one the tray samples, instead of Control Center's neutral heavy-blur sheet. Taken once per open, so
         // it stays still while Control Center is up, as the sheet did.
-        val material = if (dev.glasslauncher.glass.CcAdapt.variant == "E") glassState.backdrop?.let { b ->
+        // Reduce Transparency is the one accessibility setting that must reach EVERY surface, and Control Center's
+        // glass is drawn from this sheet rather than through Glass, so it never consulted the flag (P93 #8): with the
+        // setting on, the dock went solid and Control Center stayed frosted. A null material makes CcSheet fall back
+        // to its one flat colour, which is the same solid the panels use, so the two agree.
+        val material = if (glassState.reduceTransparency) null
+        else if (dev.glasslauncher.glass.CcAdapt.variant == "E") glassState.backdrop?.let { b ->
             val bmp = b.clearLegible.asAndroidBitmap()
             // Tests read the material's pixels (GlassMatch.keepPixels); a hardware bitmap can't be read, the JVM's can.
             val px = if (GlassMatch.keepPixels && bmp.config != android.graphics.Bitmap.Config.HARDWARE)
