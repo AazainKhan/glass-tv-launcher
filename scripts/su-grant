@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Make sure Glass's Magisk su grant is "allow", not "prompt".
+#
+# Why it matters: with policy=1 (prompt) nothing answers the prompt when there is nobody at the TV, so EVERY `su` from
+# the app fails with "Permission denied" - root features die silently, and the app cannot even tell (a plain
+# `startActivity` still "succeeds"; see P280). Shell's own grant is already 2, which is why an adb `su` works and the
+# app looks broken. Magisk stores grants in /data/adb/magisk.db, table `policies`: policy 2 = allow, 1 = prompt,
+# 0 = deny.
+#
+#   scripts/su-grant            # report and fix if needed
+#   scripts/su-grant --check    # report only, non-zero if not allow
+#
+# Run it after a reflash, a Magisk update, or any time root features stop working with no other explanation.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"
+
+PKG=dev.glasslauncher
+CHECK_ONLY=0
+[ "${1:-}" = "--check" ] && CHECK_ONLY=1
+
+uid="$(adb shell "dumpsys package $PKG | grep -m1 userId" 2>/dev/null | tr -d '\r' | grep -oE '[0-9]+' || true)"
+[ -n "$uid" ] || { echo "su-grant: $PKG is not installed"; exit 1; }
+
+# Read the grant out of Magisk's own DB (the stick has no sqlite3, so on the device: pull it).
+read_policy() {
+  adb shell "su -c 'cp /data/adb/magisk.db /data/local/tmp/_sg.db; chmod 644 /data/local/tmp/_sg.db'" >/dev/null 2>&1
+  adb pull /data/local/tmp/_sg.db "$tmp" >/dev/null 2>&1 || return 1
+  python3 - "$tmp" "$uid" <<'PY' 2>/dev/null
+import sqlite3, sys
+db, uid = sys.argv[1], int(sys.argv[2])
+row = sqlite3.connect(db).execute("select policy from policies where uid=?", (uid,)).fetchone()
+print(row[0] if row else "none")
+PY
+}
+tmp="$(mktemp -d)/magisk.db"; trap 'rm -rf "$(dirname "$tmp")"' EXIT
+
+case "$(read_policy || echo "?")" in
+  2) echo "su-grant: uid $uid is allow (policy 2) - nothing to do"; exit 0 ;;
+  1) echo "su-grant: uid $uid is PROMPT (policy 1) - the app's su fails with nobody to answer" ;;
+  0) echo "su-grant: uid $uid is DENY (policy 0)" ;;
+  none) echo "su-grant: uid $uid has no Magisk grant recorded at all" ;;
+  *) echo "su-grant: could not read /data/adb/magisk.db"; exit 1 ;;
+esac
+
+[ "$CHECK_ONLY" = 1 ] && exit 1
+
+adb shell "su -c 'magisk --sqlite \"update policies set policy=2 where uid=$uid\"'" >/dev/null 2>&1
+# No row at all: insert one (columns are uid,policy,until,logging,notification; 2 = allow, no expiry).
+adb shell "su -c 'magisk --sqlite \"insert or ignore into policies (uid,policy,until,logging,notification) values ($uid,2,0,0,1)\"'" >/dev/null 2>&1
+now="$(read_policy || echo "?")"
+[ "$now" = 2 ] || { echo "su-grant: still $now after the update"; exit 1; }
+echo "su-grant: uid $uid set to allow (policy 2)"
+adb shell "su -c 'rm -f /data/local/tmp/_sg.db'" >/dev/null 2>&1 || true
