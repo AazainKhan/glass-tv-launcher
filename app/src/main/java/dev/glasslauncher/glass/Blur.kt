@@ -31,12 +31,12 @@ object Blur {
         // A colour filter forces Skia's slow per-pixel path (139 ms of a ladder bake on the stick); the native
         // saturation after a plain downscale is the same matrix in a quarter of the time.
         // P263 A/B: `setprop debug.glass.skia 1` forces the Skia path, so one build measures both.
-        val native = saturation != 1f && NativeImage.ok &&
-            !runCatching {
-                val c = Class.forName("android.os.SystemProperties")
-                val m = c.getMethod("get", String::class.java)
-                (m.invoke(null, "debug.glass.skia") as? String) == "1"
-            }.getOrDefault(false)
+        val skia = runCatching {
+            val c = Class.forName("android.os.SystemProperties")
+            val m = c.getMethod("get", String::class.java)
+            (m.invoke(null, "debug.glass.skia") as? String) ?: "<null>"
+        }.getOrElse { "err:$it" }
+        val native = saturation != 1f && NativeImage.ok && skia != "1"
         val t0 = android.os.SystemClock.elapsedRealtimeNanos()
         val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
             if (saturation != 1f && !native) colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(saturation) })
@@ -52,7 +52,7 @@ object Blur {
         }
         blurInPlace(small, radius)
         runCatching {
-            android.util.Log.e("GlassImg", "bake ${width}x${height} native=$native ms=${(android.os.SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000.0}")
+            android.util.Log.e("GlassImg", "bake ${width}x${height} sat=$saturation skia=[$skia] ok=${NativeImage.ok} native=$native ms=${(android.os.SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000.0}")
         }
         return small
     }
