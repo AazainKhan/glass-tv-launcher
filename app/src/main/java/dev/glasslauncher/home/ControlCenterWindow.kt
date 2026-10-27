@@ -113,6 +113,25 @@ class ControlCenterWindow(private val service: AccessibilityService) : Lifecycle
         setContent { Host() }
     }.also { cached = it }
 
+    /**
+     * Takes the parked window off screen entirely (P307).
+     *
+     * Parking shrinks it to 1x1 but the window is still a layer, and with Glass in front Control Center now opens inside
+     * Home's window instead - so a parked window here is a layer nothing draws into. The composition is kept (`cached`),
+     * so re-showing still does not rebuild it; only the window goes.
+     */
+    fun detach() {
+        if (showing || pending) return
+        val v = view ?: return
+        if (!warm) return
+        runCatching { windows.removeView(v) }
+        view = null
+        warm = false
+        exiting = false
+        open = false
+        pillCovered = false
+    }
+
     /** Parks the attached window (1x1, untouchable) instead of removing it. */
     private fun park(v: android.view.View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return

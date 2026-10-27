@@ -197,7 +197,15 @@ class RemoteKeysService : AccessibilityService() {
             RemoteAction.ControlCenter -> {
                 // Always logged (P50: a first press after an install was lost once and never reproduced).
                 Log.i(TAG, "Settings key: Control Center ${if (controlCenter.showing) "close" else "open"} (front=${front ?: "Glass"})")
-                controlCenter.toggle()
+                // With Glass in front, Control Center belongs INSIDE Home's window (P307): the accessibility window is a
+                // second window, and a second window is a third layer once the native renderer draws Home. It is still
+                // the right answer over another app, where Home's window is not on screen to draw into.
+                if (front == null) {
+                    if (controlCenter.showing) controlCenter.hide()
+                    home(MainActivity.ACTION_CONTROL_CENTER)
+                } else {
+                    controlCenter.toggle()
+                }
             }
             RemoteAction.AppSwitcher -> home(MainActivity.ACTION_APP_SWITCHER)
             RemoteAction.TvSettings -> home(MainActivity.ACTION_TV_SETTINGS)
@@ -325,6 +333,9 @@ class RemoteKeysService : AccessibilityService() {
         // Control Center (with its platter) stays up under it (P136).
         val consentDialog = dev.glasslauncher.sonos.ConsentGate.ignores(android.os.SystemClock.uptimeMillis(), isApp)
         if ((pkg != front || glassHome) && !consentDialog) controlCenter.onAppChanged()
+        // Glass in front: Control Center lives in Home's window now, so the parked window is a layer nothing draws into
+        // (P307). Another app in front: it is the only way to show CC, so keep it attached.
+        if (glassHome) controlCenter.detach()
         if (pkg == front) return
         if (!isApp && pkg != packageName) return
         front = pkg.takeIf { isApp }

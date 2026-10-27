@@ -686,10 +686,17 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         up?.let { overlays.remove(it); dismiss(it) }
         if (airPlayCode != null && where == dev.glasslauncher.system.AirPlayCodePlacement.Where.GlassCard) open(Overlay.AirPlayCode(airPlayCode) { airPlayHub.dismissPairing(airPlayCode) })
     }
-    /** Control Center: the overlay window when Remote Buttons (accessibility) is on, else in Glass. */
+    /**
+     * Control Center, always in Home's own window (P307).
+     *
+     * The accessibility-hosted window is a second window, and a second window is a third layer once the native renderer
+     * draws Home - the composition that cancels the renderer's gain. Home is on screen here, so it can draw CC itself;
+     * the window stays for summoning CC over *another* app, where Home's window is not there to draw into.
+     */
     fun openControlCenter() {
-        val window = dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter
-        if (window != null) window.toggle() else open(Overlay.ControlCenter)
+        // A window opened over Home earlier (from another app) has to go, or it sits on top of the in-window copy.
+        dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter?.hide()
+        open(Overlay.ControlCenter)
     }
     fun firstKey(): String? = layout.dock.firstOrNull()?.let { appKey(it.packageName) } ?: layout.grid.firstOrNull()?.key
 
