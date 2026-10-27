@@ -249,6 +249,42 @@ unsafe fn program(frag: &str) -> Prog {
     Prog { id, u }
 }
 
+/// The same fragment shaders, driven by four corners instead of a rect.
+unsafe fn program_quad(frag: &str) -> Prog {
+    let id = glCreateProgram();
+    glAttachShader(id, shader(GL_VERTEX_SHADER, VERT_QUAD));
+    glAttachShader(id, shader(GL_FRAGMENT_SHADER, &format!("{FRAG_HEAD}{frag}")));
+    glLinkProgram(id);
+    let mut ok = 0;
+    glGetProgramiv(id, GL_LINK_STATUS, &mut ok);
+    if ok == 0 {
+        let mut buf = vec![0u8; 2048];
+        let mut n = 0;
+        glGetProgramInfoLog(id, 2048, &mut n, buf.as_mut_ptr() as *mut c_char);
+        log(&format!("quad link error: {}", String::from_utf8_lossy(&buf[..n as usize])));
+    }
+    let mut u = [0; 8];
+    for (k, n) in ["uC0", "uC1", "uScreen", "uA", "uRadius", "uUv"].iter().enumerate() {
+        let c = CString::new(*n).unwrap();
+        u[k] = glGetUniformLocation(id, c.as_ptr());
+    }
+    Prog { id, u }
+}
+
+/// Draws a turned cover from its four corners (TL, TR, BR, BL).
+unsafe fn draw_quad(p: &Prog, c: [[f32; 2]; 4], tex: u32, radius: f32, size: [f32; 2]) {
+    glUseProgram(p.id);
+    glUniform4f(p.u[0], c[0][0], c[0][1], c[1][0], c[1][1]);
+    glUniform4f(p.u[1], c[2][0], c[2][1], c[3][0], c[3][1]);
+    glUniform2f(p.u[2], W, H);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(p.u[3], 0);
+    glUniform1f(p.u[4], radius);
+    glUniform4f(p.u[5], 0.0, 0.0, size[0], size[1]);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 const VERT: &str = "#version 300 es
 uniform highp vec4 uRect; uniform highp vec2 uScreen;
 out highp vec2 vPx; out vec2 vLocal;
@@ -256,6 +292,19 @@ void main() {
   vec2 c = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
   vec2 p = uRect.xy + c * uRect.zw;
   vPx = p; vLocal = c;
+  gl_Position = vec4(p.x / uScreen.x * 2.0 - 1.0, 1.0 - p.y / uScreen.y * 2.0, 0.0, 1.0);
+}";
+
+/// Four explicit corners (TL, TR, BR, BL) instead of an axis-aligned rect: what a turned cover needs. The fragment
+/// side is identical, so any existing program's fragment shader can be paired with it.
+const VERT_QUAD: &str = "#version 300 es
+uniform highp vec4 uC0; uniform highp vec4 uC1; uniform highp vec2 uScreen;
+out highp vec2 vPx; out vec2 vLocal;
+void main() {
+  int i = gl_VertexID;
+  vec2 p = i == 0 ? uC0.xy : (i == 1 ? uC0.zw : (i == 2 ? uC1.zw : uC1.xy));
+  vPx = p;
+  vLocal = vec2(float(i == 1 || i == 2), float(i >= 2));
   gl_Position = vec4(p.x / uScreen.x * 2.0 - 1.0, 1.0 - p.y / uScreen.y * 2.0, 0.0, 1.0);
 }";
 
@@ -306,6 +355,15 @@ const TILE: &str = "void main() {
 }";
 
 /// An atlas cell (premultiplied text), or with uMix > 0 a flat colour (the skew markers).
+/// A cover: the tile's rounded-rect SDF, but built from the interpolated local coords and the size in uUv.zw, because
+/// the quad program has no uRect to read.
+const COVER: &str = "void main() {
+  highp vec2 h = uUv.zw * 0.5; float d = sdRound(vLocal * uUv.zw - h, h, uRadius);
+  float a = clamp(0.5 - d, 0.0, 1.0);
+  if (a <= 0.0) discard;
+  o = texture(uA, vLocal) * a;
+}";
+
 const SPRITE: &str = "void main() {
   o = uMix > 0.0 ? vec4(uUv.rgb, 1.0) : texture(uA, uUv.xy + vLocal * uUv.zw);
 }";
@@ -318,6 +376,8 @@ struct Gl {
     shadow: Prog,
     tile: Prog,
     sprite: Prog,
+    /// Turned covers for the shelf (four-corner vertex shader).
+    cover: Prog,
     tex: [u32; 9],
 }
 
@@ -359,6 +419,38 @@ unsafe fn draw_frame(gl: &Gl, f: &Frame) {
         if slot >= 0 && focus > 0.01 {
             let r = tile_rect(slot as usize, s, f.scroll);
             draw(&gl.shadow, [r[0] - SHADOW, r[1] - SHADOW, r[2] + 2.0 * SHADOW, r[3] + 2.0 * SHADOW], 0, 0, focus, 0.0, TILE_R * s, z);
+        }
+    }
+    // Bit 2: the top shelf. Covers are placed by the ported Cover Flow geometry (shelf::pose), so the motion is the
+    // one Glass already ships; the centre cover is the hero. Drawn before the grid so the grid reads as in front.
+    if flags & 4 != 0 {
+        const COVER_W: f32 = 300.0;
+        const COVER_H: f32 = 169.0;
+        const SHELF_Y: f32 = 250.0;
+        let mut order: Vec<(f32, usize)> = (0..7).map(|i| (i as f32 - 3.0, i)).collect();
+        // Far covers first: pose z is negative with distance, so sort by z ascending.
+        order.sort_by(|a, b| shelf::pose(a.0).z.partial_cmp(&shelf::pose(b.0).z).unwrap());
+        for &(off, i) in &order {
+            let p = shelf::pose(off);
+            if !shelf::visible(off) || p.alpha <= 0.01 {
+                continue;
+            }
+            let w = COVER_W * p.scale;
+            let h = COVER_H * p.scale;
+            let cx = W * 0.5 + p.x * COVER_W;
+            let cy = SHELF_Y;
+            // A turn about the vertical axis: the far edge shrinks towards the centre, giving the trapezoid.
+            let k = (p.rotation_y.to_radians().cos()).abs().max(0.15);
+            let near = if p.rotation_y < 0.0 { 1.0 } else { k };
+            let far = if p.rotation_y < 0.0 { k } else { 1.0 };
+            let (l, r) = (cx - w * 0.5, cx + w * 0.5);
+            let c = [
+                [l + (1.0 - near) * w * 0.5, cy - h * 0.5],
+                [r - (1.0 - near) * w * 0.5, cy - h * 0.5],
+                [r - (1.0 - far) * w * 0.5, cy + h * 0.5],
+                [l + (1.0 - far) * w * 0.5, cy + h * 0.5],
+            ];
+            draw_quad(&gl.cover, c, gl.tex[2 + i % 6], 8.0 * p.scale, [w, h]);
         }
     }
     for slot in 0..SLOTS {
@@ -437,7 +529,7 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
             std::ffi::CStr::from_ptr(glGetString(GL_RENDERER) as *const c_char).to_string_lossy()));
         eglSwapInterval(dpy, 1);
 
-        let gl = Gl { backdrop: program(BACKDROP), glass: program(GLASS), shadow: program(SHADOW_FS), tile: program(TILE), sprite: program(SPRITE), tex: {
+        let gl = Gl { backdrop: program(BACKDROP), glass: program(GLASS), shadow: program(SHADOW_FS), tile: program(TILE), sprite: program(SPRITE), cover: program_quad(COVER), tex: {
             let mut t = [0u32; 9];
             glGenTextures(9, t.as_mut_ptr());
             t

@@ -64,6 +64,7 @@ import kotlin.math.roundToInt
  * `--es mode native`: the Rust renderer in a SurfaceView, Compose drawing the labels in one translucent window above.
  * `--es mode nativelabels`: the labels drawn natively too (a text atlas made by Android's Canvas); Compose draws nothing.
  * `--ez markers true`: skew markers under every grid tile: magenta drawn with the tile, cyan drawn with its label.
+ * `--ez shelf true`: the top shelf, covers placed by the ported Cover Flow geometry (shelf.rs).
  * `--ez etc2 true`: the backdrops' mip chains uploaded as ETC2. Keys: arrows move focus, Center cross-fades.
  */
 class SpikeActivity : ComponentActivity() {
@@ -75,6 +76,7 @@ class SpikeActivity : ComponentActivity() {
         window.setBackgroundDrawable(null)
         val mode = intent.getStringExtra("mode") ?: "compose"
         val markers = intent.getBooleanExtra("markers", false)
+        val shelf = intent.getBooleanExtra("shelf", false)
         val art = Art.make()
         if (mode == "compose") {
             setContent { Home(art, native = false, labels = true, markers = markers) }
@@ -92,7 +94,7 @@ class SpikeActivity : ComponentActivity() {
             override fun surfaceCreated(h: SurfaceHolder) {
                 Native.start(h.surface)
                 Native.partial(intent.getBooleanExtra("partial", true))
-                Native.flags((if (nativeLabels) 1 else 0) or (if (markers) 2 else 0))
+                Native.flags((if (nativeLabels) 1 else 0) or (if (markers) 2 else 0) or (if (shelf) 4 else 0))
                 val etc2 = intent.getBooleanExtra("etc2", false)
                 Thread {
                     art.backdrops.forEachIndexed { slot, mips -> mips.forEachIndexed { level, b -> Native.upload(slot, level, b, etc2) } }
