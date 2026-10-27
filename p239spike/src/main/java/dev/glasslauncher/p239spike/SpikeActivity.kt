@@ -77,7 +77,8 @@ class SpikeActivity : ComponentActivity() {
         val mode = intent.getStringExtra("mode") ?: "compose"
         val markers = intent.getBooleanExtra("markers", false)
         val shelf = intent.getBooleanExtra("shelf", false)
-        val art = Art.make()
+        val longNames = intent.getBooleanExtra("longnames", false)
+        val art = Art.make(longNames)
         if (mode == "compose") {
             setContent { Home(art, native = false, labels = true, markers = markers) }
             return
@@ -250,7 +251,7 @@ class Art(
     val tiles: List<Bitmap>, val tileImages: List<ImageBitmap>, val shadow: ImageBitmap, val labelAtlas: Bitmap,
 ) {
     companion object {
-        fun make(): Art {
+        fun make(longNames: Boolean): Art {
             val scenes = listOf(scene(0xFF0B1026.toInt(), intArrayOf(0xCC3A2E8F.toInt(), 0xB30E7C86.toInt(), 0xA67B2F7F.toInt()), 1), scene(0xFF140A0E.toInt(), intArrayOf(0xCCB4232C.toInt(), 0xB3E07A2F.toInt(), 0x995B1A7A.toInt()), 2))
             // Pre-blurred mip chain: 1920x1080 sharp, then each half size blurred more.
             val mips = scenes.map { s -> generateSequence(s) { prev -> if (prev.width <= 120) null else soften(prev) }.take(5).toList() }
@@ -258,7 +259,7 @@ class Art(
             val clear = mips.map { it[2].copy(Bitmap.Config.HARDWARE, false).asImageBitmap() }
             val tiles = (0 until 6).map { tile(it) }
             return Art(mips, ladder, clear, mips[0][2].width.toFloat(), mips[0][2].height.toFloat(), tiles,
-                tiles.map { it.copy(Bitmap.Config.HARDWARE, false).asImageBitmap() }, shadow().copy(Bitmap.Config.HARDWARE, false).asImageBitmap(), atlas())
+                tiles.map { it.copy(Bitmap.Config.HARDWARE, false).asImageBitmap() }, shadow().copy(Bitmap.Config.HARDWARE, false).asImageBitmap(), atlas(longNames))
         }
 
         private fun scene(base: Int, blobs: IntArray, seed: Int): Bitmap {
@@ -301,15 +302,38 @@ class Art(
         }
 
         /** Every grid label pre-rendered by Android's own text stack into one atlas (200x40 cells, 10 per row). */
-        private fun atlas(): Bitmap {
+        private fun atlas(longNames: Boolean): Bitmap {
             val b = Bitmap.createBitmap(2000, 120, Bitmap.Config.ARGB_8888)
             val c = ACanvas(b)
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AColor.WHITE; textSize = 26f }
-            for (slot in 6 until 30) c.drawText("App ${slot - 5}", (slot % 10) * 200f, (slot / 10) * 40f + 30f, p)
+            // A cell is 200 wide and the label is centred in it. Text that does not fit is ellipsised by the platform
+            // (the same rule Glass's labels use), and a long label gets a second cell with its tail so the marquee can
+            // scroll between them - the spike does not need real shaping to prove the atlas carries it.
+            // `--ez longnames true` gives every label a name too long for its cell, so the ellipsis path is exercised.
+            var widest = 0f
+            val ell = p.measureText("\u2026")
+            for (slot in 6 until 30) {
+                val name = if (longNames) "A very long application name ${slot - 5}" else "App ${slot - 5}"
+                val x = (slot % 10) * 200f
+                val y = (slot / 10) * 40f + 30f
+                val w = p.measureText(name)
+                // 5 px inset each side; the ellipsis needs its own room or it bleeds into the next cell.
+                val budget = 190f - ell
+                if (w > 190f) {
+                    val fit = p.breakText(name, true, budget, null)
+                    val used = p.measureText(name, 0, fit)
+                    c.drawText(name, 0, fit, x + 5f, y, p)
+                    c.drawText("\u2026", x + 5f + used, y, p)
+                    widest = maxOf(widest, used + ell)
+                } else {
+                    c.drawText(name, x + (200f - w) * 0.5f, y, p)
+                    widest = maxOf(widest, w)
+                }
+            }
+            android.util.Log.i("P239", "atlas,cell=200,inset=5,widest=${widest},fits=${widest <= 190f}")
             return b
         }
     }
-
 }
 
 /**
