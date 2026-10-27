@@ -727,7 +727,14 @@ fun ControlCenter(edit: ((LauncherConfig) -> LauncherConfig) -> Unit, cfg: Launc
     val shown = !LocalOverlayExiting.current
     DisposableEffect(shown) {
         if (shown) dev.glasslauncher.system.RemoteNotice.controlCenterOpen = true
-        onDispose { if (shown) dev.glasslauncher.system.RemoteNotice.controlCenterOpen = false }
+        onDispose {
+            if (shown) {
+                dev.glasslauncher.system.RemoteNotice.controlCenterOpen = false
+                // Drawn in Home's window, so the accessibility window is dead weight and a layer (P307). Done here
+                // because closing CC does not reliably produce a WINDOW_STATE_CHANGED to hang it on.
+                dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter?.detach()
+            }
+        }
     }
     // One look in either theme, like the pill and tray: white text and glyphs on clear glass over the
     // dimmed screen (tvOS 27 Control Center isn't themed light or dark).

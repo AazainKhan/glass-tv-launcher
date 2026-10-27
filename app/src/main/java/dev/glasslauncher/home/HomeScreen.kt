@@ -698,6 +698,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter?.hide()
         open(Overlay.ControlCenter)
     }
+    /**
+     * Takes the accessibility window off screen once Control Center is drawn in Home's window (P307).
+     *
+     * Called from the overlay's own dispose as well as on an app change: closing CC does not reliably produce a
+     * WINDOW_STATE_CHANGED, so relying on that alone left the parked window attached (and a layer) after every close.
+     */
+    fun dropControlCenterWindow() {
+        dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter?.detach()
+    }
     fun firstKey(): String? = layout.dock.firstOrNull()?.let { appKey(it.packageName) } ?: layout.grid.firstOrNull()?.key
 
     fun exists(key: String) = key == SETTINGS_TILE_KEY ||
