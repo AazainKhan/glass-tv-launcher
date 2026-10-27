@@ -537,14 +537,14 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
         glViewport(0, 0, W as i32, H as i32);
 
         // The GPU-completion waiter: logs one line per frame (values posted, submit, GPU done, damaged pixels, scroll).
-        let (tx, rx) = mpsc::channel::<(usize, i64, i64, i64, f32)>();
+        let (tx, rx) = mpsc::channel::<(usize, i64, i64, i64, f32, i64)>();
         let dpy_u = dpy as usize;
         let waiter = thread::spawn(move || {
-            for (sync, t0, submit, area, scroll) in rx {
+            for (sync, t0, submit, area, scroll, cpu) in rx {
                 wait_sync(dpy_u as *mut c_void, sync as *mut c_void, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, u64::MAX);
                 let done = now();
                 destroy_sync(dpy_u as *mut c_void, sync as *mut c_void);
-                log(&format!("frame,{t0},{submit},{done},{area},{scroll}"));
+                log(&format!("frame,{t0},{submit},{done},{area},{scroll},{cpu}"));
             }
         });
 
@@ -619,9 +619,12 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
                     ((x1 - x0).max(0.0) * (y1 - y0).max(0.0)) as i64
                 }
             };
+            let cpu0 = now();
             if area > 0 {
                 draw_frame(&gl, &f);
             }
+            // CPU time to build the frame (draw calls issued), separate from the fence wait the `frame` log carries.
+            let cpu = (now() - cpu0) / 1000;
             let sync = create_sync(dpy, EGL_SYNC_FENCE_KHR, std::ptr::null());
             let submit = now();
             match (swap_damage, mine) {
@@ -633,7 +636,7 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
                     eglSwapBuffers(dpy, surf);
                 }
             }
-            let _ = tx.send((sync as usize, f.t0, submit, area, f.scroll));
+            let _ = tx.send((sync as usize, f.t0, submit, area, f.scroll, cpu));
             prev = Some(f);
         }
         drop(tx);
