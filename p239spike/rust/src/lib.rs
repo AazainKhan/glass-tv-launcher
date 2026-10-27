@@ -9,6 +9,8 @@ use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
 
 mod etc2;
+/// Cover Flow geometry, ported from glass-launcher/featured/CoverFlowGeometry.kt (P239, spec D.7).
+mod shelf;
 mod ffi;
 use ffi::*;
 
