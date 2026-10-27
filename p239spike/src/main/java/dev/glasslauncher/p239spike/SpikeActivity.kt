@@ -78,7 +78,8 @@ class SpikeActivity : ComponentActivity() {
         val markers = intent.getBooleanExtra("markers", false)
         val shelf = intent.getBooleanExtra("shelf", false)
         val longNames = intent.getBooleanExtra("longnames", false)
-        val art = Art.make(longNames)
+        val rtl = intent.getBooleanExtra("rtl", false)
+        val art = Art.make(longNames, rtl)
         if (mode == "compose") {
             setContent { Home(art, native = false, labels = true, markers = markers) }
             return
@@ -269,7 +270,7 @@ class Art(
     val tiles: List<Bitmap>, val tileImages: List<ImageBitmap>, val shadow: ImageBitmap, val labelAtlas: Bitmap,
 ) {
     companion object {
-        fun make(longNames: Boolean): Art {
+        fun make(longNames: Boolean, rtl: Boolean): Art {
             val scenes = listOf(scene(0xFF0B1026.toInt(), intArrayOf(0xCC3A2E8F.toInt(), 0xB30E7C86.toInt(), 0xA67B2F7F.toInt()), 1), scene(0xFF140A0E.toInt(), intArrayOf(0xCCB4232C.toInt(), 0xB3E07A2F.toInt(), 0x995B1A7A.toInt()), 2))
             // Pre-blurred mip chain: 1920x1080 sharp, then each half size blurred more.
             val mips = scenes.map { s -> generateSequence(s) { prev -> if (prev.width <= 120) null else soften(prev) }.take(5).toList() }
@@ -277,7 +278,7 @@ class Art(
             val clear = mips.map { it[2].copy(Bitmap.Config.HARDWARE, false).asImageBitmap() }
             val tiles = (0 until 6).map { tile(it) }
             return Art(mips, ladder, clear, mips[0][2].width.toFloat(), mips[0][2].height.toFloat(), tiles,
-                tiles.map { it.copy(Bitmap.Config.HARDWARE, false).asImageBitmap() }, shadow().copy(Bitmap.Config.HARDWARE, false).asImageBitmap(), atlas(longNames))
+                tiles.map { it.copy(Bitmap.Config.HARDWARE, false).asImageBitmap() }, shadow().copy(Bitmap.Config.HARDWARE, false).asImageBitmap(), atlas(longNames, rtl))
         }
 
         private fun scene(base: Int, blobs: IntArray, seed: Int): Bitmap {
@@ -320,7 +321,7 @@ class Art(
         }
 
         /** Every grid label pre-rendered by Android's own text stack into one atlas (200x40 cells, 10 per row). */
-        private fun atlas(longNames: Boolean): Bitmap {
+        private fun atlas(longNames: Boolean, rtl: Boolean): Bitmap {
             val b = Bitmap.createBitmap(2000, 120, Bitmap.Config.ARGB_8888)
             val c = ACanvas(b)
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AColor.WHITE; textSize = 26f }
@@ -331,7 +332,13 @@ class Art(
             var widest = 0f
             val ell = p.measureText("\u2026")
             for (slot in 6 until 30) {
-                val name = if (longNames) "A very long application name ${slot - 5}" else "App ${slot - 5}"
+                // `--ez rtl true` uses Arabic names: the platform shaper and bidi run, so the atlas is exercised with
+                // text that is not Latin. (Glass declares supportsRtl but has no RTL handling of its own.)
+                val name = when {
+                    rtl -> "\u062a\u0637\u0628\u064a\u0642 ${slot - 5}"
+                    longNames -> "A very long application name ${slot - 5}"
+                    else -> "App ${slot - 5}"
+                }
                 val x = (slot % 10) * 200f
                 val y = (slot / 10) * 40f + 30f
                 val w = p.measureText(name)
