@@ -80,6 +80,7 @@ class SpikeActivity : ComponentActivity() {
             setContent { Home(art, native = false, labels = true, markers = markers) }
             return
         }
+        if (mode == "posecheck") poseCheck()
         val nativeLabels = mode == "nativelabels"
         window.setFormat(PixelFormat.TRANSLUCENT)
         val root = FrameLayout(this)
@@ -306,4 +307,29 @@ class Art(
             return b
         }
     }
+
 }
+
+/**
+     * Diffs the ported Rust geometry against the Kotlin original on the real ABI (P239): f32 width, JNI naming and
+     * struct order are all things a host-side test cannot catch.
+     */
+    private fun poseCheck() {
+        var maxDelta = 0f
+        var n = 0
+        var visibleMismatch = 0
+        var off = -6f
+        while (off <= 6f) {
+            val k = dev.glasslauncher.featured.CoverFlowGeometry.pose(off)
+            val want = floatArrayOf(k.x, k.rotationY, k.scale, k.z, k.alpha)
+            for (f in 0..4) {
+                val d = kotlin.math.abs(Native.poseField(off, f) - want[f])
+                if (d > maxDelta) maxDelta = d
+                n++
+            }
+            val kv = if (dev.glasslauncher.featured.CoverFlowGeometry.visible(off)) 1f else 0f
+            if (kv != Native.poseField(off, 5)) visibleMismatch++
+            off += 0.05f
+        }
+        android.util.Log.i("P239", "posecheck,n=$n,maxdelta=$maxDelta,visiblemismatch=$visibleMismatch")
+    }

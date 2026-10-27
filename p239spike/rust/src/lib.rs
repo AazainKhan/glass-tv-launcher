@@ -127,6 +127,33 @@ pub extern "system" fn Java_dev_glasslauncher_p239spike_Native_partial(_: *mut c
     PARTIAL.store(on != 0, std::sync::atomic::Ordering::Relaxed);
 }
 
+
+/// One component of a cover's pose, for a host-side differential against the Kotlin original (P239).
+/// [field]: 0 x, 1 rotation_y, 2 scale, 3 z, 4 alpha, 5 visible (1/0). Returns f32 (visible as 1.0/0.0).
+#[no_mangle]
+pub extern "system" fn Java_dev_glasslauncher_p239spike_Native_poseField(
+    _: *mut c_void,
+    _: *mut c_void,
+    offset: f32,
+    field: i32,
+) -> f32 {
+    let p = shelf::pose(offset);
+    match field {
+        0 => p.x,
+        1 => p.rotation_y,
+        2 => p.scale,
+        3 => p.z,
+        4 => p.alpha,
+        5 => {
+            if shelf::visible(offset) {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => f32::NAN,
+    }
+}
 #[no_mangle]
 pub extern "system" fn Java_dev_glasslauncher_p239spike_Native_flags(_: *mut c_void, _: *mut c_void, f: i32) {
     FLAGS.store(f, std::sync::atomic::Ordering::Relaxed);
