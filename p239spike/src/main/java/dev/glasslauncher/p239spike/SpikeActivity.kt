@@ -101,7 +101,7 @@ class SpikeActivity : ComponentActivity() {
                     art.backdrops.forEachIndexed { slot, mips -> mips.forEachIndexed { level, b -> Native.upload(slot, level, b, etc2) } }
                     art.tiles.forEachIndexed { i, b -> Native.upload(2 + i, 0, b, false) }
                     Native.upload(8, 0, art.labelAtlas, false)
-                    Native.frame(0f, 0f, 0f, 0, 0, 1.224f, -1, 1f)
+                    Native.frame(0f, 0f, 0f, 0, 0, 1.224f, -1, 1f, 0L)
                 }.start()
             }
             override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, hh: Int) {}
@@ -157,14 +157,32 @@ class SpikeActivity : ComponentActivity() {
         // Control: the native layer gets scroll 0 (but still one new frame per scroll step) while Kotlin animates as usual.
         val freeze = intent.getBooleanExtra("freeze", false)
         fun lod() = if (noLod) 0f else 3f * (scroll.value / (GRID_Y - 362f)).coerceIn(0f, 1f)
+        // How long the focused slot has been focused: the marquee's 3 s hold then 15 dp/s run off this.
+        val focusMs = remember { androidx.compose.runtime.mutableStateOf(0L) }
+        val focusedSlot = remember { androidx.compose.runtime.mutableStateOf(-1) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                kotlinx.coroutines.delay(100)
+                focusMs.value += 100
+            }
+        }
         if (native) {
             LaunchedEffect(Unit) {
                 snapshotFlow {
                     val moving = scales.indices.filter { kotlin.math.abs(scales[it].value - 1f) > 0.0005f }.sortedByDescending { kotlin.math.abs(scales[it].value - 1f) }
+                    // Read only: writing state inside snapshotFlow throws (readonly snapshot).
+                    val top = scales.indices.maxByOrNull { scales[it].value } ?: -1
                     floatArrayOf(scroll.value, lod(), fade.value, current.intValue.toFloat(),
                         moving.getOrElse(0) { -1 }.toFloat(), moving.getOrNull(0)?.let { scales[it].value } ?: 1f,
-                        moving.getOrElse(1) { -1 }.toFloat(), moving.getOrNull(1)?.let { scales[it].value } ?: 1f).toList()
-                }.collect { v -> Native.frame(if (freeze) 0f else v[0], v[1], v[2], v[3].toInt(), v[4].toInt(), v[5], v[6].toInt(), v[7] + if (freeze) v[0] * 1e-7f else 0f) }
+                        moving.getOrElse(1) { -1 }.toFloat(), moving.getOrNull(1)?.let { scales[it].value } ?: 1f,
+                        // Read INSIDE the block: snapshotFlow only re-emits on state read here, not in the collect.
+                        focusMs.value.toFloat()).toList()
+                }.collect { v ->
+                    // Reset the marquee hold when the focused slot changes (done here, not in the flow).
+                    val top = v[4].toInt()
+                    if (top != focusedSlot.value) { focusedSlot.value = top; focusMs.value = 0L }
+                    Native.frame(if (freeze) 0f else v[0], v[1], v[2], v[3].toInt(), v[4].toInt(), v[5], v[6].toInt(), v[7] + if (freeze) v[0] * 1e-7f else 0f, v[8].toLong())
+                }
             }
         }
         val px = LocalDensity.current

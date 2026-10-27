@@ -19,5 +19,5 @@ object Native {
     /** Texture [slot] (0, 1: backdrops; 2..7: tile art; 8: label atlas), mip [level]; [etc2] encodes it first. */
     @JvmStatic external fun upload(slot: Int, level: Int, bitmap: Bitmap, etc2: Boolean)
     /** One frame: scroll (px), scroll blur (mip level), cross-fade, current backdrop, and the two animating tiles. */
-    @JvmStatic external fun frame(scroll: Float, lod: Float, mix: Float, flip: Int, a: Int, sa: Float, b: Int, sb: Float)
+    @JvmStatic external fun frame(scroll: Float, lod: Float, mix: Float, flip: Int, a: Int, sa: Float, b: Int, sb: Float, focusMs: Long)
 }

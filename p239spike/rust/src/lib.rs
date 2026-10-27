@@ -55,11 +55,27 @@ struct Frame {
     /// The (up to two) tiles not at scale 1: (slot, scale); slot -1 = none.
     anim: [(i32, f32); 2],
     t0: i64,
+    /// Wall time the focused label has been focused, ms: drives the marquee's 3 s hold then 15 dp/s.
+    focus_ms: i64,
 }
 
 impl Frame {
     fn scale(&self, slot: usize) -> f32 {
         self.anim.iter().find(|a| a.0 == slot as i32).map(|a| a.1).unwrap_or(1.0)
+    }
+
+    /// How far a label has scrolled, in cell widths. Glass's marquee (ui/Marquee.kt): a 3 s hold, then 15 dp/s, and
+    /// only while the control is focused and the text overflows. The spike scrolls every focused label.
+    fn label_scroll(&self, slot: usize) -> f32 {
+        const HOLD_MS: i64 = 3_000;
+        const SPEED_DP_PER_S: f32 = 15.0;
+        let focused = self.anim.iter().any(|a| a.0 == slot as i32 && a.1 > 1.0);
+        if !focused || self.focus_ms <= HOLD_MS {
+            return 0.0;
+        }
+        // 15 dp/s over a 200 dp cell, wrapping with a 48 dp gap.
+        let t = (self.focus_ms - HOLD_MS) as f32 / 1000.0;
+        ((t * SPEED_DP_PER_S) % (CELL[0] + 48.0)) / CELL[0]
     }
 }
 
@@ -197,9 +213,10 @@ pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_upload(env
 #[no_mangle]
 pub unsafe extern "system" fn Java_dev_glasslauncher_p239spike_Native_frame(
     _: *mut c_void, _: *mut c_void, scroll: f32, lod: f32, mix: f32, flip: i32, a: i32, sa: f32, b: i32, sb: f32,
+    focus_ms: i64,
 ) {
     if let Some(r) = RENDERER.lock().unwrap().as_ref() {
-        r.shared.0.lock().unwrap().frame = Some(Frame { scroll, lod, mix, flip, anim: [(a, sa), (b, sb)], t0: now() });
+        r.shared.0.lock().unwrap().frame = Some(Frame { scroll, lod, mix, flip, anim: [(a, sa), (b, sb)], t0: now(), focus_ms });
         r.shared.1.notify_all();
     }
 }
@@ -364,6 +381,17 @@ const COVER: &str = "void main() {
   o = texture(uA, vLocal) * a;
 }";
 
+/// A label cell: the text is clipped to the cell and scrolled by uUv.x (cell widths), with a soft right edge so a
+/// scrolling label fades out instead of being cut. Matches Glass's marquee (ui/Marquee.kt): clip, not ellipsis, and a
+/// 12 dp edge fade, only while the label is scrolling.
+const LABEL: &str = "void main() {
+  float x = vLocal.x + uUv.x;
+  if (x > 1.0) discard;
+  vec4 t = texture(uA, vec2(uUv.y + x * uUv.z, uUv.w));
+  float fade = clamp((1.0 - vLocal.x) / 0.06, 0.0, 1.0);
+  o = t * mix(fade, 1.0, step(uUv.x, 0.0001));
+}";
+
 const SPRITE: &str = "void main() {
   o = uMix > 0.0 ? vec4(uUv.rgb, 1.0) : texture(uA, uUv.xy + vLocal * uUv.zw);
 }";
@@ -378,6 +406,8 @@ struct Gl {
     sprite: Prog,
     /// Turned covers for the shelf (four-corner vertex shader).
     cover: Prog,
+    /// Scrolling labels (marquee).
+    label: Prog,
     tex: [u32; 9],
 }
 
@@ -467,7 +497,13 @@ unsafe fn draw_frame(gl: &Gl, f: &Frame) {
         }
         if flags & 1 != 0 {
             let (cx, cy) = ((slot % 10) as f32 * CELL[0] / 2000.0, (slot / 10) as f32 * CELL[1] / 120.0);
-            draw(&gl.sprite, l, gl.tex[8], 0, 0.0, 0.0, 0.0, [cx, cy, CELL[0] / 2000.0, CELL[1] / 120.0]);
+            // A focused, overflowing label scrolls (marquee); otherwise the cell is drawn still.
+            let scroll = f.label_scroll(slot);
+            if scroll > 0.0 {
+                draw(&gl.label, l, gl.tex[8], 0, 0.0, 0.0, 0.0, [scroll, cx, CELL[0] / 2000.0, cy]);
+            } else {
+                draw(&gl.sprite, l, gl.tex[8], 0, 0.0, 0.0, 0.0, [cx, cy, CELL[0] / 2000.0, CELL[1] / 120.0]);
+            }
         }
         if flags & 2 != 0 {
             // Skew markers: magenta from the tile's frame; cyan where its label is (native labels only; else Compose draws it).
@@ -494,6 +530,15 @@ fn damage(prev: &Option<Frame>, f: &Frame) -> Option<[f32; 4]> {
                 let e = [r[0] - SHADOW, r[1] - SHADOW, r[0] + r[2] + SHADOW, r[1] + r[3] + SHADOW];
                 d = Some(match d { None => e, Some(o) => [o[0].min(e[0]), o[1].min(e[1]), o[2].max(e[2]), o[3].max(e[3])] });
             }
+        }
+    }
+    // A marquee scrolls without any tile moving, and focus_ms is not itself drawn - without this the label is never
+    // repainted and the marquee looks frozen while everything else is correct.
+    for slot in 6..SLOTS {
+        if p.label_scroll(slot) != f.label_scroll(slot) {
+            let r = label_rect(slot, f.scroll);
+            let e = [r[0], r[1], r[0] + r[2], r[1] + r[3]];
+            d = Some(match d { None => e, Some(o) => [o[0].min(e[0]), o[1].min(e[1]), o[2].max(e[2]), o[3].max(e[3])] });
         }
     }
     Some(d.unwrap_or([0.0; 4]))
@@ -529,7 +574,7 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
             std::ffi::CStr::from_ptr(glGetString(GL_RENDERER) as *const c_char).to_string_lossy()));
         eglSwapInterval(dpy, 1);
 
-        let gl = Gl { backdrop: program(BACKDROP), glass: program(GLASS), shadow: program(SHADOW_FS), tile: program(TILE), sprite: program(SPRITE), cover: program_quad(COVER), tex: {
+        let gl = Gl { backdrop: program(BACKDROP), glass: program(GLASS), shadow: program(SHADOW_FS), tile: program(TILE), sprite: program(SPRITE), cover: program_quad(COVER), label: program(LABEL), tex: {
             let mut t = [0u32; 9];
             glGenTextures(9, t.as_mut_ptr());
             t
@@ -537,14 +582,14 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
         glViewport(0, 0, W as i32, H as i32);
 
         // The GPU-completion waiter: logs one line per frame (values posted, submit, GPU done, damaged pixels, scroll).
-        let (tx, rx) = mpsc::channel::<(usize, i64, i64, i64, f32, i64)>();
+        let (tx, rx) = mpsc::channel::<(usize, i64, i64, i64, f32, i64, i64)>();
         let dpy_u = dpy as usize;
         let waiter = thread::spawn(move || {
-            for (sync, t0, submit, area, scroll, cpu) in rx {
+            for (sync, t0, submit, area, scroll, cpu, fms) in rx {
                 wait_sync(dpy_u as *mut c_void, sync as *mut c_void, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, u64::MAX);
                 let done = now();
                 destroy_sync(dpy_u as *mut c_void, sync as *mut c_void);
-                log(&format!("frame,{t0},{submit},{done},{area},{scroll},{cpu}"));
+                log(&format!("frame,{t0},{submit},{done},{area},{scroll},{cpu},{fms}"));
             }
         });
 
@@ -636,7 +681,7 @@ fn render_thread(window: *mut c_void, shared: Arc<(Mutex<Shared>, Condvar)>) {
                     eglSwapBuffers(dpy, surf);
                 }
             }
-            let _ = tx.send((sync as usize, f.t0, submit, area, f.scroll, cpu));
+            let _ = tx.send((sync as usize, f.t0, submit, area, f.scroll, cpu, f.focus_ms));
             prev = Some(f);
         }
         drop(tx);
