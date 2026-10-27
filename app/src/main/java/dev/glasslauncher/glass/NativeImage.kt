@@ -10,8 +10,9 @@ import android.graphics.Bitmap
  */
 internal object NativeImage {
     val ok: Boolean = runCatching { System.loadLibrary("glassimg") }
-        // Fire OS drops Log.d from apps; a missing library on a device is worth one line.
-        .onFailure { runCatching { android.util.Log.i("Glass", "native image kernels unavailable: $it") } }
+        // Fire OS drops Log.d from apps; a missing library on a device is worth one line. (Log.e: Log.i is dropped too.)
+        .onFailure { runCatching { android.util.Log.e("GlassImg", "load failed: $it") } }
+        .also { runCatching { android.util.Log.e("GlassImg", "ok=$it") } }
         .isSuccess
 
     /** Android's ColorMatrix.setSaturation, in place. */
