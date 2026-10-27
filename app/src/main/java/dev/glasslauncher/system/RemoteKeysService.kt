@@ -31,8 +31,15 @@ class RemoteKeysService : AccessibilityService() {
                 android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
         Log.i(TAG, "connected, flags=${serviceInfo.flags} caps=${serviceInfo.capabilities}")
-        // On by default (files/cc-cold turns it off): Control Center's window is attached parked so the first open is a resize.
+        // Control Center is drawn in Home's window whenever Home is in front (P307), so the parked accessibility window
+        // is a DEVICE layer for nothing. warmUp() still runs for the over-another-app case, then it is dropped again
+        // once Home is confirmed in front - otherwise every service (re)connect re-attached it and the layer came back.
         runCatching { controlCenter.warmUp() }
+        runCatching {
+            // front is only known from window-state events, so read the active window instead of trusting it here.
+            val active = rootInActiveWindow?.packageName?.toString()
+            if (active == null || active == packageName) controlCenter.detach()
+        }
     }
 
     // ── Notices (P229): one glass card at the top left, over any app (an accessibility overlay: never takes focus or touches) ─────────────
