@@ -1721,11 +1721,14 @@ private fun HomeList(
                 }
             }
             // Called here directly, never through TrayHost.content: reading the state this item writes would recompose it forever.
-            if (TrayHost.inMain) tray()
+            // Movable (P310): moving between Home's view and the tray's own keeps the composition instead of recomposing every tile.
+            val trayLatest = androidx.compose.runtime.rememberUpdatedState(tray)
+            val trayMovable = remember { androidx.compose.runtime.movableContentOf { trayLatest.value() } }
+            if (TrayHost.inMain) trayMovable()
             else Box(Modifier.fillMaxWidth().height(with(d) { TrayHost.h.toDp() }).onGloballyPositioned { TrayHost.y = it.positionInWindow().y })
             androidx.compose.runtime.SideEffect {
                 TrayHost.slotCompositions++
-                TrayHost.content = tray
+                TrayHost.content = trayMovable
                 // Down from the tray: the grid's first row, same column (the views don't search each other).
                 TrayHost.down = { rows.firstOrNull()?.let { r -> runCatching { requester(cellKey(r[TrayHost.col.coerceIn(0, r.lastIndex)])).requestFocus() }.isSuccess } ?: false }
             }
@@ -1785,10 +1788,12 @@ private fun HomeList(
                 repeat(m.columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         } } } }
-            if (TrayHost.inMain) grid()
+            val gridLatest = androidx.compose.runtime.rememberUpdatedState(grid)
+            val gridMovable = remember { androidx.compose.runtime.movableContentOf { gridLatest.value() } }
+            if (TrayHost.inMain) gridMovable()
             else Box(Modifier.fillMaxWidth().height(with(d) { GridHost.h.toDp() }).onGloballyPositioned { GridHost.y = it.positionInWindow().y })
             androidx.compose.runtime.SideEffect {
-                GridHost.content = grid
+                GridHost.content = gridMovable
                 // Down from the last row: the add-on rows in Home's view when there are any, else focus stays (Home's view has nothing below).
                 GridHost.down = { dev.glasslauncher.addons.AddonSurfaces.homeRows.isEmpty() }
                 // Up from the grid's first row: the tray, same column (the views don't search each other).
