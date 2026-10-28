@@ -38,6 +38,8 @@ import dev.glasslauncher.system.RemoteButtons
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.captureToImage
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -50,9 +52,12 @@ class DevicePageTest {
     private var cfg by mutableStateOf(LauncherConfig())
     private val opened = mutableListOf<String>()
 
-    private fun show(kind: PageKind, name: String, light: Boolean = false) {
+    private fun show(kind: PageKind, name: String, light: Boolean = false, rtl: Boolean = false) {
         compose.setContent {
-            androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.ui.LocalPalette provides dev.glasslauncher.ui.Palette(light = light)) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                dev.glasslauncher.ui.LocalPalette provides dev.glasslauncher.ui.Palette(light = light),
+                androidx.compose.ui.platform.LocalLayoutDirection provides if (rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr,
+            ) {
                 Box(Modifier.fillMaxSize().background(if (light) Color(0xFFE6E9F0) else Color(0xFF181A20))) {
                     DevicePage(kind, name, cfg, { edit -> cfg = edit(cfg) }, active = true, openApp = { opened += it })
                 }
@@ -137,6 +142,27 @@ class DevicePageTest {
         assertEquals("another controller is untouched", 0.12f, cfg.sticksOf("Pad B").left.deadzoneX, 0.001f)
         press("stick-reset")
         assertEquals(0.12f, cfg.sticksOf("Pad A").left.deadzoneX, 0.001f)
+    }
+
+    /** P308: the bar fills from its start, which is the right edge in a right-to-left layout, so Left raises the value and Right lowers it. */
+    @Test fun theStickSlidersFollowTheirMirroredBarInARightToLeftLayout() {
+        show(PageKind.Gamepad, "Pad A", rtl = true)
+        press("callout:stick:left")
+        compose.onNodeWithTag("stick-slider:x").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onRoot().performKeyInput { pressKey(Key.DirectionLeft); pressKey(Key.DirectionLeft) }
+        compose.waitForIdle()
+        assertEquals(0.14f, cfg.sticksOf("Pad A").left.deadzoneX, 0.001f)
+        compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
+        compose.waitForIdle()
+        assertEquals(0.13f, cfg.sticksOf("Pad A").left.deadzoneX, 0.001f)
+    }
+
+    /** P308: the pad is a physical object, so its diagram and callouts do not mirror: the left stick's callout stays on the pad's left. */
+    @Test fun theControllerDiagramKeepsItsSidesInARightToLeftLayout() {
+        show(PageKind.Gamepad, xbox, rtl = true)
+        val pad = bounds("pad-outline")
+        assertTrue("the left stick's callout is left of the pad", bounds("callout:stick:left").center.x < pad.center.x)
+        assertTrue("the right stick's callout is right of the pad", bounds("callout:stick:right").center.x > pad.center.x)
     }
 
     @Test fun theRightSticksSensitivityHasItsOwnValues() {

@@ -519,6 +519,7 @@ private fun FolderView(
         if (rearranging != null && folder.apps.none { appKey(it.packageName) == rearranging }) stopRearranging()
     }
     val swallowSelect = remember { booleanArrayOf(false) }
+    val rtl = dev.glasslauncher.ui.isRtl()
     val glide = remember { GlideTracker() }
     remember(folder.apps) { if (rearranging != null) glide.generation++; glide.generation }
     // Provided only while rearranging (and for the tail of the last glide), as on Home.
@@ -557,8 +558,7 @@ private fun FolderView(
                         val pkg = key.removePrefix("app:")
                         val columns = FolderGeometry.COLUMNS
                         when (e.keyCode) {
-                            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> model.moveInFolder(folderId, pkg, -1, 0, columns)
-                            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.moveInFolder(folderId, pkg, 1, 0, columns)
+                            AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.moveInFolder(folderId, pkg, dev.glasslauncher.ui.horizontalStep(e.keyCode, rtl), 0, columns)
                             AndroidKeyEvent.KEYCODE_DPAD_UP -> model.moveInFolder(folderId, pkg, 0, -1, columns)
                             AndroidKeyEvent.KEYCODE_DPAD_DOWN -> model.moveInFolder(folderId, pkg, 0, 1, columns)
                             else -> if (select) { swallowSelect[0] = true; stopRearranging() }

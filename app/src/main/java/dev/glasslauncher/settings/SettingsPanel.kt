@@ -1407,6 +1407,7 @@ private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: M
     // The size's name above the slider (tvOS 27).
     Text(TEXT_SIZES[index].second, style = Type.heading, color = palette.primary, modifier = Modifier.padding(start = 18.dp, bottom = 6.dp).testTag("text-size-name"))
     var focused by remember { mutableStateOf(false) }
+    val rtl = dev.glasslauncher.ui.isRtl()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -1419,8 +1420,7 @@ private fun ColumnScope.TextSizePage(model: HomeModel, cfg: LauncherConfig, f: M
                 val k = e.nativeKeyEvent
                 if (k.action != android.view.KeyEvent.ACTION_DOWN) return@onKeyEvent false
                 when (k.keyCode) {
-                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { set(index - 1); true }
-                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { set(index + 1); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { set(index + dev.glasslauncher.ui.horizontalStep(k.keyCode, rtl)); true }
                     else -> false
                 }
             }

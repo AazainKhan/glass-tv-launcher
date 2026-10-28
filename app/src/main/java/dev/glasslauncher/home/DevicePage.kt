@@ -233,6 +233,9 @@ internal fun DevicePage(
         }
         val heldIds = slots.filter { s -> EditorSlots.litName(s).let { n -> n in pad.pressed || n in lit } }.map { it.id }.toSet()
         val mappedIds = slots.filter { !it.isStick && isMapped(kind, name, it, cfg) }.map { it.id }.toSet()
+        // The pad or remote is a physical object: its left stick stays on its left in a right-to-left layout, so the diagram and its
+        // callouts (placed by absolute offsets) keep left-to-right (P308).
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(top = if (tall) 0.dp else 40.dp, bottom = if (tall) 36.dp else 84.dp).graphicsLayer { alpha = if (open) 1f else 0.3f }) {
             val ow = OutlineGeometry.size(style)
             val lay = OutlineLayout.compute(style, maxWidth.value, maxHeight.value)
@@ -256,6 +259,7 @@ internal fun DevicePage(
                     onFocus = { focusedId = slot.id; EditorMemory.slot = slot.id }, onClick = { sheet = slot },
                 )
             }
+        }
         }
         if (name.isNotEmpty()) {
             // Above Settings' 36 dp bottom fade, or the bar reads as disabled.
@@ -490,6 +494,7 @@ private fun ProfileBar(kind: ProfileKind, device: String, cfg: LauncherConfig, e
 @Composable
 private fun StickSlider(label: String, value: Float, lo: Float, hi: Float, modifier: Modifier, onNudge: (Int) -> Unit) {
     val ink = LocalPalette.current.primary
+    val rtl = dev.glasslauncher.ui.isRtl()
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier.fillMaxWidth().height(32.dp)
@@ -498,8 +503,7 @@ private fun StickSlider(label: String, value: Float, lo: Float, hi: Float, modif
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key.nativeKeyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> { onNudge(-1); true }
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> { onNudge(1); true }
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> { onNudge(dev.glasslauncher.ui.horizontalStep(e.key.nativeKeyCode, rtl)); true }
                     else -> false
                 }
             }

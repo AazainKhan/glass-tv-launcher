@@ -779,6 +779,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
     val clock = rememberClock(cfg.clock24h, running = active)
     val headerStyle = Type.caption
     val sz = remember(cfg.textScale) { CcSizes(cfg.textScale) }
+    val rtl = dev.glasslauncher.ui.isRtl()
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     // The layout (P83): the stored one, or while edit mode is on the draft being changed (saved when it ends).
     // The Alexa page is only there where the Alexa app is (P155): a saved layout keeps it, but it is not drawn without the app.
@@ -1346,7 +1347,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                         val down = k.action == android.view.KeyEvent.ACTION_DOWN
                         if (lifted != null) when (k.keyCode) {
                             android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                val dx = if (k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1
+                                val dx = dev.glasslauncher.ui.horizontalStep(k.keyCode, rtl)
                                 if (down) {
                                     val h = hoverPage
                                     if (h != null) {
@@ -2399,11 +2400,12 @@ private fun CcVolumeRow(sz: CcSizes, speaker: dev.glasslauncher.data.AudioOutput
     androidx.compose.runtime.DisposableEffect(sender) { onDispose { sender.close() } }
     LaunchedEffect(speaker.host) { runCatching { dev.glasslauncher.sonos.AudioOutputs.volumeReader(speaker.host) }.onSuccess { model.load(it) } }
     val level = model.volume
+    val rtl = dev.glasslauncher.ui.isRtl()
     CcTile("Volume", level?.let { "$it%" }, Shapes.pill, sz.column, sz.volumeRow, onClick = {}, onPlay = null,
         modifier = Modifier.testTag("cc-audio-volume").onPreviewKeyEvent { e ->
             val k = e.nativeKeyEvent.keyCode
             if (k != android.view.KeyEvent.KEYCODE_DPAD_LEFT && k != android.view.KeyEvent.KEYCODE_DPAD_RIGHT) return@onPreviewKeyEvent false
-            if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) model.nudge(if (k == android.view.KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+            if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) model.nudge(dev.glasslauncher.ui.horizontalStep(k, rtl))
             true
         }) { fg ->
         val shown by androidx.compose.animation.core.animateFloatAsState((level ?: 0) / 100f, if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(120), label = "volume")

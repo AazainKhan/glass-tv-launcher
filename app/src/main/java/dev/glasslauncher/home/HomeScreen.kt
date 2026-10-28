@@ -1084,6 +1084,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
 
     val scaledDensity = Density(density.density, density.fontScale * cfg.textScale)
+    val rtl = dev.glasslauncher.ui.isRtl()
     // Home's keys (P248): the tray's own view sends its keys here first, so both views behave as one.
     val rootKeys: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = rootKeys@{ ev ->
                     val e = ev.nativeKeyEvent
@@ -1098,7 +1099,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     if (overlays.isNotEmpty()) { backDownOnHome = false; return@rootKeys false }
                     val key = moving
                     if (key != null) {
-                        if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, model, metrics.columns) { moving = null }
+                        if (e.action == AndroidKeyEvent.ACTION_DOWN) handleMoveKey(e.keyCode, key, model, metrics.columns, rtl) { moving = null }
                         return@rootKeys true
                     }
                     // Compose treats Back as "leave the focus group" first, so from the grid the first press
@@ -1494,15 +1495,15 @@ internal fun homeLoadedForFocus(layout: HomeLayout) = layout.loaded && (layout.d
 /** How often the focus watchdog looks (P190). */
 private const val FOCUS_WATCH_MS = 500L
 
-private fun handleMoveKey(keyCode: Int, key: String, model: HomeModel, columns: Int, done: () -> Unit) {
+private fun handleMoveKey(keyCode: Int, key: String, model: HomeModel, columns: Int, rtl: Boolean, done: () -> Unit) {
     // Built from the working copy on every press: the composed layout trails a fast D-pad repeat by a frame or more.
     val layout = model.currentLayout()
     val pkg = key.removePrefix("app:")
     val inDock = key.startsWith("app:") && layout.dock.any { it.packageName == pkg }
     val gridIndex = layout.grid.indexOfFirst { it.key == key }
     when (keyCode) {
-        AndroidKeyEvent.KEYCODE_DPAD_LEFT -> model.move(key, -1)
-        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.move(key, 1)
+        // The dock and grid mirror in a right-to-left layout, so Left is the next place there (P308).
+        AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> model.move(key, dev.glasslauncher.ui.horizontalStep(keyCode, rtl))
         AndroidKeyEvent.KEYCODE_DPAD_UP -> when {
             inDock -> Unit
             gridIndex in 0 until columns && key.startsWith("app:") -> model.moveIntoDock(pkg, gridIndex)
