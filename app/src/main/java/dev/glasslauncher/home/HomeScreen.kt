@@ -644,6 +644,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     // Overlays on their way out (exit animation), drawn above the rest until it finishes.
     val exiting = remember { mutableStateListOf<Overlay>() }
+    var dismissGen by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // Settings (opened out of its tile) is gone: its window comes back full screen and shrinks into the tile (P105 #7).
     val settingsUp = overlays.any { it === Overlay.Settings }
     LaunchedEffect(settingsUp) {
@@ -656,9 +657,12 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     }
     fun dismiss(overlay: Overlay) {
         exiting.add(overlay)
+        val gen = ++dismissGen
         scope.launch {
             // Control Center plays its bubble collapse; the others a short fade.
             delay(if (overlay == Overlay.ControlCenter) CcMorph.CLOSE_MS + 40L else Motion.OVERLAY_MS + 40L)
+            // A close that was reversed and closed again is a newer one: it removes its own entry, not this older timer.
+            if (gen != dismissGen && overlay === Overlay.ControlCenter) return@launch
             exiting.remove(overlay)
             // Nothing open any more: let go of the screen captures (two full-screen images were held
             // after Control Center closed: perf-gate PSS 131 MB, over budget).
@@ -697,6 +701,19 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
         // A window opened over Home earlier (from another app) has to go, or it sits on top of the in-window copy.
         dev.glasslauncher.system.RemoteKeysService.instance?.controlCenter?.hide()
         open(Overlay.ControlCenter)
+    }
+    /**
+     * The Control Center key: one instance, reversed mid-motion, never stacked. Open → close it; closing → the same
+     * panel turns back open (no new capture: the screen then holds the closing panel, and each press baked one more copy
+     * of it into the background); otherwise it opens.
+     */
+    fun toggleControlCenter() {
+        when {
+            overlays.lastOrNull() === Overlay.ControlCenter -> { overlays.removeAt(overlays.lastIndex); dismiss(Overlay.ControlCenter) }
+            Overlay.ControlCenter in exiting && overlays.isEmpty() -> { exiting.remove(Overlay.ControlCenter); overlays.add(Overlay.ControlCenter) }
+            Overlay.ControlCenter in overlays || Overlay.ControlCenter in exiting -> Unit
+            else -> { closeAll(); openControlCenter() }
+        }
     }
     /**
      * Takes the accessibility window off screen once Control Center is drawn in Home's window (P307).
@@ -1004,7 +1021,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     scope.launch { runCatching { scrollToTop() }; focusKey(firstKey()) }
                 }
                 // From remote buttons: pressing the same button again closes it.
-                HomeRequest.ControlCenter -> { closeAll(); openControlCenter() }
+                HomeRequest.ControlCenter -> toggleControlCenter()
                 HomeRequest.AppSwitcher, HomeRequest.TvSettings, HomeRequest.Settings, HomeRequest.Remotes, HomeRequest.Downloads -> {
                     val target = when (request) {
                         HomeRequest.AppSwitcher -> Overlay.AppSwitcher
@@ -1113,7 +1130,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
                     }
                     if (e.action != AndroidKeyEvent.ACTION_DOWN) return@rootKeys false
                     when {
-                        e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { openControlCenter(); true }
+                        e.keyCode == AndroidKeyEvent.KEYCODE_SETTINGS -> { toggleControlCenter(); true }
                         // The info card keeps Up and Down until Back (P231): Home's "Down leaves full screen" below must not see them.
                         dev.glasslauncher.featured.InfoCardOpen.open && (e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN || e.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) -> false
                         // Up from the grid's first row goes back to the tray app focus left from (the tray is its own view, P248).
