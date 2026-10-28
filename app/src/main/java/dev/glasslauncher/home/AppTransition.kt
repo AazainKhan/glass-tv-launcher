@@ -436,10 +436,11 @@ class AppTransition(
         const val OPEN_START = 0.12f
         const val FILL_MS = 110
         /** startActivity this far into the zoom; the app's first window fades in over the rest. */
-        // As the zoom lands (~97% at 420 ms): an app started earlier took the CPU from the zoom's last frames on the
-        // stick (100-270 ms gaps, then a jump to full screen, P149); a stall now holds a full-screen window, which
-        // doesn't show. tvOS fades the app in over the full-size window too.
-        const val HANDOFF_MS = 420L
+        // Early, so the app starts while the zoom plays (P310, the user's pick): its first frame ~330 ms after the key
+        // instead of ~590. P149 once saw 100-270 ms gaps from an early start; on 2026-10-27 (10 warm launches each) the
+        // worst zoom frame was 13-44 ms at 150 vs 13-38 ms at 420, so that stall no longer reproduces. The app fades in
+        // over the zoom's last ~100 ms, while the window is ~90% of full size.
+        const val HANDOFF_MS = 150L
         /** A page zooms to full screen in this long, then holds this long under the window while it draws. */
         const val PAGE_OPEN_MS = 260
         const val PAGE_HOLD_MS = 60L
