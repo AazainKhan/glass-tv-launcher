@@ -407,7 +407,6 @@ class AppTransition(
             // Home starts sharpening as the tile settles, so there's no blurred pause after landing; the
             // window (exactly the real tile by then) goes once Home is clear.
             launch { settle.animateTo(0f, tween(LAND_MS, easing = FastOutSlowInEasing)) }
-            delay(LAND_MS / 2L)
             coverAlpha.animateTo(0f, tween(UNBLUR_MS, easing = FastOutSlowInEasing))
             } finally {
                 // Also when cancelled part-way: a close left behind covered Home with the launch window
@@ -448,11 +447,11 @@ class AppTransition(
         const val PAGE_REVEAL_MS = 120
         const val PAGE_CLOSE_FADE_MS = 100
         const val PAGE_CLOSE_HOLD_MS = 120L
-        const val CLOSE_MS = 300
+        const val CLOSE_MS = 240
         /** The close advances at most this much per frame, so a stalled frame slows it instead of skipping it. */
         const val MAX_STEP_MS = 20f
         const val CLOSE_FADE_MS = 110
-        const val LAND_MS = 125
+        const val LAND_MS = 90
         const val UNBLUR_MS = 120
         /** Home stopping later than this after a launch isn't that launch. */
         const val STALE_LAUNCH_MS = 6_000L
