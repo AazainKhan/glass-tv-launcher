@@ -125,7 +125,7 @@ class OverlayShots(val frosted: ImageBitmap?, val soft: ImageBitmap?, val sharp:
  * PixelCopy reads the window's last frame on the compositor's side, asynchronously: GraphicsLayer.toImageBitmap
  * re-rendered Home on the main thread (50-90 ms), which made every overlay open stall (folders: 80% janky).
  */
-suspend fun captureOverlay(view: android.view.View, light: Boolean, keepSharp: Boolean = false): OverlayShots = runCatching {
+suspend fun captureOverlay(view: android.view.View, light: Boolean, keepSharp: Boolean = false, onSharp: ((ImageBitmap) -> Unit)? = null): OverlayShots = runCatching {
     val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
         .filterIsInstance<android.app.Activity>().first().window
     val w = if (keepSharp) view.width else WallpaperLoader.CLEAR_W
@@ -137,12 +137,17 @@ suspend fun captureOverlay(view: android.view.View, light: Boolean, keepSharp: B
         }.onFailure { cont.resumeWith(Result.success(false)) }
     }
     if (!ok) { shot.recycle(); return@runCatching OverlayShots(null, null) }
+    // P316: [onSharp] gets the sharp capture as soon as it is uploaded, so an overlay that only needs it (Control Center)
+    // starts opening ~50 ms sooner; the two blurs follow, for whatever stacks on it.
+    val early = if (keepSharp && onSharp != null && shot.getPixel(shot.width / 2, shot.height / 2) ushr 24 != 0)
+        withContext(Dispatchers.Default) { (shot.copy(android.graphics.Bitmap.Config.HARDWARE, false) ?: shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false)).asImageBitmap() }
+            .also(onSharp) else null
     withContext(Dispatchers.Default) {
         // The dock's clear blur (480×270, small radius): the screen stays recognisable, just out of focus.
         val soft = Blur.backdrop(shot, WallpaperLoader.CLEAR_W, WallpaperLoader.CLEAR_H, radius = 3, saturation = 1.15f)
         val softGpu = if (soft.getPixel(soft.width / 2, soft.height / 2) ushr 24 == 0) null
             else (soft.copy(android.graphics.Bitmap.Config.HARDWARE, false)?.also { soft.recycle() } ?: soft).asImageBitmap()
-        val sharp = if (keepSharp && softGpu != null) (shot.copy(android.graphics.Bitmap.Config.HARDWARE, false) ?: shot).asImageBitmap() else null
+        val sharp = early ?: if (keepSharp && softGpu != null) (shot.copy(android.graphics.Bitmap.Config.HARDWARE, false) ?: shot).asImageBitmap() else null
         val frosted = blurFrosted(if (sharp != null) shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false).also { shot.recycle() } else shot, light)
         OverlayShots(frosted, softGpu, sharp)
     }

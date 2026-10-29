@@ -636,10 +636,15 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     fun open(overlay: Overlay) {
         scope.launch {
             // The app switcher draws Home's baked blur instead; capturing the screen was most of its open cost.
-            if (overlays.isEmpty() && overlay != Overlay.AppSwitcher) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay is Overlay.FolderOpen).let {
-                backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft; backdrop.overlaySharp = it.sharp
+            // Control Center draws only the sharp capture: it opens on that, and the blurs land while it grows (P316).
+            var added = false
+            val early: ((androidx.compose.ui.graphics.ImageBitmap) -> Unit)? = if (overlay == Overlay.ControlCenter) { sharp -> backdrop.overlaySharp = sharp; overlays.add(overlay); added = true } else null
+            if (overlays.isEmpty() && overlay != Overlay.AppSwitcher) captureOverlay(view, backdrop.light, keepSharp = overlay == Overlay.ControlCenter || overlay is Overlay.FolderOpen, onSharp = early).let {
+                // Closed before its blurs came in: don't hold them (the close already let go of the captures).
+                if (!added || overlay in overlays) { backdrop.overlay = it.frosted; backdrop.overlaySoft = it.soft }
+                if (!added) backdrop.overlaySharp = it.sharp
             }
-            overlays.add(overlay)
+            if (!added) overlays.add(overlay)
         }
     }
     // Overlays on their way out (exit animation), drawn above the rest until it finishes.

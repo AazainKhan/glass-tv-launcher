@@ -1,7 +1,6 @@
 package dev.glasslauncher.home
 
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.heightIn
@@ -488,6 +487,9 @@ internal object CcMaterial {
 @androidx.compose.runtime.Stable
 internal class CcSheet(val baked: GlassMatch.PanelSheet?, val root: androidx.compose.ui.unit.IntSize, val light: Boolean = false) {
     val bitmap: android.graphics.Bitmap? get() = baked?.bitmap
+    /** P316: the same material as [o] (each open wraps the one backdrop bitmap anew), so tiles keep what they baked from it. */
+    fun sameAs(o: CcSheet?): Boolean = o != null && (o === this || (o.root == root && o.light == light && o.baked?.bitmap === baked?.bitmap &&
+        o.baked?.left == baked?.left && o.baked?.top == baked?.top && o.baked?.right == baked?.right && o.baked?.bottom == baked?.bottom))
     /** The sheet's pixels (tests only: kept when [GlassMatch.keepPixels] is on). */
     val pixels: GlassMatch.Sheet? get() = baked?.pixels
     /** The one colour used when there is no baked sheet. */
@@ -570,13 +572,10 @@ private data class CcSurfaceElement(val shape: Shape, val sheet: CcSheetRef?) : 
 }
 
 private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.Node(), androidx.compose.ui.node.DrawModifierNode, androidx.compose.ui.node.GlobalPositionAwareModifierNode,
-    androidx.compose.ui.node.CompositionLocalConsumerModifierNode, androidx.compose.ui.node.ObserverModifierNode {
-    // P203: a closed Control Center lets go of its sheet; its tiles then drop their baked images at once, though they
-    // aren't drawn while it is parked (a draw would never come to do it).
-    override fun onAttach() { onObservedReadsChanged() }
-    override fun onObservedReadsChanged() {
-        observeReads { if (ref?.sheet == null) unbake() }
-    }
+    androidx.compose.ui.node.CompositionLocalConsumerModifierNode {
+    // P203 let a closed Control Center's tiles drop their baked images with its sheet. P316 keeps them (13 small images,
+    // ~1 MB): re-baking all of them after every open drew ~130 ms of extra frames once the motion had ended. The next
+    // open's sheet replaces them only if it is a different material (sameAs, in draw).
     private var origin: androidx.compose.ui.geometry.Offset? = null
     private var cachedSize = androidx.compose.ui.geometry.Size.Unspecified
     private var outline: androidx.compose.ui.graphics.Outline? = null
@@ -606,7 +605,7 @@ private class CcSurfaceNode(var shape: Shape, var ref: CcSheetRef?) : Modifier.N
         val rest = outline ?: return drawContent()
         // Read while drawing: a new sheet redraws this surface (and only that).
         val sheet = ref?.sheet
-        if (sheet !== brushFor) { brushFor = sheet; brush = null; bevel = null; unbake() }
+        if (sheet !== brushFor) { if (sheet == null || !sheet.sameAs(brushFor)) { brush = null; bevel = null; unbake() }; brushFor = sheet }
         // While the open's choreography moves this shape, its glass is mapped through the move every frame (and a
         // rounded tile starts as a capsule); at rest the cached brush and outline are used.
         val emerge = currentValueOf(LocalCcEmerge)
