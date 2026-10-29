@@ -117,7 +117,7 @@ Fire TV Stick 4K **Max** 2nd Gen (AFTKRT / `ro.product.device=karat`, Fire OS 8 
 
 Work cheapest-first. Most UI work never needs the device.
 
-**0. Start of a session:** the SessionStart hook lists open **reports** (the user's "Report" button in the live view, and crashes/ANRs from `scripts/watch-crashes`): `scripts/reports`, `scripts/reports show <id>`, and when fixed `scripts/reports done <id> "what changed"`. Treat them as the user's bug queue. Before sending input to the stick, `scripts/stick-lock take "<you>"` and `export TV_OWNER="<you>"`; other sessions may be using it. Release it when done. Work in a git worktree when another session is active in this checkout.
+**0. Start of a session:** the SessionStart hook lists open **reports** (the user's "Report" button in the live view, and crashes/ANRs from `scripts/watch-crashes`): `scripts/reports`, `scripts/reports show <id>`, and when fixed `scripts/reports done <id> "what changed"`. Treat them as the user's bug queue. Before sending input to the stick, `scripts/stick-lock take "<you>"` and `export TV_OWNER="<you>"`; other sessions may be using it. Release it when done. Restore blocks never `pm uninstall` Glass (it drops the su grant and leaves the TV without a home): `adb install -r` a master APK that is already built, and check the file exists before any install step. Work in a git worktree when another session is active in this checkout.
 
 **Guard rails (automatic):** a Stop hook runs `scripts/shots all` when UI code changed and blocks once if it fails. The git pre-commit hook (`core.hooksPath = scripts/git-hooks`) does the same for commits touching UI or baselines. If the change is intended, run `scripts/shots record` (and `previews record`) and commit the new baselines with the code.
 
